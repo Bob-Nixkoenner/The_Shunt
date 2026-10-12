@@ -8,13 +8,13 @@
 # Options / environment:
 #   --uninstall [--purge]   remove Shunt (--purge also deletes /etc/shunt)
 #   --from-source           build from git even if a release exists
-#   SHUNT_REF=<branch|tag>  git ref for source builds (default: main)
+#   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
 #   SHUNT_YES=1             answer every question with the default
 set -euo pipefail
 
 REPO=Bob-Nixkoenner/The_Shunt
-REF=${SHUNT_REF:-main}
+REF=${SHUNT_REF:-HEAD}   # HEAD = default branch (works for raw URLs too)
 BIN_DIR=/usr/local/bin
 ETC=/etc/shunt
 UNIT=/etc/systemd/system/shuntd.service
@@ -145,7 +145,9 @@ else
 	else
 		command -v git >/dev/null || apt-get install -y -qq git >/dev/null
 		say "No release found, fetching source ($REF)"
-		git clone -q --depth 1 --branch "$REF" "https://github.com/$REPO" "$WORK/src"
+		branch_opt=()
+		[[ $REF == HEAD ]] || branch_opt=(--branch "$REF")
+		git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
 		build_from "$WORK/src"
 		SRC_DIR=$WORK/src
 	fi

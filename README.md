@@ -22,7 +22,7 @@ $ shunt panic on                             # drop everything, now
 ## Install (Debian, Ubuntu, Pop!_OS, Kali)
 
 ```sh
-curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/main/install.sh
+curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
 less install.sh            # read what you run as root
 sudo bash install.sh
 ```
