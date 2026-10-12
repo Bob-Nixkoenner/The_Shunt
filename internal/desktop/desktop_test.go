@@ -100,3 +100,52 @@ func TestOnline(t *testing.T) {
 		}
 	}
 }
+
+func TestClone(t *testing.T) {
+	home, _ := setup(t)
+	id, err := Clone("firefox-esr", "Firefox Social Media", `--new-instance -P "Social Media"`, "tunnel:vps", "/usr/local/bin/shunt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "shunt-firefox-social-media" {
+		t.Fatalf("id %s", id)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "applications", id+".desktop"))
+	want := `Exec=/usr/local/bin/shunt run --via tunnel:vps -- /usr/lib/firefox-esr/firefox-esr --new-instance -P "Social Media" %u`
+	if !strings.Contains(string(b), want) || !strings.Contains(string(b), "Name=Firefox Social Media\n") {
+		t.Fatalf("got:\n%s", b)
+	}
+	// route change regenerates from the source app, keeping name and args
+	if err := SetRoute(id, "direct", "shunt"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, "applications", id+".desktop"))
+	if !strings.Contains(string(b), `--via direct -- /usr/lib/firefox-esr/firefox-esr --new-instance -P "Social Media" %u`) {
+		t.Fatalf("after route change:\n%s", b)
+	}
+	list, _ := List()
+	found := false
+	for _, e := range list {
+		if e.ID == id && e.Clone == "firefox-esr" && e.Route == "direct" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("clone not listed: %+v", list)
+	}
+	if err := Unset(id); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFirefoxProfiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	d := filepath.Join(home, ".mozilla", "firefox")
+	_ = os.MkdirAll(d, 0o755)
+	_ = os.WriteFile(filepath.Join(d, "profiles.ini"), []byte("[Profile1]\nName=sm\nPath=x.sm\n[Profile0]\nName=medien\nPath=y.medien\n[General]\nVersion=2\n"), 0o644)
+	got := FirefoxProfiles()
+	if len(got) != 2 || got[0] != "medien" || got[1] != "sm" {
+		t.Fatalf("got %v", got)
+	}
+}

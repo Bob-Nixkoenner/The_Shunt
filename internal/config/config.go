@@ -85,7 +85,10 @@ type Rule struct {
 	Domain []string `toml:"domain"`
 	// App selects programs automatically when they start (no `shunt run`
 	// needed): "firefox" (process name), "exe:/usr/bin/foo", "flatpak:<app id>".
-	App   []string `toml:"app"`
+	App []string `toml:"app"`
+	// Args narrows app: the command line must contain one of these, e.g.
+	// args = ["-P sm"] to catch one Firefox profile.
+	Args  []string `toml:"args"`
 	Route string   `toml:"route"`
 }
 
@@ -185,6 +188,9 @@ func (c *Config) Validate() error {
 		where := fmt.Sprintf("rule %d (%s)", i+1, r.Name)
 		if _, err := c.ParseRoute(r.Route); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
+		}
+		if len(r.Args) > 0 && len(r.App) == 0 {
+			return fmt.Errorf("%s: args needs app", where)
 		}
 		if len(r.App) > 0 {
 			if len(r.Group)+len(r.Domain) > 0 {

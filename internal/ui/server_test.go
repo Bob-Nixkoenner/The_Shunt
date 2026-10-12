@@ -3,26 +3,8 @@ package ui
 import (
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 )
-
-func TestSplitCommand(t *testing.T) {
-	for in, want := range map[string][]string{
-		`firefox -no-remote -P`:        {"firefox", "-no-remote", "-P"},
-		`app "with space" 'single $x'`: {"app", "with space", "single $x"},
-		`a\ b "c\"d"`:                  {"a b", `c"d`},
-		`x ""`:                         {"x", ""},
-	} {
-		got, err := SplitCommand(in)
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: got %q %v", in, got, err)
-		}
-	}
-	if _, err := SplitCommand(`unterminated "quote`); err == nil {
-		t.Error("expected error")
-	}
-}
 
 func TestGuard(t *testing.T) {
 	s := &Server{token: "secret", host: "127.0.0.1:9999"}

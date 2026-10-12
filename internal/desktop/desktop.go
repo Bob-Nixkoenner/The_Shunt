@@ -16,10 +16,16 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/argv"
 )
 
-// MarkerKey tags entries written by Shunt (value: the route).
-const MarkerKey = "X-Shunt-Route"
+// Keys Shunt writes into .desktop files it manages.
+const (
+	MarkerKey = "X-Shunt-Route" // the route; present on every managed file
+	CloneKey  = "X-Shunt-Clone" // launchers: id of the app they start
+	ArgsKey   = "X-Shunt-Args"  // launchers: extra arguments (command-line syntax)
+)
 
 // Entry is an application from the menu.
 type Entry struct {
@@ -31,7 +37,10 @@ type Entry struct {
 	// Online: the app's categories say it talks to the network (browser,
 	// mail, chat, P2P...). Used to keep long menus (Kali!) manageable.
 	Online bool `json:"online"`
-	path   string
+	// Clone is set on extra launchers made by Clone: the source app id.
+	Clone string `json:"clone,omitempty"`
+	Args  string `json:"args,omitempty"`
+	path  string
 }
 
 // Dirs returns the application directories in XDG precedence order (the
@@ -74,7 +83,7 @@ func List() ([]Entry, error) {
 			if err != nil || kv["Type"] != "Application" || kv["NoDisplay"] == "true" || kv["Hidden"] == "true" || kv["Exec"] == "" {
 				continue
 			}
-			out = append(out, Entry{ID: id, Name: kv["Name"], Exec: kv["Exec"], Icon: kv["Icon"], Route: kv[MarkerKey], Online: online(kv["Categories"]), path: f})
+			out = append(out, Entry{ID: id, Name: kv["Name"], Exec: kv["Exec"], Icon: kv["Icon"], Route: kv[MarkerKey], Online: online(kv["Categories"]) || kv[CloneKey] != "", Clone: kv[CloneKey], Args: kv[ArgsKey], path: f})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
@@ -134,6 +143,9 @@ func source(id string) (string, error) {
 func SetRoute(id, route, shunt string) error {
 	if strings.ContainsAny(id, "/\x00") || strings.ContainsAny(route, " \t\n\"'\\") || route == "" {
 		return errors.New("invalid id or route")
+	}
+	if kv, err := readMain(filepath.Join(userDir(), id+".desktop")); err == nil && kv[CloneKey] != "" {
+		return cloneTo(id, kv[CloneKey], kv["Name"], kv[ArgsKey], route, shunt)
 	}
 	src, err := source(id)
 	if err != nil {
@@ -217,4 +229,113 @@ func online(categories string) bool {
 		}
 	}
 	return false
+}
+
+// Clone creates an additional menu entry that starts app srcID with extra
+// arguments through route, e.g. "Firefox SM" = firefox --new-instance -P sm
+// via tunnel:vps. It returns the new entry's id.
+func Clone(srcID, name, args, route, shunt string) (string, error) {
+	id := "shunt-" + slug(name)
+	if id == "shunt-" {
+		return "", errors.New("name needed")
+	}
+	if kv, err := readMain(filepath.Join(userDir(), id+".desktop")); err == nil && kv[MarkerKey] == "" {
+		return "", fmt.Errorf("an entry %s exists and is not Shunt's", id)
+	}
+	return id, cloneTo(id, srcID, name, args, route, shunt)
+}
+
+func cloneTo(id, srcID, name, args, route, shunt string) error {
+	if strings.ContainsAny(srcID, "/\x00") || strings.ContainsAny(route, " \t\n\"'\\") || route == "" {
+		return errors.New("invalid app id or route")
+	}
+	name = strings.Join(strings.Fields(name), " ") // no newlines in keys
+	args = strings.Join(strings.Fields(args), " ")
+	src, err := source(srcID)
+	if err != nil {
+		return err
+	}
+	kv, err := readMain(src)
+	if err != nil {
+		return err
+	}
+	words, err := argv.Split(kv["Exec"])
+	if err != nil || len(words) == 0 {
+		return fmt.Errorf("cannot parse Exec of %s", srcID)
+	}
+	extra, err := argv.Split(args)
+	if err != nil {
+		return fmt.Errorf("arguments: %w", err)
+	}
+	cmd := []string{argv.DesktopQuote(shunt), "run", "--via", route, "--", argv.DesktopQuote(words[0])}
+	for _, a := range extra {
+		cmd = append(cmd, argv.DesktopQuote(a))
+	}
+	for _, w := range words[1:] {
+		if len(w) == 2 && w[0] == '%' { // field code (%u, %F, ...) stays as is
+			cmd = append(cmd, w)
+			continue
+		}
+		cmd = append(cmd, argv.DesktopQuote(w))
+	}
+	var b strings.Builder
+	b.WriteString("[Desktop Entry]\nType=Application\n")
+	fmt.Fprintf(&b, "Name=%s\nExec=%s\n", name, strings.Join(cmd, " "))
+	for _, k := range []string{"Icon", "Categories", "Terminal"} {
+		if v := kv[k]; v != "" {
+			fmt.Fprintf(&b, "%s=%s\n", k, v)
+		}
+	}
+	fmt.Fprintf(&b, "Comment=%s via %s (The Shunt)\nDBusActivatable=false\n%s=%s\n%s=%s\n%s=%s\n",
+		kv["Name"], route, MarkerKey, route, CloneKey, srcID, ArgsKey, args)
+	if err := os.MkdirAll(userDir(), 0o755); err != nil {
+		return err
+	}
+	dst := filepath.Join(userDir(), id+".desktop")
+	if err := os.WriteFile(dst+".shunt-tmp", []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(dst+".shunt-tmp", dst)
+}
+
+func slug(s string) string {
+	var b strings.Builder
+	dash := false
+	for _, c := range strings.ToLower(s) {
+		switch {
+		case c >= 'a' && c <= 'z' || c >= '0' && c <= '9':
+			b.WriteRune(c)
+			dash = false
+		case !dash && b.Len() > 0:
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// FirefoxProfiles returns the profile names of the user's Firefox
+// installations (deb, snap and flatpak locations).
+func FirefoxProfiles() []string {
+	home, _ := os.UserHomeDir()
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range []string{
+		filepath.Join(home, ".mozilla", "firefox", "profiles.ini"),
+		filepath.Join(home, "snap", "firefox", "common", ".mozilla", "firefox", "profiles.ini"),
+		filepath.Join(home, ".var", "app", "org.mozilla.firefox", ".mozilla", "firefox", "profiles.ini"),
+	} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, l := range strings.Split(string(b), "\n") {
+			if n, ok := strings.CutPrefix(strings.TrimSpace(l), "Name="); ok && n != "" && !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

@@ -125,6 +125,12 @@ route = "tunnel:vps"
 [group.torrent]
 
 [[rule]]
+name = "profile sm through the tunnel"
+app = ["proftest"]
+args = ["-P sm"]
+route = "tunnel:vps"
+
+[[rule]]
 name = "apptest auto-detected"
 app = ["apptest"]
 route = "tunnel:vps"
@@ -219,6 +225,10 @@ printf '#!/bin/sh\nsleep 1\nexec curl -s "$1"\n' >"$BIN/apptest"
 chmod +x "$BIN/apptest"
 check "app rule moves a normally started program" 10.66.0.2 "$(fetch "$BIN/apptest" $URL)"
 check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
+printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
+chmod +x "$BIN/proftest"
+check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "$BIN/proftest" -P sm $URL)"
+check "args rule: other profile untouched" 10.99.0.2 "$(fetch "$BIN/proftest" -P smart $URL)"
 check "status shows app group" yes "$(shunt status | grep -q '^app:apptest auto-detected' && echo yes || echo no)"
 
 echo "== DNS"

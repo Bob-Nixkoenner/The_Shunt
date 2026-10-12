@@ -4,6 +4,7 @@
 const $ = (s) => document.querySelector(s);
 let status = null;
 let apps = [];
+let ffProfiles = [];
 
 function el(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
@@ -87,10 +88,17 @@ function render() {
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])));
   }) : [el("div", { class: "muted" }, "No tunnels configured – add one in /etc/shunt/shunt.toml.")]));
 
-  const sel = $("#runroute");
-  const cur = sel.value;
-  sel.replaceChildren(...st.routes.map((r) => el("option", { value: r }, r)));
-  sel.value = cur && st.routes.includes(cur) ? cur : (st.routes.find((r) => r.startsWith("tunnel:")) || "direct");
+  // Selects are rebuilt only when the routes change: rebuilding closes a
+  // dropdown the user has open.
+  const routesKey = st.routes.join(",");
+  const routesChanged = routesKey !== render.routesKey;
+  render.routesKey = routesKey;
+  if (routesChanged) {
+    const sel = $("#runroute");
+    const cur = sel.value;
+    sel.replaceChildren(...st.routes.map((r) => el("option", { value: r }, r)));
+    sel.value = cur && st.routes.includes(cur) ? cur : (st.routes.find((r) => r.startsWith("tunnel:")) || "direct");
+  }
 
   $("#groups").replaceChildren(...st.groups.filter((g) => g.procs > 0 || !g.name.startsWith("via:")).map((g) =>
     el("tr", {},
@@ -107,7 +115,7 @@ function render() {
   $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
 
-  renderApps();
+  if (routesChanged) { renderApps(); renderLaunchers(); }
 }
 
 function renderApps() {
@@ -117,7 +125,7 @@ function renderApps() {
   // Default: apps that use the network or are already routed; the rest
   // (hundreds of tools on Kali) only on request or when searching.
   const all = $("#allapps").checked || f !== "";
-  const shown = apps.filter((a) => (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
+  const shown = apps.filter((a) => !a.clone && (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
   shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
   $("#appcount").textContent = "(" + apps.length + ")";
   $("#apps").replaceChildren(...shown.map((a) => {
@@ -133,6 +141,72 @@ function renderApps() {
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s));
   }));
+}
+
+function routeSelect(value, onchange, withDefault) {
+  const routes = (withDefault ? [""] : []).concat(status ? status.routes : []);
+  const s = el("select", { onchange }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
+  s.value = value;
+  return s;
+}
+
+const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox)$/.test(a.id)) || {}).id;
+
+function renderLaunchers() {
+  if (!status) return;
+  const launchers = apps.filter((a) => a.clone);
+  $("#launchers").replaceChildren(...launchers.map((a) => el("tr", {},
+    el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.clone + " " + (a.args || ""))),
+    el("td", {}, routeSelect(a.route, async (e) => {
+      try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(a.name + " now via " + a.route); }
+      catch (err) { toast(err.message); e.target.value = a.route; }
+    })),
+    el("td", {}, el("button", { onclick: async () => {
+      try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(a.name + " removed"); await loadApps(); }
+      catch (err) { toast(err.message); }
+    } }, "Remove")))));
+
+  const ff = firefoxApp();
+  const have = new Set(launchers.map((a) => a.args));
+  const todo = ff ? ffProfiles.filter((p) => !have.has(profileArgs(p))) : [];
+  $("#ffprofiles").replaceChildren(...(todo.length ? [el("div", { class: "row", style: "margin-bottom:10px" },
+    el("span", { class: "muted" }, "Firefox profiles found:"),
+    ...todo.map((p) => {
+      const sel = routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
+      return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center" }, p, sel,
+        el("button", { onclick: () => createLauncher(ff, "Firefox " + p, profileArgs(p), sel.value) }, "+ launcher"));
+    }))] : []));
+
+  const lapp = $("#lapp");
+  const cur = lapp.value;
+  lapp.replaceChildren(...apps.filter((a) => !a.clone && (a.online || a.id === cur)).map((a) => el("option", { value: a.id }, a.name)));
+  lapp.value = cur || ff || (lapp.options[0] && lapp.options[0].value) || "";
+  const lroute = $("#lroute");
+  const curRoute = lroute.value;
+  lroute.replaceChildren(...status.routes.map((r) => el("option", { value: r }, r)));
+  lroute.value = curRoute || status.routes.find((r) => r.startsWith("tunnel:")) || "direct";
+}
+
+function profileArgs(p) { return "--new-instance -P " + (/\s/.test(p) ? '"' + p + '"' : p); }
+
+async function createLauncher(app, name, args, route) {
+  try {
+    await api("POST", "/api/launchers", { app, name, args, route });
+    toast("Menu entry \u201c" + name + "\u201d created (" + route + ")");
+    await loadApps();
+  } catch (e) { toast(e.message); }
+}
+
+$("#lcreate").addEventListener("click", () => {
+  const name = $("#lname").value.trim();
+  if (!name) { toast("Give the launcher a menu name"); return; }
+  createLauncher($("#lapp").value, name, $("#largs").value.trim(), $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
+});
+
+async function loadApps() {
+  try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
+  await loadApps();
+  renderLaunchers();
 }
 
 async function refresh() {

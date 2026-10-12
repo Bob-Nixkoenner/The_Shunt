@@ -303,7 +303,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	}
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
-		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Path: r.Groups[0].Path})
+		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
 	return d.syncTunnels()

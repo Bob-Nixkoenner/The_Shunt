@@ -76,10 +76,17 @@ func TestCheckSkipsPlacedProcesses(t *testing.T) {
 	mk(10, "curl", "user.slice/x.scope")
 	mk(11, "curl", "shunt/apps/via/direct") // started with shunt run: keep
 	mk(12, "wget", "user.slice/x.scope")
+	mk(13, "firefox", "user.slice/x.scope")
+	_ = os.WriteFile(filepath.Join(proc, "13", "cmdline"), []byte("firefox\x00--new-instance\x00-P\x00sm\x00"), 0o644)
+	mk(14, "firefox", "user.slice/x.scope")
+	_ = os.WriteFile(filepath.Join(proc, "14", "cmdline"), []byte("firefox\x00-P\x00smart\x00"), 0o644)
 	m := &fakeMover{moved: map[int]string{}}
 	w := &Watcher{Log: slog.New(slog.DiscardHandler), Mover: m, Proc: proc}
-	w.SetTargets([]Target{{Name: "curl", Sels: []config.AppSel{{Kind: "name", Value: "curl"}}, Path: "shunt/apps/app/r1"}}, "shunt")
-	if len(m.moved) != 1 || m.moved[10] != "shunt/apps/app/r1" {
+	w.SetTargets([]Target{
+		{Name: "curl", Sels: []config.AppSel{{Kind: "name", Value: "curl"}}, Path: "shunt/apps/app/r1"},
+		{Name: "ff sm", Sels: []config.AppSel{{Kind: "name", Value: "firefox"}}, Args: []string{"-P sm"}, Path: "shunt/apps/app/r2"},
+	}, "shunt")
+	if len(m.moved) != 2 || m.moved[10] != "shunt/apps/app/r1" || m.moved[13] != "shunt/apps/app/r2" {
 		t.Fatalf("moved %v", m.moved)
 	}
 }

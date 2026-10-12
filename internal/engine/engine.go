@@ -79,6 +79,7 @@ type Rule struct {
 	// Apps: processes matching these are moved into Groups[0] when they
 	// start (the daemon's app watcher does that).
 	Apps  []config.AppSel
+	Args  []string // command line must contain one of these (if any)
 	Route *Route
 }
 
@@ -210,6 +211,7 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 			grp := Group{Name: "app:" + rule.Name, Path: path.Join(cgroupRoot, "apps", "app", fmt.Sprintf("r%d", i+1))}
 			p.Groups = append(p.Groups, grp)
 			rule.Groups = []Group{grp}
+			rule.Args = cr.Args
 			for _, a := range cr.App {
 				sel, _ := config.ParseAppSel(a)
 				rule.Apps = append(rule.Apps, sel)

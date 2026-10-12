@@ -31,7 +31,8 @@ import (
 type Target struct {
 	Name string
 	Sels []config.AppSel
-	Path string // cgroup path relative to the mount
+	Args []string // command line must contain one of these (if any)
+	Path string   // cgroup path relative to the mount
 }
 
 // Mover moves a process into a cgroup.
@@ -146,7 +147,7 @@ func (w *Watcher) check(pid int) {
 		if t.Path == info.cgroup {
 			return
 		}
-		if matchAny(t.Sels, info) {
+		if matchAny(t.Sels, info) && matchArgs(t.Args, w.proc(), pid) {
 			if err := w.Mover.Move(t.Path, pid); err != nil {
 				if !errors.Is(err, unix.ESRCH) {
 					w.Log.Warn("cannot move app", "pid", pid, "app", info.comm, "rule", t.Name, "err", err)
@@ -208,6 +209,24 @@ func matchAny(sels []config.AppSel, p procInfo) bool {
 			if strings.Contains(p.cgroup, "app-flatpak-"+s.Value+"-") {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// matchArgs checks the command line (arguments joined by spaces).
+func matchArgs(args []string, proc string, pid int) bool {
+	if len(args) == 0 {
+		return true
+	}
+	b, err := os.ReadFile(filepath.Join(proc, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return false
+	}
+	cmd := " " + strings.ReplaceAll(strings.TrimRight(string(b), "\x00"), "\x00", " ") + " "
+	for _, a := range args {
+		if strings.Contains(cmd, " "+a+" ") {
+			return true
 		}
 	}
 	return false
