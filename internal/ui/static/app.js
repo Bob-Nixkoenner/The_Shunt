@@ -135,7 +135,7 @@ function renderApps() {
         try {
           await api("POST", "/api/apps", { id: a.id, route: e.target.value });
           a.route = e.target.value;
-          toast(a.name + (a.route ? " now starts via " + a.route : " restored to its original entry"));
+          toast(a.name + (a.route ? " now starts via " + a.route : " restored to its original entry") + " – close all its windows and start it again");
         } catch (err) { toast(err.message); e.target.value = a.route || ""; }
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
