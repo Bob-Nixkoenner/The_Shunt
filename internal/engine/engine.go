@@ -76,7 +76,10 @@ type Rule struct {
 	Domains []string
 	SetV4   string
 	SetV6   string
-	Route   *Route
+	// Apps: processes matching these are moved into Groups[0] when they
+	// start (the daemon's app watcher does that).
+	Apps  []config.AppSel
+	Route *Route
 }
 
 // Plan is everything a backend needs to enforce the config.
@@ -90,6 +93,17 @@ type Plan struct {
 	DNS          bool // per-route DNS proxy + redirection active
 	BlockDoT     bool
 	BlockDoH     bool
+}
+
+// AppRules returns the rules with app selectors, in order.
+func (p *Plan) AppRules() []*Rule {
+	var out []*Rule
+	for i := range p.Rules {
+		if len(p.Rules[i].Apps) > 0 {
+			out = append(out, &p.Rules[i])
+		}
+	}
+	return out
 }
 
 // DomainRules returns the rules with domain selectors, in order.
@@ -191,6 +205,15 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 		for _, g := range cr.Group {
 			grp, _ := p.Group(g)
 			rule.Groups = append(rule.Groups, grp)
+		}
+		if len(cr.App) > 0 {
+			grp := Group{Name: "app:" + rule.Name, Path: path.Join(cgroupRoot, "apps", "app", fmt.Sprintf("r%d", i+1))}
+			p.Groups = append(p.Groups, grp)
+			rule.Groups = []Group{grp}
+			for _, a := range cr.App {
+				sel, _ := config.ParseAppSel(a)
+				rule.Apps = append(rule.Apps, sel)
+			}
 		}
 		for _, s := range cr.CIDR {
 			pfx, _ := config.ParseCIDR(s)

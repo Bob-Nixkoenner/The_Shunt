@@ -23,6 +23,8 @@ type Status struct {
 	Tunnels      []TunnelStatus `json:"tunnels"`
 	Groups       []GroupStatus  `json:"groups"`
 	Rules        []string       `json:"rules"`
+	// Routes lists every route name ("direct", "block", "tunnel:vps").
+	Routes []string `json:"routes"`
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
 	DNS      map[string][]string `json:"dns,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
@@ -42,6 +44,10 @@ type TunnelStatus struct {
 type GroupStatus struct {
 	Name  string `json:"name"`
 	Procs int    `json:"procs"`
+	// Route the group's processes take (first rule using the group).
+	Route string `json:"route,omitempty"`
+	// Apps lists the distinct program names in the group.
+	Apps []string `json:"apps,omitempty"`
 }
 
 // RunRequest asks shuntd to move the calling process into a group. The
