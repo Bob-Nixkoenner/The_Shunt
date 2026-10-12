@@ -282,7 +282,9 @@ shunt reload
 for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
 check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
 check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
-check "handshake works (bypass mark)" yes "$(shunt status | grep -q ' ago ' && echo yes || echo no)"
+hs=no
+for _ in $(seq 25); do shunt status | grep -q ' ago ' && hs=yes && break; sleep 0.2; done
+check "handshake shown in status (bypass mark)" yes "$hs"
 check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
 
