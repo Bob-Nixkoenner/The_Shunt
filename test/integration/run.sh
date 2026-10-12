@@ -150,6 +150,7 @@ write_config direct
 cli() { ip netns exec $CLI unshare -m sh -c 'mount -t cgroup2 none /sys/fs/cgroup && exec "$@"' _ "$@"; }
 shunt() { cli "$BIN/shunt" -s "$SOCK" "$@"; }
 fetch() { cli timeout 5 "$@" 2>/dev/null || true; }
+fetch_long() { cli env SHUNT_PROBE_IP_URL="${SHUNT_PROBE_IP_URL:-}" timeout 40 "$@" 2>/dev/null || true; }
 
 check() { # name expected actual
 	if [[ "$3" == "$2" ]]; then
@@ -235,6 +236,11 @@ check "Firefox DoH canary NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 use-ap
 check "public DoH host NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 dns.google)"
 check "DoT port 853 blocked" "" "$(fetch curl -s http://10.99.0.1:853)"
 check "status shows DNS upstreams" yes "$(shunt status | grep -q 'tunnel:vps .*udp://10.66.0.1:53' && echo yes || echo no)"
+echo "== leak test"
+lt=$(SHUNT_PROBE_IP_URL=$URL fetch_long "$BIN/shunt" -s "$SOCK" leaktest)
+check "leaktest: direct ok" yes "$(grep -qE '^direct +10.99.0.2 +10.99.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
+check "leaktest: tunnel ok" yes "$(grep -qE '^tunnel:vps +10.66.0.2 +10.66.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
+check "leaktest: block blocked" yes "$(grep -qE '^block +- +- +BLOCKED' <<<"$lt" && echo yes || echo "no: $lt")"
 check "status lists tunnel" yes "$(shunt status | grep -q '^vps .*up/' && echo yes || echo no)"
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 
