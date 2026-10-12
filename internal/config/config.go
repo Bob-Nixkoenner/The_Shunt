@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"regexp"
@@ -23,6 +24,52 @@ type Config struct {
 	Tunnels map[string]Tunnel `toml:"tunnel,omitempty" json:"tunnel,omitempty"`
 	Groups  map[string]Group  `toml:"group,omitempty" json:"group,omitempty"`
 	Rules   []Rule            `toml:"rule,omitempty" json:"rule,omitempty"`
+	// Networks change the default route depending on where you are.
+	Networks []Network `toml:"network,omitempty" json:"network,omitempty"`
+}
+
+// Network is a known network (home, office). While connected to it, its
+// default_route replaces daemon.default_route; everywhere else the daemon's
+// default applies. All given criteria must match; within one, any entry.
+type Network struct {
+	Name string `toml:"name" json:"name"`
+	// SSID: Wi-Fi names. Easy to fake: combine with gateway_mac when the
+	// profile relaxes protection (e.g. default_route = "direct").
+	SSID []string `toml:"ssid,omitempty" json:"ssid,omitempty"`
+	// GatewayMAC: MAC address of the default gateway (router).
+	GatewayMAC   []string `toml:"gateway_mac,omitempty" json:"gateway_mac,omitempty"`
+	DefaultRoute string   `toml:"default_route" json:"default_route"`
+}
+
+// MatchNetwork returns the first network matching the current SSID and
+// gateway MAC, or nil.
+func (c *Config) MatchNetwork(ssid, gatewayMAC string) *Network {
+	gatewayMAC = strings.ToLower(gatewayMAC)
+	for i, n := range c.Networks {
+		if len(n.SSID) > 0 && (ssid == "" || !contains(n.SSID, ssid)) {
+			continue
+		}
+		if len(n.GatewayMAC) > 0 {
+			ok := false
+			for _, m := range n.GatewayMAC {
+				ok = ok || (gatewayMAC != "" && strings.EqualFold(m, gatewayMAC))
+			}
+			if !ok {
+				continue
+			}
+		}
+		return &c.Networks[i]
+	}
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Daemon holds daemon wide settings.
@@ -64,15 +111,25 @@ type Upstream struct {
 	TLSName string `toml:"tls_name,omitempty" json:"tls_name,omitempty"`
 }
 
-// Tunnel references a wg-quick style file.
+// Tunnel references a wg-quick file or an OpenVPN client config.
 type Tunnel struct {
-	Config    string `toml:"config,omitempty" json:"config,omitempty"`
-	Driver    string `toml:"driver,omitempty" json:"driver,omitempty"` // auto | kernel | userspace
+	Config string `toml:"config,omitempty" json:"config,omitempty"`
+	// Driver: auto | kernel | userspace (WireGuard), openvpn.
+	Driver    string `toml:"driver,omitempty" json:"driver,omitempty"`
 	Interface string `toml:"interface,omitempty" json:"interface,omitempty"`
 	// DNS names the upstream used for this tunnel. Empty means the DNS=
-	// servers from the wg-quick file, queried through the tunnel.
+	// servers from the wg-quick file (or the ones an OpenVPN server
+	// pushes), queried through the tunnel.
 	DNS string `toml:"dns" json:"dns"`
+	// Auth (OpenVPN): file with username and password, one per line.
+	Auth string `toml:"auth,omitempty" json:"auth,omitempty"`
+	// Via makes this tunnel a second hop: its encrypted packets travel
+	// through that tunnel ("tunnel:<name>") instead of the local network.
+	Via string `toml:"via,omitempty" json:"via,omitempty"`
 }
+
+// IsOpenVPN reports whether the tunnel is run by openvpn.
+func (t Tunnel) IsOpenVPN() bool { return t.Driver == "openvpn" }
 
 // Group is a named set of processes, filled via `shunt run --group`.
 type Group struct {
@@ -157,9 +214,18 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("tunnel %q: config path missing", n)
 		}
 		switch t.Driver {
-		case "auto", "kernel", "userspace":
+		case "auto", "kernel", "userspace", "openvpn":
 		default:
-			return fmt.Errorf("tunnel %q: unknown driver %q", n, t.Driver)
+			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn)", n, t.Driver)
+		}
+		if t.Auth != "" && !t.IsOpenVPN() {
+			return fmt.Errorf("tunnel %q: auth is only for driver = \"openvpn\"", n)
+		}
+		if t.Via != "" {
+			r, err := c.ParseRoute(t.Via)
+			if err != nil || r.Kind != RouteTunnel {
+				return fmt.Errorf("tunnel %q: via must be \"tunnel:<name>\"", n)
+			}
 		}
 		if len(t.Interface) > 15 {
 			return fmt.Errorf("tunnel %q: interface name too long", n)
@@ -169,6 +235,28 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("tunnel %q: unknown dns upstream %q", n, t.DNS)
 			}
 		}
+	}
+	seenNet := map[string]bool{}
+	for i, n := range c.Networks {
+		where := fmt.Sprintf("network %d (%s)", i+1, n.Name)
+		if n.Name == "" || seenNet[n.Name] {
+			return fmt.Errorf("%s: needs a unique name", where)
+		}
+		seenNet[n.Name] = true
+		if len(n.SSID)+len(n.GatewayMAC) == 0 {
+			return fmt.Errorf("%s: needs ssid and/or gateway_mac", where)
+		}
+		for _, m := range n.GatewayMAC {
+			if hw, err := net.ParseMAC(m); err != nil || len(hw) != 6 {
+				return fmt.Errorf("%s: invalid gateway_mac %q", where, m)
+			}
+		}
+		if _, err := c.ParseRoute(n.DefaultRoute); err != nil {
+			return fmt.Errorf("%s: default_route: %w", where, err)
+		}
+	}
+	if err := c.checkHops(); err != nil {
+		return err
 	}
 	if c.DNS.Direct != "" {
 		if _, ok := c.DNS.Upstream[c.DNS.Direct]; !ok {
@@ -243,6 +331,21 @@ func (c *Config) Validate() error {
 			if _, err := ParsePort(s); err != nil {
 				return fmt.Errorf("%s: %w", where, err)
 			}
+		}
+	}
+	return nil
+}
+
+// checkHops rejects via chains that loop.
+func (c *Config) checkHops() error {
+	for n := range c.Tunnels {
+		seen := map[string]bool{n: true}
+		for cur := n; c.Tunnels[cur].Via != ""; {
+			cur = strings.TrimPrefix(c.Tunnels[cur].Via, "tunnel:")
+			if seen[cur] {
+				return fmt.Errorf("tunnel %q: via chain loops back to %q", n, cur)
+			}
+			seen[cur] = true
 		}
 	}
 	return nil

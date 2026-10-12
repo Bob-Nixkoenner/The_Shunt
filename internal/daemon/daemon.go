@@ -31,7 +31,9 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
@@ -47,7 +49,7 @@ type Daemon struct {
 	plan      *engine.Plan
 	prep      *Prepared
 	cg        cgroup.Manager
-	tunnels   map[string]*tunnel.Tunnel
+	tunnels   map[string]tunnel.Device
 	specHash  map[string]string
 	tunErrors map[string]string
 	panic     bool
@@ -55,25 +57,40 @@ type Daemon struct {
 	watcher   *appwatch.Watcher
 	saveMu    sync.Mutex // serializes config writes
 	dnsUps    dnsproxy.RouteUpstreams
+	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
+	// tunnel name); read by the DNS proxy without d.mu.
+	pushed sync.Map
+	// tunEvents: an OpenVPN tunnel connected or disconnected.
+	tunEvents chan struct{}
+	netInfo   netdetect.Info
 }
 
 // Prepared is the result of loading config and tunnel files.
 type Prepared struct {
-	Config  *config.Config
-	Plan    *engine.Plan
-	Confs   map[string]*wgconf.Config
-	Hashes  map[string]string
-	Ruleset string
+	Config *config.Config
+	Plan   *engine.Plan
+	Confs  map[string]*wgconf.Config
+	OVPN   map[string]*ovpnconf.Config
+	// AuthFiles: absolute username/password file per OpenVPN tunnel.
+	AuthFiles map[string]string
+	Hashes    map[string]string
+	Ruleset   string
 	// DNS upstreams per route name, and problems worth telling the user.
 	DNSUpstreams map[string][]config.UpstreamSpec
 	// DirectSystem: the direct route uses the system resolvers, re-read
 	// whenever resolv.conf changes (not in DNSUpstreams).
 	DirectSystem bool
 	Warnings     []string
+	// Network is the matched [[network]] ("" = none: daemon.default_route).
+	Network string
 }
 
 // Prepare loads everything and compiles the plan without touching the system.
-func Prepare(path, cgroupRoot string) (*Prepared, error) {
+func Prepare(path, cgroupRoot string) (*Prepared, error) { return PrepareOn(path, cgroupRoot, nil) }
+
+// PrepareOn is Prepare for the network net is on: a matching [[network]]
+// replaces the default route.
+func PrepareOn(path, cgroupRoot string, net *netdetect.Info) (*Prepared, error) {
 	c, err := config.Load(path)
 	if err != nil {
 		return nil, err
@@ -81,13 +98,16 @@ func Prepare(path, cgroupRoot string) (*Prepared, error) {
 	if c.Daemon.CgroupRoot != "" {
 		cgroupRoot = c.Daemon.CgroupRoot
 	}
-	p := &Prepared{Config: c, Confs: map[string]*wgconf.Config{}, Hashes: map[string]string{}}
+	p := &Prepared{Config: c, Confs: map[string]*wgconf.Config{}, OVPN: map[string]*ovpnconf.Config{}, AuthFiles: map[string]string{}, Hashes: map[string]string{}}
 	infos := map[string]engine.TunnelInfo{}
-	for name, t := range c.Tunnels {
-		cp := t.Config
-		if !filepath.IsAbs(cp) {
-			cp = filepath.Join(filepath.Dir(path), cp)
+	abs := func(f string) string {
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(filepath.Dir(path), f)
 		}
+		return f
+	}
+	for name, t := range c.Tunnels {
+		cp := abs(t.Config)
 		if err := checkSecretFile(cp); err != nil {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
 		}
@@ -95,19 +115,60 @@ func Prepare(path, cgroupRoot string) (*Prepared, error) {
 		if err != nil {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
 		}
+		hash := fmt.Sprintf("%x|%s|%s|%s", sha256.Sum256(raw), t.Driver, t.Interface, t.Via)
+		if t.IsOpenVPN() {
+			oc, err := ovpnconf.ParseFile(cp)
+			if err != nil {
+				return nil, fmt.Errorf("tunnel %q: %w", name, err)
+			}
+			if t.Auth != "" {
+				af := abs(t.Auth)
+				if err := checkSecretFile(af); err != nil {
+					return nil, fmt.Errorf("tunnel %q: %w", name, err)
+				}
+				ab, err := os.ReadFile(af)
+				if err != nil {
+					return nil, fmt.Errorf("tunnel %q: %w", name, err)
+				}
+				p.AuthFiles[name] = af
+				hash += fmt.Sprintf("|%x", sha256.Sum256(ab))
+			} else if oc.NeedsAuth {
+				return nil, fmt.Errorf("tunnel %q: the server wants a username and password: auth = \"<file>\" (username and password on two lines, mode 600)", name)
+			}
+			for _, f := range oc.Files {
+				if b, err := os.ReadFile(f); err == nil {
+					hash += fmt.Sprintf("|%x", sha256.Sum256(b))
+				}
+			}
+			p.OVPN[name] = oc
+			p.Hashes[name] = hash
+			// Addresses come from the server; routing checks which
+			// families the interface really has.
+			infos[name] = engine.TunnelInfo{Iface: t.Interface, HasV4: true, HasV6: true,
+				AllowedIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}}
+			continue
+		}
 		wc, err := wgconf.ParseFile(cp)
 		if err != nil {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
 		}
 		p.Confs[name] = wc
-		p.Hashes[name] = fmt.Sprintf("%x|%s|%s", sha256.Sum256(raw), t.Driver, t.Interface)
+		p.Hashes[name] = hash
 		ti := engine.TunnelInfo{Iface: t.Interface, HasV4: wc.HasIPv4(), HasV6: wc.HasIPv6()}
 		for _, peer := range wc.Peers {
 			ti.AllowedIPs = append(ti.AllowedIPs, peer.AllowedIPs...)
 		}
 		infos[name] = ti
 	}
-	p.Plan, err = engine.Compile(c, cgroupRoot, infos)
+	eff := c
+	if net != nil {
+		if n := c.MatchNetwork(net.SSID, net.GatewayMAC); n != nil {
+			cc := *c
+			cc.Daemon.DefaultRoute = n.DefaultRoute
+			eff, p.Network = &cc, n.Name
+		}
+	}
+	p.Plan, err = engine.Compile(eff, cgroupRoot, infos)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +199,9 @@ func (p *Prepared) prepareDNS() {
 			u, _ := config.ParseUpstream(c.DNS.Upstream[t.DNS])
 			p.DNSUpstreams[route] = []config.UpstreamSpec{u}
 			continue
+		}
+		if t.IsOpenVPN() {
+			continue // whatever the server pushes (see Daemon.upstreams)
 		}
 		for _, d := range p.Confs[name].DNS {
 			if a, err := netip.ParseAddr(d); err == nil {
@@ -191,6 +255,16 @@ func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 	if p.DirectSystem {
 		ups["direct"] = []dnsproxy.Upstream{dnsproxy.NewSystemUpstream(p.Plan.RouteByName("direct").Mark)}
 	}
+	for name, t := range p.Config.Tunnels {
+		if t.IsOpenVPN() && t.DNS == "" {
+			route := "tunnel:" + name
+			ups[route] = []dnsproxy.Upstream{dnsproxy.NewPushedUpstream(p.Plan.RouteByName(route).Mark, func() []netip.Addr {
+				v, _ := d.pushed.Load(name)
+				a, _ := v.([]netip.Addr)
+				return a
+			})}
+		}
+	}
 	for route, specs := range p.DNSUpstreams {
 		r := p.Plan.RouteByName(route)
 		for _, s := range specs {
@@ -223,9 +297,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	d.cg = cgroup.Manager{Mount: mount}
-	d.tunnels = map[string]*tunnel.Tunnel{}
+	d.tunnels = map[string]tunnel.Device{}
+	d.tunEvents = make(chan struct{}, 1)
 	d.specHash = map[string]string{}
 	d.tunErrors = map[string]string{}
+	d.netInfo = netdetect.Current()
 
 	if err := d.reload(self); err != nil {
 		return err
@@ -254,6 +330,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	netTick := time.NewTicker(5 * time.Second)
+	defer netTick.Stop()
 	hup := make(chan os.Signal, 1)
 	notifyHUP(hup)
 	for {
@@ -268,6 +346,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		case <-tick.C:
 			d.watchdog()
+		case <-d.tunEvents:
+			d.tunnelChanged()
+		case <-netTick.C:
+			d.checkNetwork()
 		}
 	}
 }
@@ -281,7 +363,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := Prepare(d.ConfigPath, root)
+	p, err := PrepareOn(d.ConfigPath, root, &d.netInfo)
 	if err != nil {
 		return err
 	}
@@ -349,7 +431,20 @@ func (d *Daemon) syncTunnels() error {
 		if _, ok := d.tunnels[name]; ok {
 			continue
 		}
-		t, err := tunnel.Up(tunnel.Spec{Name: name, Iface: tc.Interface, Driver: tc.Driver, Conf: p.Confs[name], Mark: engine.MarkBypass}, d.Log)
+		// A second hop's encrypted packets take the first hop's route.
+		mark := engine.MarkBypass
+		if tc.Via != "" {
+			mark = p.Plan.RouteByName(tc.Via).Mark
+		}
+		var t tunnel.Device
+		var err error
+		if tc.IsOpenVPN() {
+			d.pushed.Delete(name)
+			t, err = tunnel.StartOpenVPN(tunnel.OpenVPNSpec{Name: name, Iface: tc.Interface, Config: d.absConf(tc.Config),
+				AuthFile: p.AuthFiles[name], Mark: mark, PIDDir: filepath.Dir(p.Config.Daemon.Socket)}, d.Log, d.signalTunnel)
+		} else {
+			t, err = tunnel.Up(tunnel.Spec{Name: name, Iface: tc.Interface, Driver: tc.Driver, Conf: p.Confs[name], Mark: mark}, d.Log)
+		}
 		if err != nil {
 			d.Log.Error("tunnel up failed, its traffic stays blocked", "tunnel", name, "err", err)
 			d.tunErrors[name] = err.Error()
@@ -357,9 +452,61 @@ func (d *Daemon) syncTunnels() error {
 		}
 		d.tunnels[name] = t
 		d.specHash[name] = p.Hashes[name]
-		d.Log.Info("tunnel up", "tunnel", name, "iface", tc.Interface, "driver", t.Driver)
+		d.Log.Info("tunnel up", "tunnel", name, "iface", tc.Interface, "driver", t.DriverName(), "via", tc.Via)
 	}
 	return routing.Sync(p.Plan, d.ifaceUp(p))
+}
+
+// checkNetwork follows network changes (Wi-Fi roaming, cable plugged in)
+// and switches the default route when a [[network]] profile starts or stops
+// matching.
+func (d *Daemon) checkNetwork() {
+	info := netdetect.Current()
+	d.mu.Lock()
+	if info.Key() == d.netInfo.Key() {
+		d.mu.Unlock()
+		return
+	}
+	d.netInfo = info
+	want := ""
+	if n := d.cfg.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
+		want = n.Name
+	}
+	have, root := d.prep.Network, d.plan.CgroupRoot
+	d.mu.Unlock()
+	if want == have {
+		return
+	}
+	d.Log.Info("network changed", "ssid", info.SSID, "gateway_mac", info.GatewayMAC, "profile", want, "previous", have)
+	if err := d.reload(root); err != nil {
+		d.Log.Error("reload for network change failed", "err", err)
+	}
+}
+
+// signalTunnel is called by OpenVPN tunnels from their own goroutines; it
+// must never block (Down waits for those goroutines while holding d.mu).
+func (d *Daemon) signalTunnel() {
+	select {
+	case d.tunEvents <- struct{}{}:
+	default:
+	}
+}
+
+// tunnelChanged picks up an OpenVPN (re)connect: its interface addresses
+// decide which families get routes, and its pushed DNS servers.
+func (d *Daemon) tunnelChanged() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for name, t := range d.tunnels {
+		if o, ok := t.(*tunnel.OpenVPN); ok {
+			d.pushed.Store(name, o.DNS())
+		}
+	}
+	if d.prep != nil {
+		if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+			d.Log.Error("routing sync failed", "err", err)
+		}
+	}
 }
 
 func (d *Daemon) ifaceUp(p *Prepared) map[string]bool {
@@ -411,7 +558,7 @@ func (d *Daemon) shutdown() {
 	for _, t := range d.tunnels {
 		t.Down()
 	}
-	d.tunnels = map[string]*tunnel.Tunnel{}
+	d.tunnels = map[string]tunnel.Device{}
 	if d.plan != nil {
 		_ = routing.Sync(d.plan, nil)
 	}
@@ -588,7 +735,7 @@ func (d *Daemon) routes() http.Handler {
 			return
 		}
 		var req api.TunnelImport
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<18)).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
@@ -643,7 +790,8 @@ func (d *Daemon) routes() http.Handler {
 func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{}}
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{},
+		Network: d.prep.Network, NetInfo: d.netInfo}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	for route, ups := range d.dnsUps {
 		for _, u := range ups {
@@ -659,10 +807,16 @@ func (d *Daemon) status() api.Status {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n]}
+		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via}
 		if t, ok := d.tunnels[n]; ok {
-			ts.Up, ts.Driver = true, t.Driver
+			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()
+			if e := t.Err(); e != "" && ts.Error == "" {
+				ts.Error = e
+			}
+			if o, ok := t.(*tunnel.OpenVPN); ok && o.Connected() && d.cfg.Tunnels[n].DNS == "" && len(o.DNS()) == 0 {
+				st.Warnings = append(st.Warnings, fmt.Sprintf("tunnel %q: the OpenVPN server pushed no DNS server; set dns = \"<upstream>\" for it", n))
+			}
 		}
 		st.Tunnels = append(st.Tunnels, ts)
 	}

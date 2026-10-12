@@ -31,11 +31,13 @@ cleanup() {
 	[[ -n ${WHOAMI_PID:-} ]] && kill "$WHOAMI_PID" 2>/dev/null
 	ip netns exec $WAN pkill -f "^$BIN/wireguard-go" 2>/dev/null
 	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
+	[[ -n ${OVPN_SRV_PID:-} ]] && kill "$OVPN_SRV_PID" 2>/dev/null
 	ip netns del $CLI 2>/dev/null
 	rm -rf "/etc/netns/$CLI"
 	groupdel shunttest 2>/dev/null
 	ip netns del $WAN 2>/dev/null
 	find "$CGMNT/$CG" -depth -type d -exec rmdir {} + 2>/dev/null
+	[[ -n ${KEEP_LOGS:-} ]] && cp "$WORK"/*.log "$KEEP_LOGS"/ 2>/dev/null
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -124,6 +126,7 @@ addr = "10.99.0.1"
 [tunnel.vps]
 config = "vps.conf"
 driver = "${SHUNT_DRIVER:-auto}"
+${EXTRA_TUNNELS:-}
 
 [[rule]]
 name = "site.test through the tunnel"
@@ -366,6 +369,114 @@ check "unreachable system resolver fails closed" yes "$(failed_closed "$(dnsq -s
 printf 'nameserver 10.99.0.1\n' >"$NETNS_RESOLV"
 check "new system resolver used without restart" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 check "status shows system resolver" yes "$(shunt status | grep -q 'system (udp://10.99.0.1:53)' && echo yes || echo no)"
+write_config tunnel:vps
+shunt reload
+
+echo "== multi-hop: WireGuard inside WireGuard"
+# second server only reachable through the first tunnel (10.66.0.1)
+HOP_KEY=$(wg genkey); HOP_PUB=$(echo "$HOP_KEY" | wg pubkey)
+HOPC_KEY=$(wg genkey); HOPC_PUB=$(echo "$HOPC_KEY" | wg pubkey)
+ip netns exec $WAN "$BIN/wireguard-go" -f wgh >/dev/null 2>&1 &
+for _ in $(seq 50); do ip -n $WAN link show wgh >/dev/null 2>&1 && break; sleep 0.1; done
+ip netns exec $WAN wg set wgh listen-port 51822 private-key <(echo "$HOP_KEY") peer "$HOPC_PUB" allowed-ips 10.77.0.2/32
+ip -n $WAN addr add 10.77.0.1/24 dev wgh
+ip -n $WAN link set wgh up
+cat >"$WORK/etc/hop.conf" <<EOF
+[Interface]
+PrivateKey = $HOPC_KEY
+Address = 10.77.0.2/32
+DNS = 10.66.0.1
+
+[Peer]
+PublicKey = $HOP_PUB
+Endpoint = 10.66.0.1:51822
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 5
+EOF
+chmod 600 "$WORK/etc/hop.conf"
+EXTRA_TUNNELS=$'[tunnel.hop]\nconfig = "hop.conf"\nvia = "tunnel:vps"\n'
+write_config tunnel:vps
+shunt reload
+got=
+for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL); [[ $got == 10.77.0.2 ]] && break; sleep 0.5; done
+check "second hop carries traffic" 10.77.0.2 "$got"
+check "second hop arrives through the first tunnel" yes "$(ip netns exec $WAN wg show wgh endpoints | grep -q '10.66.0.2:' && echo yes || echo "no: $(ip netns exec $WAN wg show wgh endpoints)")"
+check "status shows the hop" yes "$(shunt status --json | grep -q '"via": *"tunnel:vps"' && echo yes || echo no)"
+while_down "first hop down blocks the second, no leak" "" fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL
+check "tunnel used as hop cannot be deleted" 422 "$(capi DELETE /v1/tunnels/vps)"
+ip netns exec $WAN pkill -f "^$BIN/wireguard-go -f wgh" || true
+EXTRA_TUNNELS=
+write_config tunnel:vps
+for _ in $(seq 45); do cli ip link show sh-vps >/dev/null 2>&1 && break; sleep 1; done
+shunt reload
+
+if command -v openvpn >/dev/null; then
+	echo "== OpenVPN tunnel (username/password, pushed DNS), as second hop too"
+	O=$WORK/ovpn
+	mkdir -p "$O"
+	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 -subj /CN=test-ca -keyout "$O/ca.key" -out "$O/ca.crt" 2>/dev/null
+	openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=server -keyout "$O/srv.key" -out "$O/srv.csr" 2>/dev/null
+	printf 'extendedKeyUsage=serverAuth\nkeyUsage=digitalSignature,keyAgreement\n' >"$O/ext"
+	openssl x509 -req -in "$O/srv.csr" -CA "$O/ca.crt" -CAkey "$O/ca.key" -CAcreateserial -days 2 -extfile "$O/ext" -out "$O/srv.crt" 2>/dev/null
+	printf '#!/bin/sh\n[ "$(sed -n 1p "$1")" = alice ] && [ "$(sed -n 2p "$1")" = s3cret ]\n' >"$O/check.sh"
+	chmod 755 "$O/check.sh"
+	# listens on the WAN and inside the WireGuard tunnel (for the hop test)
+	ip netns exec $WAN openvpn --dev ovs --dev-type tun --port 1194 --proto udp4 \
+		--server 10.88.0.0 255.255.255.0 --topology subnet --ca "$O/ca.crt" --cert "$O/srv.crt" --key "$O/srv.key" --dh none \
+		--verify-client-cert none --username-as-common-name --script-security 2 --auth-user-pass-verify "$O/check.sh" via-file \
+		--push "dhcp-option DNS 10.88.0.1" --push "redirect-gateway def1" --keepalive 2 10 --verb 3 >"$WORK/ovpn-server.log" 2>&1 &
+	OVPN_SRV_PID=$!
+	for _ in $(seq 50); do ip -n $WAN addr show ovs 2>/dev/null | grep -q 10.88.0.1 && break; sleep 0.1; done
+	ip netns exec $WAN "$BIN/fakedns" serve -tag ovpn -listen 10.88.0.1:53 &
+	ovpn_conf() { printf 'client\ndev tun\nproto udp\nremote %s 1194\nnobind\nauth-user-pass\nremote-cert-tls server\n<ca>\n%s\n</ca>\n' "$1" "$(cat "$O/ca.crt")"; }
+	j() { python3 -c 'import json,sys; d=dict(a.split("=",1) for a in sys.argv[2:]); d["conf"]=sys.argv[1]; print(json.dumps(d))' "$@"; }
+	check "ovpn without login rejected" 422 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)" name=ovpn)")"
+	check "ovpn with script rejected" 422 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)"$'\nup /tmp/x' name=ovpn username=alice password=s3cret)")"
+	check "ovpn import" 200 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)" name=ovpn username=alice password=s3cret)")"
+	check "ovpn auth file is 0600" 600 "$(stat -c %a "$WORK/etc/tunnels/ovpn.auth" 2>/dev/null)"
+	got=
+	for _ in $(seq 40); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:ovpn -- curl -s $URL); [[ $got == 10.88.0.2 ]] && break; sleep 0.5; done
+	check "ovpn tunnel carries traffic" 10.88.0.2 "$got"
+	if [[ -n ${SHUNT_HOLD_OVPN:-} ]]; then echo "holding $WORK"; until [[ -e $SHUNT_HOLD_OVPN ]]; do sleep 1; done; fi
+	check "ovpn: pushed DNS used through the tunnel" "ovpn 10.88.0.2" "$(dnsq_via tunnel:ovpn -server 10.99.0.1:53 -type TXT whoami.test)"
+	check "ovpn: pushed redirect-gateway ignored" 10.66.0.2 "$(fetch curl -s $URL)"
+	check "ovpn: status shows connection" yes "$(shunt status | grep -q '^ovpn .*up/openvpn .* ago' && echo yes || echo "no: $(shunt status | grep '^ovpn')")"
+	check "ovpn tunnel delete" 204 "$(capi DELETE /v1/tunnels/ovpn)"
+	sleep 1
+	check "no openvpn client left running" no "$(pgrep -f 'openvpn --config' >/dev/null && echo yes || echo no)"
+	check "ovpn auth file removed" no "$([[ -e $WORK/etc/tunnels/ovpn.auth ]] && echo yes || echo no)"
+	# the other order: OpenVPN inside WireGuard
+	check "ovpn import as hop via WireGuard" 200 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.66.0.1)" name=ovhop username=alice password=s3cret via=tunnel:vps)")"
+	got=
+	for _ in $(seq 40); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:ovhop -- curl -s $URL); [[ $got == 10.88.0.2 ]] && break; sleep 0.5; done
+	check "OpenVPN inside WireGuard carries traffic" 10.88.0.2 "$got"
+	check "OpenVPN hop arrives through the WireGuard tunnel" yes "$(grep -q '10.66.0.2:[0-9]* .*Peer Connection Initiated' "$WORK/ovpn-server.log" && echo yes || echo no)"
+	kill "$OVPN_SRV_PID"; wait "$OVPN_SRV_PID" 2>/dev/null; OVPN_SRV_PID=
+	sleep 1
+	check "ovpn server gone: blocked, no leak" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:ovhop -- curl -s $URL)"
+	check "ovpn server gone: DNS fails closed" yes "$(failed_closed "$(dnsq_via tunnel:ovhop -server 10.99.0.1:53 -type TXT whoami.test)")"
+	check "ovpn hop delete" 204 "$(capi DELETE /v1/tunnels/ovhop)"
+else
+	echo "  skip OpenVPN checks (openvpn not installed)"
+fi
+
+echo "== network profiles"
+GWMAC=$(ip -n $WAN link show wan0 | awk '/ether/{print $2}')
+fetch curl -s $URL >/dev/null # make sure the gateway is in the neighbour table
+EXTRA_TUNNELS=$'[[network]]\nname = "home"\ngateway_mac = ["'$GWMAC$'"]\ndefault_route = "direct"\n'
+write_config tunnel:vps
+shunt reload
+for _ in $(seq 30); do shunt status | grep -q 'network profile "home"' && break; sleep 0.5; done
+check "known gateway: profile default route" yes "$(shunt status | grep -q '^default route: *direct (network profile "home")' && echo yes || echo "no: $(shunt status | head -3)")"
+check "known gateway: default traffic direct" 10.99.0.2 "$(fetch curl -s $URL)"
+cli ip neigh replace 10.99.0.1 lladdr 02:00:00:00:00:01 dev cli0 nud permanent
+for _ in $(seq 30); do shunt status | grep -q 'network profile' || break; sleep 0.5; done
+check "other gateway: back to daemon default" yes "$(shunt status | grep -q '^default route: *tunnel:vps$' && echo yes || echo "no: $(shunt status | head -3)")"
+cli ip neigh del 10.99.0.1 dev cli0
+fetch curl -s $URL >/dev/null
+for _ in $(seq 30); do shunt status | grep -q 'network profile "home"' && break; sleep 0.5; done
+check "known gateway again: profile back" yes "$(shunt status | grep -q 'network profile "home"' && echo yes || echo no)"
+EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
 

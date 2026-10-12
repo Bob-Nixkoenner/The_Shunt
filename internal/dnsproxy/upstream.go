@@ -233,3 +233,48 @@ func (s *SystemUpstream) String() string {
 	}
 	return "system (" + strings.Join(names, ", ") + ")"
 }
+
+// PushedUpstream forwards to DNS servers that are only known at run time,
+// like the ones an OpenVPN server pushes when it connects.
+type PushedUpstream struct {
+	mark    uint32
+	servers func() []netip.Addr
+}
+
+// NewPushedUpstream creates an upstream asking servers() for the current
+// resolvers (plain DNS on port 53, sent with mark).
+func NewPushedUpstream(mark uint32, servers func() []netip.Addr) *PushedUpstream {
+	return &PushedUpstream{mark: mark, servers: servers}
+}
+
+func (p *PushedUpstream) ups() []Upstream {
+	var out []Upstream
+	for _, a := range p.servers() {
+		out = append(out, NewUpstream(config.UpstreamSpec{Proto: "udp", Addr: netip.AddrPortFrom(a, 53)}, p.mark))
+	}
+	return out
+}
+
+// Exchange implements Upstream.
+func (p *PushedUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	ups := p.ups()
+	if len(ups) == 0 {
+		return nil, fmt.Errorf("no DNS server pushed by the VPN server (yet)")
+	}
+	var err error
+	for _, u := range ups {
+		var r *dns.Msg
+		if r, err = u.Exchange(ctx, m); err == nil {
+			return r, nil
+		}
+	}
+	return nil, err
+}
+
+func (p *PushedUpstream) String() string {
+	var names []string
+	for _, a := range p.servers() {
+		names = append(names, "udp://"+netip.AddrPortFrom(a, 53).String())
+	}
+	return "pushed (" + strings.Join(names, ", ") + ")"
+}

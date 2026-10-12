@@ -198,13 +198,24 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <h2>Tunnels</h2>
     <table><tbody id="c-tunnels"></tbody></table>
     <div class="editor">
-      <div class="row"><b>Import a WireGuard config</b><span class="muted">(stored with mode 600; PostUp/PreUp scripts are ignored)</span></div>
+      <div class="row"><b>Import a WireGuard or OpenVPN config</b><span class="muted">(stored with mode 600; scripts in it are ignored or refused)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="t-name" placeholder="name, e.g. vps" style="width:140px" maxlength="10">
-        <div id="t-drop" class="drop grow" style="flex:1">drop a .conf file here, or <label style="color:var(--accent);cursor:pointer"><input type="file" id="t-file" accept=".conf,text/plain" hidden>choose one</label></div>
+        <div id="t-drop" class="drop grow" style="flex:1">drop a .conf / .ovpn file here, or <label style="color:var(--accent);cursor:pointer"><input type="file" id="t-file" accept=".conf,.ovpn,text/plain,application/x-openvpn-profile" hidden>choose one</label></div>
         <button id="t-import" class="primary">Import</button>
       </div>
-      <textarea id="t-conf" placeholder="…or paste the [Interface]/[Peer] text here" style="min-height:110px;margin-top:10px"></textarea>
+      <div class="row" style="margin-top:10px">
+        <span class="muted">connects</span>
+        <select id="t-via"></select>
+        <span id="t-type" class="muted"></span>
+      </div>
+      <div class="row" id="t-auth" style="margin-top:10px" hidden>
+        <span class="muted">OpenVPN login</span>
+        <input id="t-user" placeholder="username" autocomplete="off" style="width:180px">
+        <input id="t-pass" type="password" placeholder="password" autocomplete="new-password" style="width:180px">
+      </div>
+      <div class="muted" style="margin-top:8px">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
+      <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
     </div>
   </section>
 

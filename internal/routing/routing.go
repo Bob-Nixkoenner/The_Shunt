@@ -74,13 +74,18 @@ func syncTable(r *engine.Route, up bool) error {
 			Priority: UnreachableMetric,
 		})
 	}
+	var link netlink.Link
 	if up {
-		link, err := netlink.LinkByName(r.Iface)
-		if err != nil {
-			return err
+		var err error
+		if link, err = netlink.LinkByName(r.Iface); err != nil {
+			link = nil // gone meanwhile (an openvpn restart): stay unreachable
 		}
+	}
+	if link != nil {
+		// OpenVPN gets its addresses from the server, after connecting.
+		has4, has6 := hasAddr(link, netlink.FAMILY_V4), hasAddr(link, netlink.FAMILY_V6)
 		for _, pfx := range r.AllowedIPs {
-			if (pfx.Addr().Is4() && !r.V4) || (pfx.Addr().Is6() && (!r.V6 || !haveFamily(netlink.FAMILY_V6))) {
+			if (pfx.Addr().Is4() && (!r.V4 || !has4)) || (pfx.Addr().Is6() && (!r.V6 || !has6 || !haveFamily(netlink.FAMILY_V6))) {
 				continue // no source address of that family: keep it unreachable
 			}
 			want = append(want, &netlink.Route{
@@ -115,6 +120,20 @@ func syncTable(r *engine.Route, up bool) error {
 		}
 	}
 	return nil
+}
+
+// hasAddr reports whether link has a usable (not link-local) address of fam.
+func hasAddr(link netlink.Link, fam int) bool {
+	addrs, err := netlink.AddrList(link, fam)
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if !a.IP.IsLinkLocalUnicast() {
+			return true
+		}
+	}
+	return false
 }
 
 func sameRoute(a netlink.Route, b *netlink.Route) bool {

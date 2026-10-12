@@ -67,6 +67,7 @@ function upstreamUsers(name) {
 function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
+  fillVia();
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
@@ -86,16 +87,25 @@ function renderConfig() {
   $("#c-tunnels").replaceChildren(...(names.length ? names.map((n) => {
     const t = model.tunnel[n];
     const i = info[n] || {};
+    const fromFile = i.type === "openvpn" ? "DNS pushed by the server" : "DNS from its file" + (i.dns && i.dns.length ? " (" + i.dns.join(", ") + ")" : " (none!)");
     const dnsSel = el("select", { onchange: (e) => { t.dns = e.target.value || undefined; markDirty(); } },
-      el("option", { value: "" }, "DNS from its file" + (i.dns && i.dns.length ? " (" + i.dns.join(", ") + ")" : " (none!)")),
+      el("option", { value: "" }, fromFile),
       ...ups.map((u) => el("option", { value: u }, u)));
     dnsSel.value = t.dns || "";
+    // multi-hop: a tunnel may run through any other tunnel (not through
+    // itself or one that already runs through it)
+    const loops = (m) => { for (let c = m, k = 0; c && k < 20; k++) { if (c === n) return true; c = ((model.tunnel[c] || {}).via || "").replace(/^tunnel:/, ""); } return false; };
+    const viaSel = el("select", { title: "multi-hop", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
+      el("option", { value: "" }, "direct to its server"),
+      ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)));
+    viaSel.value = t.via || "";
     return el("tr", {},
-      el("td", {}, routeTag("tunnel:" + n)),
+      el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
       el("td", { class: "mono" }, (i.endpoint || "–") + "  ", el("span", { class: "muted" }, joinList(i.addresses))),
+      el("td", {}, viaSel),
       el("td", {}, dnsSel),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
-  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard config below."))]));
+  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard or OpenVPN config below."))]));
 
   $("#c-rules").replaceChildren(...(model.rule.length ? model.rule.map((r, i) => {
     const sel = [];
@@ -203,31 +213,70 @@ $("#raw-save").addEventListener("click", async () => {
 });
 
 // --- tunnel import ------------------------------------------------------
+function confType(t) {
+  if (t.includes("[Interface]")) return "wireguard";
+  if (/^\s*remote\s+\S/m.test(t)) return "openvpn";
+  return "";
+}
+function needsLogin(t) {
+  // auth-user-pass without its own inline block
+  return /^\s*auth-user-pass\s*$/m.test(t) && !/<auth-user-pass>/i.test(t);
+}
+function updateImportForm() {
+  const t = $("#t-conf").value;
+  const type = confType(t);
+  $("#t-type").textContent = type === "wireguard" ? "WireGuard config" : type === "openvpn" ? "OpenVPN config" + (needsLogin(t) ? " – needs a login" : "") : t.trim() ? "not a WireGuard or OpenVPN config?" : "";
+  $("#t-auth").hidden = !(type === "openvpn" && needsLogin(t));
+}
+// same rules as `shunt import`: "Mullvad-DE_fra 001.conf" -> "mullvad-de"
+function nameFromFile(n) {
+  let s = n.toLowerCase().replace(/\.(conf|ovpn)$/, "").replace(/[-_ .]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/^-+/, "");
+  return s.slice(0, 10).replace(/-+$/, "") || "tunnel";
+}
 function takeFile(f) {
   if (!f) return;
-  if (f.size > 64 * 1024) return toast("That file is too big for a WireGuard config");
+  if (f.size > 256 * 1024) return toast("That file is too big for a VPN config");
   f.text().then((t) => {
     $("#t-conf").value = t;
-    if (!$("#t-name").value) $("#t-name").value = f.name.replace(/\.conf$/, "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 10);
-  });
+    if (!$("#t-name").value) $("#t-name").value = nameFromFile(f.name);
+    updateImportForm();
+    if (!confType(t)) toast(f.name + " doesn't look like a WireGuard or OpenVPN config");
+  }).catch((e) => toast("Cannot read " + f.name + ": " + e.message + " (root-only files: sudo shunt import FILE)"));
 }
-$("#t-file").addEventListener("change", (e) => takeFile(e.target.files[0]));
+function fillVia() {
+  const tunnels = Object.keys(model.tunnel || {}).sort();
+  const cur = $("#t-via").value;
+  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, "through tunnel " + n + " (multi-hop)"])], cur);
+}
+$("#t-conf").addEventListener("input", updateImportForm);
+$("#t-file").addEventListener("change", (e) => { takeFile(e.target.files[0]); e.target.value = ""; });
 const drop = $("#t-drop");
 drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("over"));
 drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); takeFile(e.dataTransfer.files[0]); });
+// a file dropped next to the drop zone must not replace the page
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
 
 $("#t-import").addEventListener("click", async () => {
   const name = $("#t-name").value.trim();
   const conf = $("#t-conf").value;
+  const type = confType(conf);
   if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
-  if (!conf.includes("[Interface]")) return toast("Paste or drop a WireGuard config first");
+  if (!type) return toast("Paste or drop a WireGuard (.conf) or OpenVPN (.ovpn) config first");
+  if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
+  const req = { name, conf, via: $("#t-via").value || undefined };
+  if (type === "openvpn" && needsLogin(conf)) {
+    req.username = $("#t-user").value.trim();
+    req.password = $("#t-pass").value;
+    if (!req.username || !req.password) return toast("This OpenVPN server wants a username and password");
+  }
   if ($("#savebar").classList.contains("dirty") && !confirm("Importing reloads the config; your unsaved form changes are discarded. Continue?")) return;
   try {
-    const res = await api("POST", "/api/tunnels", { name, conf });
+    const res = await api("POST", "/api/tunnels", req);
     toast("Tunnel " + name + " imported" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
-    $("#t-name").value = "";
-    $("#t-conf").value = "";
+    for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
+    updateImportForm();
     await loadConfig();
     refresh();
   } catch (e) { toast("Import failed: " + e.message); }

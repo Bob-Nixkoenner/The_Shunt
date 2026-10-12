@@ -33,7 +33,17 @@ type Spec struct {
 	Mark   uint32 // firewall mark for the encrypted UDP socket
 }
 
-// Tunnel is a running interface.
+// Device is a running tunnel of any kind (WireGuard or OpenVPN).
+type Device interface {
+	DriverName() string
+	Down()
+	Alive() bool
+	Status() ([]PeerStatus, error)
+	Reresolve(now time.Time) ([]string, error)
+	Err() string // current problem worth showing, or ""
+}
+
+// Tunnel is a running WireGuard interface.
 type Tunnel struct {
 	Spec   Spec
 	Driver string // the driver actually used
@@ -161,6 +171,12 @@ func (t *Tunnel) configure() error {
 	}
 	return netlink.LinkSetUp(link)
 }
+
+// DriverName implements Device.
+func (t *Tunnel) DriverName() string { return t.Driver }
+
+// Err implements Device.
+func (t *Tunnel) Err() string { return "" }
 
 // Down removes the interface.
 func (t *Tunnel) Down() {

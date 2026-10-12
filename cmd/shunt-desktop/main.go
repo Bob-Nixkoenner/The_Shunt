@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"runtime"
 	"sync"
 	"time"
@@ -70,7 +71,7 @@ func main() {
 	}
 	go single.Requests(show)
 
-	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), show: show, exe: self}
+	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), show: show, exe: self, shunt: shunt, sock: *sock}
 	start, end := systray.RunWithExternalLoop(app.onReady, func() {})
 	start()
 	defer end()
@@ -94,6 +95,8 @@ type trayApp struct {
 	notifier *desktopapp.Notifier
 	show     func()
 	exe      string
+	shunt    string // CLI, for the captive portal browser
+	sock     string
 
 	title     *systray.MenuItem
 	panic     *systray.MenuItem
@@ -116,6 +119,7 @@ func (a *trayApp) onReady() {
 	systray.AddSeparator()
 	open := systray.AddMenuItem("Open The Shunt", "Show the window")
 	a.panic = systray.AddMenuItem("PANIC – block all traffic", "Drop everything except loopback, now")
+	captive := systray.AddMenuItem("Wi-Fi login page…", "Hotel/train Wi-Fi: open a throwaway browser that goes past the tunnels")
 	systray.AddSeparator()
 	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
 	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
@@ -128,6 +132,17 @@ func (a *trayApp) onReady() {
 				a.show()
 			case <-a.panic.ClickedCh:
 				a.togglePanic()
+			case <-captive.ClickedCh:
+				cmd := exec.Command(a.shunt, "-s", a.sock, "captive")
+				if err := cmd.Start(); err != nil {
+					a.notifier.Notify(desktopapp.Notification{Summary: "Wi-Fi login", Body: err.Error()})
+				} else {
+					go func() {
+						if err := cmd.Wait(); err != nil {
+							a.notifier.Notify(desktopapp.Notification{Summary: "Wi-Fi login browser", Body: err.Error()})
+						}
+					}()
+				}
 			case <-a.autostart.ClickedCh:
 				on := !a.autostart.Checked()
 				if err := desktopapp.SetAutostart(on, a.exe); err != nil {

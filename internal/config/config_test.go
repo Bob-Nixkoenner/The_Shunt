@@ -52,9 +52,61 @@ func TestParseInvalid(t *testing.T) {
 		"long name":      "[tunnel.abcdefghijk]\nconfig=\"x\"\n",
 		"bad driver":     "[tunnel.a]\nconfig=\"x\"\ndriver=\"tap\"\n",
 		"bad default":    "[daemon]\ndefault_route=\"somewhere\"\n",
+		"auth on wg":     "[tunnel.a]\nconfig=\"x\"\nauth=\"p\"\n",
+		"via direct":     "[tunnel.a]\nconfig=\"x\"\nvia=\"direct\"\n",
+		"via self":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:a\"\n",
+		"net no crit":    "[[network]]\nname=\"x\"\ndefault_route=\"direct\"\n",
+		"net bad mac":    "[[network]]\nname=\"x\"\ngateway_mac=[\"zz\"]\ndefault_route=\"direct\"\n",
+		"net bad route":  "[[network]]\nname=\"x\"\nssid=[\"a\"]\ndefault_route=\"tunnel:nope\"\n",
+		"net dup":        "[[network]]\nname=\"x\"\nssid=[\"a\"]\ndefault_route=\"direct\"\n[[network]]\nname=\"x\"\nssid=[\"b\"]\ndefault_route=\"direct\"\n",
+		"via loop":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:b\"\n[tunnel.b]\nconfig=\"y\"\nvia=\"tunnel:a\"\n",
 	} {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("%s: expected error", name)
+		}
+	}
+}
+
+func TestHopsAndOpenVPN(t *testing.T) {
+	c, err := Parse("[tunnel.a]\nconfig=\"a.ovpn\"\ndriver=\"openvpn\"\nauth=\"a.auth\"\n[tunnel.b]\nconfig=\"b.conf\"\nvia=\"tunnel:a\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Tunnels["a"].IsOpenVPN() || c.Tunnels["b"].Via != "tunnel:a" {
+		t.Errorf("%+v", c.Tunnels)
+	}
+}
+
+func TestMatchNetwork(t *testing.T) {
+	c, err := Parse(`
+[[network]]
+name = "home"
+ssid = ["FritzBox"]
+gateway_mac = ["AA:BB:CC:DD:EE:FF"]
+default_route = "direct"
+
+[[network]]
+name = "office"
+ssid = ["Corp", "Corp-5G"]
+default_route = "block"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ ssid, mac, want string }{
+		{"FritzBox", "aa:bb:cc:dd:ee:ff", "home"},
+		{"FritzBox", "11:22:33:44:55:66", ""}, // faked SSID
+		{"FritzBox", "", ""},                  // gateway unknown: not trusted
+		{"", "aa:bb:cc:dd:ee:ff", ""},         // wired, same router: SSID required
+		{"Corp-5G", "", "office"},
+		{"corp", "", ""},
+	} {
+		got := ""
+		if n := c.MatchNetwork(tc.ssid, tc.mac); n != nil {
+			got = n.Name
+		}
+		if got != tc.want {
+			t.Errorf("%q %q: %q, want %q", tc.ssid, tc.mac, got, tc.want)
 		}
 	}
 }
