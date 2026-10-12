@@ -28,7 +28,8 @@ cleanup() {
 	[[ -n ${SHUNTD_PID:-} ]] && kill "$SHUNTD_PID" 2>/dev/null && wait "$SHUNTD_PID" 2>/dev/null
 	pkill -f "^$BIN/" 2>/dev/null
 	[[ -n ${WHOAMI_PID:-} ]] && kill "$WHOAMI_PID" 2>/dev/null
-	ip netns exec $WAN pkill -f "wireguard-go -f wgs" 2>/dev/null
+	ip netns exec $WAN pkill -f "^$BIN/wireguard-go" 2>/dev/null
+	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
 	ip netns del $CLI 2>/dev/null
 	ip netns del $WAN 2>/dev/null
 	find "$CGMNT/$CG" -depth -type d -exec rmdir {} + 2>/dev/null
@@ -42,7 +43,7 @@ CGMNT=/sys/fs/cgroup
 
 echo "== build"
 mkdir -p "$BIN"
-(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
 
 echo "== topology"
 ip netns del $WAN 2>/dev/null || true
@@ -52,12 +53,14 @@ ip netns add $CLI
 ip -n $WAN link add wan0 type veth peer name cli0
 ip -n $WAN link set cli0 netns $CLI
 ip -n $WAN addr add 10.99.0.1/24 dev wan0
+ip -n $WAN addr add 10.99.0.3/24 dev wan0   # target of the domain rule
 ((HAVE_V6)) && ip -n $WAN addr add fd99::1/64 dev wan0 nodad
 ip -n $CLI addr add 10.99.0.2/24 dev cli0
 ((HAVE_V6)) && ip -n $CLI addr add fd99::2/64 dev cli0 nodad
 for ns in $WAN $CLI; do ip -n $ns link set lo up; done
 ip -n $WAN link set wan0 up
 ip -n $CLI link set cli0 up
+ip -n $CLI route add default via 10.99.0.1
 
 SRV_KEY=$(wg genkey); SRV_PUB=$(echo "$SRV_KEY" | wg pubkey)
 CLI_KEY=$(wg genkey); CLI_PUB=$(echo "$CLI_KEY" | wg pubkey)
@@ -69,14 +72,18 @@ ip netns exec $WAN wg set wgs listen-port 51820 private-key <(echo "$SRV_KEY") \
 ip -n $WAN addr add 10.66.0.1/24 dev wgs
 ip -n $WAN link set wgs up
 
-ip netns exec $WAN python3 "$ROOT/test/integration/whoami.py" 8080 8081 &
+ip netns exec $WAN python3 "$ROOT/test/integration/whoami.py" 8080 8081 853 &
 WHOAMI_PID=$!
+# two DNS servers: one reachable directly, one only through the tunnel
+ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 &
+ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 &
 
 mkdir -p "$WORK/etc"
 cat >"$WORK/etc/vps.conf" <<EOF
 [Interface]
 PrivateKey = $CLI_KEY
 Address = 10.66.0.2/32
+DNS = 10.66.0.1
 PostUp = touch /tmp/pwned   # must be ignored
 
 [Peer]
@@ -94,9 +101,20 @@ socket = "$SOCK"
 cgroup_root = "$CG"
 default_route = "$1"
 
+[dns]
+direct = "lan"
+
+[dns.upstream.lan]
+addr = "10.99.0.1"
+
 [tunnel.vps]
 config = "vps.conf"
 driver = "${SHUNT_DRIVER:-auto}"
+
+[[rule]]
+name = "site.test through the tunnel"
+domain = ["site.test"]
+route = "tunnel:vps"
 
 [group.torrent]
 
@@ -142,7 +160,12 @@ start_shuntd() {
 	echo "shuntd did not start:"; cat "$WORK/shuntd.log"; exit 1
 }
 
+dnsq() { fetch "$BIN/fakedns" query "$@"; }
+dnsq_via() { local via=$1; shift; fetch "$BIN/shunt" -s "$SOCK" run --via "$via" -- "$BIN/fakedns" query "$@"; }
+failed_closed() { case $1 in SERVFAIL | ERROR | REFUSED | "") echo yes ;; *) echo "no ($1)" ;; esac; }
+
 URL=http://10.99.0.1:8080
+URL_SITE=http://10.99.0.3:8080
 URL81=http://10.99.0.1:8081
 URL6='http://[fd99::1]:8080'
 
@@ -179,6 +202,21 @@ else
 	echo "  skip IPv6 checks (kernel without IPv6)"
 fi
 check "wg-quick PostUp ignored" no "$([[ -e /tmp/pwned ]] && echo yes || echo no)"
+echo "== DNS"
+check "query goes to direct upstream" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
+check "any resolver IP is redirected" "direct 10.99.0.2" "$(dnsq -server 192.0.2.53:53 -type TXT whoami.test)"
+check "local stub is redirected" "direct 10.99.0.2" "$(dnsq -server 127.0.0.53:53 -type TXT whoami.test)"
+check "DNS over TCP is redirected" "direct 10.99.0.2" "$(dnsq -tcp -server 10.99.0.1:53 -type TXT whoami.test)"
+check "tunnelled app resolves via tunnel" "tunnel 10.66.0.2" "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)"
+check "blocked app gets no DNS" yes "$(failed_closed "$(dnsq_via block -server 10.99.0.1:53 -type TXT whoami.test)")"
+check "domain rule resolves via its tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT site.test)"
+check "domain target direct before lookup" 10.99.0.2 "$(fetch curl -s $URL_SITE)"
+check "domain rule A answer" 10.99.0.3 "$(dnsq -server 10.99.0.1:53 site.test)"
+check "domain target tunnelled after lookup" 10.66.0.2 "$(fetch curl -s $URL_SITE)"
+check "Firefox DoH canary NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 use-application-dns.net)"
+check "public DoH host NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 dns.google)"
+check "DoT port 853 blocked" "" "$(fetch curl -s http://10.99.0.1:853)"
+check "status shows DNS upstreams" yes "$(shunt status | grep -q 'tunnel:vps .*udp://10.66.0.1:53' && echo yes || echo no)"
 check "status lists tunnel" yes "$(shunt status | grep -q '^vps .*up/' && echo yes || echo no)"
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 
@@ -186,6 +224,7 @@ echo "== kill switch: tunnel interface disappears"
 cli ip link del sh-vps 2>/dev/null || true
 check "tunnel route blocked, no leak" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
 check "direct still works" 10.99.0.2 "$(fetch curl -s $URL)"
+check "tunnel DNS fails closed" yes "$(failed_closed "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)")"
 
 echo "== reload: default route = tunnel"
 write_config tunnel:vps
@@ -194,6 +233,7 @@ for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
 check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
 check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
 check "handshake works (bypass mark)" yes "$(shunt status | grep -q ' ago ' && echo yes || echo no)"
+check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
 
 echo "== panic"
@@ -206,6 +246,7 @@ echo "== daemon stopped: fail closed"
 kill "$SHUNTD_PID"; wait "$SHUNTD_PID" 2>/dev/null || true; SHUNTD_PID=
 check "tunnel group blocked while daemon is down" "" "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/tunnel-vps/cgroup.procs; curl -s $URL")"
 check "default (tunnel) blocked while daemon is down" "" "$(fetch curl -s $URL)"
+check "DNS fails closed while daemon is down" yes "$(failed_closed "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)")"
 cli "$BIN/shuntd" cleanup
 check "cleanup restores direct" 10.99.0.2 "$(fetch curl -s $URL)"
 check "cleanup removes nft table" no "$(cli nft list tables | grep -q shunt && echo yes || echo no)"

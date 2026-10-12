@@ -24,6 +24,9 @@ const (
 	MarkBypass uint32 = MarkBase | 0xff
 	// TableBase is the first routing table used for tunnels.
 	TableBase = 5300
+	// DNSPortBase: the DNS proxy listens on 127.0.0.1/[::1] at
+	// DNSPortBase + route index; queries are redirected there per route.
+	DNSPortBase = 53530
 	// RulePriority is the ip rule priority used for all Shunt rules
 	// (well before the main table at 32766).
 	RulePriority = 5300
@@ -47,6 +50,8 @@ type Route struct {
 	V6    bool // tunnel carries IPv6
 	// Prefixes routed into the tunnel (union of the peers' AllowedIPs).
 	AllowedIPs []netip.Prefix
+	// DNSPort is where the DNS proxy listens for this route's queries.
+	DNSPort int
 }
 
 // Group is a process group backed by a cgroup.
@@ -64,9 +69,14 @@ type Rule struct {
 	Groups []Group
 	V4, V6 []netip.Prefix
 	Ports  []config.PortSel
-	// AnyFamily is true when the rule has no CIDR selector.
+	// AnyFamily is true when the rule has no destination selector.
 	AnyFamily bool
-	Route     *Route
+	// Domains (normalized). The DNS proxy fills the rule's address sets
+	// with what these names resolve to.
+	Domains []string
+	SetV4   string
+	SetV6   string
+	Route   *Route
 }
 
 // Plan is everything a backend needs to enforce the config.
@@ -77,6 +87,20 @@ type Plan struct {
 	Groups       []Group // user groups and implicit via-groups
 	Rules        []Rule
 	DefaultRoute *Route
+	DNS          bool // per-route DNS proxy + redirection active
+	BlockDoT     bool
+	BlockDoH     bool
+}
+
+// DomainRules returns the rules with domain selectors, in order.
+func (p *Plan) DomainRules() []*Rule {
+	var out []*Rule
+	for i := range p.Rules {
+		if len(p.Rules[i].Domains) > 0 {
+			out = append(out, &p.Rules[i])
+		}
+	}
+	return out
 }
 
 // RouteByName finds a route by its string form ("tunnel:vps").
@@ -109,9 +133,12 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 		CgroupRoot:  cgroupRoot,
 		DaemonGroup: Group{Name: "daemon", Path: path.Join(cgroupRoot, "daemon")},
 	}
+	p.DNS = !c.DNS.Disabled
+	p.BlockDoT = p.DNS && !c.DNS.AllowDoT
+	p.BlockDoH = p.DNS && !c.DNS.AllowDoH
 	tIdx := 0
-	for _, cr := range c.Routes() {
-		r := &Route{Route: cr}
+	for i, cr := range c.Routes() {
+		r := &Route{Route: cr, DNSPort: DNSPortBase + i}
 		switch cr.Kind {
 		case config.RouteDirect:
 			r.Mark = MarkDirect
@@ -148,9 +175,19 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 		p.Groups = append(p.Groups, Group{Name: ViaGroupName(r.String()), Path: path.Join(cgroupRoot, "apps", "via", slug)})
 	}
 
-	for _, cr := range c.Rules {
+	for i, cr := range c.Rules {
 		route, _ := c.ParseRoute(cr.Route) // validated
-		rule := Rule{Name: cr.Name, Route: p.RouteByName(route.String()), AnyFamily: len(cr.CIDR) == 0}
+		rule := Rule{Name: cr.Name, Route: p.RouteByName(route.String()), AnyFamily: len(cr.CIDR)+len(cr.Domain) == 0}
+		if rule.Name == "" {
+			rule.Name = fmt.Sprintf("rule %d", i+1)
+		}
+		for _, d := range cr.Domain {
+			rule.Domains = append(rule.Domains, config.NormalizeDomain(d))
+		}
+		if len(rule.Domains) > 0 {
+			rule.SetV4 = fmt.Sprintf("dom%d_v4", i+1)
+			rule.SetV6 = fmt.Sprintf("dom%d_v6", i+1)
+		}
 		for _, g := range cr.Group {
 			grp, _ := p.Group(g)
 			rule.Groups = append(rule.Groups, grp)

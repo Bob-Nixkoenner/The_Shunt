@@ -4,6 +4,8 @@ go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/google/nftables v0.3.0
+	github.com/miekg/dns v1.1.73
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/sys v0.49.0
 	golang.zx2c4.com/wireguard v0.0.0-20261006164505-2631ce99a06f
@@ -12,13 +14,12 @@ require (
 
 require (
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/josharian/native v1.1.0 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
-	github.com/mdlayher/netlink v1.7.2 // indirect
+	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
-	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )

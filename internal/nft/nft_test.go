@@ -28,6 +28,11 @@ name = "ssh direct"
 port = ["tcp/22"]
 route = "direct"
 [[rule]]
+name = "streaming direct"
+domain = ["netflix.com", "*.nflxvideo.net"]
+port = ["tcp/443"]
+route = "direct"
+[[rule]]
 name = "homelab"
 cidr = ["192.168.1.0/24", "fd00:1::/64"]
 route = "tunnel:home"
