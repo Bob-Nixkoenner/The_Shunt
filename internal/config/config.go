@@ -19,6 +19,7 @@ const DefaultPath = "/etc/shunt/shunt.toml"
 // Config is the top level config file.
 type Config struct {
 	Daemon  Daemon            `toml:"daemon"`
+	DNS     DNS               `toml:"dns"`
 	Tunnels map[string]Tunnel `toml:"tunnel"`
 	Groups  map[string]Group  `toml:"group"`
 	Rules   []Rule            `toml:"rule"`
@@ -34,11 +35,39 @@ type Daemon struct {
 	DefaultRoute string `toml:"default_route"`
 }
 
+// DNS configures the per-route DNS proxy.
+type DNS struct {
+	// Disabled turns DNS routing off (not recommended: DNS then leaks
+	// through whatever resolver the system uses).
+	Disabled bool `toml:"disabled"`
+	// Direct names the upstream for the direct route. Empty means the
+	// system's resolvers (from systemd-resolved or /etc/resolv.conf).
+	Direct string `toml:"direct"`
+	// AllowDoH / AllowDoT disable the blocking of encrypted DNS that would
+	// bypass Shunt (known DoH hosts get NXDOMAIN, port 853 is rejected).
+	AllowDoH bool                `toml:"allow_doh"`
+	AllowDoT bool                `toml:"allow_dot"`
+	Upstream map[string]Upstream `toml:"upstream"`
+}
+
+// Upstream is a DNS server Shunt forwards to.
+type Upstream struct {
+	// Addr: "1.2.3.4", "udp://1.2.3.4:53", "tcp://…", "tls://1.2.3.4:853",
+	// "https://1.2.3.4/dns-query". Hosts must be IP literals: resolving the
+	// resolver would need a resolver, and that one would leak.
+	Addr string `toml:"addr"`
+	// TLSName is the certificate name for tls:// and https:// upstreams.
+	TLSName string `toml:"tls_name"`
+}
+
 // Tunnel references a wg-quick style file.
 type Tunnel struct {
 	Config    string `toml:"config"`
 	Driver    string `toml:"driver"` // auto | kernel | userspace
 	Interface string `toml:"interface"`
+	// DNS names the upstream used for this tunnel. Empty means the DNS=
+	// servers from the wg-quick file, queried through the tunnel.
+	DNS string `toml:"dns"`
 }
 
 // Group is a named set of processes, filled via `shunt run --group`.
@@ -52,8 +81,9 @@ type Rule struct {
 	Name  string   `toml:"name"`
 	Group []string `toml:"group"`
 	CIDR  []string `toml:"cidr"`
-	Port  []string `toml:"port"`
-	Route string   `toml:"route"`
+	Port   []string `toml:"port"`
+	Domain []string `toml:"domain"`
+	Route  string   `toml:"route"`
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
@@ -124,6 +154,21 @@ func (c *Config) Validate() error {
 		if len(t.Interface) > 15 {
 			return fmt.Errorf("tunnel %q: interface name too long", n)
 		}
+		if t.DNS != "" {
+			if _, ok := c.DNS.Upstream[t.DNS]; !ok {
+				return fmt.Errorf("tunnel %q: unknown dns upstream %q", n, t.DNS)
+			}
+		}
+	}
+	if c.DNS.Direct != "" {
+		if _, ok := c.DNS.Upstream[c.DNS.Direct]; !ok {
+			return fmt.Errorf("dns.direct: unknown upstream %q", c.DNS.Direct)
+		}
+	}
+	for n, u := range c.DNS.Upstream {
+		if _, err := ParseUpstream(u); err != nil {
+			return fmt.Errorf("dns.upstream.%s: %w", n, err)
+		}
 	}
 	for n := range c.Groups {
 		if !ValidName(n) {
@@ -138,8 +183,23 @@ func (c *Config) Validate() error {
 		if _, err := c.ParseRoute(r.Route); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
-		if len(r.Group)+len(r.CIDR)+len(r.Port) == 0 {
+		if len(r.Group)+len(r.CIDR)+len(r.Port)+len(r.Domain) == 0 {
 			return fmt.Errorf("%s: no selector", where)
+		}
+		if len(r.Domain) > 0 {
+			if c.DNS.Disabled {
+				return fmt.Errorf("%s: domain rules need DNS routing (dns.disabled = true)", where)
+			}
+			// The DNS proxy only knows the route a query came from, not the
+			// group, and domain + cidr would be ambiguous (AND or OR?).
+			if len(r.Group)+len(r.CIDR) > 0 {
+				return fmt.Errorf("%s: domain can only be combined with port", where)
+			}
+			for _, d := range r.Domain {
+				if NormalizeDomain(d) == "" {
+					return fmt.Errorf("%s: invalid domain %q", where, d)
+				}
+			}
 		}
 		for _, g := range r.Group {
 			if _, ok := c.Groups[g]; !ok {
@@ -252,4 +312,59 @@ func ParsePort(s string) (PortSel, error) {
 		return PortSel{}, fmt.Errorf("invalid port %q", s)
 	}
 	return PortSel{Proto: proto, From: uint16(from), To: uint16(to)}, nil
+}
+
+// NormalizeDomain lowercases, strips a leading "*." and the trailing dot.
+// A rule for "example.com" also covers all its subdomains. Returns "" if
+// the name is not usable.
+func NormalizeDomain(d string) string {
+	d = strings.ToLower(strings.TrimSpace(d))
+	d = strings.TrimPrefix(d, "*.")
+	d = strings.TrimSuffix(d, ".")
+	if d == "" || strings.ContainsAny(d, " /*\\\"") || len(d) > 253 {
+		return ""
+	}
+	return d
+}
+
+// UpstreamSpec is a parsed upstream address.
+type UpstreamSpec struct {
+	Proto   string         // udp | tcp | tls | https
+	Addr    netip.AddrPort // server
+	Path    string         // https only
+	TLSName string
+}
+
+// ParseUpstream parses an Upstream.
+func ParseUpstream(u Upstream) (UpstreamSpec, error) {
+	s := u.Addr
+	proto := "udp"
+	if p, rest, ok := strings.Cut(s, "://"); ok {
+		proto, s = p, rest
+	}
+	path := ""
+	if proto == "https" {
+		if i := strings.IndexByte(s, '/'); i >= 0 {
+			s, path = s[:i], s[i:]
+		}
+		if path == "" {
+			path = "/dns-query"
+		}
+	}
+	defPort := map[string]uint16{"udp": 53, "tcp": 53, "tls": 853, "https": 443}[proto]
+	if defPort == 0 {
+		return UpstreamSpec{}, fmt.Errorf("unknown protocol %q", proto)
+	}
+	ap, err := netip.ParseAddrPort(s)
+	if err != nil {
+		a, aerr := netip.ParseAddr(strings.Trim(s, "[]"))
+		if aerr != nil {
+			return UpstreamSpec{}, fmt.Errorf("%q: host must be an IP address", u.Addr)
+		}
+		ap = netip.AddrPortFrom(a, defPort)
+	}
+	if (proto == "tls" || proto == "https") && u.TLSName == "" {
+		return UpstreamSpec{}, fmt.Errorf("%q: tls_name is required for %s", u.Addr, proto)
+	}
+	return UpstreamSpec{Proto: proto, Addr: ap, Path: path, TLSName: u.TLSName}, nil
 }

@@ -23,6 +23,9 @@ type Status struct {
 	Tunnels      []TunnelStatus `json:"tunnels"`
 	Groups       []GroupStatus  `json:"groups"`
 	Rules        []string       `json:"rules"`
+	// DNS lists the upstreams per route ("direct", "tunnel:vps").
+	DNS      map[string][]string `json:"dns,omitempty"`
+	Warnings []string            `json:"warnings,omitempty"`
 }
 
 // TunnelStatus describes one tunnel.

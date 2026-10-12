@@ -31,6 +31,14 @@ func Render(p *engine.Plan) (string, error) {
 
 	replaceHeader(&b, Table)
 	w("table inet %s {", Table)
+	// Domain rules: two sets per family ("a"/"b") so the DNS proxy can
+	// extend an address's lifetime without a gap (see dnsproxy.pairSets).
+	for _, r := range p.DomainRules() {
+		for _, sfx := range []string{"a", "b"} {
+			w("\tset %s {\n\t\ttype ipv4_addr; flags timeout;\n\t}", r.SetV4+sfx)
+			w("\tset %s {\n\t\ttype ipv6_addr; flags timeout;\n\t}", r.SetV6+sfx)
+		}
+	}
 
 	// --- classification: runs before the routing decision is final; a mark
 	// change here makes the kernel re-route the packet.
@@ -39,7 +47,14 @@ func Render(p *engine.Plan) (string, error) {
 	w("\t\tmeta mark %#x return", engine.MarkBypass)
 	w("\t\tct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
 	w("\t\tct direction reply return")
-	w("\t\toifname \"lo\" return")
+	if p.DNS {
+		// DNS to a local stub (127.0.0.53) is classified too, so it can be
+		// redirected to the right route's proxy below.
+		w("\t\toifname \"lo\" meta l4proto != { tcp, udp } return")
+		w("\t\toifname \"lo\" th dport != 53 return")
+	} else {
+		w("\t\toifname \"lo\" return")
+	}
 	dg, err := cgroupMatch(p.DaemonGroup)
 	if err != nil {
 		return "", err
@@ -70,7 +85,31 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain filter_out {")
 	w("\t\ttype filter hook output priority filter; policy accept;")
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
+	if p.BlockDoT {
+		w("\t\t%s accept", dg)
+		w("\t\tmeta l4proto { tcp, udp } th dport 853 counter reject with icmpx admin-prohibited")
+	}
 	w("\t}")
+
+	if p.DNS {
+		// --- every DNS query goes to the proxy listener of its route; the
+		// proxy decides the upstream. Nothing on port 53 leaves directly.
+		w("\tchain dns_redirect {")
+		w("\t\ttype nat hook output priority dstnat; policy accept;")
+		w("\t\t%s return", dg)
+		var direct *engine.Route
+		for _, r := range p.Routes {
+			if r.Kind == config.RouteDirect {
+				direct = r
+			}
+			if r.Kind == config.RouteBlock {
+				continue // rejected in filter_out anyway
+			}
+			w("\t\tmeta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", r.Mark, r.DNSPort)
+		}
+		w("\t\tmeta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", engine.MarkMask, engine.MarkBase, direct.DNSPort)
+		w("\t}")
+	}
 
 	// --- belt and braces: tunnel traffic must really leave through its
 	// tunnel interface. This has to be postrouting: in the output hook the
@@ -84,7 +123,7 @@ func Render(p *engine.Plan) (string, error) {
 		if err := checkIdent(r.Iface); err != nil {
 			return "", err
 		}
-		w("\t\tmeta mark %#x oifname != %q counter drop", r.Mark, r.Iface)
+		w("\t\tmeta mark %#x oifname != { %q, \"lo\" } counter drop", r.Mark, r.Iface)
 	}
 	w("\t}")
 
@@ -119,7 +158,9 @@ func ruleLines(r engine.Rule) ([]string, error) {
 		}
 	}
 	dsts := []string{""}
-	if !r.AnyFamily {
+	if len(r.Domains) > 0 {
+		dsts = []string{"ip daddr @" + r.SetV4 + "a", "ip daddr @" + r.SetV4 + "b", "ip6 daddr @" + r.SetV6 + "a", "ip6 daddr @" + r.SetV6 + "b"}
+	} else if !r.AnyFamily {
 		dsts = dsts[:0]
 		if len(r.V4) > 0 {
 			dsts = append(dsts, "ip daddr "+prefixSet(r.V4))

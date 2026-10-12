@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -98,6 +100,9 @@ func status(c *api.Client, args []string) error {
 		return e.Encode(st)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	for _, wn := range st.Warnings {
+		fmt.Fprintf(w, "WARNING:\t%s\n", wn)
+	}
 	fmt.Fprintf(w, "default route:\t%s\n", st.DefaultRoute)
 	if st.Panic {
 		fmt.Fprintln(w, "PANIC MODE:\tall traffic blocked")
@@ -118,6 +123,17 @@ func status(c *api.Client, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Name, t.Iface, state, hs, rxtx)
 		if t.Error != "" {
 			fmt.Fprintf(w, "  error:\t%s\n", t.Error)
+		}
+	}
+	if len(st.DNS) > 0 {
+		fmt.Fprintln(w, "\nDNS ROUTE\tUPSTREAMS")
+		routes := make([]string, 0, len(st.DNS))
+		for r := range st.DNS {
+			routes = append(routes, r)
+		}
+		sort.Strings(routes)
+		for _, r := range routes {
+			fmt.Fprintf(w, "%s\t%s\n", r, strings.Join(st.DNS[r], ", "))
 		}
 	}
 	fmt.Fprintln(w, "\nGROUP\tPROCS")

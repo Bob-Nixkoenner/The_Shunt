@@ -11,12 +11,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
@@ -47,6 +50,7 @@ type Daemon struct {
 	specHash  map[string]string
 	tunErrors map[string]string
 	panic     bool
+	proxy     *dnsproxy.Proxy
 }
 
 // Prepared is the result of loading config and tunnel files.
@@ -56,6 +60,9 @@ type Prepared struct {
 	Confs   map[string]*wgconf.Config
 	Hashes  map[string]string
 	Ruleset string
+	// DNS upstreams per route name, and problems worth telling the user.
+	DNSUpstreams map[string][]config.UpstreamSpec
+	Warnings     []string
 }
 
 // Prepare loads everything and compiles the plan without touching the system.
@@ -98,7 +105,77 @@ func Prepare(path, cgroupRoot string) (*Prepared, error) {
 		return nil, err
 	}
 	p.Ruleset, err = nft.Render(p.Plan)
-	return p, err
+	if err != nil {
+		return nil, err
+	}
+	if p.Plan.DNS {
+		p.prepareDNS()
+	} else {
+		p.Warnings = append(p.Warnings, "DNS routing is disabled: DNS queries leak past the tunnels")
+	}
+	return p, nil
+}
+
+func (p *Prepared) prepareDNS() {
+	c := p.Config
+	p.DNSUpstreams = map[string][]config.UpstreamSpec{}
+	if c.DNS.Direct != "" {
+		u, _ := config.ParseUpstream(c.DNS.Upstream[c.DNS.Direct]) // validated
+		p.DNSUpstreams["direct"] = []config.UpstreamSpec{u}
+	} else if sys := dnsproxy.SystemUpstreams(); len(sys) > 0 {
+		p.DNSUpstreams["direct"] = sys
+	} else {
+		p.Warnings = append(p.Warnings, "no DNS upstream for direct route: set dns.direct (system resolver is a loopback stub only)")
+	}
+	for name, t := range c.Tunnels {
+		route := "tunnel:" + name
+		if t.DNS != "" {
+			u, _ := config.ParseUpstream(c.DNS.Upstream[t.DNS])
+			p.DNSUpstreams[route] = []config.UpstreamSpec{u}
+			continue
+		}
+		for _, d := range p.Confs[name].DNS {
+			if a, err := netip.ParseAddr(d); err == nil {
+				p.DNSUpstreams[route] = append(p.DNSUpstreams[route], config.UpstreamSpec{Proto: "udp", Addr: netip.AddrPortFrom(a, 53)})
+			}
+		}
+		if len(p.DNSUpstreams[route]) == 0 {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
+		}
+	}
+	if nsswitchUsesResolved() {
+		p.Warnings = append(p.Warnings, "/etc/nsswitch.conf uses 'resolve' (systemd-resolved via varlink): those lookups bypass per-route DNS. Fix: sudo shuntd fix-nsswitch")
+	}
+}
+
+// nsswitchUsesResolved reports whether glibc asks systemd-resolved directly
+// (nss-resolve) instead of through port 53.
+func nsswitchUsesResolved() bool {
+	b, err := os.ReadFile("/etc/nsswitch.conf")
+	if err != nil {
+		return false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && f[0] == "hosts:" {
+			for _, x := range f[1:] {
+				if x == "resolve" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
+	ups := dnsproxy.RouteUpstreams{}
+	for route, specs := range p.DNSUpstreams {
+		r := p.Plan.RouteByName(route)
+		for _, s := range specs {
+			ups[route] = append(ups[route], dnsproxy.NewUpstream(s, r.Mark))
+		}
+	}
+	return ups
 }
 
 // checkSecretFile refuses private keys that other users can read.
@@ -198,6 +275,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if err := nft.Apply(p.Ruleset); err != nil {
 		return err
 	}
+	if d.proxy == nil {
+		d.proxy = dnsproxy.New(d.Log, dnsproxy.NftSets{Table: nft.Table})
+	}
+	if err := d.proxy.Update(p.Plan, d.upstreams(p)); err != nil {
+		return err
+	}
+	for _, w := range p.Warnings {
+		d.Log.Warn(w)
+	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
 	return d.syncTunnels()
 }
@@ -290,6 +376,9 @@ func (d *Daemon) shutdown() {
 	d.tunnels = map[string]*tunnel.Tunnel{}
 	if d.plan != nil {
 		_ = routing.Sync(d.plan, nil)
+	}
+	if d.proxy != nil {
+		d.proxy.Close() // redirect rules stay: DNS fails closed while we're down
 	}
 	_ = os.Remove(d.cfg.Daemon.Socket)
 	d.Log.Info("shuntd stopped; kill switch stays active")
@@ -413,7 +502,12 @@ func (d *Daemon) routes() http.Handler {
 func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic}
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, Warnings: d.prep.Warnings, DNS: map[string][]string{}}
+	for route, specs := range d.prep.DNSUpstreams {
+		for _, s := range specs {
+			st.DNS[route] = append(st.DNS[route], s.Proto+"://"+s.Addr.String())
+		}
+	}
 	names := make([]string, 0, len(d.cfg.Tunnels))
 	for n := range d.cfg.Tunnels {
 		names = append(names, n)

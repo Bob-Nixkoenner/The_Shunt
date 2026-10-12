@@ -23,6 +23,8 @@ commands:
   check      validate config and print the nftables ruleset, change nothing
   lockdown   block all traffic except loopback/DHCP until 'run' applies a plan
   cleanup    remove all Shunt rules, routes and tables (lifts kill switches!)
+  fix-nsswitch      stop glibc from bypassing DNS routing via systemd-resolved
+  restore-nsswitch  undo fix-nsswitch
 `
 
 func main() {
@@ -46,11 +48,28 @@ func main() {
 		var p *daemon.Prepared
 		if p, err = daemon.Prepare(*cfgPath, root); err == nil {
 			fmt.Print(p.Ruleset)
+			for route, ups := range p.DNSUpstreams {
+				for _, u := range ups {
+					fmt.Fprintf(os.Stderr, "dns %s -> %s://%s\n", route, u.Proto, u.Addr)
+				}
+			}
+			for _, w := range p.Warnings {
+				fmt.Fprintln(os.Stderr, "WARNING:", w)
+			}
 		}
 	case "lockdown":
 		err = nft.Apply(nft.RenderLockdown())
 	case "cleanup":
 		err = daemon.Cleanup()
+	case "fix-nsswitch":
+		var changed bool
+		if changed, err = daemon.FixNsswitch(); err == nil && changed {
+			fmt.Println("nsswitch.conf updated (backup: /etc/nsswitch.conf.shunt-backup)")
+		} else if err == nil {
+			fmt.Println("nsswitch.conf needs no change")
+		}
+	case "restore-nsswitch":
+		err = daemon.RestoreNsswitch()
 	default:
 		flag.Usage()
 		os.Exit(2)
