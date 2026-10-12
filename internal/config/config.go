@@ -83,7 +83,10 @@ type Rule struct {
 	CIDR   []string `toml:"cidr"`
 	Port   []string `toml:"port"`
 	Domain []string `toml:"domain"`
-	Route  string   `toml:"route"`
+	// App selects programs automatically when they start (no `shunt run`
+	// needed): "firefox" (process name), "exe:/usr/bin/foo", "flatpak:<app id>".
+	App   []string `toml:"app"`
+	Route string   `toml:"route"`
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
@@ -183,7 +186,17 @@ func (c *Config) Validate() error {
 		if _, err := c.ParseRoute(r.Route); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
-		if len(r.Group)+len(r.CIDR)+len(r.Port)+len(r.Domain) == 0 {
+		if len(r.App) > 0 {
+			if len(r.Group)+len(r.Domain) > 0 {
+				return fmt.Errorf("%s: app cannot be combined with group or domain", where)
+			}
+			for _, a := range r.App {
+				if _, err := ParseAppSel(a); err != nil {
+					return fmt.Errorf("%s: %w", where, err)
+				}
+			}
+		}
+		if len(r.Group)+len(r.CIDR)+len(r.Port)+len(r.Domain)+len(r.App) == 0 {
 			return fmt.Errorf("%s: no selector", where)
 		}
 		if len(r.Domain) > 0 {
@@ -367,4 +380,41 @@ func ParseUpstream(u Upstream) (UpstreamSpec, error) {
 		return UpstreamSpec{}, fmt.Errorf("%q: tls_name is required for %s", u.Addr, proto)
 	}
 	return UpstreamSpec{Proto: proto, Addr: ap, Path: path, TLSName: u.TLSName}, nil
+}
+
+// AppSel selects processes by name, executable path or Flatpak app id.
+type AppSel struct {
+	Kind  string // name | exe | flatpak
+	Value string
+}
+
+func (a AppSel) String() string {
+	if a.Kind == "name" {
+		return a.Value
+	}
+	return a.Kind + ":" + a.Value
+}
+
+var flatpakIDRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// ParseAppSel parses "firefox", "exe:/usr/bin/foo" or "flatpak:org.x.Y".
+func ParseAppSel(s string) (AppSel, error) {
+	switch {
+	case strings.HasPrefix(s, "exe:"):
+		v := strings.TrimPrefix(s, "exe:")
+		if !strings.HasPrefix(v, "/") {
+			return AppSel{}, fmt.Errorf("app %q: exe path must be absolute", s)
+		}
+		return AppSel{Kind: "exe", Value: v}, nil
+	case strings.HasPrefix(s, "flatpak:"):
+		v := strings.TrimPrefix(s, "flatpak:")
+		if !flatpakIDRe.MatchString(v) {
+			return AppSel{}, fmt.Errorf("app %q: invalid flatpak id", s)
+		}
+		return AppSel{Kind: "flatpak", Value: v}, nil
+	}
+	if s == "" || strings.ContainsAny(s, "/:") || len(s) > 255 {
+		return AppSel{}, fmt.Errorf("app %q: use a process name, exe:/path or flatpak:<id>", s)
+	}
+	return AppSel{Kind: "name", Value: s}, nil
 }

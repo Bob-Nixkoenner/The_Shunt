@@ -142,9 +142,9 @@ func status(c *api.Client, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\n", r, strings.Join(st.DNS[r], ", "))
 		}
 	}
-	fmt.Fprintln(w, "\nGROUP\tPROCS")
+	fmt.Fprintln(w, "\nGROUP\tROUTE\tPROCS\tAPPS")
 	for _, g := range st.Groups {
-		fmt.Fprintf(w, "%s\t%d\n", g.Name, g.Procs)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", g.Name, g.Route, g.Procs, strings.Join(g.Apps, ", "))
 	}
 	fmt.Fprintln(w, "\nRULES (first match wins)")
 	for i, r := range st.Rules {

@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -51,6 +52,7 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
+	watcher   *appwatch.Watcher
 	dnsUps    dnsproxy.RouteUpstreams
 }
 
@@ -229,6 +231,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go func() { _ = srv.Serve(ln) }()
 	d.Log.Info("shuntd running", "socket", d.cfg.Daemon.Socket)
 
+	stopWatch := make(chan struct{})
+	defer close(stopWatch)
+	go d.watcher.Run(stopWatch)
+
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	hup := make(chan os.Signal, 1)
@@ -292,6 +298,14 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(w)
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	if d.watcher == nil {
+		d.watcher = &appwatch.Watcher{Log: d.Log, Mover: d.cg}
+	}
+	var targets []appwatch.Target
+	for _, r := range p.Plan.AppRules() {
+		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Path: r.Groups[0].Path})
+	}
+	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
 	return d.syncTunnels()
 }
 
@@ -532,14 +546,46 @@ func (d *Daemon) status() api.Status {
 		}
 		st.Tunnels = append(st.Tunnels, ts)
 	}
+	for _, r := range d.plan.Routes {
+		st.Routes = append(st.Routes, r.String())
+	}
 	for _, g := range d.plan.Groups {
 		procs, _ := d.cg.Procs(g.Path)
-		st.Groups = append(st.Groups, api.GroupStatus{Name: g.Name, Procs: len(procs)})
+		gs := api.GroupStatus{Name: g.Name, Procs: len(procs), Apps: procNames(procs)}
+	rules:
+		for _, r := range d.plan.Rules {
+			for _, rg := range r.Groups {
+				if rg.Path == g.Path {
+					gs.Route = r.Route.String()
+					break rules
+				}
+			}
+		}
+		st.Groups = append(st.Groups, gs)
 	}
 	for _, r := range d.plan.Rules {
 		st.Rules = append(st.Rules, fmt.Sprintf("%s -> %s", r.Name, r.Route))
 	}
 	return st
+}
+
+// procNames returns the distinct program names of pids.
+func procNames(pids []int) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, pid := range pids {
+		b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+		if err != nil {
+			continue
+		}
+		n := strings.TrimSpace(string(b))
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func notifyHUP(c chan os.Signal) { signal.Notify(c, syscall.SIGHUP) }

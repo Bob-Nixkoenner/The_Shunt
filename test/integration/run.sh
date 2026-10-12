@@ -125,6 +125,11 @@ route = "tunnel:vps"
 [group.torrent]
 
 [[rule]]
+name = "apptest auto-detected"
+app = ["apptest"]
+route = "tunnel:vps"
+
+[[rule]]
 name = "port 8081 through the tunnel"
 cidr = ["10.99.0.1"]
 port = ["tcp/8081"]
@@ -208,6 +213,13 @@ else
 	echo "  skip IPv6 checks (kernel without IPv6)"
 fi
 check "wg-quick PostUp ignored" no "$([[ -e /tmp/pwned ]] && echo yes || echo no)"
+echo "== app rules (auto-detected, no shunt run)"
+printf '#!/bin/sh\nsleep 1\nexec curl -s "$1"\n' >"$BIN/apptest"
+chmod +x "$BIN/apptest"
+check "app rule moves a normally started program" 10.66.0.2 "$(fetch "$BIN/apptest" $URL)"
+check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
+check "status shows app group" yes "$(shunt status | grep -q '^app:apptest auto-detected' && echo yes || echo no)"
+
 echo "== DNS"
 check "query goes to direct upstream" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 check "any resolver IP is redirected" "direct 10.99.0.2" "$(dnsq -server 192.0.2.53:53 -type TXT whoami.test)"
