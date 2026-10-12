@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Shunt</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 26 L16 6 L28 26' fill='none' stroke='%2334d399' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #0d1117; --panel: #151b23; --panel2: #1b2330; --line: #263040;
+  --text: #e6edf3; --muted: #8b98a8; --accent: #34d399; --accent-ink: #052e1f;
+  --warn: #f5b942; --bad: #f2555a; --info: #6aa8ff;
+  --r: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
+.brand svg { width: 26px; height: 26px; }
+.pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
+.pill.ok { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.pill.bad { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--bad); }
+.pill.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.spacer { flex: 1; }
+button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 7px 14px; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+button.danger { background: var(--bad); color: #fff; border-color: transparent; font-weight: 700; }
+button.danger.on { background: var(--panel2); color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: .5; cursor: wait; }
+main { max-width: 1180px; margin: 0 auto; padding: 22px 24px 60px; display: grid; gap: 18px; grid-template-columns: repeat(12, 1fr); }
+section { grid-column: span 12; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; }
+section.half { grid-column: span 6; }
+@media (max-width: 900px) { section.half { grid-column: span 12; } main { padding: 16px; } header { padding: 12px 16px; } }
+h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+h2 .spacer { flex: 1; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); }
+.card.up { border-left-color: var(--accent); }
+.card.down { border-left-color: var(--bad); }
+.card .name { font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 8px; font-size: 13px; }
+.kv span:nth-child(odd) { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+tr:last-child td { border-bottom: none; }
+.chip { display: inline-block; padding: 1px 8px; margin: 1px 3px 1px 0; border-radius: 6px; background: var(--panel2); font-size: 12.5px; }
+.route { font-family: var(--mono); font-size: 12.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel2); white-space: nowrap; }
+.route.direct { color: var(--info); } .route.block { color: var(--bad); } .route.tunnel { color: var(--accent); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+input, select { font: inherit; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); border-color: transparent; }
+input.grow { flex: 1; min-width: 180px; }
+.muted { color: var(--muted); }
+.banner { grid-column: span 12; border-radius: var(--r); padding: 10px 14px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.banner.bad { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+.apps { max-height: 360px; overflow: auto; }
+.apps td:first-child { font-weight: 600; }
+.verdict { font-weight: 700; }
+.verdict.ok { color: var(--accent); } .verdict.leak { color: var(--bad); } .verdict.warn { color: var(--warn); } .verdict.blocked { color: var(--info); } .verdict.error { color: var(--muted); }
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 9px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+#toast.show { opacity: 1; }
+.hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 24h8l10-16h8M11 24h18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"/></svg>
+    The Shunt
+  </div>
+  <span id="state" class="pill">connecting…</span>
+  <span id="defroute" class="muted"></span>
+  <div class="spacer"></div>
+  <button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button>
+  <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
+</header>
+
+<main>
+  <div id="banners" style="display:contents"></div>
+
+  <section>
+    <h2>Tunnels</h2>
+    <div id="tunnels" class="cards"></div>
+  </section>
+
+  <section class="half">
+    <h2>Start an app</h2>
+    <div class="row">
+      <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
+      <select id="runroute"></select>
+      <button id="run" class="primary">Start</button>
+    </div>
+    <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
+  </section>
+
+  <section class="half">
+    <h2>Leak test <span class="spacer"></span><button id="leak">Run test</button></h2>
+    <div id="leakres" class="muted">Checks every route for its public IP and DNS resolver. Contacts api.ipify.org and Google DNS (o-o.myaddr.l.google.com) through each route.</div>
+  </section>
+
+  <section>
+    <h2>Where traffic goes</h2>
+    <table>
+      <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
+      <tbody id="groups"></tbody>
+    </table>
+  </section>
+
+  <section class="half">
+    <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins</span></h2>
+    <table><tbody id="rules"></tbody></table>
+    <div class="hint">Edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”.</div>
+  </section>
+
+  <section class="half">
+    <h2>DNS</h2>
+    <table><tbody id="dns"></tbody></table>
+    <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
+  </section>
+
+  <section>
+    <h2>Menu apps <span class="spacer"></span><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
+    <div class="apps"><table>
+      <thead><tr><th>App</th><th>Starts via</th></tr></thead>
+      <tbody id="apps"></tbody>
+    </table></div>
+    <div class="hint">Changes the app’s menu entry for your user, so starting it from the menu always uses that route. “system default” restores the original entry.</div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

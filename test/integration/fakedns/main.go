@@ -56,6 +56,12 @@ func serve(args []string) {
 		q := r.Question[0]
 		host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
 		switch {
+		case q.Qtype == dns.TypeTXT && q.Name == "o-o.myaddr.l.google.com.":
+			// like Google: the address of the resolver that asked
+			m.Answer = append(m.Answer, &dns.TXT{
+				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0},
+				Txt: []string{host},
+			})
 		case q.Qtype == dns.TypeTXT:
 			m.Answer = append(m.Answer, &dns.TXT{
 				Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0},
