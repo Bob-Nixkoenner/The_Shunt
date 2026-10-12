@@ -9,7 +9,7 @@ Wants=network-pre.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/shuntd lockdown
+ExecStart=/usr/local/bin/shuntd lockdown
 RemainAfterExit=yes
 
 [Install]

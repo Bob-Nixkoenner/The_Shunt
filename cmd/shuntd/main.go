@@ -16,6 +16,9 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 )
 
+// version is set at build time (-ldflags "-X main.version=…").
+var version = "dev"
+
 const usage = `usage: shuntd [-c config] <command>
 
 commands:
@@ -25,6 +28,7 @@ commands:
   cleanup    remove all Shunt rules, routes and tables (lifts kill switches!)
   fix-nsswitch      stop glibc from bypassing DNS routing via systemd-resolved
   restore-nsswitch  undo fix-nsswitch
+  version    print the version
 `
 
 func main() {
@@ -68,6 +72,8 @@ func main() {
 		} else if err == nil {
 			fmt.Println("nsswitch.conf needs no change")
 		}
+	case "version":
+		fmt.Println(version)
 	case "restore-nsswitch":
 		err = daemon.RestoreNsswitch()
 	default:

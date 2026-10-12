@@ -78,9 +78,9 @@ type Group struct {
 // Rule maps selectors to a route. Selectors of different kinds are ANDed,
 // entries within one kind are ORed. First matching rule wins.
 type Rule struct {
-	Name  string   `toml:"name"`
-	Group []string `toml:"group"`
-	CIDR  []string `toml:"cidr"`
+	Name   string   `toml:"name"`
+	Group  []string `toml:"group"`
+	CIDR   []string `toml:"cidr"`
 	Port   []string `toml:"port"`
 	Domain []string `toml:"domain"`
 	Route  string   `toml:"route"`

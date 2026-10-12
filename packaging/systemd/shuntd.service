@@ -7,7 +7,7 @@ Before=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/shuntd -c /etc/shunt/shunt.toml run
+ExecStart=/usr/local/bin/shuntd -c /etc/shunt/shunt.toml run
 ExecReload=/bin/kill -HUP $MAINPID
 # shuntd owns the cgroup subtree below its unit (apps are moved there)
 Delegate=yes
@@ -38,7 +38,6 @@ MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
 # Not set on purpose: ProtectKernelTunables (needs /proc/sys/net),
 # ProtectControlGroups (needs to write its cgroups), PrivateDevices (/dev/net/tun).
 

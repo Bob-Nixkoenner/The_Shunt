@@ -1,6 +1,6 @@
 # Design: Shunt – Split-Tunneling & DNS-Router für WireGuard
 
-> **Status:** Entwurf v0.3 – Phase 1 implementiert (siehe §11) · **Lizenz (geplant):** Apache-2.0
+> **Status:** v0.4 – Phase 1 + DNS-Teil von Phase 2 implementiert (siehe §11) · **Lizenz (geplant):** Apache-2.0
 > Binaries: `shuntd` (Daemon), `shunt` (CLI). Repo: github.com/Bob-Nixkoenner/the_shunt
 
 ---
@@ -361,7 +361,7 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 |---|---|
 | **P0** | Dieses Design, Name, Repo, Lizenz, CI-Gerüst |
 | **P1 – PoC** ✅ | `shuntd` + CLI, mehrere Tunnel, App-Regeln (eigene cgroups), CIDR-/Port-Regeln, Killswitch, IPv6-Block, Lockdown-Service, Endpoint-Watchdog, Integrationstests in Netns |
-| **P2 – DNS** | DNS-Proxy pro Route, Upstreams (Plain/DoT/DoH), Domain-Regeln + nft-Sets, DNS-Zwang, DoH-Blockliste |
+| **P2 – DNS** ✅ | DNS-Proxy pro Route, Upstreams (Plain/DoT/DoH), Domain-Regeln + nft-Sets, DNS-Zwang, DoH-Blockliste |
 | **P3 – Komfort** | Captive-Portal-Modus, Mehrere Tunnel, Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Port/ASN/Presets, Web-UI, Leak-Selbsttest |
 | **P4 – Release** | `.deb` für Pop!_OS, signierte reproduzierbare Builds + SBOM, App-Firewall (Default-Deny/Nachfragen), LAN-Sperre pro App, Panik-Hotkey |
 | **P5 – Kür** | **OpenVPN als zweiter Tunnel-Treiber** (siehe §7.1), eBPF-Backend (`cgroup/connect4/6`, `cgroup_skb`) als Alternative zu nftables-Marks, 1:1-NAT bei Subnetz-Überlappung, Multi-Hop, Rosenpass (PQ-PSK), AmneziaWG-Modus, Padding/Cover-Traffic, Android/Windows-Backends, Tauri/Flutter-UI |
@@ -396,3 +396,18 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 - Killswitch ist immer an (kein Fallback auf `direct` bei Tunnel-Ausfall).
 - Socket-Zugriff = volle Kontrolle (Gruppe `shunt`); polkit kommt in P4.
 - LAN-Zugriff getunnelter Apps geht in den Tunnel (faktisch gesperrt).
+
+## 12. Stand Phase 2 (DNS)
+
+**Umgesetzt:** Proxy-Listener pro Route (`127.0.0.1:53530+n`), Umleitung *aller* Port-53-Anfragen per nftables (auch an `127.0.0.53` und beliebige Resolver-IPs, UDP und TCP), Upstreams Plain/TCP/DoT/DoH mit Route-Mark, Domain-Regeln mit nft-Sets, DoT-Sperre, DoH-Canary + bekannte DoH-Hosts → NXDOMAIN, ECS-Entfernung, `fix-nsswitch`.
+
+**Entscheidungen beim Bauen:**
+- Upstream-Adressen müssen IP-Literale sein (sonst bräuchte der Resolver einen Resolver – der leakt).
+- **Zwei Sets pro Regel und Familie (a/b):** nftables kann den Timeout eines vorhandenen Elements nicht verlängern; Löschen+Neuanlegen öffnet ein Fenster, in dem Verbindungen die Default-Route nehmen. Der Proxy schreibt deshalb ins jeweils freie Set und kappt die TTL an den Client auf die Restlebensdauer → *Client-Cache lebt nie länger als der Set-Eintrag*.
+- Antwort erst **nach** dem Set-Eintrag an den Client; schlägt der Eintrag fehl → SERVFAIL statt Leak.
+- Domain-Regeln nur mit `port` kombinierbar (der Proxy kennt die Route der Anfrage, nicht die Gruppe).
+- DoH-Upstreams werden per IP angesprochen, TLS-Name separat → keine Auflösung nötig.
+
+**Integrationstest:** zwei Fake-DNS-Server (direkt / nur durch den Tunnel erreichbar) melden, über welchen Weg eine Anfrage kam. 42 Prüfungen, inkl. „Tunnel weg → DNS SERVFAIL“ und „Daemon gestoppt → DNS tot statt Leak“.
+
+**Installer:** `install.sh` (Debian-Familie inkl. Kali), Release-Workflow mit SHA256SUMS, CI-Job installiert echt auf einem systemd-Runner und deinstalliert wieder.

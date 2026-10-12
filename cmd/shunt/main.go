@@ -17,6 +17,9 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 )
 
+// version is set at build time (-ldflags "-X main.version=…").
+var version = "dev"
+
 const usage = `usage: shunt [-s socket] <command>
 
 commands:
@@ -25,6 +28,7 @@ commands:
              (direct | block | tunnel:<name>) or by group rules
   status [--json]
   reload     re-read the daemon config
+  version
   panic on|off
              drop all traffic except loopback / undo
 `
@@ -45,6 +49,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "version":
+		fmt.Println(version)
 	case "reload":
 		err = c.Do("POST", "/v1/reload", nil, nil)
 	case "panic":
