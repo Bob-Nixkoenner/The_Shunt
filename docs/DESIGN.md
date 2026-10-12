@@ -421,4 +421,8 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 - **Leak-Test** (`shunt leaktest` / UI): pro Route ein Probe-Prozess *in* der Route; Urteil gegen die Direkt-Route (gleiche IP → LEAK, gleicher Resolver → WARN). Kontaktiert api.ipify.org und Google-DNS – in UI und CLI offen benannt.
 - **Web-UI** (`shunt ui`): läuft als User, nur 127.0.0.1, Token → HttpOnly/SameSite=Strict-Cookie, Host-/Origin-Prüfung (DNS-Rebinding/CSRF), strikte CSP, alles eingebettet (kein CDN). Später 1:1 in Tauri wiederverwendbar.
 
-**Noch offen aus Phase 3:** Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Captive-Portal-Modus, ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out), Config-Bearbeitung in der UI.
+- **Starter pro Profil** (`shunt desktop clone`): zusätzlicher Menü-Eintrag, der eine eigene Instanz (z. B. Firefox `--new-instance -P sm`) über eine feste Route startet. Chromium/Brave: Profile *innerhalb* einer Instanz teilen sich den Netzwerk-Prozess → nur getrennte `--user-data-dir` lassen sich trennen.
+- **`args`-Selektor** für App-Regeln (Kommandozeile enthält z. B. `-P sm`).
+- **Config-Bearbeitung über API/UI**: Formular-Editor (strukturiert, Kommentare gehen verloren – so angezeigt) und Raw-Editor (behält Kommentare). Jede Änderung durchläuft dieselbe Prüfung wie `shuntd check`, wird atomar geschrieben, `.bak` bleibt, bei Fehlschlag automatisches Zurückrollen. Sicherheitsgrenzen: `[daemon]` (Socket, Gruppe, cgroup) nur in der Datei änderbar; Tunnel-Dateien nur unter `/etc/shunt/tunnels` (die API kann den root-Daemon keine beliebigen Dateien lesen lassen); Import speichert mit 0600; Private Keys verlassen den Daemon nie. Wer im Socket-Gruppe ist, darf konfigurieren – feinere Rechte (polkit) folgen in Phase 6.
+
+**Noch offen aus Phase 3:** Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Captive-Portal-Modus, ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out).

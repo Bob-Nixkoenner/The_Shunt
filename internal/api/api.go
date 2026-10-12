@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -54,6 +55,43 @@ type GroupStatus struct {
 // daemon takes the PID from the socket credentials, never from the request.
 type RunRequest struct {
 	Group string `json:"group"`
+}
+
+// ConfigView is returned by GET /v1/config. Private keys are never included.
+type ConfigView struct {
+	Raw     string           `json:"raw"`
+	Config  *config.Config   `json:"config"`
+	Tunnels []TunnelConfInfo `json:"tunnels"`
+}
+
+// TunnelConfInfo is the public part of a tunnel's WireGuard file.
+type TunnelConfInfo struct {
+	Name       string   `json:"name"`
+	Endpoint   string   `json:"endpoint"`
+	Addresses  []string `json:"addresses"`
+	DNS        []string `json:"dns,omitempty"`
+	AllowedIPs []string `json:"allowed_ips"`
+}
+
+// ConfigSave is the body of PUT /v1/config and POST /v1/config/check:
+// either raw TOML or a structured config (comments are not kept).
+type ConfigSave struct {
+	Raw    string         `json:"raw,omitempty"`
+	Config *config.Config `json:"config,omitempty"`
+}
+
+// CheckResult reports whether a config would be accepted.
+type CheckResult struct {
+	OK       bool     `json:"ok"`
+	Error    string   `json:"error,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// TunnelImport is the body of POST /v1/tunnels.
+type TunnelImport struct {
+	Name string `json:"name"`
+	Conf string `json:"conf"` // wg-quick file content
+	DNS  string `json:"dns,omitempty"`
 }
 
 // PanicRequest switches the panic mode.

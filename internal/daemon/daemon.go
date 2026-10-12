@@ -53,6 +53,7 @@ type Daemon struct {
 	panic     bool
 	proxy     *dnsproxy.Proxy
 	watcher   *appwatch.Watcher
+	saveMu    sync.Mutex // serializes config writes
 	dnsUps    dnsproxy.RouteUpstreams
 }
 
@@ -492,6 +493,81 @@ func (d *Daemon) routes() http.Handler {
 		root := d.plan.CgroupRoot
 		d.mu.Unlock()
 		if err := d.reload(root); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		v, err := d.configView()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+	})
+	rawOf := func(req api.ConfigSave) ([]byte, error) {
+		if req.Config != nil {
+			d.mu.Lock()
+			req.Config.Daemon = d.cfg.Daemon // only changeable in the file
+			d.mu.Unlock()
+			return req.Config.Encode()
+		}
+		if req.Raw == "" {
+			return nil, errors.New("empty config")
+		}
+		return []byte(req.Raw), nil
+	}
+	mux.HandleFunc("POST /v1/config/check", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ConfigSave
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		raw, err := rawOf(req)
+		var p *Prepared
+		if err == nil {
+			p, err = d.checkCandidate(raw)
+		}
+		if err != nil {
+			writeJSON(w, http.StatusOK, api.CheckResult{Error: err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+	})
+	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ConfigSave
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		raw, err := rawOf(req)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		p, err := d.saveConfig(raw)
+		if err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+	})
+	mux.HandleFunc("POST /v1/tunnels", func(w http.ResponseWriter, r *http.Request) {
+		var req api.TunnelImport
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		p, err := d.importTunnel(req)
+		if err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+	})
+	mux.HandleFunc("DELETE /v1/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.deleteTunnel(r.PathValue("name")); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}

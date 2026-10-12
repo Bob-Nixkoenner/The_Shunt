@@ -286,6 +286,40 @@ check "handshake works (bypass mark)" yes "$(shunt status | grep -q ' ago ' && e
 check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
 
+echo "== config editing API"
+capi() { curl -s --unix-socket "$SOCK" -X "$1" -o "$WORK/api.out" -w '%{http_code}' "http://shuntd$2" ${3:+-H 'Content-Type: application/json' --data-binary "$3"}; }
+capi GET /v1/config >/dev/null
+check "config view has no private keys" 0 "$(grep -c "$CLI_KEY" "$WORK/api.out")"
+before=$(sha256sum "$WORK/etc/shunt.toml")
+check "invalid config rejected" 422 "$(capi PUT /v1/config '{"raw":"[[rule]]\nroute=\"nowhere\"\n"}')"
+check "file untouched after rejection" "$before" "$(sha256sum "$WORK/etc/shunt.toml")"
+bad=$(python3 -c 'import json,sys; print(json.dumps({"raw": open(sys.argv[1]).read().replace("socket = ", "socket = \"/tmp/x\"  # ", 1)}))' "$WORK/etc/shunt.toml")
+check "daemon section locked" 422 "$(capi PUT /v1/config "$bad")"
+check "tunnel file outside tunnels dir rejected" yes "$(capi POST /v1/config/check "$(python3 -c 'import json,sys; print(json.dumps({"raw": open(sys.argv[1]).read() + "\n[tunnel.evil]\nconfig = \"/etc/shadow\"\n"}))' "$WORK/etc/shunt.toml")" >/dev/null; grep -q 'must be in' "$WORK/api.out" && echo yes || echo no)"
+# structured save: put a block rule first, traffic must follow immediately
+capi GET /v1/config >/dev/null
+python3 - "$WORK/api.out" "$WORK/new.json" <<'PY'
+import json, sys
+v = json.load(open(sys.argv[1]))
+c = v["config"]
+c["rule"].insert(0, {"name": "ui block test", "cidr": ["10.99.0.1"], "port": ["tcp/8080"], "route": "block"})
+json.dump({"config": c}, open(sys.argv[2], "w"))
+PY
+check "structured save accepted" 200 "$(capi PUT /v1/config "$(cat "$WORK/new.json")")"
+check "saved rule is active" "" "$(fetch curl -s $URL)"
+check "backup written" yes "$([[ -f $WORK/etc/shunt.toml.bak ]] && echo yes || echo no)"
+cp "$WORK/etc/shunt.toml.bak" "$WORK/etc/shunt.toml" && shunt reload
+check "restored config active again" 10.66.0.2 "$(fetch curl -s $URL)"
+NEWKEY=$(wg genkey)
+imp=$(python3 -c 'import json,sys; print(json.dumps({"name": "vps2", "conf": "[Interface]\nPrivateKey = %s\nAddress = 10.67.0.2/32\n[Peer]\nPublicKey = %s\nEndpoint = 10.99.0.1:51821\nAllowedIPs = 0.0.0.0/0\n" % (sys.argv[1], sys.argv[2])}))' "$NEWKEY" "$SRV_PUB")
+check "tunnel import" 200 "$(capi POST /v1/tunnels "$imp")"
+check "imported key file is 0600" 600 "$(stat -c %a "$WORK/etc/tunnels/vps2.conf" 2>/dev/null)"
+check "imported tunnel in status" yes "$(shunt status | grep -q '^vps2 ' && echo yes || echo no)"
+check "bad tunnel name rejected" 422 "$(capi POST /v1/tunnels '{"name":"../x","conf":"[Interface]"}')"
+check "tunnel delete" 204 "$(capi DELETE /v1/tunnels/vps2)"
+check "deleted tunnel file gone" no "$([[ -e $WORK/etc/tunnels/vps2.conf ]] && echo yes || echo no)"
+check "tunnel in use cannot be deleted" 422 "$(capi DELETE /v1/tunnels/vps)"
+
 echo "== system resolver changes are picked up without restart"
 # `ip netns exec` bind-mounts this file over /etc/resolv.conf; rewrite it in
 # place (same inode) the way NetworkManager would change the content.
