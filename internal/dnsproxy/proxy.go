@@ -45,6 +45,70 @@ type Proxy struct {
 	upstreams RouteUpstreams
 	byPort    map[int]*engine.Route
 	servers   map[int][]*dns.Server
+
+	healthMu sync.Mutex
+	health   map[string]*routeHealth
+}
+
+// routeHealth follows whether a route's upstreams answer. Failures are
+// logged when the state changes, not per query: a DNS server that is not
+// reachable through its route (a LAN Pi-hole behind a tunnel) would
+// otherwise flood the log and nobody would notice.
+type routeHealth struct {
+	fails    int // consecutive queries without any upstream answering
+	since    time.Time
+	lastErr  string
+	reported bool
+}
+
+// FailAfter: a route counts as failing after this many consecutive failed
+// queries spread over at least FailFor (a tunnel that is still connecting
+// is not reported).
+const (
+	FailAfter = 3
+	FailFor   = 15 * time.Second
+)
+
+// Health returns the routes whose DNS is failing, with the last error.
+func (p *Proxy) Health() map[string]string {
+	p.healthMu.Lock()
+	defer p.healthMu.Unlock()
+	out := map[string]string{}
+	for r, h := range p.health {
+		if h.reported {
+			out[r] = h.lastErr
+		}
+	}
+	return out
+}
+
+func (p *Proxy) record(route string, err error) {
+	p.healthMu.Lock()
+	defer p.healthMu.Unlock()
+	if p.health == nil {
+		p.health = map[string]*routeHealth{}
+	}
+	h := p.health[route]
+	if h == nil {
+		h = &routeHealth{}
+		p.health[route] = h
+	}
+	if err == nil {
+		if h.reported {
+			p.Log.Info("dns works again", "route", route)
+		}
+		*h = routeHealth{}
+		return
+	}
+	if h.fails == 0 {
+		h.since = time.Now()
+	}
+	h.fails++
+	h.lastErr = err.Error()
+	if !h.reported && h.fails >= FailAfter && time.Since(h.since) >= FailFor {
+		h.reported = true
+		p.Log.Warn("dns failing: no upstream of this route answers", "route", route, "err", err)
+	}
 }
 
 // New creates a proxy writing domain-rule addresses through w.
@@ -188,14 +252,16 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*upstreamTimeout)
 	defer cancel()
 	var resp *dns.Msg
-	var lastErr error
+	lastErr := fmt.Errorf("no DNS server configured for this route")
 	for _, u := range ups[route.String()] {
 		resp, lastErr = u.Exchange(ctx, q2)
 		if lastErr == nil {
 			break
 		}
-		p.Log.Warn("dns upstream failed", "route", route.String(), "upstream", u.String(), "err", lastErr)
+		lastErr = fmt.Errorf("%s: %w", u.String(), lastErr)
+		p.Log.Debug("dns upstream failed", "route", route.String(), "err", lastErr)
 	}
+	p.record(route.String(), lastErr)
 	if resp == nil {
 		// No fallback to another route: failing is the safe outcome.
 		return fail(r, dns.RcodeServerFailure)

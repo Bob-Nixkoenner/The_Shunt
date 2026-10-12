@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -48,6 +49,10 @@ func main() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err = (&daemon.Daemon{ConfigPath: *cfgPath, Log: log}).Run(ctx)
+		if errors.Is(err, daemon.ErrRestart) {
+			log.Info("exiting for restart (systemd starts shuntd again)")
+			os.Exit(75)
+		}
 	case "check":
 		root, _ := cgroup.Self()
 		var p *daemon.Prepared

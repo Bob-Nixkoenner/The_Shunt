@@ -34,8 +34,10 @@ type Status struct {
 	Warnings []string            `json:"warnings,omitempty"`
 	// Network is the matched [[network]] profile ("" = none), NetInfo what
 	// the machine is connected to right now.
-	Network string         `json:"network,omitempty"`
-	NetInfo netdetect.Info `json:"net_info"`
+	Network string `json:"network,omitempty"`
+	// DNSFailing: routes whose DNS servers don't answer (route -> last error).
+	DNSFailing map[string]string `json:"dns_failing,omitempty"`
+	NetInfo    netdetect.Info    `json:"net_info"`
 }
 
 // TunnelStatus describes one tunnel.
@@ -67,7 +69,10 @@ type RunRequest struct {
 
 // ConfigView is returned by GET /v1/config. Private keys are never included.
 type ConfigView struct {
-	Raw     string           `json:"raw"`
+	Raw string `json:"raw"`
+	// Version identifies the file content; send it back with a save so a
+	// change made meanwhile (editor, another window) is not overwritten.
+	Version string           `json:"version"`
 	Config  *config.Config   `json:"config"`
 	Tunnels []TunnelConfInfo `json:"tunnels"`
 }
@@ -85,8 +90,9 @@ type TunnelConfInfo struct {
 // ConfigSave is the body of PUT /v1/config and POST /v1/config/check:
 // either raw TOML or a structured config (comments are not kept).
 type ConfigSave struct {
-	Raw    string         `json:"raw,omitempty"`
-	Config *config.Config `json:"config,omitempty"`
+	Raw     string         `json:"raw,omitempty"`
+	Config  *config.Config `json:"config,omitempty"`
+	Version string         `json:"version,omitempty"` // from ConfigView; "" = don't check
 }
 
 // CheckResult reports whether a config would be accepted.

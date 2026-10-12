@@ -84,6 +84,7 @@ static void shunt_show(const char *uri) { g_idle_add(do_show, uri ? g_strdup(uri
 static gboolean do_quit(gpointer d) { gtk_main_quit(); return G_SOURCE_REMOVE; }
 static void shunt_quit(void) { g_idle_add(do_quit, NULL); }
 static void shunt_main(void) { gtk_main(); }
+static int shunt_visible(void) { return win && gtk_widget_get_visible(win); }
 */
 import "C"
 
@@ -127,6 +128,10 @@ func windowShow(uri string) {
 }
 
 func windowQuit() { C.shunt_quit() }
+
+// windowVisible reports whether the window is shown (read from another
+// thread; a stale answer only decides whether a restart opens it).
+func windowVisible() bool { return C.shunt_visible() != 0 }
 
 // windowMain runs the GTK loop on the calling (main) thread.
 func windowMain() { C.shunt_main() }

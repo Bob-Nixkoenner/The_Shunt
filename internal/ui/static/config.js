@@ -67,6 +67,7 @@ function upstreamUsers(name) {
 function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
+  defaultHint();
   fillVia();
   renderNetworks();
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
@@ -128,7 +129,12 @@ function renderConfig() {
   }) : [el("tr", {}, el("td", { class: "muted" }, "No rules – apps follow the route they were started with, everything else the default."))]));
 }
 
-$("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); });
+$("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
+function defaultHint() {
+  const d = model.daemon.default_route || "direct";
+  $("#c-default-hint").textContent = d === "direct" && Object.keys(model.tunnel).length
+    ? "Everything without a rule goes past the VPN with your real IP – only apps you start through a tunnel are protected." : "";
+}
 $("#c-direct").addEventListener("change", (e) => { model.dns.direct = e.target.value || undefined; markDirty(); renderConfig(); });
 $("#c-blockdoh").addEventListener("change", (e) => { model.dns.allow_doh = !e.target.checked; markDirty(); });
 $("#c-blockdot").addEventListener("change", (e) => { model.dns.allow_dot = !e.target.checked; markDirty(); });
@@ -179,6 +185,7 @@ $("#r-ok").addEventListener("click", () => {
 });
 
 async function checkOrSave(save, body, msgFn) {
+  body.version = cfgView && cfgView.version;
   try {
     const res = await api(save ? "PUT" : "POST", save ? "/api/config" : "/api/config/check", body);
     if (!res.ok) { msgFn(res.error, "err"); return false; }
@@ -187,6 +194,10 @@ async function checkOrSave(save, body, msgFn) {
     return true;
   } catch (e) {
     msgFn(e.message, "err");
+    if (/changed meanwhile/.test(e.message) && await ask("The config file was changed outside this editor since you opened it.\nLoad the current version? (your unsaved changes here are lost – nothing was overwritten)", { ok: "Load current" })) {
+      await loadConfig();
+      msgFn("Loaded the current config – please make your change again.", "warn");
+    }
     return false;
   }
 }
@@ -272,7 +283,7 @@ $("#t-import").addEventListener("click", async () => {
     req.password = $("#t-pass").value;
     if (!req.username || !req.password) return toast("This OpenVPN server wants a username and password");
   }
-  if ($("#savebar").classList.contains("dirty") && !confirm("Importing reloads the config; your unsaved form changes are discarded. Continue?")) return;
+  if ($("#savebar").classList.contains("dirty") && !(await ask("Importing reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Import" }))) return toast("Import cancelled");
   try {
     const res = await api("POST", "/api/tunnels", req);
     toast("Tunnel " + name + " imported" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
@@ -286,7 +297,7 @@ $("#t-import").addEventListener("click", async () => {
 
 async function deleteTunnel(n) {
   if ($("#savebar").classList.contains("dirty")) return toast("Save or discard your other changes first");
-  if (!confirm("Delete tunnel " + n + " and its WireGuard file?")) return;
+  if (!(await ask("Delete tunnel " + n + " and its config file?", { ok: "Delete", danger: true }))) return;
   try {
     await api("DELETE", "/api/tunnels/" + encodeURIComponent(n));
     toast("Tunnel " + n + " deleted");
@@ -322,10 +333,10 @@ function renderNetworks() {
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
 }
-$("#n-add").addEventListener("click", () => {
+$("#n-add").addEventListener("click", async () => {
   const now = netNow();
   if (!now.ssid && !now.gateway_mac) return toast("The current network can't be recognised (no Wi-Fi name, router MAC unknown)");
-  const name = (prompt("Name for this network", now.ssid || "home") || "").trim();
+  const name = ((await ask("Name for this network", { input: now.ssid || "home", ok: "Add" })) || "").trim();
   if (!name) return;
   model.network = model.network || [];
   if (model.network.some((n) => n.name === name)) return toast("There is a network called " + name + " already");
@@ -336,3 +347,13 @@ $("#n-add").addEventListener("click", () => {
   markDirty();
   renderConfig();
 });
+
+// Follow changes made elsewhere (editor, `shunt import`, another window)
+// while nothing is being edited here.
+setInterval(async () => {
+  if (!model || $("#page-config").hidden || $("#savebar").classList.contains("dirty")) return;
+  try {
+    const v = await api("GET", "/api/config");
+    if (v.version !== cfgView.version) await loadConfig();
+  } catch { /* daemon away: the status pill says so */ }
+}, 5000);

@@ -39,15 +39,19 @@ type View struct {
 	Panic   bool
 	Tunnels []TunnelLine
 	Down    map[string]bool // tunnels without a working connection
+	DNSDown map[string]bool // routes whose DNS servers don't answer
 	Warn    []string
 }
 
 // Compute derives the view from a status (err != nil: daemon unreachable).
 func Compute(st *api.Status, err error, now time.Time) View {
 	if err != nil || st == nil {
-		return View{Level: Bad, Title: "The Shunt service is not reachable", Down: map[string]bool{}}
+		return View{Level: Bad, Title: "The Shunt service is not reachable", Down: map[string]bool{}, DNSDown: map[string]bool{}}
 	}
-	v := View{Panic: st.Panic, Down: map[string]bool{}, Warn: st.Warnings}
+	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: st.Warnings}
+	for r := range st.DNSFailing {
+		v.DNSDown[r] = true
+	}
 	for _, t := range st.Tunnels {
 		var hs time.Time
 		keepalive := false
@@ -87,6 +91,13 @@ func Compute(st *api.Status, err error, now time.Time) View {
 		}
 		sort.Strings(names)
 		v.Level, v.Title = Warn, "No connection: "+strings.Join(names, ", ")+" (blocked, no leak)"
+	case len(v.DNSDown) > 0:
+		names := make([]string, 0, len(v.DNSDown))
+		for n := range v.DNSDown {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		v.Level, v.Title = Warn, "DNS not working: "+strings.Join(names, ", ")
 	default:
 		v.Level, v.Title = OK, "Protected – default route "+st.DefaultRoute
 	}
@@ -128,6 +139,16 @@ func Diff(prev, cur View, first bool) []Notification {
 	for n := range cur.Down {
 		if !prev.Down[n] {
 			out = append(out, Notification{"Tunnel " + n + " has no connection", "Its apps are blocked – nothing leaks. The Shunt keeps retrying.", true})
+		}
+	}
+	for r := range cur.DNSDown {
+		if !prev.DNSDown[r] {
+			out = append(out, Notification{"DNS for " + r + " does not work", "Its DNS servers don't answer, so names don't resolve. Check the DNS setting of that route (a server in your home network is not reachable through a tunnel).", true})
+		}
+	}
+	for r := range prev.DNSDown {
+		if !cur.DNSDown[r] && reachable(cur) {
+			out = append(out, Notification{"DNS for " + r + " works again", "", false})
 		}
 	}
 	for n := range prev.Down {

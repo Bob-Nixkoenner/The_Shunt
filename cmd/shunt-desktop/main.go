@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -121,6 +122,9 @@ func (a *trayApp) onReady() {
 	a.panic = systray.AddMenuItem("PANIC – block all traffic", "Drop everything except loopback, now")
 	captive := systray.AddMenuItem("Wi-Fi login page…", "Hotel/train Wi-Fi: open a throwaway browser that goes past the tunnels")
 	systray.AddSeparator()
+	restart := systray.AddMenuItem("Restart service", "Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment")
+	restartAll := systray.AddMenuItem("Restart service and app", "Restart shuntd, then this tray app and window")
+	systray.AddSeparator()
 	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
 	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
 	systray.SetOnTapped(a.show) // left click on the icon
@@ -132,6 +136,10 @@ func (a *trayApp) onReady() {
 				a.show()
 			case <-a.panic.ClickedCh:
 				a.togglePanic()
+			case <-restart.ClickedCh:
+				go a.restartService(false)
+			case <-restartAll.ClickedCh:
+				go a.restartService(true)
 			case <-captive.ClickedCh:
 				cmd := exec.Command(a.shunt, "-s", a.sock, "captive")
 				if err := cmd.Start(); err != nil {
@@ -162,6 +170,39 @@ func (a *trayApp) onReady() {
 		}
 	}()
 	go a.poll()
+}
+
+// restartService asks shuntd to restart and waits until it answers again;
+// with app, this program then replaces itself with a fresh copy.
+func (a *trayApp) restartService(app bool) {
+	if err := a.client.Do("POST", "/v1/restart", nil, nil); err != nil {
+		a.notifier.Notify(desktopapp.Notification{Summary: "Service not restarted", Body: err.Error()})
+		return
+	}
+	time.Sleep(time.Second)
+	back := false
+	for i := 0; i < 30 && !back; i++ {
+		var st api.Status
+		back = a.client.Do("GET", "/v1/status", nil, &st) == nil
+		if !back {
+			time.Sleep(time.Second)
+		}
+	}
+	if !back {
+		a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service did not come back", Body: "Check: journalctl -u shuntd -e", Urgent: true})
+		return
+	}
+	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service restarted"})
+	if app {
+		args := []string{a.exe, "-s", a.sock}
+		if !windowVisible() {
+			args = append(args, "--hidden")
+		}
+		systray.Quit()
+		if err := syscall.Exec(a.exe, args, os.Environ()); err != nil {
+			a.notifier.Notify(desktopapp.Notification{Summary: "App not restarted", Body: err.Error()})
+		}
+	}
 }
 
 var lastPanic bool
