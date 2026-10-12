@@ -36,7 +36,19 @@ static gboolean on_decide(WebKitWebView *v, WebKitPolicyDecision *dec, WebKitPol
 	return TRUE;
 }
 
+// Shown instead of a blank window when the page cannot load.
+static gboolean on_load_failed(WebKitWebView *v, WebKitLoadEvent ev, gchar *uri, GError *err, gpointer d) {
+	gchar *html = g_markup_printf_escaped("<body style='font-family:sans-serif;padding:2em'><h2>The Shunt</h2><p>Cannot load the interface: %s</p></body>", err ? err->message : "unknown error");
+	webkit_web_view_load_alternate_html(v, html, uri, NULL);
+	g_free(html);
+	return TRUE;
+}
+
 static void shunt_init(const char *title, const char *prefix, const char *icon_png, int icon_len) {
+	// VMs and some GPU drivers render WebKit's DMA-BUF/GL output as a white
+	// window. This UI needs no GPU, so stay on the safe software path.
+	g_setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", FALSE);
+	g_setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", FALSE);
 	g_set_prgname("the-shunt"); // WM_CLASS, matches StartupWMClass in the .desktop file
 	gtk_init(NULL, NULL);
 	allowed_prefix = g_strdup(prefix);
@@ -54,9 +66,11 @@ static void shunt_init(const char *title, const char *prefix, const char *icon_p
 	WebKitSettings *st = webkit_web_view_get_settings(view);
 	webkit_settings_set_enable_developer_extras(st, FALSE);
 	webkit_settings_set_javascript_can_open_windows_automatically(st, FALSE);
+	webkit_settings_set_hardware_acceleration_policy(st, WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER);
 	gtk_container_add(GTK_CONTAINER(win), GTK_WIDGET(view));
 	g_signal_connect(win, "delete-event", G_CALLBACK(on_delete), NULL);
 	g_signal_connect(view, "decide-policy", G_CALLBACK(on_decide), NULL);
+	g_signal_connect(view, "load-failed", G_CALLBACK(on_load_failed), NULL);
 }
 
 static gboolean do_show(gpointer uri) {
