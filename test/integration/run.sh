@@ -170,6 +170,10 @@ shunt() { cli "$BIN/shunt" -s "$SOCK" "$@"; }
 fetch() { cli timeout 5 "$@" 2>/dev/null || true; }
 fetch_long() { cli env SHUNT_PROBE_IP_URL="${SHUNT_PROBE_IP_URL:-}" timeout 40 "$@" 2>/dev/null || true; }
 
+# grep -q stops reading at the first match; with pipefail the writer's
+# SIGPIPE would then fail the whole pipeline
+gq() { grep "$@" >/dev/null; }
+
 check() { # name expected actual
 	if [[ "$3" == "$2" ]]; then
 		echo "  ok   $1"
@@ -213,7 +217,7 @@ chmod 600 "$WORK/etc/vps.conf"
 
 echo "== daemon up, default direct"
 start_shuntd
-for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 # debugging aid: SHUNT_HOLD=/path/to/file keeps the setup alive until the file exists
 if [[ -n ${SHUNT_HOLD:-} ]]; then
 	echo "holding, work dir $WORK; touch $SHUNT_HOLD to continue"
@@ -246,7 +250,7 @@ printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
 chmod +x "$BIN/proftest"
 check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P sm $URL)"
 check "args rule: other profile untouched" 10.99.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
-check "status shows app group" yes "$(shunt status | grep -q '^app:apptest auto-detected' && echo yes || echo no)"
+check "status shows app group" yes "$(shunt status | gq '^app:apptest auto-detected' && echo yes || echo no)"
 
 echo "== permissions (group member, not root)"
 mshunt() { cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" "$@"; }
@@ -279,13 +283,13 @@ check "blocking answer kept out of routing sets" 0 "$(cli nft list table inet sh
 check "Firefox DoH canary NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 use-application-dns.net)"
 check "public DoH host NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 dns.google)"
 check "DoT port 853 blocked" "" "$(fetch curl -s http://10.99.0.1:853)"
-check "status shows DNS upstreams" yes "$(shunt status | grep -q 'tunnel:vps .*udp://10.66.0.1:53' && echo yes || echo no)"
+check "status shows DNS upstreams" yes "$(shunt status | gq 'tunnel:vps .*udp://10.66.0.1:53' && echo yes || echo no)"
 echo "== leak test"
 lt=$(SHUNT_PROBE_IP_URL=$URL fetch_long "$BIN/shunt" -s "$SOCK" leaktest)
 check "leaktest: direct ok" yes "$(grep -qE '^direct +10.99.0.2 +10.99.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: tunnel ok" yes "$(grep -qE '^tunnel:vps +10.66.0.2 +10.66.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: block blocked" yes "$(grep -qE '^block +- +- +BLOCKED' <<<"$lt" && echo yes || echo "no: $lt")"
-check "status lists tunnel" yes "$(shunt status | grep -q '^vps .*up/' && echo yes || echo no)"
+check "status lists tunnel" yes "$(shunt status | gq '^vps .*up/' && echo yes || echo no)"
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 
 echo "== kill switch: tunnel interface disappears"
@@ -313,11 +317,11 @@ check "restored tunnel resolves DNS" "tunnel 10.66.0.2" "$(dnsq_via tunnel:vps -
 echo "== reload: default route = tunnel"
 write_config tunnel:vps
 shunt reload
-for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
 check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
 hs=no
-for _ in $(seq 25); do shunt status | grep -q ' ago ' && hs=yes && break; sleep 0.2; done
+for _ in $(seq 25); do shunt status | gq ' ago ' && hs=yes && break; sleep 0.2; done
 check "handshake shown in status (bypass mark)" yes "$hs"
 check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
@@ -354,7 +358,7 @@ NEWKEY=$(wg genkey)
 imp=$(python3 -c 'import json,sys; print(json.dumps({"name": "vps2", "conf": "[Interface]\nPrivateKey = %s\nAddress = 10.67.0.2/32\n[Peer]\nPublicKey = %s\nEndpoint = 10.99.0.1:51821\nAllowedIPs = 0.0.0.0/0\n" % (sys.argv[1], sys.argv[2])}))' "$NEWKEY" "$SRV_PUB")
 check "tunnel import" 200 "$(capi POST /v1/tunnels "$imp")"
 check "imported key file is 0600" 600 "$(stat -c %a "$WORK/etc/tunnels/vps2.conf" 2>/dev/null)"
-check "imported tunnel in status" yes "$(shunt status | grep -q '^vps2 ' && echo yes || echo no)"
+check "imported tunnel in status" yes "$(shunt status | gq '^vps2 ' && echo yes || echo no)"
 check "bad tunnel name rejected" 422 "$(capi POST /v1/tunnels '{"name":"../x","conf":"[Interface]"}')"
 check "tunnel delete" 204 "$(capi DELETE /v1/tunnels/vps2)"
 check "deleted tunnel file gone" no "$([[ -e $WORK/etc/tunnels/vps2.conf ]] && echo yes || echo no)"
@@ -369,7 +373,7 @@ shunt reload
 check "unreachable system resolver fails closed" yes "$(failed_closed "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)")"
 printf 'nameserver 10.99.0.1\n' >"$NETNS_RESOLV"
 check "new system resolver used without restart" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
-check "status shows system resolver" yes "$(shunt status | grep -q 'system (udp://10.99.0.1:53)' && echo yes || echo no)"
+check "status shows system resolver" yes "$(shunt status | gq 'system (udp://10.99.0.1:53)' && echo yes || echo no)"
 write_config tunnel:vps
 shunt reload
 
@@ -401,9 +405,9 @@ shunt reload
 got=
 for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL); [[ $got == 10.77.0.2 ]] && break; sleep 0.5; done
 check "second hop carries traffic" 10.77.0.2 "$got"
-check "second hop arrives through the first tunnel" yes "$(ip netns exec $WAN wg show wgh endpoints | grep -q '10.66.0.2:' && echo yes || echo "no: $(ip netns exec $WAN wg show wgh endpoints)")"
-check "second hop MTU lowered" yes "$(cli ip link show sh-hop | grep -q 'mtu 1340' && echo yes || echo no)"
-check "status shows the hop" yes "$(shunt status --json | grep -q '"via": *"tunnel:vps"' && echo yes || echo no)"
+check "second hop arrives through the first tunnel" yes "$(ip netns exec $WAN wg show wgh endpoints | gq '10.66.0.2:' && echo yes || echo "no: $(ip netns exec $WAN wg show wgh endpoints)")"
+check "second hop MTU lowered" yes "$(cli ip link show sh-hop | gq 'mtu 1340' && echo yes || echo no)"
+check "status shows the hop" yes "$(shunt status --json | gq '"via": *"tunnel:vps"' && echo yes || echo no)"
 while_down "first hop down blocks the second, no leak" "" fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL
 check "tunnel used as hop cannot be deleted" 422 "$(capi DELETE /v1/tunnels/vps)"
 ip netns exec $WAN pkill -f "^$BIN/wireguard-go -f wgh" || true
@@ -428,7 +432,7 @@ if command -v openvpn >/dev/null; then
 		--verify-client-cert none --username-as-common-name --script-security 2 --auth-user-pass-verify "$O/check.sh" via-file \
 		--push "dhcp-option DNS 10.88.0.1" --push "redirect-gateway def1" --keepalive 2 10 --verb 3 >"$WORK/ovpn-server.log" 2>&1 &
 	OVPN_SRV_PID=$!
-	for _ in $(seq 50); do ip -n $WAN addr show ovs 2>/dev/null | grep -q 10.88.0.1 && break; sleep 0.1; done
+	for _ in $(seq 50); do ip -n $WAN addr show ovs 2>/dev/null | gq 10.88.0.1 && break; sleep 0.1; done
 	ip netns exec $WAN "$BIN/fakedns" serve -tag ovpn -listen 10.88.0.1:53 &
 	ovpn_conf() { printf 'client\ndev tun\nproto udp\nremote %s 1194\nnobind\nauth-user-pass\nremote-cert-tls server\n<ca>\n%s\n</ca>\n' "$1" "$(cat "$O/ca.crt")"; }
 	j() { python3 -c 'import json,sys; d=dict(a.split("=",1) for a in sys.argv[2:]); d["conf"]=sys.argv[1]; print(json.dumps(d))' "$@"; }
@@ -442,7 +446,7 @@ if command -v openvpn >/dev/null; then
 	if [[ -n ${SHUNT_HOLD_OVPN:-} ]]; then echo "holding $WORK"; until [[ -e $SHUNT_HOLD_OVPN ]]; do sleep 1; done; fi
 	check "ovpn: pushed DNS used through the tunnel" "ovpn 10.88.0.2" "$(dnsq_via tunnel:ovpn -server 10.99.0.1:53 -type TXT whoami.test)"
 	check "ovpn: pushed redirect-gateway ignored" 10.66.0.2 "$(fetch curl -s $URL)"
-	check "ovpn: status shows connection" yes "$(shunt status | grep -q '^ovpn .*up/openvpn .* ago' && echo yes || echo "no: $(shunt status | grep '^ovpn')")"
+	check "ovpn: status shows connection" yes "$(shunt status | gq '^ovpn .*up/openvpn .* ago' && echo yes || echo "no: $(shunt status | grep '^ovpn')")"
 	check "ovpn tunnel delete" 204 "$(capi DELETE /v1/tunnels/ovpn)"
 	sleep 1
 	check "no openvpn client left running" no "$(pgrep -f 'openvpn --config' >/dev/null && echo yes || echo no)"
@@ -468,16 +472,16 @@ fetch curl -s $URL >/dev/null # make sure the gateway is in the neighbour table
 EXTRA_TUNNELS=$'[[network]]\nname = "home"\ngateway_mac = ["'$GWMAC$'"]\ndefault_route = "direct"\n'
 write_config tunnel:vps
 shunt reload
-for _ in $(seq 30); do shunt status | grep -q 'network profile "home"' && break; sleep 0.5; done
-check "known gateway: profile default route" yes "$(shunt status | grep -q '^default route: *direct (network profile "home")' && echo yes || echo "no: $(shunt status | head -3)")"
+for _ in $(seq 30); do shunt status | gq 'network profile "home"' && break; sleep 0.5; done
+check "known gateway: profile default route" yes "$(shunt status | gq '^default route: *direct (network profile "home")' && echo yes || echo "no: $(shunt status | head -3)")"
 check "known gateway: default traffic direct" 10.99.0.2 "$(fetch curl -s $URL)"
 cli ip neigh replace 10.99.0.1 lladdr 02:00:00:00:00:01 dev cli0 nud permanent
-for _ in $(seq 30); do shunt status | grep -q 'network profile' || break; sleep 0.5; done
-check "other gateway: back to daemon default" yes "$(shunt status | grep -q '^default route: *tunnel:vps$' && echo yes || echo "no: $(shunt status | head -3)")"
+for _ in $(seq 30); do shunt status | gq 'network profile' || break; sleep 0.5; done
+check "other gateway: back to daemon default" yes "$(shunt status | gq '^default route: *tunnel:vps$' && echo yes || echo "no: $(shunt status | head -3)")"
 cli ip neigh del 10.99.0.1 dev cli0
 fetch curl -s $URL >/dev/null
-for _ in $(seq 30); do shunt status | grep -q 'network profile "home"' && break; sleep 0.5; done
-check "known gateway again: profile back" yes "$(shunt status | grep -q 'network profile "home"' && echo yes || echo no)"
+for _ in $(seq 30); do shunt status | gq 'network profile "home"' && break; sleep 0.5; done
+check "known gateway again: profile back" yes "$(shunt status | gq 'network profile "home"' && echo yes || echo no)"
 EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
@@ -494,21 +498,21 @@ VPS_EXTRA='dns = "bad"'
 write_config tunnel:vps
 shunt reload
 for _ in $(seq 8); do dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test >/dev/null; sleep 2.5; done
-check "unreachable tunnel DNS reported" yes "$(shunt status --json | grep -q '"tunnel:vps": "udp://192.0.2.1:53' && echo yes || echo "no: $(shunt status --json | grep -A2 dns_failing)")"
-check "status warns about it" yes "$(shunt status | grep -q 'WARNING: *DNS for tunnel:vps fails' && echo yes || echo no)"
+check "unreachable tunnel DNS reported" yes "$(shunt status --json | gq '"tunnel:vps": "udp://192.0.2.1:53' && echo yes || echo "no: $(shunt status --json | grep -A2 dns_failing)")"
+check "status warns about it" yes "$(shunt status | gq 'WARNING: *DNS for tunnel:vps fails' && echo yes || echo no)"
 EXTRA_TUNNELS=
 VPS_EXTRA=
 write_config tunnel:vps
 shunt reload
 dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test >/dev/null
-check "DNS recovery clears the report" no "$(shunt status --json | grep -q dns_failing && echo yes || echo no)"
+check "DNS recovery clears the report" no "$(shunt status --json | gq dns_failing && echo yes || echo no)"
 check "member: restart needs authorization" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" restart >/dev/null 2>&1 && echo allowed || echo denied)"
 shunt restart >/dev/null
 rc=0; wait "$SHUNTD_PID" || rc=$?; SHUNTD_PID=
 check "restart exits with 75 for systemd" 75 "$rc"
 check "kill switch kept during restart" "" "$(fetch curl -s $URL)"
 start_shuntd
-for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 got=; for _ in $(seq 20); do got=$(fetch curl -s $URL); [[ $got == 10.66.0.2 ]] && break; sleep 0.5; done
 check "back after restart" 10.66.0.2 "$got"
 
@@ -525,7 +529,7 @@ check "default (tunnel) blocked while daemon is down" "" "$(fetch curl -s $URL)"
 check "DNS fails closed while daemon is down" yes "$(failed_closed "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)")"
 cli "$BIN/shuntd" cleanup
 check "cleanup restores direct" 10.99.0.2 "$(fetch curl -s $URL)"
-check "cleanup removes nft table" no "$(cli nft list tables | grep -q shunt && echo yes || echo no)"
+check "cleanup removes nft table" no "$(cli nft list tables | gq shunt && echo yes || echo no)"
 
 echo
 echo "passed: $PASS  failed: $FAIL"
