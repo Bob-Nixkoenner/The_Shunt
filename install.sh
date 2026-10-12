@@ -97,6 +97,8 @@ done
 
 [[ $EUID -eq 0 ]] || die "run as root: sudo bash $0"
 
+NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
+
 # ---------------------------------------------------------------- uninstall
 if [[ $MODE == uninstall ]]; then
 	say "Removing The Shunt"
@@ -106,6 +108,10 @@ if [[ $MODE == uninstall ]]; then
 		[[ -f /etc/nsswitch.conf.shunt-backup ]] && "$BIN_DIR/shuntd" restore-nsswitch && ok "nsswitch.conf restored"
 	fi
 	pkill -x shunt-desktop 2>/dev/null || true
+	if [[ -f $NM_PRIVACY ]]; then
+		rm -f "$NM_PRIVACY" && ok "network privacy settings removed"
+		nmcli general reload conf >/dev/null 2>&1 || true
+	fi
 	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt" "$BIN_DIR/shunt-desktop" "$DESKTOP_ENTRY" "$DESKTOP_ICON"
 	if [[ -n ${SUDO_USER:-} ]]; then rm -f "$(user_home "$SUDO_USER")/.config/autostart/the-shunt.desktop"; fi
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
@@ -152,6 +158,10 @@ elif apt-cache show policykit-1 >/dev/null 2>&1; then
 	step "installing polkit (apt)" "${APT[@]}" install policykit-1
 else
 	warn "polkit not available: config changes will need sudo"
+fi
+
+if yes_no "Install OpenVPN support (for .ovpn configs)?" y; then
+	step "installing openvpn (apt)" "${APT[@]}" install openvpn
 fi
 
 # ---------------------------------------------------------------- desktop app?
@@ -325,6 +335,29 @@ if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
 	warn "glibc asks systemd-resolved directly (nss-resolve) - that bypasses per-route DNS"
 	if yes_no "Switch to plain DNS lookups? (backup is kept, undone on uninstall)" y; then
 		"$BIN_DIR/shuntd" fix-nsswitch
+	fi
+fi
+
+# Opsec on foreign networks; NetworkManager applies it on the next connect.
+if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
+	echo "  Foreign Wi-Fi networks see your laptop's MAC address and host name."
+	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
+		cat >"$NM_PRIVACY" <<'EOF'
+# The Shunt: privacy on foreign networks (removed by install.sh --uninstall).
+# Settings in a connection profile itself still take precedence.
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+# a different MAC on every Wi-Fi, but the same one each time you return
+# (keeps router reservations and hotel logins working)
+wifi.cloned-mac-address=stable
+ipv4.dhcp-send-hostname=false
+ipv6.dhcp-send-hostname=false
+ipv6.ip6-privacy=2
+EOF
+		nmcli general reload conf >/dev/null 2>&1 || true
+		ok "privacy settings active from the next Wi-Fi connection ($NM_PRIVACY)"
 	fi
 fi
 

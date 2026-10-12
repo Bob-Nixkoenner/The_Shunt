@@ -220,6 +220,12 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   </section>
 
   <section>
+    <h2>Networks <span class="muted" style="text-transform:none;letter-spacing:0">where you are decides “everything else” · first match wins</span><span class="spacer"></span><button id="n-add">+ Add the current network</button></h2>
+    <div id="n-now" class="muted" style="margin-bottom:8px"></div>
+    <table><tbody id="c-networks"></tbody></table>
+  </section>
+
+  <section>
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins · after them: apps started via a route, then the default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>

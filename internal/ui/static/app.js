@@ -67,7 +67,7 @@ function render() {
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
   else { state.className = "pill ok"; state.textContent = "protected"; }
-  $("#defroute").replaceChildren("default route ", routeTag(st.default_route));
+  $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, " (network “" + st.network + "”)")] : []));
 
   const panic = $("#panic");
   panic.textContent = st.panic ? "Release panic" : "PANIC";
@@ -215,6 +215,7 @@ async function loadApps() {
 async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
   render();
+  if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
 }
 
 $("#panic").addEventListener("click", async () => {

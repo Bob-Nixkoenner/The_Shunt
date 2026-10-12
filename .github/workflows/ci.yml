@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: sudo apt-get update && sudo apt-get install -y nftables wireguard-tools iproute2 curl
+      - run: sudo apt-get update && sudo apt-get install -y nftables wireguard-tools iproute2 curl openvpn openssl
       - name: end-to-end in network namespaces
         run: sudo env "PATH=$PATH" "HOME=$HOME" "GOPATH=$(go env GOPATH)" "GOMODCACHE=$(go env GOMODCACHE)" "GOCACHE=$(go env GOCACHE)" SHUNT_DRIVER=${{ matrix.driver }} ./test/integration/run.sh
 
