@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=The Shunt
+GenericName=Split tunneling
+Comment=Choose which apps use which VPN tunnel
+Comment[de]=Festlegen, welche App welchen VPN-Tunnel nutzt
+Exec=/usr/local/bin/shunt-desktop
+Icon=the-shunt
+Terminal=false
+Categories=Network;Security;
+Keywords=vpn;wireguard;tunnel;split;dns;
+StartupWMClass=the-shunt

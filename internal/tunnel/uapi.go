@@ -141,6 +141,11 @@ func parseUAPI(s string) (*wgtypes.Device, error) {
 			hsSec, _ = strconv.ParseInt(v, 10, 64)
 		case "last_handshake_time_nsec":
 			hsNsec, _ = strconv.ParseInt(v, 10, 64)
+		case "persistent_keepalive_interval":
+			if p != nil {
+				sec, _ := strconv.Atoi(v)
+				p.PersistentKeepaliveInterval = time.Duration(sec) * time.Second
+			}
 		case "rx_bytes":
 			if p != nil {
 				p.ReceiveBytes, _ = strconv.ParseInt(v, 10, 64)

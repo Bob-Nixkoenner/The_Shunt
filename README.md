@@ -52,6 +52,10 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   socket opened in the first milliseconds keeps its old route – use `shunt desktop` or
   `shunt run` where that matters)
 - **Menu entries** through a route (`shunt desktop`), race free, per user, reversible
+- **Desktop app** (*The Shunt* in the application menu): tray icon that is green when
+  you are protected, yellow when a tunnel has no connection (its apps are blocked),
+  red on panic or when the service is gone; desktop notifications on every change;
+  PANIC in the tray menu; the UI in its own window; start at login
 - **Web UI** (`shunt ui`): tunnel health, apps per route, app launcher, menu entries,
   leak test, panic button – local only, token-protected, no external resources
 - **Leak test**: public IP and DNS resolver of every route, with verdicts
