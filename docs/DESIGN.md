@@ -1,6 +1,6 @@
 # Design: Shunt – Split-Tunneling & DNS-Router für WireGuard
 
-> **Status:** v0.4 – Phase 1 + DNS-Teil von Phase 2 implementiert (siehe §11) · **Lizenz (geplant):** Apache-2.0
+> **Status:** v0.5 – Phasen 1–2, Kern von Phase 3 implementiert (siehe §11–13) · **Lizenz (geplant):** Apache-2.0
 > Binaries: `shuntd` (Daemon), `shunt` (CLI). Repo: github.com/Bob-Nixkoenner/the_shunt
 
 ---
@@ -411,3 +411,14 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 **Integrationstest:** zwei Fake-DNS-Server (direkt / nur durch den Tunnel erreichbar) melden, über welchen Weg eine Anfrage kam. 42 Prüfungen, inkl. „Tunnel weg → DNS SERVFAIL“ und „Daemon gestoppt → DNS tot statt Leak“.
 
 **Installer:** `install.sh` (Debian-Familie inkl. Kali), Release-Workflow mit SHA256SUMS, CI-Job installiert echt auf einem systemd-Runner und deinstalliert wieder.
+
+## 13. Stand Phase 3 (Apps & Oberfläche)
+
+**Umgesetzt:**
+- **App-Regeln** (`app = [...]`): Exec-Events vom Kernel-Proc-Connector (Netlink), `/proc`-Scan als Fallback (nur im Init-Netns verfügbar) und als Sicherheitsnetz gegen verlorene Events. Explizites `shunt run` gewinnt immer.
+- **Bewusste Grenze:** zwischen exec und Umhängen liegt ein Fenster (typisch < 1 ms); Sockets aus diesem Fenster behalten ihre Route. Deshalb zusätzlich:
+- **Menü-Einträge** (`shunt desktop`): Kopie der .desktop-Datei im User-Verzeichnis mit `shunt run --via …` vor jedem Exec, `DBusActivatable=false` (sonst startet D-Bus die App am Exec vorbei). Race-frei, ohne root, rückbaubar.
+- **Leak-Test** (`shunt leaktest` / UI): pro Route ein Probe-Prozess *in* der Route; Urteil gegen die Direkt-Route (gleiche IP → LEAK, gleicher Resolver → WARN). Kontaktiert api.ipify.org und Google-DNS – in UI und CLI offen benannt.
+- **Web-UI** (`shunt ui`): läuft als User, nur 127.0.0.1, Token → HttpOnly/SameSite=Strict-Cookie, Host-/Origin-Prüfung (DNS-Rebinding/CSRF), strikte CSP, alles eingebettet (kein CDN). Später 1:1 in Tauri wiederverwendbar.
+
+**Noch offen aus Phase 3:** Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Captive-Portal-Modus, ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out), Config-Bearbeitung in der UI.

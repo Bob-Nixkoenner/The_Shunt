@@ -8,14 +8,19 @@ no telemetry, no accounts, bring your own WireGuard servers.
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard unter Linux – fail-closed,
 > ohne Telemetrie. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md)*
 
-> ⚠️ **Status: early (phase 2 of 5).** Tested end-to-end in CI, but young.
+> ⚠️ **Status: early (phase 3 of 5).** Tested end-to-end in CI, but young.
 > Try it in a VM before you trust it with anything that matters.
 
+![The Shunt web UI](docs/screenshots/shunt-ui-dark.png)
+
 ```console
+$ shunt ui                                   # web interface (local only)
 $ shunt run --via tunnel:vps -- firefox      # Firefox through the VPS, rest direct
 $ shunt run --via direct -- steam            # escape a tunnel default route
 $ shunt run --group torrent -- qbittorrent   # use rules from the config
 $ shunt status
+$ shunt desktop set firefox-esr tunnel:vps   # menu entry always starts through the VPS
+$ shunt leaktest                             # public IP + DNS resolver per route
 $ shunt panic on                             # drop everything, now
 ```
 
@@ -41,6 +46,14 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   every port-53 query on the machine is caught, DoT is blocked, known DoH hosts
   get NXDOMAIN, EDNS client subnet is stripped
 - `shunt run` starts a program inside a route; children inherit it
+- **App rules** (`app = ["firefox-esr", "flatpak:org.qbittorrent.qBittorrent"]`): programs
+  are moved into their route the moment they start, no wrapper needed (best effort: a
+  socket opened in the first milliseconds keeps its old route – use `shunt desktop` or
+  `shunt run` where that matters)
+- **Menu entries** through a route (`shunt desktop`), race free, per user, reversible
+- **Web UI** (`shunt ui`): tunnel health, apps per route, app launcher, menu entries,
+  leak test, panic button – local only, token-protected, no external resources
+- **Leak test**: public IP and DNS resolver of every route, with verdicts
 - **Kill switch built into the routing table**: tunnel down, interface deleted or
   daemon stopped → tunnelled traffic gets *unreachable*, never the physical NIC
 - **IPv6 strict**: tunnels without IPv6 block IPv6 instead of leaking it
