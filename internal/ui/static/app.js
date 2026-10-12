@@ -114,7 +114,13 @@ function renderApps() {
   if (!status) return;
   const f = $("#appfilter").value.toLowerCase();
   const routes = ["", ...status.routes];
-  $("#apps").replaceChildren(...apps.filter((a) => !f || (a.name + a.id).toLowerCase().includes(f)).map((a) => {
+  // Default: apps that use the network or are already routed; the rest
+  // (hundreds of tools on Kali) only on request or when searching.
+  const all = $("#allapps").checked || f !== "";
+  const shown = apps.filter((a) => (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
+  shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
+  $("#appcount").textContent = "(" + apps.length + ")";
+  $("#apps").replaceChildren(...shown.map((a) => {
     const s = el("select", {
       onchange: async (e) => {
         try {
@@ -176,6 +182,7 @@ $("#leak").addEventListener("click", async () => {
 });
 
 $("#appfilter").addEventListener("input", renderApps);
+$("#allapps").addEventListener("change", renderApps);
 
 (async () => {
   await refresh();

@@ -86,3 +86,17 @@ func TestOwnCustomEntryUntouched(t *testing.T) {
 		t.Error("must not delete the user's own entry")
 	}
 }
+
+func TestOnline(t *testing.T) {
+	for cats, want := range map[string]bool{
+		"Network;WebBrowser;":           true,
+		"GNOME;GTK;Email;":              true,
+		"Utility;":                      false,
+		"Network;X-Kali-05-sniff-spoof": false,
+		"":                              false,
+	} {
+		if got := online(cats); got != want {
+			t.Errorf("%q: got %v", cats, got)
+		}
+	}
+}
