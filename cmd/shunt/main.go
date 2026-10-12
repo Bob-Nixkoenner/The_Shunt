@@ -40,6 +40,11 @@ commands:
              (contacts api.ipify.org and Google DNS through each route)
   desktop list | set <app-id> <route> | unset <app-id>
              make an app's menu entry always start through a route
+  desktop clone <app-id> <route> --name NAME [--args ARGS]
+             extra menu entry, e.g. one per Firefox profile:
+             desktop clone firefox-esr tunnel:vps --name "Firefox SM" --args "--new-instance -P sm"
+  desktop profiles
+             list Firefox profiles
   version
 `
 
@@ -252,6 +257,22 @@ func desktopCmd(args []string) error {
 		}
 		fmt.Printf("%s now starts via %s from the menu\n", args[1], args[2])
 		return nil
+	case args[0] == "clone" && len(args) >= 3:
+		fs := flag.NewFlagSet("clone", flag.ExitOnError)
+		name := fs.String("name", "", "menu name of the new entry")
+		extra := fs.String("args", "", "extra arguments")
+		_ = fs.Parse(args[3:])
+		id, err := desktop.Clone(args[1], *name, *extra, args[2], self())
+		if err != nil {
+			return err
+		}
+		fmt.Printf("created menu entry %q (%s) via %s\n", *name, id, args[2])
+		return nil
+	case args[0] == "profiles":
+		for _, p := range desktop.FirefoxProfiles() {
+			fmt.Println(p)
+		}
+		return nil
 	case args[0] == "unset" && len(args) == 2:
 		if err := desktop.Unset(args[1]); err != nil {
 			return err
@@ -259,5 +280,5 @@ func desktopCmd(args []string) error {
 		fmt.Printf("%s restored to its original menu entry\n", args[1])
 		return nil
 	}
-	return fmt.Errorf("usage: shunt desktop list | set <app-id> <route> | unset <app-id>")
+	return fmt.Errorf("usage: shunt desktop list | set <app-id> <route> | unset <app-id> | clone <app-id> <route> --name N [--args A] | profiles")
 }

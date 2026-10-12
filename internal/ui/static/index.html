@@ -131,6 +131,20 @@ input.grow { flex: 1; min-width: 180px; }
   </section>
 
   <section>
+    <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0">extra menu entries, e.g. one per browser profile</span></h2>
+    <div id="ffprofiles"></div>
+    <table><tbody id="launchers"></tbody></table>
+    <div class="row" style="margin-top:12px">
+      <select id="lapp" title="app to start"></select>
+      <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
+      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm">
+      <select id="lroute"></select>
+      <button id="lcreate" class="primary">Create</button>
+    </div>
+    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave: <span class="mono">--user-data-dir=&lt;folder&gt;</span> (profiles inside one Brave share one process and therefore one route).</div>
+  </section>
+
+  <section>
     <h2>Menu apps <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
     <div class="apps"><table>
       <thead><tr><th>App</th><th>Starts via</th></tr></thead>
