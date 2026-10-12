@@ -245,10 +245,21 @@ check "status lists tunnel" yes "$(shunt status | grep -q '^vps .*up/' && echo y
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 
 echo "== kill switch: tunnel interface disappears"
-cli ip link del sh-vps 2>/dev/null || true
-check "tunnel route blocked, no leak" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+# The watchdog restores the tunnel every 30s; a result only counts if the
+# interface was still gone after the probe, otherwise delete and retry.
+while_down() { # name expected cmd...
+	local name=$1 want=$2 got
+	shift 2
+	for _ in 1 2 3; do
+		cli ip link del sh-vps 2>/dev/null || true
+		got=$("$@")
+		cli ip link show sh-vps >/dev/null 2>&1 || break
+	done
+	check "$name" "$want" "$got"
+}
+while_down "tunnel DNS fails closed" yes eval 'failed_closed "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)"'
+while_down "tunnel route blocked, no leak" "" fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL
 check "direct still works" 10.99.0.2 "$(fetch curl -s $URL)"
-check "tunnel DNS fails closed" yes "$(failed_closed "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)")"
 echo "   (waiting for the watchdog to restore the tunnel)"
 for _ in $(seq 45); do cli ip link show sh-vps >/dev/null 2>&1 && break; sleep 1; done
 sleep 2
