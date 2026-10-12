@@ -1,5 +1,10 @@
 name: release
+# Two ways to release:
+#  - publish a release in the GitHub UI (it creates the tag) -> assets are attached
+#  - push a v* tag -> a release with assets is created
 on:
+  release:
+    types: [published]
   push:
     tags: ["v*"]
 
@@ -15,12 +20,14 @@ jobs:
         with:
           go-version-file: go.mod
       - name: build
+        env:
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           mkdir dist
           for arch in amd64 arm64; do
             mkdir -p "build/$arch"
             CGO_ENABLED=0 GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -ldflags "-s -w -X main.version=$TAG" \
               -o "build/$arch/" ./cmd/shuntd ./cmd/shunt
             tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt
           done
@@ -28,4 +35,10 @@ jobs:
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "$GITHUB_REF_NAME"
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --generate-notes --title "$TAG"
+          fi
