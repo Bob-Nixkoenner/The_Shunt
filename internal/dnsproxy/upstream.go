@@ -9,6 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -135,13 +138,13 @@ func (u *dohUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error
 	return r, nil
 }
 
-// SystemUpstreams returns the resolvers the system used before Shunt, as
-// plain UDP upstreams. Loopback stubs are skipped: their own upstream
-// queries would be redirected back to us (loop). systemd-resolved's real
-// upstreams are read from its non-stub resolv.conf.
+// SystemUpstreams returns the system's resolvers as plain UDP upstreams.
+// Loopback stubs are skipped: their own upstream queries would be
+// redirected back to us (loop). If /etc/resolv.conf only points to the
+// systemd-resolved stub, resolved's real upstreams are used instead.
 func SystemUpstreams() []config.UpstreamSpec {
 	var out []config.UpstreamSpec
-	for _, f := range []string{"/run/systemd/resolve/resolv.conf", "/etc/resolv.conf"} {
+	for _, f := range resolvConfFiles {
 		cc, err := dns.ClientConfigFromFile(f)
 		if err != nil {
 			continue
@@ -158,4 +161,75 @@ func SystemUpstreams() []config.UpstreamSpec {
 		}
 	}
 	return nil
+}
+
+// SystemUpstream forwards to the system's resolvers and follows changes:
+// at boot shuntd may start before NetworkManager has written resolv.conf,
+// and laptops change networks (and resolvers) all the time.
+type SystemUpstream struct {
+	mark uint32
+
+	mu    sync.Mutex
+	stamp string
+	specs []config.UpstreamSpec
+	ups   []Upstream
+}
+
+// NewSystemUpstream creates a system resolver upstream using the given mark.
+func NewSystemUpstream(mark uint32) *SystemUpstream { return &SystemUpstream{mark: mark} }
+
+var resolvConfFiles = []string{"/etc/resolv.conf", "/run/systemd/resolve/resolv.conf"}
+
+func (s *SystemUpstream) current() ([]config.UpstreamSpec, []Upstream) {
+	var stamp strings.Builder
+	for _, f := range resolvConfFiles {
+		if st, err := os.Stat(f); err == nil {
+			fmt.Fprintf(&stamp, "%s:%d:%d;", f, st.ModTime().UnixNano(), st.Size())
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stamp.String() != s.stamp || len(s.ups) == 0 {
+		s.stamp = stamp.String()
+		s.specs = SystemUpstreams()
+		s.ups = s.ups[:0]
+		for _, sp := range s.specs {
+			s.ups = append(s.ups, NewUpstream(sp, s.mark))
+		}
+	}
+	return s.specs, s.ups
+}
+
+// Servers lists the resolvers currently in use.
+func (s *SystemUpstream) Servers() []config.UpstreamSpec {
+	specs, _ := s.current()
+	return specs
+}
+
+// Exchange implements Upstream, trying each system resolver in turn.
+func (s *SystemUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	_, ups := s.current()
+	if len(ups) == 0 {
+		return nil, fmt.Errorf("no system resolver (resolv.conf lists only loopback stubs or nothing)")
+	}
+	var err error
+	for _, u := range ups {
+		var r *dns.Msg
+		if r, err = u.Exchange(ctx, m); err == nil {
+			return r, nil
+		}
+	}
+	return nil, err
+}
+
+func (s *SystemUpstream) String() string {
+	specs, _ := s.current()
+	names := make([]string, len(specs))
+	for i, sp := range specs {
+		names[i] = sp.Proto + "://" + sp.Addr.String()
+	}
+	if len(names) == 0 {
+		return "system (none found yet)"
+	}
+	return "system (" + strings.Join(names, ", ") + ")"
 }

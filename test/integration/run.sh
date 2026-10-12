@@ -31,6 +31,7 @@ cleanup() {
 	ip netns exec $WAN pkill -f "^$BIN/wireguard-go" 2>/dev/null
 	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
 	ip netns del $CLI 2>/dev/null
+	rm -rf "/etc/netns/$CLI"
 	ip netns del $WAN 2>/dev/null
 	find "$CGMNT/$CG" -depth -type d -exec rmdir {} + 2>/dev/null
 	rm -rf "$WORK"
@@ -50,6 +51,9 @@ ip netns del $WAN 2>/dev/null || true
 ip netns del $CLI 2>/dev/null || true
 ip netns add $WAN
 ip netns add $CLI
+NETNS_RESOLV=/etc/netns/$CLI/resolv.conf
+mkdir -p "/etc/netns/$CLI"
+printf 'nameserver 10.99.0.1\n' >"$NETNS_RESOLV"
 ip -n $WAN link add wan0 type veth peer name cli0
 ip -n $WAN link set cli0 netns $CLI
 ip -n $WAN addr add 10.99.0.1/24 dev wan0
@@ -94,7 +98,9 @@ PersistentKeepalive = 5
 EOF
 chmod 600 "$WORK/etc/vps.conf"
 
-write_config() { # $1 = default route
+write_config() { # $1 = default route, $2 = "system" to use the system resolver
+	local direct='direct = "lan"'
+	[[ ${2:-} == system ]] && direct=''
 	cat >"$WORK/etc/shunt.toml" <<EOF
 [daemon]
 socket = "$SOCK"
@@ -102,7 +108,7 @@ cgroup_root = "$CG"
 default_route = "$1"
 
 [dns]
-direct = "lan"
+$direct
 
 [dns.upstream.lan]
 addr = "10.99.0.1"
@@ -235,6 +241,19 @@ check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" 
 check "handshake works (bypass mark)" yes "$(shunt status | grep -q ' ago ' && echo yes || echo no)"
 check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
+
+echo "== system resolver changes are picked up without restart"
+# `ip netns exec` bind-mounts this file over /etc/resolv.conf; rewrite it in
+# place (same inode) the way NetworkManager would change the content.
+write_config direct system
+printf 'nameserver 192.0.2.1\n' >"$NETNS_RESOLV"
+shunt reload
+check "unreachable system resolver fails closed" yes "$(failed_closed "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)")"
+printf 'nameserver 10.99.0.1\n' >"$NETNS_RESOLV"
+check "new system resolver used without restart" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
+check "status shows system resolver" yes "$(shunt status | grep -q 'system (udp://10.99.0.1:53)' && echo yes || echo no)"
+write_config tunnel:vps
+shunt reload
 
 echo "== panic"
 shunt panic on
