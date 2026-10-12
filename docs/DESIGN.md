@@ -1,6 +1,6 @@
 # Design: Shunt – Split-Tunneling & DNS-Router für WireGuard
 
-> **Status:** v0.5 – Phasen 1–2, Kern von Phase 3 implementiert (siehe §11–13) · **Lizenz (geplant):** Apache-2.0
+> **Status:** v0.6 – Phasen 1–3 (Kern) und Sicherheits-Review (Phase 6) umgesetzt (siehe §11–14) · **Lizenz (geplant):** Apache-2.0
 > Binaries: `shuntd` (Daemon), `shunt` (CLI). Repo: github.com/Bob-Nixkoenner/the_shunt
 
 ---
@@ -426,3 +426,20 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 - **Config-Bearbeitung über API/UI**: Formular-Editor (strukturiert, Kommentare gehen verloren – so angezeigt) und Raw-Editor (behält Kommentare). Jede Änderung durchläuft dieselbe Prüfung wie `shuntd check`, wird atomar geschrieben, `.bak` bleibt, bei Fehlschlag automatisches Zurückrollen. Sicherheitsgrenzen: `[daemon]` (Socket, Gruppe, cgroup) nur in der Datei änderbar; Tunnel-Dateien nur unter `/etc/shunt/tunnels` (die API kann den root-Daemon keine beliebigen Dateien lesen lassen); Import speichert mit 0600; Private Keys verlassen den Daemon nie. Wer im Socket-Gruppe ist, darf konfigurieren – feinere Rechte (polkit) folgen in Phase 6.
 
 **Noch offen aus Phase 3:** Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Captive-Portal-Modus, ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out).
+
+## 14. Sicherheits-Review (Phase 6)
+
+**Gefunden und behoben:**
+1. **App-Regeln wirkungslos im gehärteten Dienst** (schwer): ohne `CAP_SYS_PTRACE` ist `/proc/<pid>/exe` fremder Prozesse unlesbar; der Watcher hielt Desktop-Apps für Kernel-Threads. Fix ohne neue Capability (Kernel-Thread = leere Kommandozeile, `exe:` fällt auf absolutes argv[0] zurück). Der Integrationstest läuft seitdem mit exakt den Rechten der Unit und Apps als anderem User.
+2. **Ausbruch über die eigene API** (mittel): eine in den Tunnel gezwungene App konnte sich per `/v1/run` selbst auf `direct` setzen. Jetzt nur noch in dieselbe Route oder `block`, sonst polkit.
+3. **PID-Wiederverwendung beim Attach** (gering): Prozess wird über Startzeit vor und nach dem Verschieben verifiziert.
+4. **Zu breite Rechte der Socket-Gruppe** (mittel): Config, Reload, Tunnel, Panik-AUS brauchen jetzt root oder polkit (`org.theshunt.manage`, `auth_admin_keep`). Status, Starten, Panik-AN bleiben ohne Passwort.
+5. **Absturz im Netlink-Parser** (gering, vom Fuzzer gefunden): Slice-Grenze beim Alignment; behoben, Eingabe als Regressionstest.
+6. **DNS-Antworten mit Sonderadressen** in Domain-Sets (gering): `0.0.0.0`, Loopback, Link-Local, Multicast werden nie geroutet.
+7. **CI-Lücke**: `! befehl` wird von `set -e` ignoriert – negative Prüfungen in der CI hätten nie Alarm geschlagen. Korrigiert.
+
+**Gehärtet:** Capabilities auf `CAP_NET_ADMIN CAP_CHOWN` reduziert, `ProtectHome=yes`, `DevicePolicy=closed` (nur `/dev/net/tun`), `UMask=0077`, `PrivateIPC`, Header-/Idle-Timeouts und Body-Limits an der API, Panic-Recovery im DNS-Handler, Fuzzing der Parser in der CI, govulncheck in der CI, Build-Provenance (sigstore) für Releases.
+
+**Bewusst nicht behoben, dokumentiert (SECURITY.md):** App-Routing ist keine Sandbox (Ausbruch über `systemd-run --user`, D-Bus-Aktivierung, Browser-Handover); App-Regeln haben ein Startfenster; Domain-Regeln vertrauen dem DNS ihrer Route (Warnung bei Klartext-DNS auf `direct`).
+
+**Nicht geprüft in dieser Runde:** Seitenkanäle (Traffic-Analyse), Verhalten unter Last/DoS durch lokale Gruppenmitglieder, macOS/Windows/Android (gibt es noch nicht).
