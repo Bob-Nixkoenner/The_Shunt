@@ -44,6 +44,36 @@ ask() { # ask "question" default -> echoes answer
 }
 yes_no() { [[ $(ask "$1 (y/n)" "${2:-y}") =~ ^[yYjJ] ]]; }
 
+# Long steps run in the background with a spinner and elapsed time; their
+# output goes to a log that is shown when they fail.
+LOG=/var/log/shunt-install.log
+step() { # step "message" cmd...
+	local msg=$1 pid rc i=0 t0=$SECONDS spin='|/-\'
+	shift
+	echo "--- $msg: $*" >>"$LOG"
+	"$@" >>"$LOG" 2>&1 &
+	pid=$!
+	while kill -0 "$pid" 2>/dev/null; do
+		if [[ -t 1 ]]; then
+			local extra=''
+			if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! pgrep -P "$pid" -f 'apt|dpkg' >/dev/null && [[ $msg == *apt* || $msg == *packages* ]]; then
+				extra=' (waiting for another package manager to finish)'
+			fi
+			printf '\r  %s %s ... %ds%s ' "${spin:i++%4:1}" "$msg" $((SECONDS - t0)) "$extra"
+		fi
+		sleep 0.2
+	done
+	wait "$pid" && rc=0 || rc=$?
+	[[ -t 1 ]] && printf '\r\033[K'
+	if ((rc)); then
+		printf '  %s✘%s %s failed (exit %d). Last lines of %s:\n' "$c_red" "$c_off" "$msg" "$rc" "$LOG"
+		tail -n 25 "$LOG" | sed 's/^/    /'
+		exit "$rc"
+	fi
+	ok "$msg ($((SECONDS - t0))s)"
+}
+APT=(apt-get -o DPkg::Lock::Timeout=600 -y -q)
+
 SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
 MODE=install FROM_SOURCE=0 PURGE=0
 for a in "$@"; do
@@ -102,27 +132,29 @@ else
 fi
 
 say "Installing dependencies"
+: >"$LOG"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq nftables wireguard-tools curl ca-certificates >/dev/null
-ok "nftables, wireguard-tools"
+step "updating package lists (apt)" "${APT[@]}" update
+step "installing nftables, wireguard-tools (apt)" "${APT[@]}" install nftables wireguard-tools curl ca-certificates psmisc
 
 # ---------------------------------------------------------------- binaries
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 build_from() { # source dir
-	if ! command -v go >/dev/null; then
-		apt-get install -y -qq golang-go git >/dev/null
+	if ! command -v go >/dev/null || ! command -v git >/dev/null; then
+		step "installing Go and git (apt)" "${APT[@]}" install golang-go git
 	fi
 	local gov
 	gov=$(go env GOVERSION | sed 's/^go//')
 	IFS=. read -r gmaj gmin _ <<<"$gov"
 	((gmaj > 1 || gmin >= 21)) || die "Go $gov is too old to fetch the required toolchain; install Go >= 1.21"
-	say "Building from source (Go downloads the toolchain it needs, takes a minute)"
-	(cd "$1" && GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
-		go build -ldflags "-s -w -X main.version=src-$(git -C "$1" rev-parse --short HEAD 2>/dev/null || echo local)" \
-		-o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt)
+	say "Building from source"
+	local ver
+	ver=src-$(git -C "$1" rev-parse --short HEAD 2>/dev/null || echo local)
+	step "downloading Go toolchain and modules" env -C "$1" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" go mod download
+	step "compiling shuntd and shunt" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
+		go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt
 }
 
 if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
@@ -143,11 +175,11 @@ else
 		mkdir -p "$WORK/bin" && tar -xzf "$WORK/shunt.tar.gz" -C "$WORK/bin"
 		ok "checksum verified"
 	else
-		command -v git >/dev/null || apt-get install -y -qq git >/dev/null
-		say "No release found, fetching source ($REF)"
+		command -v git >/dev/null || step "installing git (apt)" "${APT[@]}" install git
+		say "No release yet, building from source ($REF)"
 		branch_opt=()
 		[[ $REF == HEAD ]] || branch_opt=(--branch "$REF")
-		git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
+		step "downloading source" git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
 		build_from "$WORK/src"
 		SRC_DIR=$WORK/src
 	fi
@@ -261,7 +293,7 @@ install -m644 "$(unit_src shunt-lockdown.service)" "$LOCKDOWN_UNIT"
 systemctl daemon-reload
 systemctl enable -q shuntd.service
 systemctl restart shuntd.service
-for _ in $(seq 50); do [[ -S /run/shunt/shuntd.sock ]] && break; sleep 0.2; done
+step "waiting for shuntd" bash -c 'for _ in $(seq 50); do [[ -S /run/shunt/shuntd.sock ]] && exit 0; sleep 0.2; done; exit 1' || true
 if ! systemctl is-active -q shuntd.service; then
 	journalctl -u shuntd -n 30 --no-pager
 	die "shuntd did not start. Emergency exit: sudo shuntd cleanup"
