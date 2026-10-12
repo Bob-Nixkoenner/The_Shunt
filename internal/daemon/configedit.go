@@ -65,8 +65,8 @@ func (d *Daemon) checkCandidate(raw []byte) (*Prepared, error) {
 		oldPaths[d.absConf(t.Config)] = true
 	}
 	d.mu.Unlock()
-	if c.Daemon.Socket != cur.Socket || c.Daemon.SocketGroup != cur.SocketGroup || c.Daemon.CgroupRoot != cur.CgroupRoot {
-		return nil, errors.New("the [daemon] socket/socket_group/cgroup_root settings can only be changed in the file itself")
+	if c.Daemon.Socket != cur.Socket || c.Daemon.SocketGroup != cur.SocketGroup || c.Daemon.CgroupRoot != cur.CgroupRoot || c.Daemon.APIAuth != cur.APIAuth {
+		return nil, errors.New("the [daemon] socket/socket_group/cgroup_root/api_auth settings can only be changed in the file itself")
 	}
 	for name, t := range c.Tunnels {
 		p := d.absConf(t.Config)

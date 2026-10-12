@@ -19,6 +19,7 @@ BIN_DIR=/usr/local/bin
 ETC=/etc/shunt
 UNIT=/etc/systemd/system/shuntd.service
 LOCKDOWN_UNIT=/etc/systemd/system/shunt-lockdown.service
+POLKIT_POLICY=/usr/share/polkit-1/actions/org.theshunt.policy
 
 # ---------------------------------------------------------------- helpers
 c_red=$'\e[31m' c_grn=$'\e[32m' c_yel=$'\e[33m' c_bld=$'\e[1m' c_off=$'\e[0m'
@@ -99,7 +100,7 @@ if [[ $MODE == uninstall ]]; then
 		"$BIN_DIR/shuntd" cleanup && ok "rules, routes and kill switches removed"
 		[[ -f /etc/nsswitch.conf.shunt-backup ]] && "$BIN_DIR/shuntd" restore-nsswitch && ok "nsswitch.conf restored"
 	fi
-	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$BIN_DIR/shuntd" "$BIN_DIR/shunt"
+	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt"
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
 	systemctl daemon-reload
 	if ((PURGE)); then
@@ -137,6 +138,14 @@ say "Installing dependencies"
 export DEBIAN_FRONTEND=noninteractive
 step "updating package lists (apt)" "${APT[@]}" update
 step "installing nftables, wireguard-tools (apt)" "${APT[@]}" install nftables wireguard-tools curl ca-certificates psmisc
+# polkit: config changes from the CLI/UI ask for the admin password
+if apt-cache show polkitd >/dev/null 2>&1; then
+	step "installing polkit (apt)" "${APT[@]}" install polkitd
+elif apt-cache show policykit-1 >/dev/null 2>&1; then
+	step "installing polkit (apt)" "${APT[@]}" install policykit-1
+else
+	warn "polkit not available: config changes will need sudo"
+fi
 
 # ---------------------------------------------------------------- binaries
 WORK=$(mktemp -d)
@@ -293,6 +302,12 @@ ok "configuration valid"
 say "Starting the service"
 install -m644 "$(unit_src shuntd.service)" "$UNIT"
 install -m644 "$(unit_src shunt-lockdown.service)" "$LOCKDOWN_UNIT"
+if [[ -f $SRC_DIR/packaging/polkit/org.theshunt.policy ]]; then
+	install -D -m644 "$SRC_DIR/packaging/polkit/org.theshunt.policy" "$POLKIT_POLICY"
+else
+	curl -fsSLo "$WORK/org.theshunt.policy" "https://raw.githubusercontent.com/$REPO/$REF/packaging/polkit/org.theshunt.policy"
+	install -D -m644 "$WORK/org.theshunt.policy" "$POLKIT_POLICY"
+fi
 systemctl daemon-reload
 systemctl enable -q shuntd.service
 systemctl restart shuntd.service
@@ -313,6 +328,9 @@ ${c_bld}Done.${c_off} Quick reference:
   shunt panic on | off               cut everything / restore
   sudo nano $ETC/shunt.toml && shunt reload
   journalctl -u shuntd -f            logs
+
+Changing the config, reloading or lifting panic asks for your admin password
+(polkit); status, starting apps and PANIC never do.
 
 ${c_yel}Stopping shuntd keeps the kill switch active (on purpose).${c_off}
 Emergency exit:  sudo shuntd cleanup
