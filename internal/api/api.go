@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -117,7 +119,11 @@ func NewClient(socket string) *Client {
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				var d net.Dialer
-				return d.DialContext(ctx, "unix", socket)
+				c, err := d.DialContext(ctx, "unix", socket)
+				if errors.Is(err, syscall.EACCES) {
+					return nil, fmt.Errorf("no access to %s: log out and in again (new 'shunt' group membership), or use sudo", socket)
+				}
+				return c, err
 			},
 			// The PID is read from the connection, so it must be ours.
 			DisableKeepAlives: true,
