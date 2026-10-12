@@ -55,6 +55,9 @@ jobs:
           sudo shunt status
           getent hosts github.com                                   # DNS through the proxy
           sudo shunt run --via direct -- curl -fsS -o /dev/null https://github.com
+          # as an unprivileged member of group shunt (no sudo for the CLI itself)
+          sudo -u runner -g shunt shunt run --via direct -- curl -fsS -o /dev/null https://github.com
+          sudo -u runner -g shunt shunt status | grep -q 'via:direct'
           ! sudo shunt run --via tunnel:test-vpn -- curl -fsS -m 5 -o /dev/null https://github.com   # tunnel has no peer: must fail closed
           sudo systemctl restart shuntd && sleep 2 && systemctl is-active shuntd
           sudo journalctl -u shuntd --no-pager | tail -30
