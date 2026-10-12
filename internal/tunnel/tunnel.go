@@ -179,6 +179,10 @@ type PeerStatus struct {
 	LastHandshake time.Time `json:"last_handshake"`
 	RxBytes       int64     `json:"rx_bytes"`
 	TxBytes       int64     `json:"tx_bytes"`
+	// KeepaliveSec > 0: the peer is pinged regularly, so a handshake older
+	// than ~2 minutes really means "no connection". Without keepalive an
+	// idle tunnel simply has no recent handshake.
+	KeepaliveSec int `json:"keepalive_sec,omitempty"`
 }
 
 // Status reads peer state through wgctrl.
@@ -189,7 +193,7 @@ func (t *Tunnel) Status() ([]PeerStatus, error) {
 	}
 	var out []PeerStatus
 	for _, p := range d.Peers {
-		ps := PeerStatus{PublicKey: p.PublicKey.String(), LastHandshake: p.LastHandshakeTime, RxBytes: p.ReceiveBytes, TxBytes: p.TransmitBytes}
+		ps := PeerStatus{PublicKey: p.PublicKey.String(), LastHandshake: p.LastHandshakeTime, RxBytes: p.ReceiveBytes, TxBytes: p.TransmitBytes, KeepaliveSec: int(p.PersistentKeepaliveInterval.Seconds())}
 		if p.Endpoint != nil {
 			ps.Endpoint = p.Endpoint.String()
 		}

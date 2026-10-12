@@ -20,6 +20,11 @@ ETC=/etc/shunt
 UNIT=/etc/systemd/system/shuntd.service
 LOCKDOWN_UNIT=/etc/systemd/system/shunt-lockdown.service
 POLKIT_POLICY=/usr/share/polkit-1/actions/org.theshunt.policy
+DESKTOP_ENTRY=/usr/share/applications/the-shunt.desktop
+DESKTOP_ICON=/usr/share/icons/hicolor/scalable/apps/the-shunt.svg
+GRAPHICAL=0
+[[ -d /usr/share/xsessions || -d /usr/share/wayland-sessions ]] && GRAPHICAL=1
+user_home() { getent passwd "$1" | cut -d: -f6; }
 
 # ---------------------------------------------------------------- helpers
 c_red=$'\e[31m' c_grn=$'\e[32m' c_yel=$'\e[33m' c_bld=$'\e[1m' c_off=$'\e[0m'
@@ -100,7 +105,9 @@ if [[ $MODE == uninstall ]]; then
 		"$BIN_DIR/shuntd" cleanup && ok "rules, routes and kill switches removed"
 		[[ -f /etc/nsswitch.conf.shunt-backup ]] && "$BIN_DIR/shuntd" restore-nsswitch && ok "nsswitch.conf restored"
 	fi
-	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt"
+	pkill -x shunt-desktop 2>/dev/null || true
+	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt" "$BIN_DIR/shunt-desktop" "$DESKTOP_ENTRY" "$DESKTOP_ICON"
+	if [[ -n ${SUDO_USER:-} ]]; then rm -f "$(user_home "$SUDO_USER")/.config/autostart/the-shunt.desktop"; fi
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
 	systemctl daemon-reload
 	if ((PURGE)); then
@@ -147,6 +154,13 @@ else
 	warn "polkit not available: config changes will need sudo"
 fi
 
+# ---------------------------------------------------------------- desktop app?
+WANT_DESKTOP=0
+if ((GRAPHICAL)) && yes_no "Install the desktop app (tray icon, window, notifications)?" y; then
+	WANT_DESKTOP=1
+	step "installing desktop app libraries (apt)" "${APT[@]}" install libwebkit2gtk-4.1-0 libgtk-3-0
+fi
+
 # ---------------------------------------------------------------- binaries
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -165,6 +179,11 @@ build_from() { # source dir
 	step "downloading Go toolchain and modules" env -C "$1" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" go mod download
 	step "compiling shuntd and shunt" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
 		go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt
+	if ((WANT_DESKTOP)); then
+		step "installing build tools for the desktop app (apt)" "${APT[@]}" install gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+		step "compiling shunt-desktop" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=1 \
+			go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shunt-desktop
+	fi
 }
 
 if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
@@ -184,6 +203,16 @@ else
 			die "checksum mismatch - download corrupted or tampered with"
 		mkdir -p "$WORK/bin" && tar -xzf "$WORK/shunt.tar.gz" -C "$WORK/bin"
 		ok "checksum verified"
+		if ((WANT_DESKTOP)); then
+			if curl -fsSLo "$WORK/desktop.tar.gz" "$base/shunt-desktop_linux_$ARCH.tar.gz"; then
+				(cd "$WORK" && grep " shunt-desktop_linux_$ARCH.tar.gz\$" SHA256SUMS | sed "s/shunt-desktop_linux_$ARCH.tar.gz/desktop.tar.gz/" | sha256sum -c --quiet) ||
+					die "checksum mismatch (desktop app)"
+				tar -xzf "$WORK/desktop.tar.gz" -C "$WORK/bin"
+			else
+				warn "no prebuilt desktop app for $ARCH in this release - skipping it (build from source with --from-source)"
+				WANT_DESKTOP=0
+			fi
+		fi
 	else
 		command -v git >/dev/null || step "installing git (apt)" "${APT[@]}" install git
 		say "No release yet, building from source ($REF)"
@@ -195,6 +224,9 @@ else
 	fi
 fi
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
+if ((WANT_DESKTOP)) && [[ -f $WORK/bin/shunt-desktop ]]; then
+	install -m755 "$WORK/bin/shunt-desktop" "$BIN_DIR/"
+fi
 # sudo's secure_path does not include /usr/local/bin everywhere (Kali)
 ln -sf "$BIN_DIR/shuntd" /usr/sbin/shuntd
 ok "installed $("$BIN_DIR/shuntd" version) to $BIN_DIR"
@@ -302,6 +334,22 @@ ok "configuration valid"
 say "Starting the service"
 install -m644 "$(unit_src shuntd.service)" "$UNIT"
 install -m644 "$(unit_src shunt-lockdown.service)" "$LOCKDOWN_UNIT"
+if [[ -x $BIN_DIR/shunt-desktop ]]; then
+	for f in the-shunt.desktop the-shunt.svg; do
+		if [[ -f $SRC_DIR/packaging/desktop/$f ]]; then cp "$SRC_DIR/packaging/desktop/$f" "$WORK/$f"; else
+			curl -fsSLo "$WORK/$f" "https://raw.githubusercontent.com/$REPO/$REF/packaging/desktop/$f"; fi
+	done
+	install -D -m644 "$WORK/the-shunt.desktop" "$DESKTOP_ENTRY"
+	install -D -m644 "$WORK/the-shunt.svg" "$DESKTOP_ICON"
+	gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+	if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && yes_no "Show the tray icon automatically after login?" y; then
+		h=$(user_home "$SUDO_USER")
+		install -d -o "$SUDO_USER" -g "$(id -gn "$SUDO_USER")" "$h/.config" "$h/.config/autostart"
+		printf '[Desktop Entry]\nType=Application\nName=The Shunt (tray)\nExec=%s/shunt-desktop --hidden\nIcon=the-shunt\nTerminal=false\nX-GNOME-Autostart-enabled=true\n' "$BIN_DIR" >"$h/.config/autostart/the-shunt.desktop"
+		chown "$SUDO_USER:" "$h/.config/autostart/the-shunt.desktop"
+	fi
+	ok "desktop app installed: menu entry \"The Shunt\""
+fi
 if [[ -f $SRC_DIR/packaging/polkit/org.theshunt.policy ]]; then
 	install -D -m644 "$SRC_DIR/packaging/polkit/org.theshunt.policy" "$POLKIT_POLICY"
 else
@@ -323,6 +371,7 @@ echo
 cat <<EOF
 
 ${c_bld}Done.${c_off} Quick reference:
+  The Shunt in the application menu      desktop app (tray icon + window)
   ${rule_hint:-shunt run --via tunnel:<name> -- firefox}   start an app through a tunnel
   shunt status                       what is going on
   shunt panic on | off               cut everything / restore
