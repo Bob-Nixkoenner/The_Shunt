@@ -231,6 +231,11 @@ cli ip link del sh-vps 2>/dev/null || true
 check "tunnel route blocked, no leak" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
 check "direct still works" 10.99.0.2 "$(fetch curl -s $URL)"
 check "tunnel DNS fails closed" yes "$(failed_closed "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)")"
+echo "   (waiting for the watchdog to restore the tunnel)"
+for _ in $(seq 45); do cli ip link show sh-vps >/dev/null 2>&1 && break; sleep 1; done
+sleep 2
+check "watchdog restored tunnel carries traffic" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "restored tunnel resolves DNS" "tunnel 10.66.0.2" "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)"
 
 echo "== reload: default route = tunnel"
 write_config tunnel:vps
