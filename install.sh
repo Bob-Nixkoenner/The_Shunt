@@ -201,10 +201,19 @@ if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 else
 	tag=
 	if ((!FROM_SOURCE)); then
-		# newest release (pre-releases included) whose build has finished
-		for t in $(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=5" 2>/dev/null |
-			sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
-			if curl -fsSLI -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
+		say "Looking for a release"
+		# The newest release (pre-releases included) whose build has
+		# finished - but only if it is the current code: an older release
+		# would miss features this installer expects. Otherwise build.
+		api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
+		sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
+		head_sha=$(sha "$REF") || true
+		for t in $(api "releases?per_page=5" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
+			if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
+				ok "release $t is not the current code (or GitHub did not answer) - building from source"
+				break
+			fi
+			if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
 				tag=$t
 				break
 			fi
