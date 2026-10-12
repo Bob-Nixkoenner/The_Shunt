@@ -191,8 +191,14 @@ if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 else
 	tag=
 	if ((!FROM_SOURCE)); then
-		tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null |
-			sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1) || true
+		# newest release (pre-releases included) whose build has finished
+		for t in $(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=5" 2>/dev/null |
+			sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
+			if curl -fsSLI -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
+				tag=$t
+				break
+			fi
+		done
 	fi
 	if [[ -n $tag ]]; then
 		say "Downloading release $tag"
