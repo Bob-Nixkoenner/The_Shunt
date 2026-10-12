@@ -28,7 +28,10 @@ type Entry struct {
 	Exec  string `json:"exec"`
 	Icon  string `json:"icon,omitempty"`
 	Route string `json:"route,omitempty"` // set when Shunt manages the entry
-	path  string
+	// Online: the app's categories say it talks to the network (browser,
+	// mail, chat, P2P...). Used to keep long menus (Kali!) manageable.
+	Online bool `json:"online"`
+	path   string
 }
 
 // Dirs returns the application directories in XDG precedence order (the
@@ -71,7 +74,7 @@ func List() ([]Entry, error) {
 			if err != nil || kv["Type"] != "Application" || kv["NoDisplay"] == "true" || kv["Hidden"] == "true" || kv["Exec"] == "" {
 				continue
 			}
-			out = append(out, Entry{ID: id, Name: kv["Name"], Exec: kv["Exec"], Icon: kv["Icon"], Route: kv[MarkerKey], path: f})
+			out = append(out, Entry{ID: id, Name: kv["Name"], Exec: kv["Exec"], Icon: kv["Icon"], Route: kv[MarkerKey], Online: online(kv["Categories"]), path: f})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
@@ -195,4 +198,23 @@ func Unset(id string) error {
 		return fmt.Errorf("%s was not made by Shunt, not removing it", f)
 	}
 	return os.Remove(f)
+}
+
+// onlineCategories are freedesktop categories of apps that use the network.
+var onlineCategories = map[string]bool{
+	"Network": true, "WebBrowser": true, "Email": true, "Chat": true,
+	"InstantMessaging": true, "IRCClient": true, "P2P": true, "FileTransfer": true,
+	"News": true, "Feed": true, "VideoConference": true, "Telephony": true,
+	"RemoteAccess": true, "Game": true,
+}
+
+func online(categories string) bool {
+	for _, c := range strings.Split(categories, ";") {
+		if onlineCategories[strings.TrimSpace(c)] {
+			// Kali files its tools under X-Kali-* plus sometimes Network;
+			// those are not apps one routes day to day.
+			return !strings.Contains(categories, "X-Kali")
+		}
+	}
+	return false
 }
