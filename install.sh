@@ -100,6 +100,7 @@ if [[ $MODE == uninstall ]]; then
 		[[ -f /etc/nsswitch.conf.shunt-backup ]] && "$BIN_DIR/shuntd" restore-nsswitch && ok "nsswitch.conf restored"
 	fi
 	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$BIN_DIR/shuntd" "$BIN_DIR/shunt"
+	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
 	systemctl daemon-reload
 	if ((PURGE)); then
 		rm -rf "$ETC" && ok "removed $ETC (including your tunnel keys)"
@@ -185,6 +186,8 @@ else
 	fi
 fi
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
+# sudo's secure_path does not include /usr/local/bin everywhere (Kali)
+ln -sf "$BIN_DIR/shuntd" /usr/sbin/shuntd
 ok "installed $("$BIN_DIR/shuntd" version) to $BIN_DIR"
 
 unit_src() { # file name -> path of packaged unit (or download)
