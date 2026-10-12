@@ -137,7 +137,7 @@ func (w *Watcher) check(pid int) {
 		return
 	}
 	info, err := readProc(w.proc(), pid)
-	if err != nil || info.exe == "" { // gone, or a kernel thread
+	if err != nil || info.argv0 == "" { // gone, or a kernel thread (empty cmdline)
 		return
 	}
 	if skip != "" && (info.cgroup == skip || strings.HasPrefix(info.cgroup, skip+"/")) {
@@ -162,7 +162,8 @@ func (w *Watcher) check(pid int) {
 
 type procInfo struct {
 	comm   string
-	exe    string
+	exe    string // empty if unreadable (other user's process, see readProc)
+	argv0  string
 	cgroup string // v2 path without leading slash
 }
 
@@ -174,8 +175,19 @@ func readProc(proc string, pid int) (procInfo, error) {
 		return p, err
 	}
 	p.comm = strings.TrimSpace(string(b))
+	if b, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+		p.argv0, _, _ = strings.Cut(string(b), "\x00")
+	}
+	// Reading /proc/<pid>/exe of another user's process needs CAP_SYS_PTRACE,
+	// which shuntd deliberately does not have (a compromised daemon could
+	// inject into any process). Without it, fall back to an absolute argv[0].
+	// argv[0] can be chosen by the program itself, so it only helps a
+	// program route itself, which it could do anyway.
 	p.exe, _ = os.Readlink(filepath.Join(dir, "exe"))
 	p.exe = strings.TrimSuffix(p.exe, " (deleted)")
+	if p.exe == "" && strings.HasPrefix(p.argv0, "/") {
+		p.exe = p.argv0
+	}
 	b, err = os.ReadFile(filepath.Join(dir, "cgroup"))
 	if err != nil {
 		return p, err
@@ -201,7 +213,7 @@ func matchAny(sels []config.AppSel, p procInfo) bool {
 			if len(n) > 15 {
 				n = n[:15]
 			}
-			if p.comm == n || filepath.Base(p.exe) == s.Value {
+			if p.comm == n || (p.exe != "" && filepath.Base(p.exe) == s.Value) || filepath.Base(p.argv0) == s.Value {
 				return true
 			}
 		case "flatpak":

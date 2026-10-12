@@ -13,6 +13,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d)
+chmod 755 "$WORK" # test apps run as nobody
 BIN=$WORK/bin
 CG=shunt-it
 SOCK=$WORK/shuntd.sock
@@ -171,7 +172,10 @@ check() { # name expected actual
 start_shuntd() {
 	# shuntd and the nft binary it calls must see cgroup2 at /sys/fs/cgroup
 	# no shell function here: $! must be shuntd itself (exec chain), not a subshell
+	# same capabilities as the systemd unit: nothing but CAP_NET_ADMIN and
+	# CAP_CHOWN (no CAP_SYS_PTRACE, no CAP_DAC_OVERRIDE, ...)
 	ip netns exec $CLI unshare -m sh -c 'mount -t cgroup2 none /sys/fs/cgroup && exec "$@"' _ \
+		setpriv --bounding-set=-all,+net_admin,+chown --inh-caps=-all \
 		"$BIN/shuntd" -c "$WORK/etc/shunt.toml" run 2>"$WORK/shuntd.log" &
 	SHUNTD_PID=$!
 	for _ in $(seq 50); do [[ -S $SOCK ]] && return; sleep 0.1; done
@@ -223,12 +227,14 @@ check "wg-quick PostUp ignored" no "$([[ -e /tmp/pwned ]] && echo yes || echo no
 echo "== app rules (auto-detected, no shunt run)"
 printf '#!/bin/sh\nsleep 1\nexec curl -s "$1"\n' >"$BIN/apptest"
 chmod +x "$BIN/apptest"
-check "app rule moves a normally started program" 10.66.0.2 "$(fetch "$BIN/apptest" $URL)"
+# apps run as another user, like desktop apps vs. the root daemon
+NOBODY=(setpriv --reuid=65534 --regid=65534 --clear-groups)
+check "app rule moves a normally started program" 10.66.0.2 "$(fetch "${NOBODY[@]}" "$BIN/apptest" $URL)"
 check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
 printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
 chmod +x "$BIN/proftest"
-check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "$BIN/proftest" -P sm $URL)"
-check "args rule: other profile untouched" 10.99.0.2 "$(fetch "$BIN/proftest" -P smart $URL)"
+check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P sm $URL)"
+check "args rule: other profile untouched" 10.99.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
 check "status shows app group" yes "$(shunt status | grep -q '^app:apptest auto-detected' && echo yes || echo no)"
 
 echo "== DNS"

@@ -42,6 +42,9 @@ func TestMatch(t *testing.T) {
 	ff := procInfo{comm: "firefox-esr", exe: "/usr/lib/firefox-esr/firefox-esr", cgroup: "user.slice/user-1000.slice/user@1000.service/app.slice/app-firefox.scope"}
 	qb := procInfo{comm: "qbittorrent", exe: "/app/bin/qbittorrent", cgroup: "user.slice/user-1000.slice/user@1000.service/app.slice/app-flatpak-org.qbittorrent.qBittorrent-1234.scope"}
 	long := procInfo{comm: "verylongprogram", exe: "/opt/verylongprogramname"}
+	// other user's process: exe unreadable without CAP_SYS_PTRACE
+	other := procInfo{comm: "thunderbird", argv0: "/usr/lib/thunderbird/thunderbird"}
+	other.exe = other.argv0 // what readProc derives
 	for _, c := range []struct {
 		sel  string
 		p    procInfo
@@ -53,6 +56,8 @@ func TestMatch(t *testing.T) {
 		{"flatpak:org.qbittorrent.qBittorrent", qb, true},
 		{"flatpak:org.qbittorrent", qb, false},
 		{"verylongprogramname", long, true}, // via exe basename
+		{"thunderbird", other, true},
+		{"exe:/usr/lib/thunderbird/thunderbird", other, true},
 	} {
 		if got := matchAny(sel(c.sel), c.p); got != c.want {
 			t.Errorf("%s vs %s: got %v", c.sel, c.p.comm, got)
@@ -72,6 +77,7 @@ func TestCheckSkipsPlacedProcesses(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(d, "comm"), []byte(comm+"\n"), 0o644)
 		_ = os.WriteFile(filepath.Join(d, "cgroup"), []byte("0::/"+cg+"\n"), 0o644)
 		_ = os.Symlink("/usr/bin/"+comm, filepath.Join(d, "exe"))
+		_ = os.WriteFile(filepath.Join(d, "cmdline"), []byte(comm+"\x00"), 0o644)
 	}
 	mk(10, "curl", "user.slice/x.scope")
 	mk(11, "curl", "shunt/apps/via/direct") // started with shunt run: keep
