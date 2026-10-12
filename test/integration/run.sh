@@ -126,6 +126,7 @@ addr = "10.99.0.1"
 [tunnel.vps]
 config = "vps.conf"
 driver = "${SHUNT_DRIVER:-auto}"
+${VPS_EXTRA:-}
 ${EXTRA_TUNNELS:-}
 
 [[rule]]
@@ -401,6 +402,7 @@ got=
 for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL); [[ $got == 10.77.0.2 ]] && break; sleep 0.5; done
 check "second hop carries traffic" 10.77.0.2 "$got"
 check "second hop arrives through the first tunnel" yes "$(ip netns exec $WAN wg show wgh endpoints | grep -q '10.66.0.2:' && echo yes || echo "no: $(ip netns exec $WAN wg show wgh endpoints)")"
+check "second hop MTU lowered" yes "$(cli ip link show sh-hop | grep -q 'mtu 1340' && echo yes || echo no)"
 check "status shows the hop" yes "$(shunt status --json | grep -q '"via": *"tunnel:vps"' && echo yes || echo no)"
 while_down "first hop down blocks the second, no leak" "" fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:hop -- curl -s $URL
 check "tunnel used as hop cannot be deleted" 422 "$(capi DELETE /v1/tunnels/vps)"
@@ -479,6 +481,36 @@ check "known gateway again: profile back" yes "$(shunt status | grep -q 'network
 EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
+
+echo "== editor conflicts, DNS health, restart"
+capi GET /v1/config >/dev/null
+ver=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$WORK/api.out")
+echo "# changed by hand" >>"$WORK/etc/shunt.toml"
+stale=$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(json.dumps({"config": v["config"], "version": v["version"]}))' "$WORK/api.out")
+check "save based on an old version refused" 409 "$(capi PUT /v1/config "$stale")"
+check "hand edit kept" yes "$(grep -q 'changed by hand' "$WORK/etc/shunt.toml" && echo yes || echo no)"
+EXTRA_TUNNELS=$'[dns.upstream.bad]\naddr = "192.0.2.1"\n'
+VPS_EXTRA='dns = "bad"'
+write_config tunnel:vps
+shunt reload
+for _ in $(seq 8); do dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test >/dev/null; sleep 2.5; done
+check "unreachable tunnel DNS reported" yes "$(shunt status --json | grep -q '"tunnel:vps": "udp://192.0.2.1:53' && echo yes || echo "no: $(shunt status --json | grep -A2 dns_failing)")"
+check "status warns about it" yes "$(shunt status | grep -q 'WARNING: *DNS for tunnel:vps fails' && echo yes || echo no)"
+EXTRA_TUNNELS=
+VPS_EXTRA=
+write_config tunnel:vps
+shunt reload
+dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test >/dev/null
+check "DNS recovery clears the report" no "$(shunt status --json | grep -q dns_failing && echo yes || echo no)"
+check "member: restart needs authorization" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" restart >/dev/null 2>&1 && echo allowed || echo denied)"
+shunt restart >/dev/null
+rc=0; wait "$SHUNTD_PID" || rc=$?; SHUNTD_PID=
+check "restart exits with 75 for systemd" 75 "$rc"
+check "kill switch kept during restart" "" "$(fetch curl -s $URL)"
+start_shuntd
+for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+got=; for _ in $(seq 20); do got=$(fetch curl -s $URL); [[ $got == 10.66.0.2 ]] && break; sleep 0.5; done
+check "back after restart" 10.66.0.2 "$got"
 
 echo "== panic"
 shunt panic on

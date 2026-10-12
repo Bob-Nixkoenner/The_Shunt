@@ -1,11 +1,12 @@
 # The Shunt
 
-**Per-app and per-destination split tunneling for WireGuard on Linux.**
+**Per-app and per-destination split tunneling for WireGuard and OpenVPN on Linux.**
 Decide which traffic takes which tunnel – by application, IP range or port – with a
 kill switch that holds even when the daemon crashes. Open source (Apache-2.0),
-no telemetry, no accounts, bring your own WireGuard servers.
+no telemetry, no accounts, bring your own WireGuard or OpenVPN servers – chained
+into multi-hop if you like.
 
-> 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard unter Linux – fail-closed,
+> 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard und OpenVPN unter Linux – fail-closed,
 > ohne Telemetrie. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md)*
 
 > ⚠️ **Status: early.** Tested end-to-end in CI (including a real install on a
@@ -23,6 +24,9 @@ $ shunt status
 $ shunt desktop set firefox-esr tunnel:vps   # menu entry always starts through the VPS
 $ shunt leaktest                             # public IP + DNS resolver per route
 $ shunt panic on                             # drop everything, now
+$ sudo shunt import /etc/wireguard/home.conf # add a tunnel (.conf or .ovpn)
+$ shunt import nl.ovpn --via tunnel:home     # OpenVPN inside WireGuard (multi-hop)
+$ shunt captive                              # hotel Wi-Fi login past the tunnels
 ```
 
 ## Install (Debian, Ubuntu, Pop!_OS, Kali)
@@ -40,7 +44,21 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
 
 ## What works
 
-- Several WireGuard tunnels at once, each in its own routing table
+- Several WireGuard and **OpenVPN** tunnels at once, each in its own routing table
+  (OpenVPN: `.ovpn` with username/password or certificates; scripts, plugins and
+  other root-level options in the file are refused, pushed routes are ignored,
+  pushed DNS servers are used for that route)
+- **Multi-hop**: `via = "tunnel:home"` sends a tunnel's encrypted packets through
+  another tunnel – WireGuard in WireGuard, OpenVPN in WireGuard, or the other way
+  round. The first hop sees only the second hop's server, the second hop's server
+  only the first hop's exit. First hop down → second hop blocked, nothing goes
+  direct. The inner MTU is lowered automatically
+- **Network profiles**: `[[network]]` per Wi-Fi name and router MAC – e.g. at home
+  everything direct, everywhere else through the tunnel
+- **Hotel/train Wi-Fi**: `shunt captive` (or the tray) opens a throwaway browser that
+  goes direct for the login page
+- Installer option: own MAC address per Wi-Fi, no host name in DHCP, IPv6 privacy
+  addresses (NetworkManager)
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;
@@ -54,7 +72,8 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
 - **Menu entries** through a route (`shunt desktop`), race free, per user, reversible
 - **Desktop app** (*The Shunt* in the application menu): tray icon that is green when
   you are protected, yellow when a tunnel has no connection (its apps are blocked),
-  red on panic or when the service is gone; desktop notifications on every change;
+  red on panic or when the service is gone, yellow too when a route's DNS server
+  does not answer; desktop notifications on every change; restart buttons;
   PANIC in the tray menu; the UI in its own window; start at login
 - **Web UI** (`shunt ui`): tunnel health, apps per route, app launcher, menu entries,
   leak test, panic button – local only, token-protected, no external resources
@@ -74,6 +93,26 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
 - wg-quick files are imported; `PostUp` & co. are **ignored** (no root shell
   hooks from config files you got from somewhere)
 - Unprivileged CLI talking JSON over a Unix socket; GUIs can plug in the same way
+
+## Multi-hop and OpenVPN example
+
+```toml
+[tunnel.home]                    # WireGuard to your own server
+config = "tunnels/home.conf"
+
+[tunnel.nl]                      # OpenVPN provider, reached through "home"
+config = "tunnels/nl.ovpn"
+driver = "openvpn"
+auth   = "tunnels/nl.auth"       # username and password, two lines, mode 600
+via    = "tunnel:home"
+
+[[rule]]
+app   = ["firefox"]
+route = "tunnel:nl"              # Firefox: home -> nl -> internet
+```
+
+`shunt run --via tunnel:home -- thunderbird` still uses `home` alone at the same time.
+Swap the order by moving `via` to the other tunnel.
 
 ## How it works
 

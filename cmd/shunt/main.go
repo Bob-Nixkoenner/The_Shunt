@@ -44,6 +44,7 @@ commands:
              Wi-Fi login page (hotel, train): opens a throwaway browser
              that goes direct, past the tunnels
   reload     re-read the daemon config
+  restart    restart shuntd (tunnels reconnect; tunnelled apps are blocked meanwhile)
   panic on|off
              drop all traffic except loopback / undo
   ui [--port N] [--no-browser]
@@ -90,6 +91,10 @@ func main() {
 		err = desktopCmd(args[1:])
 	case "reload":
 		err = c.Do("POST", "/v1/reload", nil, nil)
+	case "restart":
+		if err = c.Do("POST", "/v1/restart", nil, nil); err == nil {
+			fmt.Println("shuntd restarts")
+		}
 	case "captive":
 		err = captive(c, args[1:])
 	case "panic":

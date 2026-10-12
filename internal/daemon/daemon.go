@@ -63,7 +63,12 @@ type Daemon struct {
 	// tunEvents: an OpenVPN tunnel connected or disconnected.
 	tunEvents chan struct{}
 	netInfo   netdetect.Info
+	restart   chan struct{}
 }
+
+// ErrRestart: Run ended because a restart was requested through the API;
+// shuntd exits non-zero so systemd (Restart=on-failure) starts it again.
+var ErrRestart = errors.New("restart requested")
 
 // Prepared is the result of loading config and tunnel files.
 type Prepared struct {
@@ -299,6 +304,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.cg = cgroup.Manager{Mount: mount}
 	d.tunnels = map[string]tunnel.Device{}
 	d.tunEvents = make(chan struct{}, 1)
+	d.restart = make(chan struct{}, 1)
 	d.specHash = map[string]string{}
 	d.tunErrors = map[string]string{}
 	d.netInfo = netdetect.Current()
@@ -340,6 +346,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 			_ = srv.Close()
 			d.shutdown()
 			return nil
+		case <-d.restart:
+			time.Sleep(200 * time.Millisecond) // let the API answer go out
+			_ = srv.Close()
+			d.shutdown()
+			return ErrRestart
 		case <-hup:
 			if err := d.reload(self); err != nil {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
@@ -443,7 +454,7 @@ func (d *Daemon) syncTunnels() error {
 			t, err = tunnel.StartOpenVPN(tunnel.OpenVPNSpec{Name: name, Iface: tc.Interface, Config: d.absConf(tc.Config),
 				AuthFile: p.AuthFiles[name], Mark: mark, PIDDir: filepath.Dir(p.Config.Daemon.Socket)}, d.Log, d.signalTunnel)
 		} else {
-			t, err = tunnel.Up(tunnel.Spec{Name: name, Iface: tc.Interface, Driver: tc.Driver, Conf: p.Confs[name], Mark: mark}, d.Log)
+			t, err = tunnel.Up(tunnel.Spec{Name: name, Iface: tc.Interface, Driver: tc.Driver, Conf: hopConf(p, name), Mark: mark}, d.Log)
 		}
 		if err != nil {
 			d.Log.Error("tunnel up failed, its traffic stays blocked", "tunnel", name, "err", err)
@@ -481,6 +492,32 @@ func (d *Daemon) checkNetwork() {
 	if err := d.reload(root); err != nil {
 		d.Log.Error("reload for network change failed", "err", err)
 	}
+}
+
+// HopOverhead is what one WireGuard encapsulation adds (IPv6 outer header
+// worst case): a hop inside another tunnel needs that much less MTU.
+const HopOverhead = 80
+
+// hopConf returns the WireGuard config to use for a tunnel; a second hop
+// without its own MTU gets the outer tunnel's MTU minus HopOverhead.
+func hopConf(p *Prepared, name string) *wgconf.Config {
+	wc := p.Confs[name]
+	tc := p.Config.Tunnels[name]
+	if tc.Via == "" || wc.MTU != 0 {
+		return wc
+	}
+	outer := strings.TrimPrefix(tc.Via, "tunnel:")
+	mtu := tunnel.DefaultMTU
+	if p.Config.Tunnels[outer].IsOpenVPN() {
+		mtu = 1500
+	} else if oc := p.Confs[outer]; oc != nil && oc.MTU != 0 {
+		mtu = oc.MTU
+	} else if oc != nil && p.Config.Tunnels[outer].Via != "" {
+		mtu = hopConf(p, outer).MTU // hop of a hop
+	}
+	c := *wc
+	c.MTU = mtu - HopOverhead
+	return &c
 }
 
 // signalTunnel is called by OpenVPN tunnels from their own goroutines; it
@@ -722,7 +759,11 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		p, err := d.saveConfig(raw)
+		p, err := d.saveConfig(raw, req.Version)
+		if errors.Is(err, errConflict) {
+			writeErr(w, http.StatusConflict, err)
+			return
+		}
 		if err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
@@ -756,6 +797,18 @@ func (d *Daemon) routes() http.Handler {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/restart", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		d.Log.Warn("restart requested via API", "uid", peerOf(r.Context()).uid)
+		select {
+		case d.restart <- struct{}{}:
+		default:
+		}
+		w.WriteHeader(http.StatusAccepted)
 	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest
@@ -798,6 +851,23 @@ func (d *Daemon) status() api.Status {
 			st.DNS[route] = append(st.DNS[route], u.String())
 			if su, ok := u.(*dnsproxy.SystemUpstream); ok && len(su.Servers()) == 0 {
 				st.Warnings = append(st.Warnings, "no system DNS resolver found for the direct route (yet): set dns.direct if this persists")
+			}
+		}
+	}
+	if d.proxy != nil {
+		if f := d.proxy.Health(); len(f) > 0 {
+			st.DNSFailing = f
+			routes := make([]string, 0, len(f))
+			for r := range f {
+				routes = append(routes, r)
+			}
+			sort.Strings(routes)
+			for _, r := range routes {
+				hint := ""
+				if strings.HasPrefix(r, "tunnel:") {
+					hint = " – is that DNS server reachable through the tunnel? A server in your home network usually is not"
+				}
+				st.Warnings = append(st.Warnings, fmt.Sprintf("DNS for %s fails (%s)%s", r, f[r], hint))
 			}
 		}
 	}

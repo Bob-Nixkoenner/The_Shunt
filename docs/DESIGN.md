@@ -1,6 +1,6 @@
 # Design: Shunt – Split-Tunneling & DNS-Router für WireGuard
 
-> **Status:** v0.6 – Phasen 1–3 (Kern) und Sicherheits-Review (Phase 6) umgesetzt (siehe §11–14) · **Lizenz (geplant):** Apache-2.0
+> **Status:** v0.7 – Phasen 1–3, Sicherheits-Review, OpenVPN, Multi-Hop und Netzwerkprofile umgesetzt (siehe §11–15) · **Lizenz (geplant):** Apache-2.0
 > Binaries: `shuntd` (Daemon), `shunt` (CLI). Repo: github.com/Bob-Nixkoenner/the_shunt
 
 ---
@@ -425,7 +425,7 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 - **`args`-Selektor** für App-Regeln (Kommandozeile enthält z. B. `-P sm`).
 - **Config-Bearbeitung über API/UI**: Formular-Editor (strukturiert, Kommentare gehen verloren – so angezeigt) und Raw-Editor (behält Kommentare). Jede Änderung durchläuft dieselbe Prüfung wie `shuntd check`, wird atomar geschrieben, `.bak` bleibt, bei Fehlschlag automatisches Zurückrollen. Sicherheitsgrenzen: `[daemon]` (Socket, Gruppe, cgroup) nur in der Datei änderbar; Tunnel-Dateien nur unter `/etc/shunt/tunnels` (die API kann den root-Daemon keine beliebigen Dateien lesen lassen); Import speichert mit 0600; Private Keys verlassen den Daemon nie. Wer im Socket-Gruppe ist, darf konfigurieren – feinere Rechte (polkit) folgen in Phase 6.
 
-**Noch offen aus Phase 3:** Profile (SSID-Umschaltung, MAC/Hostname-Hygiene), Captive-Portal-Modus, ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out).
+**Noch offen aus Phase 3:** ASN-/Preset-Listen, Killswitch-Fallback auf `direct` (opt-out). (Profile, Captive Portal, MAC/Hostname: §15.)
 
 ## 14. Sicherheits-Review (Phase 6)
 
@@ -443,3 +443,23 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 **Bewusst nicht behoben, dokumentiert (SECURITY.md):** App-Routing ist keine Sandbox (Ausbruch über `systemd-run --user`, D-Bus-Aktivierung, Browser-Handover); App-Regeln haben ein Startfenster; Domain-Regeln vertrauen dem DNS ihrer Route (Warnung bei Klartext-DNS auf `direct`).
 
 **Nicht geprüft in dieser Runde:** Seitenkanäle (Traffic-Analyse), Verhalten unter Last/DoS durch lokale Gruppenmitglieder, macOS/Windows/Android (gibt es noch nicht).
+
+## 15. OpenVPN, Multi-Hop, Netzwerkprofile (Phasen 4/5 teilweise)
+
+**OpenVPN-Treiber** (`driver = "openvpn"`): shuntd startet das `openvpn`-Binary selbst, als Kind im Daemon-cgroup, mit `--route-noexec --persist-tun --script-security 1 --mark <route>` und `--pull-filter ignore redirect-gateway`. openvpn legt nur das TUN-Interface an und setzt die Adresse. Routen (Tabelle der Route), Killswitch und DNS macht wie bei WireGuard Shunt. Gepushte DNS-Server landen beim DNS-Proxy der Route (Upstream „pushed“). Status kommt aus dem Log (verb 3): kein Management-Socket, keine Skripte. `--allow-recursive-routing`, weil openvpn sonst Pakete an die eigene Server-IP verwirft; Schleifen verhindern bei Shunt die Marks.
+- `.ovpn`-Prüfung (`internal/ovpnconf`): alles, was Programme startet, Bibliotheken lädt, Dateien schreibt oder Rechte wechselt, wird abgelehnt (`up`, `plugin`, `script-security`, `management`, `log`, `status`, `user`, `cd`, `config`, Server-Modus …). Beim Import über API/UI sind nur Inline-Zertifikate erlaubt; die Login-Datei (`auth`) muss wie die Configs unter `/etc/shunt/tunnels` liegen, weil openvpn ihren Inhalt an den Server schickt.
+- openvpn läuft mit `Pdeathsig` und Pid-Datei (Reste nach Absturz werden beendet) und startet nach Abbruch mit Backoff neu. Bei AUTH_FAILED steht der Grund im Status.
+
+**Multi-Hop** (`via = "tunnel:<name>"`, auch nur `"<name>"`): Der äußere Tunnel bekommt die Pakete des inneren über dessen Socket-Mark (WireGuard `fwmark`, openvpn `--mark`). Die erste Regel im `route_out`-Hook lässt von shuntd gesetzte Marks stehen und schreibt sie in die Conntrack-Mark (Rückweg/rp_filter). Ist der äußere Tunnel weg, greift dessen `unreachable`-Route: der innere ist blockiert, nichts geht direkt zum inneren Server. Schleifen lehnt `check` ab. Die innere MTU wird ohne eigene Angabe auf außen − 80 gesetzt. Hostnamen des inneren Endpoints löst shuntd direkt auf (dem lokalen DNS bekannt) – bei Bedarf IP eintragen.
+
+**Netzwerkprofile** (`[[network]]`): Erkennung über die Default-Route der main-Tabelle, die MAC des Gateways (Nachbartabelle) und die SSID (nl80211). Alle 5 s geprüft; bei Wechsel wird der Plan mit dem Profil-Default neu angewendet. SSIDs sind fälschbar, die UI warnt bei Profilen ohne Gateway-MAC, die den Schutz lockern. Unbekanntes Gateway (MAC noch nicht in der Nachbartabelle) zählt als fremdes Netz.
+
+**Captive Portal:** `shunt captive` / Tray: ein neuer Browser-Prozess (Firefox `--no-remote --profile <tmp>`, Chromium `--user-data-dir`) in der Route `direct`, Profil wird danach gelöscht. Ein laufender Browser würde die URL übernehmen und in seiner eigenen Route öffnen – deshalb immer ein eigener Prozess. Ist `dns.direct` verschlüsselt, kann das Portal den DNS blockieren; dann vorübergehend auf Systemresolver stellen.
+
+**MAC-/Hostname-Hygiene:** Installer-Option, schreibt `/etc/NetworkManager/conf.d/90-shunt-privacy.conf` (`wifi.cloned-mac-address=stable`, Scan-MAC zufällig, kein Hostname in DHCP, IPv6-Privacy). Shunt fasst die Netzwerkkarte selbst nicht an (das ist NetworkManagers Job).
+
+**Aus dem Praxistest (Laptop, 2026-10-13):**
+- *Lost Update im Formular*: Eine Änderung in der Datei wurde von einem länger offenen Formular überschrieben. Jetzt trägt `GET /v1/config` eine Version (SHA-256 der Datei); ein Speichern auf alter Basis bekommt 409, die UI lädt nach Rückfrage neu und folgt Änderungen von außen automatisch, solange nichts bearbeitet wird.
+- *Import „tut nichts“*: `confirm()`/`prompt()` sind in eingebetteten WebViews nicht verlässlich. Alle Rückfragen (auch PANIC) sind jetzt ein eigener Dialog in der Seite; jeder Abbruch meldet sich. Verwaiste Tunnel-Dateien blockieren einen Neu-Import nicht mehr. `shunt import` (mit sudo) für root-only Dateien wie `/etc/wireguard/*.conf`.
+- *DNS-Server durch den Tunnel nicht erreichbar*: Der Proxy führt pro Route Buch; nach 3 Fehlschlägen über ≥ 15 s gilt die Route als „DNS kaputt“: einmal geloggt (statt pro Anfrage), Warnung im Status, Tray gelb, Benachrichtigung; Erholung wird ebenso gemeldet.
+- *Neustart-Knöpfe*: `POST /v1/restart` (polkit) beendet shuntd mit Code 75, systemd (`Restart=on-failure`) startet neu; der Killswitch bleibt dazwischen. Tray: „Restart service“ und „Restart service and app“.

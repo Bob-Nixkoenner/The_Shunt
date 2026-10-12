@@ -200,6 +200,9 @@ func (c *Config) applyDefaults() {
 		if t.Interface == "" {
 			t.Interface = "sh-" + n
 		}
+		if t.Via != "" && !strings.Contains(t.Via, ":") {
+			t.Via = "tunnel:" + t.Via // via = "laptop" is fine too
+		}
 		c.Tunnels[n] = t
 	}
 }

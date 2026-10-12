@@ -40,6 +40,17 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   routed. On foreign networks use an encrypted `dns.direct` (tls/https).
 - **Apps with their own encrypted DNS** bypass domain rules (app, IP and
   port rules still apply).
+- **OpenVPN configs run as root.** Shunt refuses everything in a `.ovpn` that
+  starts programs, loads plugins, writes files or changes privileges, and
+  imports over the API/UI only accept inline certificates. Still, openvpn
+  itself is a large program parsing a file you got from someone: use configs
+  from providers you trust.
+- **Network profiles trust what the network says.** A Wi-Fi name can be
+  faked by anyone; match on the router MAC too for profiles that relax
+  protection. A MAC can be spoofed by someone on the same network.
+- **Multi-hop endpoints given as host names** are resolved by shuntd directly
+  (your local DNS learns the name of the inner server). Use an IP address in
+  the inner config if that matters.
 - **root on the machine** can do anything, including turning Shunt off.
 
 ## Verifying downloads

@@ -86,6 +86,11 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .drop.over { border-color: var(--accent); color: var(--accent); }
 #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 9px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
+#modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+#modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+#modal .box p { margin: 0 0 14px; white-space: pre-line; }
+#modal .box input { width: 100%; margin-bottom: 14px; }
+#modal .row { justify-content: flex-end; }
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
@@ -99,7 +104,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <span id="defroute" class="muted"></span>
   <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-config">Configure</button></nav>
   <div class="spacer"></div>
-  <button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button>
+  <button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button>
   <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
 </header>
 
@@ -174,7 +179,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <section class="half">
     <h2>General</h2>
     <div class="form">
-      <label for="c-default">Everything else goes</label><select id="c-default"></select>
+      <label for="c-default">Everything else goes</label><div><select id="c-default"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
       <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
       <label>Encrypted DNS of apps</label>
       <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
@@ -260,6 +265,12 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   </div>
 </main>
 <div id="toast"></div>
+<!-- own dialog instead of confirm()/prompt(): embedded web views may not show those -->
+<div id="modal" hidden><div class="box" role="dialog" aria-modal="true">
+  <p id="modal-msg"></p>
+  <input id="modal-input" hidden>
+  <div class="row"><button id="modal-cancel">Cancel</button><button id="modal-ok" class="primary">OK</button></div>
+</div></div>
 <script src="app.js"></script>
 <script src="config.js"></script>
 </body>

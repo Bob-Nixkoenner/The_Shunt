@@ -43,6 +43,33 @@ function toast(msg) {
   toast.timer = setTimeout(() => t.classList.remove("show"), 3200);
 }
 
+// ask shows a dialog in the page. Resolves to true / the entered text, or
+// null when cancelled (Escape, Cancel, click outside).
+function ask(msg, opts = {}) {
+  return new Promise((resolve) => {
+    const m = $("#modal"), inp = $("#modal-input"), ok = $("#modal-ok");
+    $("#modal-msg").textContent = msg;
+    inp.hidden = opts.input === undefined;
+    inp.value = opts.input || "";
+    ok.textContent = opts.ok || "OK";
+    ok.className = opts.danger ? "danger" : "primary";
+    m.hidden = false;
+    (inp.hidden ? ok : inp).focus();
+    const done = (v) => {
+      m.hidden = true;
+      m.onclick = ok.onclick = $("#modal-cancel").onclick = m.onkeydown = null;
+      resolve(v);
+    };
+    ok.onclick = () => done(inp.hidden ? true : inp.value);
+    $("#modal-cancel").onclick = () => done(null);
+    m.onclick = (e) => { if (e.target === m) done(null); };
+    m.onkeydown = (e) => {
+      if (e.key === "Escape") done(null);
+      if (e.key === "Enter") ok.click();
+    };
+  });
+}
+
 function bytes(n) {
   const u = ["B", "KiB", "MiB", "GiB", "TiB"];
   let i = 0;
@@ -66,6 +93,7 @@ function render() {
   const down = st.tunnels.filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
+  else if (st.dns_failing && Object.keys(st.dns_failing).length) { state.className = "pill warn"; state.textContent = "DNS not working: " + Object.keys(st.dns_failing).sort().join(", "); }
   else { state.className = "pill ok"; state.textContent = "protected"; }
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, " (network “" + st.network + "”)")] : []));
 
@@ -220,9 +248,15 @@ async function refresh() {
 
 $("#panic").addEventListener("click", async () => {
   const on = !(status && status.panic);
-  if (on && !confirm("Drop ALL traffic now (except loopback)?")) return;
+  if (on && !(await ask("Drop ALL traffic now (except loopback)?", { ok: "PANIC", danger: true }))) return toast("Panic mode not switched on");
   try { await api("POST", "/api/panic", { on }); toast(on ? "Panic mode on" : "Panic mode off"); } catch (e) { toast(e.message); }
   refresh();
+});
+
+$("#restart").addEventListener("click", async () => {
+  if (!(await ask("Restart the service? Tunnels reconnect; apps in a tunnel are blocked for a few seconds.", { ok: "Restart" }))) return;
+  try { await api("POST", "/api/restart"); toast("Service restarts…"); } catch (e) { toast("Restart failed: " + e.message); }
+  setTimeout(refresh, 3000);
 });
 
 $("#reload").addEventListener("click", async () => {

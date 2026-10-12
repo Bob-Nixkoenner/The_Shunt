@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -33,7 +34,7 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	v := api.ConfigView{Raw: string(raw), Config: d.cfg}
+	v := api.ConfigView{Raw: string(raw), Version: fileVersion(raw), Config: d.cfg}
 	for name, wc := range d.prep.Confs {
 		ti := api.TunnelConfInfo{Name: name, Type: "wireguard", DNS: wc.DNS}
 		for _, a := range wc.Addresses {
@@ -109,15 +110,24 @@ func (d *Daemon) absConf(p string) string {
 	return filepath.Clean(p)
 }
 
-// saveConfig validates, writes and applies raw config text.
-func (d *Daemon) saveConfig(raw []byte) (*Prepared, error) {
+func fileVersion(b []byte) string { return fmt.Sprintf("%x", sha256.Sum256(b)) }
+
+// errConflict: the file changed since the editor loaded it.
+var errConflict = errors.New("the config file was changed meanwhile (by hand or in another window); nothing was saved – reload and make your change again")
+
+// saveConfig validates, writes and applies raw config text. expect is the
+// version the change is based on ("" = no check).
+func (d *Daemon) saveConfig(raw []byte, expect string) (*Prepared, error) {
 	d.saveMu.Lock()
 	defer d.saveMu.Unlock()
-	p, err := d.checkCandidate(raw)
+	old, err := os.ReadFile(d.ConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	old, err := os.ReadFile(d.ConfigPath)
+	if expect != "" && expect != fileVersion(old) {
+		return nil, errConflict
+	}
+	p, err := d.checkCandidate(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -198,10 +208,25 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 	}
 	file := filepath.Join(d.tunnelDir(), req.Name+ext)
 	auth := filepath.Join(d.tunnelDir(), req.Name+".auth")
-	for _, f := range []string{file, auth} {
-		if _, err := os.Stat(f); err == nil {
-			return nil, fmt.Errorf("%s exists already", f)
+	d.mu.Lock()
+	used := map[string]bool{}
+	for _, t := range d.cfg.Tunnels {
+		used[d.absConf(t.Config)] = true
+		if t.Auth != "" {
+			used[d.absConf(t.Auth)] = true
 		}
+	}
+	d.mu.Unlock()
+	for _, f := range []string{file, auth, filepath.Join(d.tunnelDir(), req.Name+".conf"), filepath.Join(d.tunnelDir(), req.Name+".ovpn")} {
+		if _, err := os.Stat(f); err != nil {
+			continue
+		}
+		if used[f] {
+			return nil, fmt.Errorf("%s belongs to another tunnel", f)
+		}
+		// left over from a tunnel removed by hand: replace it
+		d.Log.Info("replacing orphaned tunnel file", "file", f)
+		_ = os.Remove(f)
 	}
 	if err := writeAtomic(file, []byte(req.Conf), 0o600); err != nil {
 		return nil, err
@@ -230,7 +255,7 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 		return nil, err
 	}
 	newRaw := strings.TrimRight(string(raw), "\n") + "\n" + block
-	p, err := d.saveConfig([]byte(newRaw))
+	p, err := d.saveConfig([]byte(newRaw), "")
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -273,7 +298,7 @@ func (d *Daemon) deleteTunnel(name string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := d.saveConfig(raw); err != nil {
+	if _, err := d.saveConfig(raw, ""); err != nil {
 		return err
 	}
 	for _, f := range []string{t.Config, t.Auth} {
