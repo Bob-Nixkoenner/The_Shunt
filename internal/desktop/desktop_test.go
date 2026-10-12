@@ -149,3 +149,37 @@ func TestFirefoxProfiles(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestPanelLaunchers(t *testing.T) {
+	_, sys := setup(t)
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	dir := filepath.Join(cfg, "xfce4", "panel", "launcher-7")
+	_ = os.MkdirAll(dir, 0o755)
+	pinned := "[Desktop Entry]\nName=Firefox ESR\nExec=/usr/lib/firefox-esr/firefox-esr %u\nType=Application\nX-XFCE-Source=file://" + filepath.Join(sys, "applications", "firefox-esr.desktop") + "\n"
+	other := "[Desktop Entry]\nName=Terminal\nExec=xfce4-terminal\nType=Application\nX-XFCE-Source=file:///usr/share/applications/xfce4-terminal.desktop\n"
+	_ = os.WriteFile(filepath.Join(dir, "17000.desktop"), []byte(pinned), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "17001.desktop"), []byte(other), 0o644)
+
+	for _, route := range []string{"tunnel:vps", "direct"} { // twice: no double prefix
+		if err := SetRoute("firefox-esr", route, "/usr/local/bin/shunt"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "17000.desktop"))
+	if !strings.Contains(string(b), "Exec=/usr/local/bin/shunt run --via direct -- /usr/lib/firefox-esr/firefox-esr %u") || strings.Count(string(b), "run --via") != 1 {
+		t.Fatalf("panel copy not rewritten:\n%s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "17001.desktop")); string(b) != other {
+		t.Fatalf("unrelated launcher changed:\n%s", b)
+	}
+	if err := Unset("firefox-esr"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "17000.desktop")); string(b) != pinned {
+		t.Fatalf("panel copy not restored:\n%s", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "17000.desktop"+panelBackup)); !os.IsNotExist(err) {
+		t.Fatal("backup left behind")
+	}
+}

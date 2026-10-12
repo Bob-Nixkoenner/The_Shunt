@@ -335,10 +335,14 @@ import json, sys
 v = json.load(open(sys.argv[1]))
 c = v["config"]
 c["rule"].insert(0, {"name": "ui block test", "cidr": ["10.99.0.1"], "port": ["tcp/8080"], "route": "block"})
+c["daemon"]["default_route"] = "direct"   # editable part of [daemon]
+c["daemon"]["socket"] = "/tmp/evil.sock"  # locked part: must be ignored
 json.dump({"config": c}, open(sys.argv[2], "w"))
 PY
 check "structured save accepted" 200 "$(capi PUT /v1/config "$(cat "$WORK/new.json")")"
 check "saved rule is active" "" "$(fetch curl -s $URL)"
+check "default route change saved" yes "$(grep -q 'default_route = "direct"' "$WORK/etc/shunt.toml" && echo yes || echo no)"
+check "locked socket setting kept" yes "$(grep -q "socket = \"$SOCK\"" "$WORK/etc/shunt.toml" && echo yes || echo no)"
 check "backup written" yes "$([[ -f $WORK/etc/shunt.toml.bak ]] && echo yes || echo no)"
 cp "$WORK/etc/shunt.toml.bak" "$WORK/etc/shunt.toml" && shunt reload
 check "restored config active again" 10.66.0.2 "$(fetch curl -s $URL)"

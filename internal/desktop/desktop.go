@@ -164,7 +164,88 @@ func SetRoute(id, route, shunt string) error {
 	if err := os.WriteFile(tmp, []byte(out), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, dst)
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
+	}
+	return setPanelLaunchers(id, src, route, shunt)
+}
+
+// --- panel launchers -----------------------------------------------------
+//
+// Some panels keep their own copy of a .desktop file instead of starting the
+// menu entry: XFCE (~/.config/xfce4/panel/launcher-N/*.desktop, which notes
+// the original in X-XFCE-Source). Those copies are rewritten too; the
+// original copy is kept next to it as *.shunt-orig and put back on Unset.
+
+const panelBackup = ".shunt-orig"
+
+func panelLaunchers() []string {
+	cfg := os.Getenv("XDG_CONFIG_HOME")
+	if cfg == "" {
+		home, _ := os.UserHomeDir()
+		cfg = filepath.Join(home, ".config")
+	}
+	files, _ := filepath.Glob(filepath.Join(cfg, "xfce4", "panel", "launcher-*", "*.desktop"))
+	return files
+}
+
+// panelMatches tells whether a panel copy (its original content) starts app id.
+func panelMatches(kv map[string]string, id, srcExec string) bool {
+	if s := kv["X-XFCE-Source"]; s != "" {
+		return strings.HasSuffix(s, "/"+id+".desktop")
+	}
+	a, err1 := argv.Split(kv["Exec"])
+	b, err2 := argv.Split(srcExec)
+	return err1 == nil && err2 == nil && len(a) > 0 && len(b) > 0 && filepath.Base(a[0]) == filepath.Base(b[0])
+}
+
+func setPanelLaunchers(id, src, route, shunt string) error {
+	srcKV, err := readMain(src)
+	if err != nil {
+		return err
+	}
+	for _, f := range panelLaunchers() {
+		orig := f + panelBackup
+		base := f
+		if _, err := os.Stat(orig); err == nil {
+			base = orig // already ours: rewrite from the saved original
+		}
+		kv, err := readMain(base)
+		if err != nil || !panelMatches(kv, id, srcKV["Exec"]) {
+			continue
+		}
+		b, err := os.ReadFile(base)
+		if err != nil {
+			return err
+		}
+		if base == f {
+			if err := os.WriteFile(orig, b, 0o644); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(f+".shunt-tmp", []byte(rewrite(string(b), route, shunt)), 0o644); err != nil {
+			return err
+		}
+		if err := os.Rename(f+".shunt-tmp", f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unsetPanelLaunchers(id string) {
+	srcExec := ""
+	if src, err := source(id); err == nil {
+		if kv, err := readMain(src); err == nil {
+			srcExec = kv["Exec"]
+		}
+	}
+	for _, f := range panelLaunchers() {
+		orig := f + panelBackup
+		if kv, err := readMain(orig); err == nil && panelMatches(kv, id, srcExec) {
+			_ = os.Rename(orig, f)
+		}
+	}
 }
 
 // rewrite prefixes every Exec line and marks the main group.
@@ -209,6 +290,7 @@ func Unset(id string) error {
 	if kv[MarkerKey] == "" {
 		return fmt.Errorf("%s was not made by Shunt, not removing it", f)
 	}
+	unsetPanelLaunchers(id)
 	return os.Remove(f)
 }
 
