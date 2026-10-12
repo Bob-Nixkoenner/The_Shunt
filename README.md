@@ -8,8 +8,9 @@ no telemetry, no accounts, bring your own WireGuard servers.
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard unter Linux – fail-closed,
 > ohne Telemetrie. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md)*
 
-> ⚠️ **Status: early (phase 3 of 5).** Tested end-to-end in CI, but young.
-> Try it in a VM before you trust it with anything that matters.
+> ⚠️ **Status: early.** Tested end-to-end in CI (including a real install on a
+> systemd host), security-reviewed once, but young. Read [SECURITY.md](SECURITY.md)
+> – especially *Known limits* – and try it in a VM before you rely on it.
 
 ![The Shunt web UI](docs/screenshots/shunt-ui-dark.png)
 
@@ -145,6 +146,17 @@ sudo SHUNT_DRIVER=userspace ./test/integration/run.sh
 The integration test builds a small internet in two network namespaces (WireGuard
 server + "whoami" HTTP server) and checks every route, the kill switch, panic mode
 and fail-closed behaviour after the daemon stops.
+
+## Security
+
+Short version of [SECURITY.md](SECURITY.md):
+- fail-closed everywhere (tunnel down, daemon stopped or crashed, boot)
+- the daemon runs with two capabilities (`CAP_NET_ADMIN`, `CAP_CHOWN`) in a
+  tight systemd sandbox; the CLI and UI never run as root
+- changes need root or polkit (admin password); status, starting apps and
+  PANIC never wait for a password
+- **per-app routing is not a sandbox** against a program that actively tries
+  to get out – for that, route everything through the tunnel
 
 ## License
 

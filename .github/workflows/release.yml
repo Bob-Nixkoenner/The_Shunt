@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write      # build provenance (sigstore)
+  attestations: write
 
 jobs:
   release:
@@ -32,6 +34,10 @@ jobs:
             tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt
           done
           (cd dist && sha256sum shunt_linux_*.tar.gz > SHA256SUMS)
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/shunt_linux_*.tar.gz
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
