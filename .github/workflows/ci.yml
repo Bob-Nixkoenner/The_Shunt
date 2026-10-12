@@ -34,3 +34,33 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nftables wireguard-tools iproute2 curl
       - name: end-to-end in network namespaces
         run: sudo env "PATH=$PATH" "HOME=$HOME" "GOPATH=$(go env GOPATH)" "GOMODCACHE=$(go env GOMODCACHE)" "GOCACHE=$(go env GOCACHE)" SHUNT_DRIVER=${{ matrix.driver }} ./test/integration/run.sh
+
+  # Real install on a systemd host: installer, hardened unit, DNS, uninstall.
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: install
+        run: |
+          printf '[Interface]\nPrivateKey = %s\nAddress = 10.8.0.2/32\nDNS = 10.8.0.1\n\n[Peer]\nPublicKey = %s\nEndpoint = 192.0.2.1:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n' \
+            "$(wg genkey 2>/dev/null || echo yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=)" xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg= > /tmp/test-vpn.conf
+          sudo env "PATH=$PATH" SHUNT_YES=1 SHUNT_WG_CONF=/tmp/test-vpn.conf bash ./install.sh
+      - name: verify
+        run: |
+          set -x
+          systemctl is-active shuntd
+          sudo shunt status
+          getent hosts github.com                                   # DNS through the proxy
+          sudo shunt run --via direct -- curl -fsS -o /dev/null https://github.com
+          ! sudo shunt run --via tunnel:test-vpn -- curl -fsS -m 5 -o /dev/null https://github.com   # tunnel has no peer: must fail closed
+          sudo systemctl restart shuntd && sleep 2 && systemctl is-active shuntd
+          sudo journalctl -u shuntd --no-pager | tail -30
+      - name: uninstall
+        if: always()
+        run: |
+          sudo bash ./install.sh --uninstall --purge
+          ! sudo nft list tables | grep -q shunt
+          curl -fsS -o /dev/null https://github.com

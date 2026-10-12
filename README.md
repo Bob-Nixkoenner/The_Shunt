@@ -8,9 +8,8 @@ no telemetry, no accounts, bring your own WireGuard servers.
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard unter Linux – fail-closed,
 > ohne Telemetrie. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md)*
 
-> ⚠️ **Status: proof of concept (phase 1).** It works and is tested end-to-end, but:
-> **DNS is not routed yet** – a tunnelled app's DNS queries still go out via the
-> system resolver (phase 2). Don't rely on it for anything serious yet.
+> ⚠️ **Status: early (phase 2 of 5).** Tested end-to-end in CI, but young.
+> Try it in a VM before you trust it with anything that matters.
 
 ```console
 $ shunt run --via tunnel:vps -- firefox      # Firefox through the VPS, rest direct
@@ -20,10 +19,27 @@ $ shunt status
 $ shunt panic on                             # drop everything, now
 ```
 
-## What works (phase 1)
+## Install (Debian, Ubuntu, Pop!_OS, Kali)
+
+```sh
+curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/main/install.sh
+less install.sh            # read what you run as root
+sudo bash install.sh
+```
+
+The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
+verified release (or builds from source), imports your WireGuard config, writes
+`/etc/shunt/shunt.toml`, does a dry run and starts the service.
+Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).
+
+## What works
 
 - Several WireGuard tunnels at once, each in its own routing table
-- Rules by **process group**, **CIDR** and **port**, first match wins
+- Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
+- **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
+  plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;
+  every port-53 query on the machine is caught, DoT is blocked, known DoH hosts
+  get NXDOMAIN, EDNS client subnet is stripped
 - `shunt run` starts a program inside a route; children inherit it
 - **Kill switch built into the routing table**: tunnel down, interface deleted or
   daemon stopped → tunnelled traffic gets *unreachable*, never the physical NIC
@@ -47,13 +63,43 @@ ip rule fwmark 0x530002 → table 5302:  default dev sh-vps
 
 Details, threat model and roadmap: [docs/DESIGN.md](docs/DESIGN.md).
 
-## Build & install (Pop!_OS / Ubuntu)
+## DNS example
+
+```toml
+[dns]
+direct = "pihole"                       # direct traffic asks the local Pi-hole
+
+[dns.upstream.pihole]
+addr = "192.168.1.2"
+
+[dns.upstream.adguard]                  # AdGuard Home at the end of the tunnel
+addr = "https://10.8.0.1/dns-query"
+tls_name = "adguard.example.org"
+
+[tunnel.vps]
+config = "/etc/shunt/tunnels/vps.conf"
+dns = "adguard"                         # default would be DNS= from vps.conf
+
+[[rule]]
+name   = "Streaming direct"
+domain = ["netflix.com", "nflxvideo.net"]   # covers subdomains
+route  = "direct"
+```
+
+Domain rules work on the addresses a name resolves to, so other sites on the same CDN
+address follow the same route. Apps with their own hard-coded DNS-over-HTTPS bypass
+domain rules (app, IP and port rules still apply).
+
+On Pop!_OS/Ubuntu glibc asks systemd-resolved via varlink instead of port 53; the
+installer offers `shuntd fix-nsswitch` (reverted on uninstall).
+
+## Manual build
 
 ```sh
 sudo apt install nftables wireguard-tools   # wireguard-tools only for `wg genkey`
 go build -o bin/ ./cmd/shuntd ./cmd/shunt   # Go toolchain is fetched automatically
 
-sudo install -m755 bin/shuntd bin/shunt /usr/bin/
+sudo install -m755 bin/shuntd bin/shunt /usr/local/bin/
 sudo install -d -m700 /etc/shunt/tunnels
 sudo install -m600 my-vps.conf /etc/shunt/tunnels/vps.conf
 sudo install -m644 packaging/shunt.toml.example /etc/shunt/shunt.toml
