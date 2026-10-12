@@ -20,6 +20,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"syscall"
@@ -131,6 +132,35 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		var v api.ConfigView
+		if err := s.Client.Do("GET", "/v1/config", nil, &v); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, v)
+	})
+	for _, rt := range []struct{ method, ui, daemon string }{
+		{"POST", "/api/config/check", "/v1/config/check"},
+		{"PUT", "/api/config", "/v1/config"},
+		{"POST", "/api/tunnels", "/v1/tunnels"},
+	} {
+		mux.HandleFunc(rt.method+" "+rt.ui, func(w http.ResponseWriter, r *http.Request) {
+			var body json.RawMessage
+			if !decode(w, r, &body) {
+				return
+			}
+			var res api.CheckResult
+			if err := s.Client.Do(rt.method, rt.daemon, body, &res); err != nil {
+				writeErr(w, http.StatusUnprocessableEntity, err)
+				return
+			}
+			writeJSON(w, res)
+		})
+	}
+	mux.HandleFunc("DELETE /api/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "DELETE", "/v1/tunnels/"+url.PathEscape(r.PathValue("name")), nil)
+	})
 	mux.HandleFunc("POST /api/launchers", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ App, Name, Args, Route string }
 		if !decode(w, r, &req) {
@@ -216,7 +246,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			http.Error(w, "open the address printed by `shunt ui`", http.StatusUnauthorized)
 			return
 		}
-		if r.Method == http.MethodPost && r.Header.Get("X-Shunt") != "1" {
+		if r.Method != http.MethodGet && r.Header.Get("X-Shunt") != "1" {
 			http.Error(w, "missing X-Shunt header", http.StatusForbidden)
 			return
 		}
@@ -229,7 +259,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(v); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return false
 	}

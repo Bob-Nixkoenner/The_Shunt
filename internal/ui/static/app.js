@@ -9,6 +9,7 @@ let ffProfiles = [];
 function el(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
     if (k === "class") e.className = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
     else e.setAttribute(k, v);
@@ -204,8 +205,8 @@ $("#lcreate").addEventListener("click", () => {
 });
 
 async function loadApps() {
-  try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
-  await loadApps();
+  try { apps = await api("GET", "/api/apps"); } catch { apps = []; }
+  renderApps();
   renderLaunchers();
 }
 
@@ -260,7 +261,7 @@ $("#allapps").addEventListener("change", renderApps);
 
 (async () => {
   await refresh();
-  try { apps = await api("GET", "/api/apps"); } catch { apps = []; }
-  renderApps();
+  try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
+  await loadApps();
   setInterval(refresh, 2000);
 })();

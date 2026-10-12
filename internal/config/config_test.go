@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const valid = `
 [daemon]
@@ -52,6 +55,29 @@ func TestParseInvalid(t *testing.T) {
 	} {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("%s: expected error", name)
+		}
+	}
+}
+
+func TestEncodeRoundTrip(t *testing.T) {
+	c, err := Parse(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Parse(string(b))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	if len(c2.Rules) != len(c.Rules) || c2.Rules[1].CIDR[2] != "10.0.0.1" || c2.Daemon.DefaultRoute != "tunnel:vps" {
+		t.Fatalf("round trip lost data:\n%s", b)
+	}
+	for _, unwanted := range []string{"interface", "driver", "socket ="} {
+		if strings.Contains(string(b), unwanted) {
+			t.Errorf("default %q written:\n%s", unwanted, b)
 		}
 	}
 }

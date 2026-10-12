@@ -54,6 +54,13 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
 - **Web UI** (`shunt ui`): tunnel health, apps per route, app launcher, menu entries,
   leak test, panic button – local only, token-protected, no external resources
 - **Leak test**: public IP and DNS resolver of every route, with verdicts
+- **Configure in the UI**: rules (apps, profiles, domains, IPs, ports), DNS servers, default
+  route, WireGuard import by drag & drop – every change is checked like `shuntd check`
+  before it is written, the old file is kept as `shunt.toml.bak`, and a config that cannot
+  be applied is rolled back automatically. A raw TOML editor (keeps comments) is there too.
+- **Launchers per profile**: `shunt desktop clone firefox-esr tunnel:vps --name "Firefox SM"
+  --args "--new-instance -P sm"`, or one click per Firefox profile in the UI; app rules can
+  also match the command line (`args = ["-P sm"]`)
 - **Kill switch built into the routing table**: tunnel down, interface deleted or
   daemon stopped → tunnelled traffic gets *unreachable*, never the physical NIC
 - **IPv6 strict**: tunnels without IPv6 block IPv6 instead of leaking it

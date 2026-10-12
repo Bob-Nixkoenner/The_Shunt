@@ -18,36 +18,36 @@ const DefaultPath = "/etc/shunt/shunt.toml"
 
 // Config is the top level config file.
 type Config struct {
-	Daemon  Daemon            `toml:"daemon"`
-	DNS     DNS               `toml:"dns"`
-	Tunnels map[string]Tunnel `toml:"tunnel"`
-	Groups  map[string]Group  `toml:"group"`
-	Rules   []Rule            `toml:"rule"`
+	Daemon  Daemon            `toml:"daemon" json:"daemon"`
+	DNS     DNS               `toml:"dns" json:"dns"`
+	Tunnels map[string]Tunnel `toml:"tunnel,omitempty" json:"tunnel,omitempty"`
+	Groups  map[string]Group  `toml:"group,omitempty" json:"group,omitempty"`
+	Rules   []Rule            `toml:"rule,omitempty" json:"rule,omitempty"`
 }
 
 // Daemon holds daemon wide settings.
 type Daemon struct {
-	Socket      string `toml:"socket"`
-	SocketGroup string `toml:"socket_group"`
+	Socket      string `toml:"socket,omitempty" json:"socket,omitempty"`
+	SocketGroup string `toml:"socket_group,omitempty" json:"socket_group,omitempty"`
 	// CgroupRoot is the cgroup (relative to the cgroup2 mount) shuntd owns.
 	// Empty means: the cgroup shuntd was started in (systemd Delegate=yes).
-	CgroupRoot   string `toml:"cgroup_root"`
-	DefaultRoute string `toml:"default_route"`
+	CgroupRoot   string `toml:"cgroup_root,omitempty" json:"cgroup_root,omitempty"`
+	DefaultRoute string `toml:"default_route,omitempty" json:"default_route,omitempty"`
 }
 
 // DNS configures the per-route DNS proxy.
 type DNS struct {
 	// Disabled turns DNS routing off (not recommended: DNS then leaks
 	// through whatever resolver the system uses).
-	Disabled bool `toml:"disabled"`
+	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 	// Direct names the upstream for the direct route. Empty means the
 	// system's resolvers (from systemd-resolved or /etc/resolv.conf).
-	Direct string `toml:"direct"`
+	Direct string `toml:"direct,omitempty" json:"direct,omitempty"`
 	// AllowDoH / AllowDoT disable the blocking of encrypted DNS that would
 	// bypass Shunt (known DoH hosts get NXDOMAIN, port 853 is rejected).
-	AllowDoH bool                `toml:"allow_doh"`
-	AllowDoT bool                `toml:"allow_dot"`
-	Upstream map[string]Upstream `toml:"upstream"`
+	AllowDoH bool                `toml:"allow_doh,omitempty" json:"allow_doh,omitempty"`
+	AllowDoT bool                `toml:"allow_dot,omitempty" json:"allow_dot,omitempty"`
+	Upstream map[string]Upstream `toml:"upstream,omitempty" json:"upstream,omitempty"`
 }
 
 // Upstream is a DNS server Shunt forwards to.
@@ -55,41 +55,41 @@ type Upstream struct {
 	// Addr: "1.2.3.4", "udp://1.2.3.4:53", "tcp://…", "tls://1.2.3.4:853",
 	// "https://1.2.3.4/dns-query". Hosts must be IP literals: resolving the
 	// resolver would need a resolver, and that one would leak.
-	Addr string `toml:"addr"`
+	Addr string `toml:"addr,omitempty" json:"addr,omitempty"`
 	// TLSName is the certificate name for tls:// and https:// upstreams.
-	TLSName string `toml:"tls_name"`
+	TLSName string `toml:"tls_name,omitempty" json:"tls_name,omitempty"`
 }
 
 // Tunnel references a wg-quick style file.
 type Tunnel struct {
-	Config    string `toml:"config"`
-	Driver    string `toml:"driver"` // auto | kernel | userspace
-	Interface string `toml:"interface"`
+	Config    string `toml:"config,omitempty" json:"config,omitempty"`
+	Driver    string `toml:"driver,omitempty" json:"driver,omitempty"` // auto | kernel | userspace
+	Interface string `toml:"interface,omitempty" json:"interface,omitempty"`
 	// DNS names the upstream used for this tunnel. Empty means the DNS=
 	// servers from the wg-quick file, queried through the tunnel.
-	DNS string `toml:"dns"`
+	DNS string `toml:"dns" json:"dns"`
 }
 
 // Group is a named set of processes, filled via `shunt run --group`.
 type Group struct {
-	Description string `toml:"description"`
+	Description string `toml:"description,omitempty" json:"description,omitempty"`
 }
 
 // Rule maps selectors to a route. Selectors of different kinds are ANDed,
 // entries within one kind are ORed. First matching rule wins.
 type Rule struct {
-	Name   string   `toml:"name"`
-	Group  []string `toml:"group"`
-	CIDR   []string `toml:"cidr"`
-	Port   []string `toml:"port"`
-	Domain []string `toml:"domain"`
+	Name   string   `toml:"name,omitempty" json:"name,omitempty"`
+	Group  []string `toml:"group,omitempty" json:"group,omitempty"`
+	CIDR   []string `toml:"cidr,omitempty" json:"cidr,omitempty"`
+	Port   []string `toml:"port,omitempty" json:"port,omitempty"`
+	Domain []string `toml:"domain,omitempty" json:"domain,omitempty"`
 	// App selects programs automatically when they start (no `shunt run`
 	// needed): "firefox" (process name), "exe:/usr/bin/foo", "flatpak:<app id>".
-	App []string `toml:"app"`
+	App []string `toml:"app,omitempty" json:"app,omitempty"`
 	// Args narrows app: the command line must contain one of these, e.g.
 	// args = ["-P sm"] to catch one Firefox profile.
-	Args  []string `toml:"args"`
-	Route string   `toml:"route"`
+	Args  []string `toml:"args,omitempty" json:"args,omitempty"`
+	Route string   `toml:"route,omitempty" json:"route,omitempty"`
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
@@ -423,4 +423,29 @@ func ParseAppSel(s string) (AppSel, error) {
 		return AppSel{}, fmt.Errorf("app %q: use a process name, exe:/path or flatpak:<id>", s)
 	}
 	return AppSel{Kind: "name", Value: s}, nil
+}
+
+// Encode writes the config as TOML. Values equal to the built-in defaults
+// are left out so the file stays readable. Comments are not preserved.
+func (c *Config) Encode() ([]byte, error) {
+	cp := *c
+	if cp.Daemon.Socket == "/run/shunt/shuntd.sock" {
+		cp.Daemon.Socket = ""
+	}
+	cp.Tunnels = map[string]Tunnel{}
+	for n, t := range c.Tunnels {
+		if t.Interface == "sh-"+n {
+			t.Interface = ""
+		}
+		if t.Driver == "auto" {
+			t.Driver = ""
+		}
+		cp.Tunnels[n] = t
+	}
+	var b strings.Builder
+	b.WriteString("# The Shunt configuration - saved by the Shunt UI.\n# (Comments are not kept when saving from the form editor.)\n\n")
+	if err := toml.NewEncoder(&b).Encode(cp); err != nil {
+		return nil, err
+	}
+	return []byte(b.String()), nil
 }
