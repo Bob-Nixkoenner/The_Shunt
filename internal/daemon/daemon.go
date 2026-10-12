@@ -148,6 +148,20 @@ func (p *Prepared) prepareDNS() {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
 		}
 	}
+	// Domain rules trust the DNS server of their route: on a foreign network a
+	// plain-DNS "direct" resolver could answer with any IP and so pull other
+	// traffic out of a tunnel. Encrypted upstreams can't be tampered with.
+	directPlain := c.DNS.Direct == ""
+	if !directPlain {
+		u, _ := config.ParseUpstream(c.DNS.Upstream[c.DNS.Direct])
+		directPlain = u.Proto == "udp" || u.Proto == "tcp"
+	}
+	for _, r := range p.Plan.DomainRules() {
+		if r.Route.Kind == config.RouteDirect && directPlain && len(c.Tunnels) > 0 {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("rule %q routes domains to direct using plain DNS: a hostile network could answer with other IPs and pull that traffic out of the tunnel. Use an encrypted dns.direct (tls:// or https://) when travelling", r.Name))
+			break
+		}
+	}
 	if nsswitchUsesResolved() {
 		p.Warnings = append(p.Warnings, "/etc/nsswitch.conf uses 'resolve' (systemd-resolved via varlink): those lookups bypass per-route DNS. Fix: sudo shuntd fix-nsswitch")
 	}

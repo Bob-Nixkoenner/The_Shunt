@@ -2,6 +2,7 @@ package argv
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -35,4 +36,31 @@ func TestDesktopQuote(t *testing.T) {
 			t.Errorf("%q: got %q want %q", in, got, want)
 		}
 	}
+}
+
+func FuzzSplit(f *testing.F) {
+	f.Add(`firefox --new-instance -P "Social Media"`)
+	f.Add(`a\ b 'c d' "e\"f"`)
+	f.Fuzz(func(t *testing.T, s string) {
+		words, err := Split(s)
+		if err != nil {
+			return
+		}
+		// quoting for a .desktop Exec line must split back to the same words
+		// (field codes aside, which DesktopQuote doubles)
+		var q []string
+		for _, w := range words {
+			q = append(q, DesktopQuote(w))
+		}
+		back, err := Split(strings.Join(q, " "))
+		if err != nil {
+			t.Fatalf("re-split failed: %v", err)
+		}
+		for i := range back {
+			back[i] = strings.ReplaceAll(back[i], "%%", "%")
+		}
+		if !reflect.DeepEqual(back, words) && len(words) > 0 {
+			t.Fatalf("%q -> %q -> %q", words, q, back)
+		}
+	})
 }

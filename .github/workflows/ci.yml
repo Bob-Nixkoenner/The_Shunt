@@ -15,6 +15,14 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test ./...
+      - name: fuzz parsers (short)
+        run: |
+          go test ./internal/wgconf -run '^$' -fuzz FuzzParse -fuzztime 20s
+          go test ./internal/config -run '^$' -fuzz FuzzParse -fuzztime 20s
+          go test ./internal/argv -run '^$' -fuzz FuzzSplit -fuzztime 15s
+          go test ./internal/appwatch -run '^$' -fuzz FuzzParseExecEvents -fuzztime 15s
+      - name: known vulnerabilities (govulncheck)
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: cross-build (portability check)
         run: |
           GOARCH=arm64 go build ./...

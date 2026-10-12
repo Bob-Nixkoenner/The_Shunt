@@ -118,3 +118,10 @@ func TestConnectorLive(t *testing.T) {
 	}
 	t.Fatal("exec event not seen")
 }
+
+func FuzzParseExecEvents(f *testing.F) {
+	f.Add(make([]byte, 64))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		_ = parseExecEvents(b) // must never panic on garbage from the socket
+	})
+}

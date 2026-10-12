@@ -86,8 +86,8 @@ ip -n $WAN link set wgs up
 ip netns exec $WAN python3 "$ROOT/test/integration/whoami.py" 8080 8081 853 &
 WHOAMI_PID=$!
 # two DNS servers: one reachable directly, one only through the tunnel
-ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 &
-ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 &
+ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
+ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 
 mkdir -p "$WORK/etc"
 cat >"$WORK/etc/vps.conf" <<EOF
@@ -270,6 +270,8 @@ check "domain rule resolves via its tunnel" "tunnel 10.66.0.2" "$(dnsq -server 1
 check "domain target direct before lookup" 10.99.0.2 "$(fetch curl -s $URL_SITE)"
 check "domain rule A answer" 10.99.0.3 "$(dnsq -server 10.99.0.1:53 site.test)"
 check "domain target tunnelled after lookup" 10.66.0.2 "$(fetch curl -s $URL_SITE)"
+check "blocking answer (0.0.0.0) passed to the app" 0.0.0.0 "$(dnsq -server 10.99.0.1:53 blocked.site.test)"
+check "blocking answer kept out of routing sets" 0 "$(cli nft list table inet shunt | grep -c '0\.0\.0\.0')"
 check "Firefox DoH canary NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 use-application-dns.net)"
 check "public DoH host NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 dns.google)"
 check "DoT port 853 blocked" "" "$(fetch curl -s http://10.99.0.1:853)"

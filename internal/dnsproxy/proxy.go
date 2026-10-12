@@ -138,6 +138,15 @@ func (p *Proxy) listen(port int) ([]*dns.Server, error) {
 }
 
 func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
+	// Answers come from upstreams we don't control: a bug triggered by a
+	// crafted answer must cost one query, not the daemon.
+	defer func() {
+		if e := recover(); e != nil {
+			p.Log.Error("dns handler panic", "err", e)
+			m := fail(r, dns.RcodeServerFailure)
+			_ = w.WriteMsg(m)
+		}
+	}()
 	resp := p.handle(port, r)
 	resp.Id = r.Id
 	if err := w.WriteMsg(resp); err != nil {
@@ -208,11 +217,11 @@ func (p *Proxy) recordAnswer(rule *engine.Rule, resp *dns.Msg) error {
 	for _, rr := range resp.Answer {
 		switch a := rr.(type) {
 		case *dns.A:
-			if ip, ok := netip.AddrFromSlice(a.A.To4()); ok {
+			if ip, ok := netip.AddrFromSlice(a.A.To4()); ok && Routable(ip) {
 				v4 = append(v4, ip)
 			}
 		case *dns.AAAA:
-			if ip, ok := netip.AddrFromSlice(a.AAAA); ok {
+			if ip, ok := netip.AddrFromSlice(a.AAAA); ok && Routable(ip) {
 				v6 = append(v6, ip)
 			}
 		default:
@@ -246,6 +255,18 @@ func (p *Proxy) recordAnswer(rule *engine.Rule, resp *dns.Msg) error {
 		}
 	}
 	return nil
+}
+
+// Routable reports whether a DNS answer address may go into a domain set.
+// Blocking answers (0.0.0.0, ::, as Pi-hole and AdGuard give them),
+// loopback, link-local, multicast and broadcast never steer routing.
+// Private ranges stay allowed: domain rules for LAN services are legitimate.
+func Routable(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	return ip.IsValid() && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsInterfaceLocalMulticast() &&
+		ip != netip.AddrFrom4([4]byte{255, 255, 255, 255}) &&
+		!netip.MustParsePrefix("0.0.0.0/8").Contains(ip)
 }
 
 func fail(r *dns.Msg, rcode int) *dns.Msg {
