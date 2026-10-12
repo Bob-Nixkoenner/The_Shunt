@@ -60,6 +60,14 @@ tr:last-child td { border-bottom: none; }
 .route.direct { color: var(--info); } .route.block { color: var(--bad); } .route.tunnel { color: var(--accent); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 input, select { font: inherit; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+/* WebKitGTK draws native selects with the GTK theme (light field) but our
+   text colour: white on white. Draw them ourselves. */
+:root { color-scheme: dark; }
+@media (prefers-color-scheme: light) { :root { color-scheme: light; } }
+select { -webkit-appearance: none; appearance: none; padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b98a8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; }
+select option { background: var(--panel2); color: var(--text); }
 input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); border-color: transparent; }
 input.grow { flex: 1; min-width: 180px; }
 .muted { color: var(--muted); }
