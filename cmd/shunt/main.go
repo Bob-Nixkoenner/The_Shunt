@@ -2,13 +2,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -17,8 +20,10 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
+	"golang.org/x/term"
 )
 
 // version is set at build time (-ldflags "-X main.version=…").
@@ -31,6 +36,13 @@ commands:
              start CMD with its traffic classified by ROUTE
              (direct | block | tunnel:<name>) or by group rules
   status [--json]
+  import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]
+             add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
+             for root-only files like /etc/wireguard/*.conf. --via makes it a
+             second hop through that tunnel; OpenVPN logins are asked for.
+  captive [--browser B]
+             Wi-Fi login page (hotel, train): opens a throwaway browser
+             that goes direct, past the tunnels
   reload     re-read the daemon config
   panic on|off
              drop all traffic except loopback / undo
@@ -64,6 +76,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "import":
+		err = importTunnel(c, args[1:])
 	case "version":
 		fmt.Println(version)
 	case "ui":
@@ -76,6 +90,8 @@ func main() {
 		err = desktopCmd(args[1:])
 	case "reload":
 		err = c.Do("POST", "/v1/reload", nil, nil)
+	case "captive":
+		err = captive(c, args[1:])
 	case "panic":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
 			flag.Usage()
@@ -118,6 +134,102 @@ func run(c *api.Client, args []string) error {
 	return syscall.Exec(bin, cmd, os.Environ())
 }
 
+func importTunnel(c *api.Client, args []string) error {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	name := fs.String("name", "", "tunnel name (default: from the file name)")
+	via := fs.String("via", "", "second hop through this route (tunnel:<name>)")
+	dns := fs.String("dns", "", "DNS upstream name from the config")
+	user := fs.String("user", "", "OpenVPN username (asked for if the server wants one)")
+	// flags may come after the file name
+	var file string
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		if fs.NArg() == 0 {
+			break
+		}
+		if file != "" {
+			return fmt.Errorf("one file at a time")
+		}
+		file, args = fs.Arg(0), fs.Args()[1:]
+	}
+	if file == "" {
+		return fmt.Errorf("usage: shunt import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]")
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		if os.IsPermission(err) {
+			return fmt.Errorf("%w (root-only file: run with sudo)", err)
+		}
+		return err
+	}
+	req := api.TunnelImport{Name: *name, Conf: string(b), Via: *via, DNS: *dns, Username: *user}
+	if req.Name == "" {
+		req.Name = tunnelName(file)
+	}
+	if !strings.Contains(req.Conf, "[Interface]") {
+		oc, err := ovpnconf.Parse(req.Conf, "")
+		if err != nil {
+			return err
+		}
+		if oc.NeedsAuth {
+			in := bufio.NewReader(os.Stdin)
+			if req.Username == "" {
+				fmt.Fprint(os.Stderr, "OpenVPN username: ")
+				l, _ := in.ReadString('\n')
+				req.Username = strings.TrimSpace(l)
+			}
+			fmt.Fprint(os.Stderr, "OpenVPN password: ")
+			if term.IsTerminal(int(os.Stdin.Fd())) {
+				p, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Fprintln(os.Stderr)
+				if err != nil {
+					return err
+				}
+				req.Password = string(p)
+			} else {
+				l, _ := in.ReadString('\n')
+				req.Password = strings.TrimRight(l, "\r\n")
+			}
+		}
+	}
+	var res api.CheckResult
+	if err := c.Do("POST", "/v1/tunnels", req, &res); err != nil {
+		return err
+	}
+	fmt.Printf("imported tunnel %q (route tunnel:%s)\n", req.Name, req.Name)
+	for _, w := range res.Warnings {
+		fmt.Println("warning:", w)
+	}
+	return nil
+}
+
+// tunnelName derives a valid tunnel name from a file name:
+// "/etc/wireguard/Mullvad-DE_fra 001.conf" -> "mullvad-de".
+func tunnelName(file string) string {
+	base := strings.ToLower(filepath.Base(file))
+	base = strings.TrimSuffix(strings.TrimSuffix(base, ".conf"), ".ovpn")
+	var b strings.Builder
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_' || r == ' ' || r == '.':
+			if b.Len() > 0 {
+				b.WriteByte('-')
+			}
+		}
+	}
+	n := b.String()
+	if len(n) > 10 {
+		n = n[:10]
+	}
+	n = strings.TrimRight(n, "-")
+	if n == "" {
+		n = "tunnel"
+	}
+	return n
+}
+
 func status(c *api.Client, args []string) error {
 	var st api.Status
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
@@ -132,7 +244,21 @@ func status(c *api.Client, args []string) error {
 	for _, wn := range st.Warnings {
 		fmt.Fprintf(w, "WARNING:\t%s\n", wn)
 	}
-	fmt.Fprintf(w, "default route:\t%s\n", st.DefaultRoute)
+	if st.Network != "" {
+		fmt.Fprintf(w, "default route:\t%s (network profile %q)\n", st.DefaultRoute, st.Network)
+	} else {
+		fmt.Fprintf(w, "default route:\t%s\n", st.DefaultRoute)
+	}
+	if ni := st.NetInfo; ni.Iface != "" {
+		where := ni.Iface
+		if ni.SSID != "" {
+			where += ", Wi-Fi " + strconv.Quote(ni.SSID)
+		}
+		if ni.GatewayMAC != "" {
+			where += ", gateway " + ni.GatewayMAC
+		}
+		fmt.Fprintf(w, "network:\t%s\n", where)
+	}
 	if st.Panic {
 		fmt.Fprintln(w, "PANIC MODE:\tall traffic blocked")
 	}
@@ -150,6 +276,9 @@ func status(c *api.Client, args []string) error {
 			rxtx = fmt.Sprintf("%d/%d", p.RxBytes, p.TxBytes)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Name, t.Iface, state, hs, rxtx)
+		if t.Via != "" {
+			fmt.Fprintf(w, "  via:\t%s (second hop)\n", t.Via)
+		}
 		if t.Error != "" {
 			fmt.Fprintf(w, "  error:\t%s\n", t.Error)
 		}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
 
@@ -34,7 +35,7 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 	defer d.mu.Unlock()
 	v := api.ConfigView{Raw: string(raw), Config: d.cfg}
 	for name, wc := range d.prep.Confs {
-		ti := api.TunnelConfInfo{Name: name, DNS: wc.DNS}
+		ti := api.TunnelConfInfo{Name: name, Type: "wireguard", DNS: wc.DNS}
 		for _, a := range wc.Addresses {
 			ti.Addresses = append(ti.Addresses, a.String())
 		}
@@ -45,6 +46,13 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 			for _, a := range p.AllowedIPs {
 				ti.AllowedIPs = append(ti.AllowedIPs, a.String())
 			}
+		}
+		v.Tunnels = append(v.Tunnels, ti)
+	}
+	for name, oc := range d.prep.OVPN {
+		ti := api.TunnelConfInfo{Name: name, Type: "openvpn", AllowedIPs: []string{"0.0.0.0/0", "::/0"}}
+		if len(oc.Remotes) > 0 {
+			ti.Endpoint = oc.Remotes[0]
 		}
 		v.Tunnels = append(v.Tunnels, ti)
 	}
@@ -63,15 +71,24 @@ func (d *Daemon) checkCandidate(raw []byte) (*Prepared, error) {
 	oldPaths := map[string]bool{}
 	for _, t := range d.cfg.Tunnels {
 		oldPaths[d.absConf(t.Config)] = true
+		if t.Auth != "" {
+			oldPaths[d.absConf(t.Auth)] = true
+		}
 	}
 	d.mu.Unlock()
 	if c.Daemon.Socket != cur.Socket || c.Daemon.SocketGroup != cur.SocketGroup || c.Daemon.CgroupRoot != cur.CgroupRoot || c.Daemon.APIAuth != cur.APIAuth {
 		return nil, errors.New("the [daemon] socket/socket_group/cgroup_root/api_auth settings can only be changed in the file itself")
 	}
 	for name, t := range c.Tunnels {
-		p := d.absConf(t.Config)
-		if !oldPaths[p] && !strings.HasPrefix(p, d.tunnelDir()+string(filepath.Separator)) {
-			return nil, fmt.Errorf("tunnel %q: config files must be in %s", name, d.tunnelDir())
+		// The auth file is sent to the VPN server: same rule as configs.
+		for _, f := range []string{t.Config, t.Auth} {
+			if f == "" {
+				continue
+			}
+			p := d.absConf(f)
+			if !oldPaths[p] && !strings.HasPrefix(p, d.tunnelDir()+string(filepath.Separator)) {
+				return nil, fmt.Errorf("tunnel %q: config and auth files must be in %s", name, d.tunnelDir())
+			}
 		}
 	}
 	tmp := filepath.Join(filepath.Dir(d.ConfigPath), ".shunt.toml.candidate")
@@ -79,7 +96,10 @@ func (d *Daemon) checkCandidate(raw []byte) (*Prepared, error) {
 		return nil, err
 	}
 	defer os.Remove(tmp)
-	return Prepare(tmp, root)
+	d.mu.Lock()
+	ni := d.netInfo
+	d.mu.Unlock()
+	return PrepareOn(tmp, root, &ni)
 }
 
 func (d *Daemon) absConf(p string) string {
@@ -135,15 +155,37 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 
 var tunnelNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
 
-// importTunnel stores a wg-quick file and adds the tunnel to the config.
-// The table is appended to the raw text, so comments in the file survive.
+// importTunnel stores a wg-quick file or an OpenVPN client config and adds
+// the tunnel to the config. The table is appended to the raw text, so
+// comments in the file survive.
 func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 	if !tunnelNameRe.MatchString(req.Name) {
 		return nil, errors.New("name: 1-10 characters a-z 0-9 -, starting with a letter or digit")
 	}
-	wc, err := wgconf.Parse(strings.NewReader(req.Conf))
-	if err != nil {
-		return nil, fmt.Errorf("WireGuard config: %w", err)
+	var warn []string
+	ext, driver := ".conf", ""
+	needsAuth := false
+	if strings.Contains(req.Conf, "[Interface]") {
+		wc, err := wgconf.Parse(strings.NewReader(req.Conf))
+		if err != nil {
+			return nil, fmt.Errorf("WireGuard config: %w", err)
+		}
+		if len(wc.Ignored) > 0 {
+			warn = append(warn, "ignored in the WireGuard file: "+strings.Join(wc.Ignored, ", "))
+		}
+	} else {
+		// separate certificate files can't be imported: dir ""
+		oc, err := ovpnconf.Parse(req.Conf, "")
+		if err != nil {
+			return nil, fmt.Errorf("OpenVPN config: %w", err)
+		}
+		ext, driver, needsAuth = ".ovpn", "openvpn", oc.NeedsAuth
+		if needsAuth && (req.Username == "" || req.Password == "") {
+			return nil, errors.New("this OpenVPN server wants a username and password")
+		}
+	}
+	if strings.ContainsAny(req.Username+req.Password, "\n\r") {
+		return nil, errors.New("username/password must not contain line breaks")
 	}
 	d.mu.Lock()
 	_, exists := d.cfg.Tunnels[req.Name]
@@ -154,31 +196,46 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 	if err := os.MkdirAll(d.tunnelDir(), 0o700); err != nil {
 		return nil, err
 	}
-	file := filepath.Join(d.tunnelDir(), req.Name+".conf")
-	if _, err := os.Stat(file); err == nil {
-		return nil, fmt.Errorf("%s exists already", file)
+	file := filepath.Join(d.tunnelDir(), req.Name+ext)
+	auth := filepath.Join(d.tunnelDir(), req.Name+".auth")
+	for _, f := range []string{file, auth} {
+		if _, err := os.Stat(f); err == nil {
+			return nil, fmt.Errorf("%s exists already", f)
+		}
 	}
 	if err := writeAtomic(file, []byte(req.Conf), 0o600); err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(d.ConfigPath)
-	if err != nil {
-		os.Remove(file)
-		return nil, err
+	block := fmt.Sprintf("\n[tunnel.%s]\nconfig = %q\n", req.Name, "tunnels/"+req.Name+ext)
+	if driver != "" {
+		block += fmt.Sprintf("driver = %q\n", driver)
 	}
-	block := fmt.Sprintf("\n[tunnel.%s]\nconfig = %q\n", req.Name, "tunnels/"+req.Name+".conf")
+	if needsAuth {
+		if err := writeAtomic(auth, []byte(req.Username+"\n"+req.Password+"\n"), 0o600); err != nil {
+			os.Remove(file)
+			return nil, err
+		}
+		block += fmt.Sprintf("auth = %q\n", "tunnels/"+req.Name+".auth")
+	}
 	if req.DNS != "" {
 		block += fmt.Sprintf("dns = %q\n", req.DNS)
+	}
+	if req.Via != "" {
+		block += fmt.Sprintf("via = %q\n", req.Via)
+	}
+	cleanup := func() { os.Remove(file); os.Remove(auth) }
+	raw, err := os.ReadFile(d.ConfigPath)
+	if err != nil {
+		cleanup()
+		return nil, err
 	}
 	newRaw := strings.TrimRight(string(raw), "\n") + "\n" + block
 	p, err := d.saveConfig([]byte(newRaw))
 	if err != nil {
-		os.Remove(file)
+		cleanup()
 		return nil, err
 	}
-	if len(wc.Ignored) > 0 {
-		p.Warnings = append(p.Warnings, "ignored in the WireGuard file: "+strings.Join(wc.Ignored, ", "))
-	}
+	p.Warnings = append(p.Warnings, warn...)
 	return p, nil
 }
 
@@ -200,6 +257,11 @@ func (d *Daemon) deleteTunnel(name string) error {
 			return fmt.Errorf("rule %d (%s) uses tunnel %q; change or delete it first", i+1, r.Name, name)
 		}
 	}
+	for n, tt := range cfg.Tunnels {
+		if tt.Via == route {
+			return fmt.Errorf("tunnel %q runs through %q; change or delete it first", n, name)
+		}
+	}
 	tunnels := map[string]config.Tunnel{}
 	for n, tt := range cfg.Tunnels {
 		if n != name {
@@ -214,8 +276,10 @@ func (d *Daemon) deleteTunnel(name string) error {
 	if _, err := d.saveConfig(raw); err != nil {
 		return err
 	}
-	if p := d.absConf(t.Config); strings.HasPrefix(p, d.tunnelDir()+string(filepath.Separator)) {
-		_ = os.Remove(p)
+	for _, f := range []string{t.Config, t.Auth} {
+		if p := d.absConf(f); f != "" && strings.HasPrefix(p, d.tunnelDir()+string(filepath.Separator)) {
+			_ = os.Remove(p)
+		}
 	}
 	return nil
 }

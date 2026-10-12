@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -31,6 +32,10 @@ type Status struct {
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
 	DNS      map[string][]string `json:"dns,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
+	// Network is the matched [[network]] profile ("" = none), NetInfo what
+	// the machine is connected to right now.
+	Network string         `json:"network,omitempty"`
+	NetInfo netdetect.Info `json:"net_info"`
 }
 
 // TunnelStatus describes one tunnel.
@@ -40,6 +45,7 @@ type TunnelStatus struct {
 	Driver string              `json:"driver"`
 	Up     bool                `json:"up"`
 	Error  string              `json:"error,omitempty"`
+	Via    string              `json:"via,omitempty"` // second hop through this route
 	Peers  []tunnel.PeerStatus `json:"peers,omitempty"`
 }
 
@@ -66,9 +72,10 @@ type ConfigView struct {
 	Tunnels []TunnelConfInfo `json:"tunnels"`
 }
 
-// TunnelConfInfo is the public part of a tunnel's WireGuard file.
+// TunnelConfInfo is the public part of a tunnel's WireGuard or OpenVPN file.
 type TunnelConfInfo struct {
 	Name       string   `json:"name"`
+	Type       string   `json:"type"` // wireguard | openvpn
 	Endpoint   string   `json:"endpoint"`
 	Addresses  []string `json:"addresses"`
 	DNS        []string `json:"dns,omitempty"`
@@ -92,8 +99,13 @@ type CheckResult struct {
 // TunnelImport is the body of POST /v1/tunnels.
 type TunnelImport struct {
 	Name string `json:"name"`
-	Conf string `json:"conf"` // wg-quick file content
+	Conf string `json:"conf"` // wg-quick file or .ovpn content
 	DNS  string `json:"dns,omitempty"`
+	// OpenVPN login, if the server wants one (auth-user-pass).
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	// Via: "tunnel:<name>" makes this a second hop.
+	Via string `json:"via,omitempty"`
 }
 
 // PanicRequest switches the panic mode.

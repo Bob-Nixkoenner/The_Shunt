@@ -65,7 +65,7 @@ function render() {
 
   const down = st.tunnels.filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
-  else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without handshake – their apps are blocked"; }
+  else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
   else { state.className = "pill ok"; state.textContent = "protected"; }
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route));
 
@@ -79,15 +79,17 @@ function render() {
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
     const hs = p.last_handshake && !p.last_handshake.startsWith("0001");
+    const ovpn = t.driver === "openvpn";
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
-      el("div", { class: "name" }, t.name, el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : "no handshake") : "down")),
+      el("div", { class: "name" }, t.name, el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
-        el("span", {}, "handshake"), el("span", {}, ago(p.last_handshake)),
+        ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, "through " + t.via)] : []),
+        el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
         el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])));
-  }) : [el("div", { class: "muted" }, "No tunnels configured – add one in /etc/shunt/shunt.toml.")]));
+  }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]));
 
   // Selects are rebuilt only when the routes change: rebuilding closes a
   // dropdown the user has open.

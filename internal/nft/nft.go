@@ -45,6 +45,10 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain route_out {")
 	w("\t\ttype route hook output priority mangle; policy accept;")
 	w("\t\tmeta mark %#x return", engine.MarkBypass)
+	// Marked by shuntd itself (only CAP_NET_ADMIN can set a mark): a second
+	// hop's encrypted packets entering the first tunnel, DNS upstream
+	// queries. Remember it, so replies pass reverse path filtering.
+	w("\t\tmeta mark and %#x == %#x ct mark set meta mark return", engine.MarkMask, engine.MarkBase)
 	w("\t\tct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
 	w("\t\tct direction reply return")
 	if p.DNS {
