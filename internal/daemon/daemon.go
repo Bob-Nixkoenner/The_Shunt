@@ -527,9 +527,15 @@ func (d *Daemon) routes() http.Handler {
 	})
 	rawOf := func(req api.ConfigSave) ([]byte, error) {
 		if req.Config != nil {
+			// Only these daemon settings are locked to the file; the rest of
+			// [daemon] (default_route) is editable.
 			d.mu.Lock()
-			req.Config.Daemon = d.cfg.Daemon // only changeable in the file
+			cur := d.cfg.Daemon
 			d.mu.Unlock()
+			req.Config.Daemon.Socket = cur.Socket
+			req.Config.Daemon.SocketGroup = cur.SocketGroup
+			req.Config.Daemon.CgroupRoot = cur.CgroupRoot
+			req.Config.Daemon.APIAuth = cur.APIAuth
 			return req.Config.Encode()
 		}
 		if req.Raw == "" {
