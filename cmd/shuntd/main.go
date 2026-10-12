@@ -1,0 +1,62 @@
+// Command shuntd is the privileged Shunt daemon.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/daemon"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
+)
+
+const usage = `usage: shuntd [-c config] <command>
+
+commands:
+  run        start the daemon (default)
+  check      validate config and print the nftables ruleset, change nothing
+  lockdown   block all traffic except loopback/DHCP until 'run' applies a plan
+  cleanup    remove all Shunt rules, routes and tables (lifts kill switches!)
+`
+
+func main() {
+	cfgPath := flag.String("c", config.DefaultPath, "config file")
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	flag.Parse()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	cmd := flag.Arg(0)
+	if cmd == "" {
+		cmd = "run"
+	}
+	var err error
+	switch cmd {
+	case "run":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err = (&daemon.Daemon{ConfigPath: *cfgPath, Log: log}).Run(ctx)
+	case "check":
+		root, _ := cgroup.Self()
+		var p *daemon.Prepared
+		if p, err = daemon.Prepare(*cfgPath, root); err == nil {
+			fmt.Print(p.Ruleset)
+		}
+	case "lockdown":
+		err = nft.Apply(nft.RenderLockdown())
+	case "cleanup":
+		err = daemon.Cleanup()
+	default:
+		flag.Usage()
+		os.Exit(2)
+	}
+	if err != nil {
+		log.Error(cmd+" failed", "err", err)
+		os.Exit(1)
+	}
+}

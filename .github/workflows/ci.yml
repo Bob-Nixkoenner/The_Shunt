@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test ./...
+      - name: cross-build (portability check)
+        run: |
+          GOARCH=arm64 go build ./...
+          GOOS=windows go vet ./internal/config ./internal/wgconf ./internal/engine ./internal/nft ./internal/api
+
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [kernel, userspace]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y nftables wireguard-tools iproute2 curl
+      - name: end-to-end in network namespaces
+        run: sudo env "PATH=$PATH" "HOME=$HOME" "GOPATH=$(go env GOPATH)" "GOMODCACHE=$(go env GOMODCACHE)" "GOCACHE=$(go env GOCACHE)" SHUNT_DRIVER=${{ matrix.driver }} ./test/integration/run.sh

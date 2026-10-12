@@ -1,0 +1,26 @@
+# /etc/shunt/shunt.toml
+[daemon]
+socket       = "/run/shunt/shuntd.sock"
+socket_group = "shunt"      # members may use the `shunt` CLI
+default_route = "direct"    # direct | block | tunnel:<name>
+
+# wg-quick style file, mode 0600. PostUp/PreUp/Table/FwMark are ignored.
+[tunnel.vps]
+config = "/etc/shunt/tunnels/vps.conf"
+# driver = "auto"           # auto | kernel | userspace
+
+[group.torrent]
+description = "start with: shunt run --group torrent -- qbittorrent"
+
+# Rules: first match wins. Selectors of different kinds are ANDed,
+# list entries are ORed. After these come the implicit `shunt run --via` rules,
+# then default_route.
+[[rule]]
+name  = "SSH always direct"
+port  = ["tcp/22"]
+route = "direct"
+
+[[rule]]
+name  = "Torrent only through the VPS"
+group = ["torrent"]
+route = "tunnel:vps"

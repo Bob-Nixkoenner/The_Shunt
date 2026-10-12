@@ -1,0 +1,40 @@
+table inet shunt
+delete table inet shunt
+table inet shunt {
+	chain route_out {
+		type route hook output priority mangle; policy accept;
+		meta mark 0x5300ff return
+		ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
+		ct direction reply return
+		oifname "lo" return
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		meta l4proto tcp th dport { 22 } meta mark set 0x5300f0 ct mark set meta mark accept
+		ip daddr { 192.168.1.0/24 } meta mark set 0x530001 ct mark set meta mark accept
+		ip6 daddr { fd00:1::/64 } meta mark set 0x530001 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/g/torrent" meta l4proto tcp th dport { 6881 } meta mark set 0x530002 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/g/torrent" meta l4proto udp th dport { 6881-6889 } meta mark set 0x530002 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/direct" meta mark set 0x5300f0 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/block" meta mark set 0x5300fe ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-home" meta mark set 0x530001 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-vps" meta mark set 0x530002 ct mark set meta mark accept
+		meta mark set 0x530002 ct mark set meta mark accept
+	}
+	chain mark_in {
+		type filter hook prerouting priority mangle; policy accept;
+		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
+	}
+	chain filter_out {
+		type filter hook output priority filter; policy accept;
+		meta mark 0x5300fe counter reject with icmpx admin-prohibited
+	}
+	chain leak_guard {
+		type filter hook postrouting priority filter; policy accept;
+		meta mark 0x530001 oifname != "sh-home" counter drop
+		meta mark 0x530002 oifname != "sh-vps" counter drop
+	}
+	chain nat_post {
+		type nat hook postrouting priority srcnat; policy accept;
+		meta mark 0x530001 oifname "sh-home" masquerade
+		meta mark 0x530002 oifname "sh-vps" masquerade
+	}
+}

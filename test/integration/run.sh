@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# End-to-end test in network namespaces. Needs root, nft, ip, wg, python3.
+#
+#   ns shunt-wan  10.99.0.1  fd99::1   whoami HTTP server (prints client IP)
+#                 10.66.0.1            WireGuard server (wireguard-go)
+#        |  veth
+#   ns shunt-cli  10.99.0.2  fd99::2   shuntd + test clients
+#                 10.66.0.2            tunnel "vps" (IPv4 only)
+#
+# A request that left directly shows up as 10.99.0.2, one that went through
+# the tunnel as 10.66.0.2. Anything else (or nothing) is what we test for.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+WORK=$(mktemp -d)
+BIN=$WORK/bin
+CG=shunt-it
+SOCK=$WORK/shuntd.sock
+WAN=shunt-wan
+CLI=shunt-cli
+PASS=0
+FAIL=0
+HAVE_V6=0
+[[ -d /proc/sys/net/ipv6 ]] && HAVE_V6=1
+
+cleanup() {
+	set +e
+	[[ -n ${SHUNTD_PID:-} ]] && kill "$SHUNTD_PID" 2>/dev/null && wait "$SHUNTD_PID" 2>/dev/null
+	pkill -f "^$BIN/" 2>/dev/null
+	[[ -n ${WHOAMI_PID:-} ]] && kill "$WHOAMI_PID" 2>/dev/null
+	ip netns exec $WAN pkill -f "wireguard-go -f wgs" 2>/dev/null
+	ip netns del $CLI 2>/dev/null
+	ip netns del $WAN 2>/dev/null
+	find "$CGMNT/$CG" -depth -type d -exec rmdir {} + 2>/dev/null
+	rm -rf "$WORK"
+}
+trap cleanup EXIT
+
+# cgroup2 mount (hybrid hosts have it under unified/)
+CGMNT=/sys/fs/cgroup
+[[ $(stat -fc %T $CGMNT) == cgroup2fs ]] || CGMNT=/sys/fs/cgroup/unified
+
+echo "== build"
+mkdir -p "$BIN"
+(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+
+echo "== topology"
+ip netns del $WAN 2>/dev/null || true
+ip netns del $CLI 2>/dev/null || true
+ip netns add $WAN
+ip netns add $CLI
+ip -n $WAN link add wan0 type veth peer name cli0
+ip -n $WAN link set cli0 netns $CLI
+ip -n $WAN addr add 10.99.0.1/24 dev wan0
+((HAVE_V6)) && ip -n $WAN addr add fd99::1/64 dev wan0 nodad
+ip -n $CLI addr add 10.99.0.2/24 dev cli0
+((HAVE_V6)) && ip -n $CLI addr add fd99::2/64 dev cli0 nodad
+for ns in $WAN $CLI; do ip -n $ns link set lo up; done
+ip -n $WAN link set wan0 up
+ip -n $CLI link set cli0 up
+
+SRV_KEY=$(wg genkey); SRV_PUB=$(echo "$SRV_KEY" | wg pubkey)
+CLI_KEY=$(wg genkey); CLI_PUB=$(echo "$CLI_KEY" | wg pubkey)
+
+ip netns exec $WAN "$BIN/wireguard-go" -f wgs >/dev/null 2>&1 &
+for _ in $(seq 50); do ip -n $WAN link show wgs >/dev/null 2>&1 && break; sleep 0.1; done
+ip netns exec $WAN wg set wgs listen-port 51820 private-key <(echo "$SRV_KEY") \
+	peer "$CLI_PUB" allowed-ips 10.66.0.2/32
+ip -n $WAN addr add 10.66.0.1/24 dev wgs
+ip -n $WAN link set wgs up
+
+ip netns exec $WAN python3 "$ROOT/test/integration/whoami.py" 8080 8081 &
+WHOAMI_PID=$!
+
+mkdir -p "$WORK/etc"
+cat >"$WORK/etc/vps.conf" <<EOF
+[Interface]
+PrivateKey = $CLI_KEY
+Address = 10.66.0.2/32
+PostUp = touch /tmp/pwned   # must be ignored
+
+[Peer]
+PublicKey = $SRV_PUB
+Endpoint = 10.99.0.1:51820
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 5
+EOF
+chmod 600 "$WORK/etc/vps.conf"
+
+write_config() { # $1 = default route
+	cat >"$WORK/etc/shunt.toml" <<EOF
+[daemon]
+socket = "$SOCK"
+cgroup_root = "$CG"
+default_route = "$1"
+
+[tunnel.vps]
+config = "vps.conf"
+driver = "${SHUNT_DRIVER:-auto}"
+
+[group.torrent]
+
+[[rule]]
+name = "port 8081 through the tunnel"
+cidr = ["10.99.0.1"]
+port = ["tcp/8081"]
+route = "tunnel:vps"
+
+[[rule]]
+name = "torrent group blocked from 8080"
+group = ["torrent"]
+port = ["tcp/8080"]
+route = "block"
+EOF
+}
+write_config direct
+
+# --- helpers ----------------------------------------------------------------
+# `ip netns exec` remounts /sys, so mount cgroup2 again for everything that
+# needs it (shuntd, nft resolving cgroup paths, tests joining cgroups)
+cli() { ip netns exec $CLI unshare -m sh -c 'mount -t cgroup2 none /sys/fs/cgroup && exec "$@"' _ "$@"; }
+shunt() { cli "$BIN/shunt" -s "$SOCK" "$@"; }
+fetch() { cli timeout 5 "$@" 2>/dev/null || true; }
+
+check() { # name expected actual
+	if [[ "$3" == "$2" ]]; then
+		echo "  ok   $1"
+		PASS=$((PASS + 1))
+	else
+		echo "  FAIL $1: expected '$2', got '$3'"
+		FAIL=$((FAIL + 1))
+	fi
+}
+
+start_shuntd() {
+	# shuntd and the nft binary it calls must see cgroup2 at /sys/fs/cgroup
+	# no shell function here: $! must be shuntd itself (exec chain), not a subshell
+	ip netns exec $CLI unshare -m sh -c 'mount -t cgroup2 none /sys/fs/cgroup && exec "$@"' _ \
+		"$BIN/shuntd" -c "$WORK/etc/shunt.toml" run 2>"$WORK/shuntd.log" &
+	SHUNTD_PID=$!
+	for _ in $(seq 50); do [[ -S $SOCK ]] && return; sleep 0.1; done
+	echo "shuntd did not start:"; cat "$WORK/shuntd.log"; exit 1
+}
+
+URL=http://10.99.0.1:8080
+URL81=http://10.99.0.1:8081
+URL6='http://[fd99::1]:8080'
+
+# --- tests --------------------------------------------------------------------
+echo "== static checks"
+mkdir -p "$CGMNT/$CG"
+out=$(cli "$BIN/shuntd" -c "$WORK/etc/shunt.toml" check)
+check "check prints ruleset" yes "$(grep -q 'chain route_out' <<<"$out" && echo yes || echo no)"
+chmod 644 "$WORK/etc/vps.conf"
+check "world readable key refused" refused "$("$BIN/shuntd" -c "$WORK/etc/shunt.toml" check >/dev/null 2>&1 && echo accepted || echo refused)"
+chmod 600 "$WORK/etc/vps.conf"
+
+echo "== daemon up, default direct"
+start_shuntd
+for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+# debugging aid: SHUNT_HOLD=/path/to/file keeps the setup alive until the file exists
+if [[ -n ${SHUNT_HOLD:-} ]]; then
+	echo "holding, work dir $WORK; touch $SHUNT_HOLD to continue"
+	until [[ -e $SHUNT_HOLD ]]; do sleep 1; done
+fi
+check "default traffic goes direct" 10.99.0.2 "$(fetch curl -s $URL)"
+check "--via tunnel goes through tunnel" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "--via direct goes direct" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
+check "--via block gets nothing" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via block -- curl -s $URL)"
+check "children inherit the route" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c "curl -s $URL")"
+check "cidr+port rule tunnels 8081" 10.66.0.2 "$(fetch curl -s $URL81)"
+check "cidr+port rule leaves 8080 alone" 10.99.0.2 "$(fetch curl -s $URL)"
+check "group rule blocks torrent:8080" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --group torrent -- curl -s $URL)"
+check "group rule falls through on 8081" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --group torrent -- curl -s $URL81)"
+if ((HAVE_V6)); then
+	check "IPv6 direct works" fd99::2 "$(fetch curl -s -6 "$URL6")"
+	check "IPv6 blocked for v4-only tunnel" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s -6 "$URL6")"
+else
+	echo "  skip IPv6 checks (kernel without IPv6)"
+fi
+check "wg-quick PostUp ignored" no "$([[ -e /tmp/pwned ]] && echo yes || echo no)"
+check "status lists tunnel" yes "$(shunt status | grep -q '^vps .*up/' && echo yes || echo no)"
+check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
+
+echo "== kill switch: tunnel interface disappears"
+cli ip link del sh-vps 2>/dev/null || true
+check "tunnel route blocked, no leak" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "direct still works" 10.99.0.2 "$(fetch curl -s $URL)"
+
+echo "== reload: default route = tunnel"
+write_config tunnel:vps
+shunt reload
+for _ in $(seq 50); do shunt status | grep -q 'up/' && break; sleep 0.1; done
+check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
+check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
+check "handshake works (bypass mark)" yes "$(shunt status | grep -q ' ago ' && echo yes || echo no)"
+((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
+
+echo "== panic"
+shunt panic on
+check "panic blocks everything" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
+shunt panic off
+check "panic off restores" 10.66.0.2 "$(fetch curl -s $URL)"
+
+echo "== daemon stopped: fail closed"
+kill "$SHUNTD_PID"; wait "$SHUNTD_PID" 2>/dev/null || true; SHUNTD_PID=
+check "tunnel group blocked while daemon is down" "" "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/tunnel-vps/cgroup.procs; curl -s $URL")"
+check "default (tunnel) blocked while daemon is down" "" "$(fetch curl -s $URL)"
+cli "$BIN/shuntd" cleanup
+check "cleanup restores direct" 10.99.0.2 "$(fetch curl -s $URL)"
+check "cleanup removes nft table" no "$(cli nft list tables | grep -q shunt && echo yes || echo no)"
+
+echo
+echo "passed: $PASS  failed: $FAIL"
+if ((FAIL)); then
+	echo "--- shuntd log"; cat "$WORK/shuntd.log"
+	exit 1
+fi

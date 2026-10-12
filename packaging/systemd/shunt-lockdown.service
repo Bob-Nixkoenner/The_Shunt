@@ -1,0 +1,16 @@
+# Optional, for the paranoid: block all traffic from early boot until shuntd
+# has applied its rules. If shuntd cannot start you are offline until you run
+# `sudo shuntd cleanup` - that is the point.
+[Unit]
+Description=Shunt boot lockdown (block network until shuntd is ready)
+DefaultDependencies=no
+Before=network-pre.target shuntd.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/shuntd lockdown
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
