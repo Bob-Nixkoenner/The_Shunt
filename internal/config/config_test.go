@@ -81,3 +81,23 @@ func TestEncodeRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func FuzzParse(f *testing.F) {
+	f.Add(valid)
+	f.Add("[[rule]]\napp=[\"firefox\"]\nargs=[\"-P sm\"]\nroute=\"block\"\n")
+	f.Add("[dns.upstream.x]\naddr=\"https://1.1.1.1/dns-query\"\ntls_name=\"one\"\n")
+	f.Fuzz(func(t *testing.T, s string) {
+		c, err := Parse(s)
+		if err != nil {
+			return
+		}
+		// whatever is accepted must survive an encode/parse round trip
+		b, err := c.Encode()
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		if _, err := Parse(string(b)); err != nil {
+			t.Fatalf("round trip of accepted config failed: %v\n%s", err, b)
+		}
+	})
+}

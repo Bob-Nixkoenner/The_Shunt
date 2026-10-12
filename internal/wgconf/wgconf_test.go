@@ -48,3 +48,15 @@ func TestParseErrors(t *testing.T) {
 		}
 	}
 }
+
+func FuzzParse(f *testing.F) {
+	f.Add(sample)
+	f.Add("[Interface]\nPrivateKey = x\n")
+	f.Add("[Peer]\nAllowedIPs = ::/0, 0.0.0.0/0\n")
+	f.Fuzz(func(t *testing.T, s string) {
+		c, err := Parse(strings.NewReader(s))
+		if err == nil && (c.PrivateKey.IsZero() || len(c.Peers) == 0 || len(c.Addresses) == 0) {
+			t.Fatalf("accepted incomplete config: %q", s)
+		}
+	})
+}

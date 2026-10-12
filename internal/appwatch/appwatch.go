@@ -321,7 +321,11 @@ func parseExecEvents(b []byte) []int {
 				out = append(out, int(ne.Uint32(ev[16+4:]))) // exec: pid, tgid
 			}
 		}
-		b = b[(l+3)&^3:]
+		next := (l + 3) &^ 3 // messages are 4-byte aligned
+		if next > len(b) {
+			break
+		}
+		b = b[next:]
 	}
 	return out
 }
