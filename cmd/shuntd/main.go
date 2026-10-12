@@ -13,6 +13,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/daemon"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 )
 
@@ -56,6 +57,9 @@ func main() {
 				for _, u := range ups {
 					fmt.Fprintf(os.Stderr, "dns %s -> %s://%s\n", route, u.Proto, u.Addr)
 				}
+			}
+			if p.DirectSystem {
+				fmt.Fprintln(os.Stderr, "dns direct ->", dnsproxy.NewSystemUpstream(0).String())
 			}
 			for _, w := range p.Warnings {
 				fmt.Fprintln(os.Stderr, "WARNING:", w)

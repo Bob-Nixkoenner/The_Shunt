@@ -51,6 +51,7 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
+	dnsUps    dnsproxy.RouteUpstreams
 }
 
 // Prepared is the result of loading config and tunnel files.
@@ -62,6 +63,9 @@ type Prepared struct {
 	Ruleset string
 	// DNS upstreams per route name, and problems worth telling the user.
 	DNSUpstreams map[string][]config.UpstreamSpec
+	// DirectSystem: the direct route uses the system resolvers, re-read
+	// whenever resolv.conf changes (not in DNSUpstreams).
+	DirectSystem bool
 	Warnings     []string
 }
 
@@ -122,10 +126,8 @@ func (p *Prepared) prepareDNS() {
 	if c.DNS.Direct != "" {
 		u, _ := config.ParseUpstream(c.DNS.Upstream[c.DNS.Direct]) // validated
 		p.DNSUpstreams["direct"] = []config.UpstreamSpec{u}
-	} else if sys := dnsproxy.SystemUpstreams(); len(sys) > 0 {
-		p.DNSUpstreams["direct"] = sys
 	} else {
-		p.Warnings = append(p.Warnings, "no DNS upstream for direct route: set dns.direct (system resolver is a loopback stub only)")
+		p.DirectSystem = true
 	}
 	for name, t := range c.Tunnels {
 		route := "tunnel:" + name
@@ -169,6 +171,9 @@ func nsswitchUsesResolved() bool {
 
 func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 	ups := dnsproxy.RouteUpstreams{}
+	if p.DirectSystem {
+		ups["direct"] = []dnsproxy.Upstream{dnsproxy.NewSystemUpstream(p.Plan.RouteByName("direct").Mark)}
+	}
 	for route, specs := range p.DNSUpstreams {
 		r := p.Plan.RouteByName(route)
 		for _, s := range specs {
@@ -278,9 +283,11 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, dnsproxy.NftSets{Table: nft.Table})
 	}
-	if err := d.proxy.Update(p.Plan, d.upstreams(p)); err != nil {
+	ups := d.upstreams(p)
+	if err := d.proxy.Update(p.Plan, ups); err != nil {
 		return err
 	}
+	d.dnsUps = ups
 	for _, w := range p.Warnings {
 		d.Log.Warn(w)
 	}
@@ -502,10 +509,14 @@ func (d *Daemon) routes() http.Handler {
 func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, Warnings: d.prep.Warnings, DNS: map[string][]string{}}
-	for route, specs := range d.prep.DNSUpstreams {
-		for _, s := range specs {
-			st.DNS[route] = append(st.DNS[route], s.Proto+"://"+s.Addr.String())
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{}}
+	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	for route, ups := range d.dnsUps {
+		for _, u := range ups {
+			st.DNS[route] = append(st.DNS[route], u.String())
+			if su, ok := u.(*dnsproxy.SystemUpstream); ok && len(su.Servers()) == 0 {
+				st.Warnings = append(st.Warnings, "no system DNS resolver found for the direct route (yet): set dns.direct if this persists")
+			}
 		}
 	}
 	names := make([]string, 0, len(d.cfg.Tunnels))
