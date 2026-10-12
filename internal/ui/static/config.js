@@ -68,6 +68,7 @@ function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
   fillVia();
+  renderNetworks();
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
@@ -276,6 +277,7 @@ $("#t-import").addEventListener("click", async () => {
     const res = await api("POST", "/api/tunnels", req);
     toast("Tunnel " + name + " imported" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
     for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
+    $("#t-via").value = "";
     updateImportForm();
     await loadConfig();
     refresh();
@@ -292,3 +294,45 @@ async function deleteTunnel(n) {
     refresh();
   } catch (e) { toast(e.message); }
 }
+
+// --- network profiles ---------------------------------------------------
+function netNow() { return (status && status.net_info) || {}; }
+function updateNetNow() {
+  const now = netNow();
+  $("#n-now").textContent = now.iface
+    ? "Now: " + now.iface + (now.ssid ? " · Wi-Fi “" + now.ssid + "”" : "") + (now.gateway_mac ? " · router " + now.gateway_mac : " · router MAC unknown") +
+      (status && status.network ? " → profile “" + status.network + "” active" : " → no profile: “Everything else goes” applies")
+    : "Not connected to a network right now.";
+}
+function renderNetworks() {
+  updateNetNow();
+  const nets = model.network || [];
+  $("#c-networks").replaceChildren(...(nets.length ? nets.map((n, i) => {
+    const route = el("select", { onchange: (e) => { n.default_route = e.target.value; markDirty(); } }, ...modelRoutes().map((r) => el("option", { value: r }, r)));
+    route.value = n.default_route;
+    const crit = [];
+    if (n.ssid) crit.push("Wi-Fi: " + joinList(n.ssid));
+    if (n.gateway_mac) crit.push("router: " + joinList(n.gateway_mac));
+    const weak = n.ssid && !n.gateway_mac && n.default_route !== "block" && n.default_route !== model.daemon.default_route;
+    return el("tr", {},
+      el("td", {}, el("b", {}, n.name)),
+      el("td", {}, ...crit.map((x) => el("span", { class: "chip" }, x)),
+        weak ? el("div", { style: "color:var(--warn)" }, "Wi-Fi names are easy to fake: add the router MAC") : ""),
+      el("td", {}, el("span", { class: "muted" }, "everything else goes "), route),
+      el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
+  }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
+}
+$("#n-add").addEventListener("click", () => {
+  const now = netNow();
+  if (!now.ssid && !now.gateway_mac) return toast("The current network can't be recognised (no Wi-Fi name, router MAC unknown)");
+  const name = (prompt("Name for this network", now.ssid || "home") || "").trim();
+  if (!name) return;
+  model.network = model.network || [];
+  if (model.network.some((n) => n.name === name)) return toast("There is a network called " + name + " already");
+  const n = { name, default_route: "direct" };
+  if (now.ssid) n.ssid = [now.ssid];
+  if (now.gateway_mac) n.gateway_mac = [now.gateway_mac];
+  model.network.push(n);
+  markDirty();
+  renderConfig();
+});
