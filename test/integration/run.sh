@@ -33,6 +33,7 @@ cleanup() {
 	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
 	ip netns del $CLI 2>/dev/null
 	rm -rf "/etc/netns/$CLI"
+	groupdel shunttest 2>/dev/null
 	ip netns del $WAN 2>/dev/null
 	find "$CGMNT/$CG" -depth -type d -exec rmdir {} + 2>/dev/null
 	rm -rf "$WORK"
@@ -46,6 +47,11 @@ CGMNT=/sys/fs/cgroup
 echo "== build"
 mkdir -p "$BIN"
 (cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+
+groupadd -f shunttest
+TGID=$(getent group shunttest | cut -d: -f3)
+# an unprivileged member of the socket group (like a desktop user)
+MEMBER=(setpriv --reuid=65534 --regid=65534 --groups="$TGID")
 
 echo "== topology"
 ip netns del $WAN 2>/dev/null || true
@@ -105,6 +111,7 @@ write_config() { # $1 = default route, $2 = "system" to use the system resolver
 	cat >"$WORK/etc/shunt.toml" <<EOF
 [daemon]
 socket = "$SOCK"
+socket_group = "shunttest"
 cgroup_root = "$CG"
 default_route = "$1"
 
@@ -236,6 +243,21 @@ chmod +x "$BIN/proftest"
 check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P sm $URL)"
 check "args rule: other profile untouched" 10.99.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
 check "status shows app group" yes "$(shunt status | grep -q '^app:apptest auto-detected' && echo yes || echo no)"
+
+echo "== permissions (group member, not root)"
+mshunt() { cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" "$@"; }
+check "member: status allowed" yes "$(mshunt status >/dev/null 2>&1 && echo yes || echo no)"
+check "member: start app in a route" 10.66.0.2 "$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "member: reload needs authorization" denied "$(mshunt reload >/dev/null 2>&1 && echo allowed || echo denied)"
+check "member: config write needs authorization" denied "$(cli "${MEMBER[@]}" curl -s --unix-socket "$SOCK" -X PUT -o /dev/null -w '%{http_code}' --data-binary '{"raw":"x"}' http://shuntd/v1/config | sed 's/403/denied/')"
+check "member: panic on allowed" yes "$(mshunt panic on >/dev/null 2>&1 && echo yes || echo no)"
+check "member: panic off needs authorization" denied "$(mshunt panic off >/dev/null 2>&1 && echo allowed || echo denied)"
+shunt panic off
+esc=$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c "'$BIN/shunt' -s '$SOCK' run --via direct -- curl -s $URL 2>&1")
+check "tunnelled app cannot escape to direct" yes "$(grep -q 'leaving route tunnel:vps' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
+check "tunnelled app may move to block" "" "$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- "$BIN/shunt" -s "$SOCK" run --via block -- curl -s $URL)"
+check "root may move a tunnelled app" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
+check "non-member gets no socket access" denied "$(cli setpriv --reuid=65534 --regid=65534 --clear-groups "$BIN/shunt" -s "$SOCK" status >/dev/null 2>&1 && echo allowed || echo denied)"
 
 echo "== DNS"
 check "query goes to direct upstream" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"

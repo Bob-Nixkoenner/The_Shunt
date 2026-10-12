@@ -58,12 +58,24 @@ jobs:
           # as an unprivileged member of group shunt (no sudo for the CLI itself)
           sudo -u runner -g shunt shunt run --via direct -- curl -fsS -o /dev/null https://github.com
           sudo -u runner -g shunt shunt status | grep -q 'via:direct'
-          ! sudo shunt run --via tunnel:test-vpn -- curl -fsS -m 5 -o /dev/null https://github.com   # tunnel has no peer: must fail closed
+          # permissions: a member may not change things without polkit/root
+          if sudo -u runner -g shunt shunt reload; then echo "expected failure"; exit 1; fi
+          sudo shunt reload
+          test -f /usr/share/polkit-1/actions/org.theshunt.policy
+          # app rules under the hardened unit (no CAP_SYS_PTRACE), for another
+          # user's process, via the kernel process connector
+          printf '\n[[rule]]\nname = "ci sleeper"\napp = ["sleep"]\nroute = "block"\n' | sudo tee -a /etc/shunt/shunt.toml
+          sudo shunt reload
+          sudo -u runner sleep 120 &
+          sleep 2
+          sudo shunt status | tee /tmp/st
+          grep -E '^app:ci sleeper +block +[1-9].*sleep' /tmp/st
+          if sudo shunt run --via tunnel:test-vpn -- curl -fsS -m 5 -o /dev/null https://github.com; then echo "expected failure"; exit 1; fi # tunnel has no peer: must fail closed
           sudo systemctl restart shuntd && sleep 2 && systemctl is-active shuntd
           sudo journalctl -u shuntd --no-pager | tail -30
       - name: uninstall
         if: always()
         run: |
           sudo bash ./install.sh --uninstall --purge
-          ! sudo nft list tables | grep -q shunt
+          if sudo nft list tables | grep -q shunt; then echo "expected failure"; exit 1; fi
           curl -fsS -o /dev/null https://github.com

@@ -33,6 +33,10 @@ type Daemon struct {
 	// Empty means: the cgroup shuntd was started in (systemd Delegate=yes).
 	CgroupRoot   string `toml:"cgroup_root,omitempty" json:"cgroup_root,omitempty"`
 	DefaultRoute string `toml:"default_route,omitempty" json:"default_route,omitempty"`
+	// APIAuth: "polkit" (default) – config changes, reload and lifting panic
+	// need root or polkit authorization; "group" – every socket_group
+	// member may do everything.
+	APIAuth string `toml:"api_auth,omitempty" json:"api_auth,omitempty"`
 }
 
 // DNS configures the per-route DNS proxy.
@@ -180,6 +184,11 @@ func (c *Config) Validate() error {
 		if !ValidName(n) {
 			return fmt.Errorf("group %q: name must match %s", n, nameRe)
 		}
+	}
+	switch c.Daemon.APIAuth {
+	case "", "polkit", "group":
+	default:
+		return fmt.Errorf("daemon.api_auth: %q (polkit | group)", c.Daemon.APIAuth)
 	}
 	if _, err := c.ParseRoute(c.Daemon.DefaultRoute); err != nil {
 		return fmt.Errorf("daemon.default_route: %w", err)

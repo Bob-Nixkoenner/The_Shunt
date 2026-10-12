@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>The Shunt</vendor>
+  <vendor_url>https://github.com/Bob-Nixkoenner/The_Shunt</vendor_url>
+  <icon_name>network-vpn</icon_name>
+
+  <!-- Checked by shuntd for: config changes, reload, tunnel import/delete,
+       lifting panic mode, and moving a process out of its route. -->
+  <action id="org.theshunt.manage">
+    <description>Change how The Shunt routes traffic</description>
+    <description xml:lang="de">Ändern, wie The Shunt den Datenverkehr leitet</description>
+    <message>Authentication is required to change The Shunt's routing (configuration, tunnels, panic mode, moving an app out of its route).</message>
+    <message xml:lang="de">Zum Ändern der Weiterleitung von The Shunt (Konfiguration, Tunnel, Panikmodus, App aus ihrer Route holen) ist eine Legitimierung erforderlich.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

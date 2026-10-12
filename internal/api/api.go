@@ -112,7 +112,8 @@ type Client struct {
 // NewClient returns a client for the given socket path.
 func NewClient(socket string) *Client {
 	return &Client{http: &http.Client{
-		Timeout: 30 * time.Second,
+		// long enough for a polkit password dialog
+		Timeout: 150 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				var d net.Dialer

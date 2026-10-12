@@ -226,8 +226,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	srv := &http.Server{
-		Handler:     d.routes(),
-		ConnContext: connContext,
+		Handler:           d.routes(),
+		ConnContext:       connContext,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       time.Minute,
 	}
 	go func() { _ = srv.Serve(ln) }()
 	d.Log.Info("shuntd running", "socket", d.cfg.Daemon.Socket)
@@ -437,58 +439,61 @@ func (d *Daemon) listen() (net.Listener, error) {
 	return ln, nil
 }
 
-type credKey struct{}
-
-func connContext(ctx context.Context, c net.Conn) context.Context {
-	uc, ok := c.(*net.UnixConn)
-	if !ok {
-		return ctx
-	}
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		return ctx
-	}
-	var cred *unix.Ucred
-	_ = raw.Control(func(fd uintptr) {
-		cred, _ = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	})
-	if cred == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, credKey{}, cred)
-}
-
 func (d *Daemon) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.status())
 	})
 	mux.HandleFunc("POST /v1/run", func(w http.ResponseWriter, r *http.Request) {
-		cred, _ := r.Context().Value(credKey{}).(*unix.Ucred)
-		if cred == nil {
+		p := peerOf(r.Context())
+		if p == nil || !p.alive() {
 			writeErr(w, http.StatusForbidden, errors.New("no peer credentials"))
 			return
 		}
 		var req api.RunRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
 		d.mu.Lock()
 		g, ok := d.plan.Group(req.Group)
+		from, to := d.currentRoute(int(p.pid)), d.groupRoute(g)
 		d.mu.Unlock()
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown group %q", req.Group))
 			return
 		}
-		if err := d.cg.Move(g.Path, int(cred.Pid)); err != nil {
+		// A process that already runs in a route may only move to the same
+		// route or to block; anything else is an escape and needs manage.
+		if from != "" && from != to && to != "block" {
+			if err := d.authorize(r.Context(), p); err != nil {
+				writeErr(w, http.StatusForbidden, fmt.Errorf("leaving route %s: %w", from, err))
+				return
+			}
+		}
+		// PID reuse: only move the process that asked, verified by start time
+		// before and after the move.
+		if !p.alive() {
+			writeErr(w, http.StatusForbidden, errors.New("caller is gone"))
+			return
+		}
+		if err := d.cg.Move(g.Path, int(p.pid)); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
-		d.Log.Info("process attached", "pid", cred.Pid, "uid", cred.Uid, "group", g.Name)
+		if !p.alive() {
+			d.Log.Warn("caller vanished during attach", "pid", p.pid)
+			writeErr(w, http.StatusConflict, errors.New("caller is gone"))
+			return
+		}
+		d.Log.Info("process attached", "pid", p.pid, "uid", p.uid, "group", g.Name)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
 		d.mu.Lock()
 		root := d.plan.CgroupRoot
 		d.mu.Unlock()
@@ -536,6 +541,10 @@ func (d *Daemon) routes() http.Handler {
 		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
 	})
 	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
 		var req api.ConfigSave
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
@@ -554,6 +563,10 @@ func (d *Daemon) routes() http.Handler {
 		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
 	})
 	mux.HandleFunc("POST /v1/tunnels", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
 		var req api.TunnelImport
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
@@ -567,6 +580,10 @@ func (d *Daemon) routes() http.Handler {
 		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
 	})
 	mux.HandleFunc("DELETE /v1/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
 		if err := d.deleteTunnel(r.PathValue("name")); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
@@ -575,9 +592,16 @@ func (d *Daemon) routes() http.Handler {
 	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
+		}
+		// panic ON never waits for a password; lifting it does
+		if !req.On {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
 		}
 		script := nft.DeleteScript(nft.PanicTable)
 		if req.On {
@@ -662,6 +686,39 @@ func procNames(pids []int) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// currentRoute returns the route of the Shunt group pid is in, or "".
+// Caller holds d.mu.
+func (d *Daemon) currentRoute(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return ""
+	}
+	var cg string
+	for _, l := range strings.Split(string(b), "\n") {
+		if c, ok := strings.CutPrefix(l, "0::"); ok {
+			cg = strings.Trim(c, "/")
+		}
+	}
+	for _, g := range d.plan.Groups {
+		if cg == g.Path || strings.HasPrefix(cg, g.Path+"/") {
+			return d.groupRoute(g)
+		}
+	}
+	return ""
+}
+
+// groupRoute is the route of the first rule using g. Caller holds d.mu.
+func (d *Daemon) groupRoute(g engine.Group) string {
+	for _, r := range d.plan.Rules {
+		for _, rg := range r.Groups {
+			if rg.Path == g.Path {
+				return r.Route.String()
+			}
+		}
+	}
+	return ""
 }
 
 func notifyHUP(c chan os.Signal) { signal.Notify(c, syscall.SIGHUP) }
