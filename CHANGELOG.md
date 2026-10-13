@@ -18,6 +18,10 @@
   block other DNS servers until you log in, or use names only they know. Only that
   browser; everything else keeps its DNS. While a login page is detected it needs no
   password, otherwise it does (it leaves the default route).
+- **Fix: saving the config failed right after plugging in a cable** ("table 5525 route
+  0.0.0.0/0: network is unreachable"). Copying the Wi-Fi/cable/LAN routes into Shunt's
+  tables fails while an interface is still coming up; that failed the whole reload.
+  Those routes are retried every 5 s now (the table blocks meanwhile, nothing leaks).
 - **Fix: stalling TLS handshakes and downloads through some tunnels** (MSS clamping).
   Programs announce their TCP segment size for the physical connection (1460) before
   Shunt moves them into a tunnel (MTU 1420). Servers then sent packets too big for the

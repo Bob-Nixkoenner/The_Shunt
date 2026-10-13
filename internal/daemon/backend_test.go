@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -26,6 +28,7 @@ type fakeBackend struct {
 	applied []map[string]engine.Group // held groups per Apply
 	held    []map[string]engine.Group // per Hold
 	routes  int
+	syncErr error // returned by SyncRoutes
 }
 
 func newFake() *fakeBackend { return &fakeBackend{procs: map[string][]int{}} }
@@ -44,7 +47,7 @@ func (f *fakeBackend) Hold(held map[string]engine.Group) error {
 func (f *fakeBackend) WatchHeld(context.Context, func(string, int)) error { return nil }
 func (f *fakeBackend) SyncRoutes(*engine.Plan, map[string]bool) error {
 	f.routes++
-	return nil
+	return f.syncErr
 }
 func (f *fakeBackend) Panic(bool) error               { return nil }
 func (f *fakeBackend) LiftLockdown() error            { return nil }
@@ -185,5 +188,22 @@ func TestDisabledTunnelNotStarted(t *testing.T) {
 	st := d.status()
 	if len(st.Tunnels) != 1 || !st.Tunnels[0].Disabled || st.Tunnels[0].Up {
 		t.Fatalf("status: %+v", st.Tunnels)
+	}
+}
+
+// A route that can't be copied yet (cable just plugged in) must not fail
+// a config save; a real routing error still does.
+func TestSoftRouteErrorsDontFailReload(t *testing.T) {
+	d, f := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[dns]\ndisabled = true\n")
+	f.syncErr = errors.Join(&routing.SoftError{Err: errors.New("table 5525 route 0.0.0.0/0: network is unreachable")})
+	if err := d.reload("shunt"); err != nil {
+		t.Fatalf("soft error failed the reload: %v", err)
+	}
+	if d.routeSoft == "" {
+		t.Error("soft error not remembered for the retry")
+	}
+	f.syncErr = errors.New("table 5301: no unreachable route")
+	if err := d.reload("shunt"); err == nil {
+		t.Error("hard routing error accepted")
 	}
 }
