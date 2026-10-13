@@ -53,15 +53,15 @@ type Status struct {
 
 // TunnelStatus describes one tunnel.
 type TunnelStatus struct {
-	Name   string              `json:"name"`
-	Iface  string              `json:"iface"`
-	Driver string              `json:"driver"`
-	Up     bool                `json:"up"`
+	Name   string `json:"name"`
+	Iface  string `json:"iface"`
+	Driver string `json:"driver"`
+	Up     bool   `json:"up"`
 	// Disabled: switched off in the config (its route blocks).
-	Disabled bool `json:"disabled,omitempty"`
-	Error  string              `json:"error,omitempty"`
-	Via    string              `json:"via,omitempty"` // second hop through this route
-	Peers  []tunnel.PeerStatus `json:"peers,omitempty"`
+	Disabled bool                `json:"disabled,omitempty"`
+	Error    string              `json:"error,omitempty"`
+	Via      string              `json:"via,omitempty"` // second hop through this route
+	Peers    []tunnel.PeerStatus `json:"peers,omitempty"`
 }
 
 // GroupStatus describes one process group.
