@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path"
@@ -913,6 +915,27 @@ func (d *Daemon) routes() http.Handler {
 		d.Log.Info("process attached", "pid", p.pid, "uid", p.uid, "group", g.Name)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/probe", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ProbeRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		d.mu.Lock()
+		g, ok := d.plan.Group(engine.ViaGroupName(req.Route))
+		d.mu.Unlock()
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown route %q", req.Route))
+			return
+		}
+		out, err := d.runProbe(r.Context(), g.Path)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
+	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -1116,6 +1139,44 @@ func (d *Daemon) routes() http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
+}
+
+// probeSlots limits concurrent leak test probes (one per route is normal).
+var probeSlots = make(chan struct{}, 16)
+
+// runProbe runs `shuntd probe` (fixed targets, nothing the caller chooses)
+// inside the cgroup at path, so its traffic takes exactly that route. The
+// probe waits for a line on stdin: it is moved before it sends anything.
+func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
+	select {
+	case probeSlots <- struct{}{}:
+		defer func() { <-probeSlots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/proc/self/exe", "probe")
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	if err := d.cg.Move(path, cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, err
+	}
+	_, _ = in.Write([]byte("go\n"))
+	in.Close()
+	if err := cmd.Wait(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 func (d *Daemon) status() api.Status {

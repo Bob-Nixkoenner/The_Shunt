@@ -256,7 +256,7 @@ func (s *Server) handler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		writeJSON(w, probe.LeakTest(ctx, s.Self, s.Socket, st.Routes))
+		writeJSON(w, probe.LeakTest(ctx, probe.DaemonRunner(s.Client), st.Routes))
 	})
 	return s.guard(mux)
 }

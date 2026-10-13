@@ -2,10 +2,14 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
+
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -83,6 +87,11 @@ func main() {
 		}
 	case "version":
 		fmt.Println(version)
+	case "probe": // internal: started by the daemon, which moves it into a route
+		// and then says go; nothing is sent before that
+		if _, err = bufio.NewReader(os.Stdin).ReadString('\n'); err == nil {
+			err = json.NewEncoder(os.Stdout).Encode(probe.Run(context.Background()))
+		}
 	case "restore-nsswitch":
 		err = daemon.RestoreNsswitch()
 	default:
