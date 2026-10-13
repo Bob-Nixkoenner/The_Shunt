@@ -118,6 +118,8 @@ function renderConfig() {
     if (r.cidr) sel.push("IPs: " + joinList(r.cidr));
     if (r.port) sel.push("ports: " + joinList(r.port));
     if (r.group) sel.push("groups: " + joinList(r.group));
+    if (r.network) sel.push("only on: " + joinList(r.network));
+    if (r.override_explicit) sel.push("also for apps started in a route");
     const move = (d) => { const j = i + d; [model.rule[i], model.rule[j]] = [model.rule[j], model.rule[i]]; markDirty(); renderConfig(); };
     return el("tr", {},
       el("td", { class: "muted" }, i + 1 + "."),
@@ -165,6 +167,11 @@ function openRule(i) {
   $("#r-cidr").value = joinList(r.cidr);
   $("#r-port").value = joinList(r.port);
   $("#r-group").value = joinList(r.group);
+  const nets = (model.network || []).map((n) => n.name);
+  $("#r-network").replaceChildren(...(nets.length ? nets.map((n) => el("label", { class: "row", style: "color:var(--text)" },
+    el("input", { type: "checkbox", value: n, checked: (r.network || []).includes(n) ? "" : null }), n)) :
+    [el("span", { class: "muted" }, "everywhere (no network profiles yet – see Networks)")]));
+  $("#r-override").checked = !!r.override_explicit;
   $("#r-editor").hidden = false;
   $("#r-name").focus();
 }
@@ -176,6 +183,9 @@ $("#r-ok").addEventListener("click", () => {
     const v = splitList($(id).value);
     if (v.length) r[k] = v;
   }
+  const nets = [...document.querySelectorAll("#r-network input:checked")].map((x) => x.value);
+  if (nets.length) r.network = nets;
+  if ($("#r-override").checked) r.override_explicit = true;
   if (!r.app && !r.domain && !r.cidr && !r.port && !r.group) return toast("A rule needs at least one of apps, domains, IP ranges, ports or groups");
   if (r.args && !r.app) return toast("Arguments only work together with apps");
   for (const g of r.group || []) model.group[g] = model.group[g] || {};

@@ -55,6 +55,9 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   Chromium). Shunt moves them back within about 0.1 s; a connection opened in that
   window keeps the default route. For apps that must never touch the default route,
   make the default route a tunnel or use the app firewall in `block` mode.
+- **Domain rules and explicitly started apps**: an app started in a tunnel keeps that
+  tunnel for its traffic even when a (non-override) domain rule names another route, but
+  its DNS lookup for that domain is still answered by the domain rule's resolver.
 - **The app firewall holds programs of the desktop session only.** Its first packets
   are rejected (not delayed); programs that talk through an already running process
   (D-Bus services, browser handover) take that process's route.

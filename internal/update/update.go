@@ -27,7 +27,8 @@ const (
 
 // Info is the result of the last check.
 type Info struct {
-	Current   string    `json:"current"`
+	Current   string    `json:"current"`       // installed version
+	App       string    `json:"app,omitempty"` // version of this running program
 	Latest    string    `json:"latest,omitempty"`
 	Available bool      `json:"available"`
 	Command   string    `json:"command,omitempty"`
@@ -77,6 +78,10 @@ func SetEnabled(on bool) error {
 // Checker checks periodically and remembers the result.
 type Checker struct {
 	Current string // "src-1a2b3c4" (source build) or "v0.6.0" (release)
+	// Installed, if set, returns the version actually installed (the
+	// running shuntd); it is compared instead of Current, so an app that
+	// was not restarted after an update does not keep announcing it.
+	Installed func() string
 	// OnAvailable is called once when an update is first found.
 	OnAvailable func(Info)
 	// API base, for tests.
@@ -87,13 +92,29 @@ type Checker struct {
 	info Info
 }
 
-// Get returns the last result.
+// Get returns the last result. If the installed version changed since the
+// last check (an update was just installed), the old result is void: a new
+// check starts in the background.
 func (c *Checker) Get() Info {
+	inst := ""
+	if c.Installed != nil {
+		inst = c.Installed()
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	i := c.info
-	i.Current = c.Current
+	if i.Current == "" {
+		i.Current = c.Current
+	}
+	stale := inst != "" && !i.Checked.IsZero() && inst != i.Current
+	c.mu.Unlock()
+	if stale {
+		i.Current, i.Available, i.Command, i.Latest = inst, false, "", ""
+		if Enabled() {
+			go c.Check(context.Background())
+		}
+	}
 	i.Disabled = !Enabled()
+	i.App = c.Current
 	return i
 }
 
@@ -113,15 +134,21 @@ func (c *Checker) Run(ctx context.Context) {
 
 // Check asks GitHub once.
 func (c *Checker) Check(ctx context.Context) Info {
-	latest, err := c.latest(ctx)
+	cur := c.Current
+	if c.Installed != nil {
+		if v := c.Installed(); v != "" {
+			cur = v
+		}
+	}
+	latest, err := c.latestFor(ctx, cur)
 	c.mu.Lock()
 	was := c.info.Available
-	c.info = Info{Current: c.Current, Checked: time.Now()}
+	c.info = Info{Current: cur, Checked: time.Now()}
 	if err != nil {
 		c.info.Err = err.Error()
 	} else {
 		c.info.Latest = latest
-		c.info.Available = newer(c.Current, latest)
+		c.info.Available = newer(cur, latest)
 		if c.info.Available {
 			c.info.Command = Command
 		}
@@ -148,7 +175,7 @@ func newer(current, latest string) bool {
 	}
 }
 
-func (c *Checker) latest(ctx context.Context) (string, error) {
+func (c *Checker) latestFor(ctx context.Context, current string) (string, error) {
 	base := c.API
 	if base == "" {
 		base = "https://api.github.com"
@@ -158,7 +185,7 @@ func (c *Checker) latest(ctx context.Context) (string, error) {
 		cl = &http.Client{Timeout: 20 * time.Second}
 	}
 	path := "/repos/" + Repo + "/releases?per_page=1" // pre-releases too
-	if strings.HasPrefix(c.Current, "src-") {
+	if strings.HasPrefix(current, "src-") {
 		path = "/repos/" + Repo + "/commits/HEAD"
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", base+path, nil)

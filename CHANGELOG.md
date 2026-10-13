@@ -1,7 +1,23 @@
 # Changelog
 
-## Unreleased
+## v0.7.0-rc1
 
+**App firewall, sticky routes, rule priorities and rules per network.**
+
+- **Rule order changed – nothing overrides “block”**: programs started in the block route
+  come first, then rules marked `override_explicit = true`, then programs started in a
+  route on purpose (`shunt run --via`, menu entries, firewall answers), then all other
+  rules, then the default route. Before, a rule like `192.168.1.0/24 → direct` let even
+  `shunt run --via block` into the LAN and took tunnelled apps past their tunnel.
+  **Check your rules**: a rule that should also apply to apps started in a tunnel needs
+  `override_explicit = true` (checkbox “also for apps started in a route”).
+- **Rules per network profile**: `network = ["home"]` on a rule (checkboxes in the rule
+  editor) – a home-LAN rule no longer matches a foreign Wi-Fi with the same addresses.
+  Applied again on every network change.
+- **Sticky routes survive a restart of the service**: processes already in Shunt groups
+  are adopted again.
+- **Update banner** no longer says “update available” after an update when only the app
+  was not restarted; it says so instead (“this window still runs …”).
 - **App firewall** (`[firewall] mode = "ask"` or Configure → App firewall, presets
   Paranoid / Normal / Off, per network profile): a program of your desktop session
   without a rule is held when it first goes online – nothing gets out – and the window

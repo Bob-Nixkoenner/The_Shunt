@@ -289,7 +289,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   </section>
 
   <section>
-    <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins · after them: apps started via a route, then the default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
+    <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">order: apps started in “block” · rules marked “also for started apps” · apps started in a route · other rules · default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>
       <div class="form">
@@ -301,6 +301,9 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
         <label>IP ranges</label><input id="r-cidr" placeholder="192.168.1.0/24, 2001:db8::/32">
         <label>Ports</label><input id="r-port" placeholder="tcp/22, udp/6881-6889">
         <label>Groups</label><input id="r-group" placeholder="torrent   (processes started with shunt run --group)">
+        <label>Only on networks</label><div id="r-network" class="row"></div>
+        <label>Started in a route</label><label class="row" style="color:var(--text)"><input type="checkbox" id="r-override"> also for apps started in a route on purpose (shunt run, menu entries, firewall answers)</label>
+        <span></span><div class="muted" style="font-size:12px">Careful: apps you started in a tunnel then reach these addresses through this rule's route. Apps in “block” always stay blocked.</div>
       </div>
       <div class="hint">Comma separated. Different fields must all match, entries in one field are alternatives.</div>
       <div class="row" style="margin-top:10px"><button id="r-ok" class="primary">Apply to list</button><button id="r-cancel">Cancel</button></div>

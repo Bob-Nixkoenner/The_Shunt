@@ -506,6 +506,48 @@ check "process moved out by the desktop is put back" 10.66.0.2 "$(fetch_long "$B
 check "children started after the move follow" 10.66.0.2 "$(fetch_long "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c 'echo $$ > /sys/fs/cgroup/'"$OUT"'/cgroup.procs; sh -c "sleep 0.5; curl -s '"$URL"'"; true')"
 rmdir "$CGMNT/$OUT" "$CGMNT/shunt-it-outside" 2>/dev/null || true
 
+echo "== rule priority: block and explicit routes"
+EXTRA_TUNNELS=$'[[rule]]\nname = "lan direct"\ncidr = ["10.99.0.1"]\nport = ["tcp/8080"]\nroute = "direct"\n'
+write_config tunnel:vps
+shunt reload
+check "rule applies to normal traffic" 10.99.0.2 "$(fetch curl -s $URL)"
+check "block beats a CIDR rule" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via block -- curl -s $URL)"
+check "app started in a tunnel keeps it" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+EXTRA_TUNNELS+=$'override_explicit = true\n'
+write_config tunnel:vps
+shunt reload
+check "override_explicit: rule also for started apps" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "override_explicit: block still wins" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via block -- curl -s $URL)"
+
+echo "== rules per network profile"
+GWMAC=$(ip -n $WAN link show wan0 | awk '/ether/{print $2}')
+fetch curl -s $URL >/dev/null
+EXTRA_TUNNELS=$'[[network]]\nname = "home"\ngateway_mac = ["'$GWMAC$'"]\ndefault_route = "tunnel:vps"\n[[rule]]\nname = "home lan blocked"\ncidr = ["10.99.0.1"]\nport = ["tcp/8080"]\nroute = "block"\nnetwork = ["home"]\n'
+write_config tunnel:vps
+shunt reload
+for _ in $(seq 30); do shunt status | gq 'network profile "home"' && break; sleep 0.5; done
+check "rule active on its network" "" "$(fetch curl -s $URL)"
+cli ip neigh replace 10.99.0.1 lladdr 02:00:00:00:00:03 dev cli0 nud permanent
+for _ in $(seq 30); do shunt status | gq 'network profile' || break; sleep 0.5; done
+cli ip neigh del 10.99.0.1 dev cli0
+check "rule inactive on another network" 10.66.0.2 "$(fetch_long sh -c 'for i in 1 2 3 4 5; do r=$(curl -s --max-time 3 '"$URL"'); [ -n "$r" ] && echo "$r" && exit; sleep 1; done')"
+EXTRA_TUNNELS=
+write_config tunnel:vps
+shunt reload
+
+echo "== sticky routes survive a daemon restart"
+OUT=shunt-it-outside/app-cosmic-test-2.scope
+mkdir -p "$CGMNT/$OUT"
+cli "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c 'sleep 6; echo $$ > /sys/fs/cgroup/'"$OUT"'/cgroup.procs; sleep 0.5; curl -s --max-time 5 '"$URL" >"$WORK/sticky.out" 2>/dev/null &
+STICKY=$!
+sleep 1
+kill "$SHUNTD_PID"; wait "$SHUNTD_PID" 2>/dev/null || true
+start_shuntd
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+wait $STICKY || true
+check "process placed before the restart is kept in its route" 10.66.0.2 "$(cat "$WORK/sticky.out")"
+rmdir "$CGMNT/$OUT" "$CGMNT/shunt-it-outside" 2>/dev/null || true
+
 echo "== app firewall (ask)"
 SCOPE=user.slice/user-4242.slice/user@4242.service/app.slice/app-shunttest-1.scope
 SYSSVC=system.slice/shunttest-fw.service

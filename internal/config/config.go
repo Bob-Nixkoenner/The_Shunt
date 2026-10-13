@@ -203,6 +203,28 @@ type Rule struct {
 	// args = ["-P sm"] to catch one Firefox profile.
 	Args  []string `toml:"args,omitempty" json:"args,omitempty"`
 	Route string   `toml:"route,omitempty" json:"route,omitempty"`
+	// Network limits the rule to these [[network]] profiles (by name);
+	// empty = everywhere. A home-LAN rule must not match a foreign Wi-Fi
+	// that happens to use the same addresses.
+	Network []string `toml:"network,omitempty" json:"network,omitempty"`
+	// OverrideExplicit: the rule also applies to programs started in a
+	// route on purpose (shunt run --via, menu entries, firewall answers).
+	// Default: they keep their route. Nothing overrides the block route.
+	OverrideExplicit bool `toml:"override_explicit,omitempty" json:"override_explicit,omitempty"`
+}
+
+// ActiveOn reports whether the rule applies on network (a [[network]]
+// name, "" = no profile matched).
+func (r Rule) ActiveOn(network string) bool {
+	if len(r.Network) == 0 {
+		return true
+	}
+	for _, n := range r.Network {
+		if n == network && network != "" {
+			return true
+		}
+	}
+	return false
 }
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
@@ -349,6 +371,15 @@ func (c *Config) Validate() error {
 		where := fmt.Sprintf("rule %d (%s)", i+1, r.Name)
 		if _, err := c.ParseRoute(r.Route); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
+		}
+		for _, n := range r.Network {
+			found := false
+			for _, nw := range c.Networks {
+				found = found || nw.Name == n
+			}
+			if !found {
+				return fmt.Errorf("%s: unknown network profile %q (see [[network]])", where, n)
+			}
 		}
 		if len(r.Args) > 0 && len(r.App) == 0 {
 			return fmt.Errorf("%s: args needs app", where)

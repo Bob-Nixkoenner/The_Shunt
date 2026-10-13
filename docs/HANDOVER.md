@@ -111,6 +111,14 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 
 ## 6. Fortschritt (neueste oben)
 
+- **13.10.2026, Schritt 6 → v0.7.0-rc1:** Auftrag aus der lokalen Sitzung umgesetzt:
+  (1) Regel-Reihenfolge block > override_explicit > via-Gruppen > übrige Regeln > Default,
+  `override_explicit` pro Regel; (2) `network = [...]` pro Regel (nur im passenden Profil);
+  (3) Sticky Routes nach Dienst-Neustart (Prozesse in Shunt-Gruppen werden adoptiert).
+  Dazu: Update-Banner vergleicht mit der installierten Version (Status meldet `version`),
+  „App neu starten“-Hinweis. UI: Profil-Auswahl + Override-Häkchen im Regel-Editor.
+  Integration lokal 153/153. CHANGELOG → v0.7.0-rc1; **Tag setzt der Nutzer.**
+
 - **13.10.2026, Schritt 5:** **App-Firewall** gebaut (Entscheidungen des Nutzers: 30 s →
   Default-Route; Terminal-Programme erben die Route des Terminals, `ask_terminal` schaltbar;
   „merken“ standardmäßig an; Modus pro Netzwerkprofil + Presets Paranoid/Normal/Off).
