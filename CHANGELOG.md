@@ -18,6 +18,11 @@
   block other DNS servers until you log in, or use names only they know. Only that
   browser; everything else keeps its DNS. While a login page is detected it needs no
   password, otherwise it does (it leaves the default route).
+- **Fix: UDP inherited the route of an earlier flow with the same ports.** A program
+  sending from a source port another program's UDP flow just used (same destination)
+  took that flow's route – seen as a sporadic "LEAK" of the block route in the leak
+  test, and usable to leave a tunnel or block. Only TCP keeps its connection's route
+  now; UDP is classified by its program on every packet.
 - **DNS per network profile**: `dns_direct` in a `[[network]]` (Configure → Networks →
   “DNS direct”): e.g. the Pi-hole at home, 1.1.1.1 on a guest Wi-Fi, or `"system"` for
   the network's own DNS server. Applies to `direct` and the Wi-Fi/cable routes.
