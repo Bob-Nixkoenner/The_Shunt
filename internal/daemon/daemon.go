@@ -1255,6 +1255,11 @@ func (d *Daemon) status() api.Status {
 			st.DNSFailing = f
 			routes := make([]string, 0, len(f))
 			for r := range f {
+				// a switched-off tunnel is blocked on purpose, DNS included
+				if t, ok := d.cfg.Tunnels[strings.TrimPrefix(r, "tunnel:")]; ok && strings.HasPrefix(r, "tunnel:") && t.Disabled {
+					delete(f, r)
+					continue
+				}
 				routes = append(routes, r)
 			}
 			sort.Strings(routes)
