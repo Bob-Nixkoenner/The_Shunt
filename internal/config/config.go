@@ -85,7 +85,14 @@ type Network struct {
 	DefaultRoute string   `toml:"default_route" json:"default_route"`
 	// Firewall overrides firewall.mode on this network ("" = keep).
 	Firewall string `toml:"firewall,omitempty" json:"firewall,omitempty"`
+	// DNSDirect overrides dns.direct on this network: an upstream name, or
+	// DNSSystem for the resolvers the network hands out ("" = keep). Link
+	// routes follow it too.
+	DNSDirect string `toml:"dns_direct,omitempty" json:"dns_direct,omitempty"`
 }
+
+// DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
+const DNSSystem = "system"
 
 // MatchNetwork returns the first network matching the current SSID and
 // gateway MAC, or nil.
@@ -331,6 +338,9 @@ func (c *Config) Validate() error {
 		}
 		if _, err := c.ParseRoute(n.DefaultRoute); err != nil {
 			return fmt.Errorf("%s: default_route: %w", where, err)
+		}
+		if _, ok := c.DNS.Upstream[n.DNSDirect]; n.DNSDirect != "" && n.DNSDirect != DNSSystem && !ok {
+			return fmt.Errorf("%s: dns_direct: unknown upstream %q (a [dns.upstream] name or %q)", where, n.DNSDirect, DNSSystem)
 		}
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
