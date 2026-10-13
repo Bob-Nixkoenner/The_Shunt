@@ -32,6 +32,7 @@ cleanup() {
 	ip netns exec $WAN pkill -f "^$BIN/wireguard-go" 2>/dev/null
 	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
 	[[ -n ${OVPN_SRV_PID:-} ]] && kill "$OVPN_SRV_PID" 2>/dev/null
+	[[ -n ${PORTAL_PID:-} ]] && kill "$PORTAL_PID" 2>/dev/null
 	ip netns del $CLI 2>/dev/null
 	rm -rf "/etc/netns/$CLI"
 	groupdel shunttest 2>/dev/null
@@ -87,6 +88,11 @@ ip -n $WAN link set wgs up
 
 ip netns exec $WAN python3 "$ROOT/test/integration/whoami.py" 8080 8081 853 &
 WHOAMI_PID=$!
+# a Wi-Fi login page that can be switched on (captive portal detection)
+echo online >"$WORK/portal.mode"
+ip netns exec $WAN python3 "$ROOT/test/integration/portal.py" 10.99.0.1 "$WORK/portal.mode" &
+PORTAL_PID=$!
+export SHUNT_CAPTIVE_URL=http://10.99.0.1:8090/check
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
@@ -488,6 +494,22 @@ check "known gateway again: profile back" yes "$(shunt status | gq 'network prof
 EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
+
+echo "== Wi-Fi login page (captive portal)"
+check "no portal: online" yes "$(shunt status --json | gq '"captive": "online"' && echo yes || echo "no: $(shunt status --json | grep captive)")"
+echo portal >"$WORK/portal.mode"
+# network change: the gateway briefly unreachable (like while associating),
+# then reachable with the portal in front
+cli ip neigh replace 10.99.0.1 lladdr 02:00:00:00:00:02 dev cli0 nud permanent
+for _ in $(seq 40); do shunt status --json | gq '"captive": "online"' || break; sleep 0.5; done
+cli ip neigh del 10.99.0.1 dev cli0
+fetch curl -s $URL >/dev/null
+for _ in $(seq 60); do shunt status --json | gq '"captive": "portal"' && break; sleep 0.5; done
+check "portal detected after network change" yes "$(shunt status --json | gq '"captive_url": "http://login.portal.test/welcome"' && echo yes || echo "no: $(shunt status --json | grep captive)")"
+check "status tells what to do" yes "$(shunt status | gq 'Wi-Fi login page in the way' && echo yes || echo no)"
+echo online >"$WORK/portal.mode"
+for _ in $(seq 60); do shunt status --json | gq '"captive": "online"' && break; sleep 0.5; done
+check "login done noticed without network change" yes "$(shunt status --json | gq '"captive": "online"' && echo yes || echo no)"
 
 echo "== editor conflicts, DNS health, restart"
 capi GET /v1/config >/dev/null

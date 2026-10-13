@@ -55,8 +55,9 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   direct. The inner MTU is lowered automatically
 - **Network profiles**: `[[network]]` per Wi-Fi name and router MAC – e.g. at home
   everything direct, everywhere else through the tunnel
-- **Hotel/train Wi-Fi**: `shunt captive` (or the tray) opens a throwaway browser that
-  goes direct for the login page
+- **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
+  asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
+  or the tray)
 - Installer option: own MAC address per Wi-Fi, no host name in DHCP, IPv6 privacy
   addresses (NetworkManager)
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins

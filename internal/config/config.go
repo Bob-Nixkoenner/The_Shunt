@@ -84,6 +84,9 @@ type Daemon struct {
 	// need root or polkit authorization; "group" – every socket_group
 	// member may do everything.
 	APIAuth string `toml:"api_auth,omitempty" json:"api_auth,omitempty"`
+	// CaptiveCheck (default on): after every network change, look for a
+	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
+	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
 }
 
 // DNS configures the per-route DNS proxy.

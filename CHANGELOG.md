@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Wi-Fi login pages are detected**: after every network change shuntd checks for a
+  captive portal (hotel, train, company guest Wi-Fi). The tray turns yellow, a
+  notification comes, and the window asks whether to open the login page in a
+  throwaway browser that goes past the tunnels. When you are logged in, the tunnels
+  connect by themselves. `shunt status` says so too. Off with
+  `[daemon] captive_check = false` (the check asks nmcheck.gnome.org over plain HTTP).
+
 ## v0.6.0
 
 **OpenVPN, multi-hop, network profiles – and the fixes from the first real-world test.**

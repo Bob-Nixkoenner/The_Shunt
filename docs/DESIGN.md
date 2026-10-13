@@ -456,6 +456,8 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 
 **Captive Portal:** `shunt captive` / Tray: ein neuer Browser-Prozess (Firefox `--no-remote --profile <tmp>`, Chromium `--user-data-dir`) in der Route `direct`, Profil wird danach gelöscht. Ein laufender Browser würde die URL übernehmen und in seiner eigenen Route öffnen – deshalb immer ein eigener Prozess. Ist `dns.direct` verschlüsselt, kann das Portal den DNS blockieren; dann vorübergehend auf Systemresolver stellen.
 
+**Captive-Portal-Erkennung:** Nach jedem Netzwechsel (und alle 15 s, solange nicht „online“) holt shuntd `http://nmcheck.gnome.org/check_network_status.txt` – direkt, ohne Redirects zu folgen. Erwarteter Text → online; Redirect oder anderer Inhalt → Portal (Login-URL = Redirect-Ziel). Status/Tray zeigen es, die App fragt einmal pro Netz, ob der Wegwerf-Browser geöffnet werden soll. Abschaltbar (`daemon.captive_check = false`), weil der Probe-Host sieht, dass man online ist (NetworkManager fragt denselben Host meist ohnehin).
+
 **MAC-/Hostname-Hygiene:** Installer-Option, schreibt `/etc/NetworkManager/conf.d/90-shunt-privacy.conf` (`wifi.cloned-mac-address=stable`, Scan-MAC zufällig, kein Hostname in DHCP, IPv6-Privacy). Shunt fasst die Netzwerkkarte selbst nicht an (das ist NetworkManagers Job).
 
 **Aus dem Praxistest (Laptop, 2026-10-13):**

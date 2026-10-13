@@ -92,6 +92,7 @@ function render() {
 
   const down = st.tunnels.filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
+  else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
   else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
   else if (st.dns_failing && Object.keys(st.dns_failing).length) { state.className = "pill warn"; state.textContent = "DNS not working: " + Object.keys(st.dns_failing).sort().join(", "); }
   else { state.className = "pill ok"; state.textContent = "protected"; }
@@ -263,6 +264,7 @@ async function loadApps() {
 async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
   render();
+  checkCaptive(status);
   if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
 }
 
@@ -360,3 +362,17 @@ $("#c-updcheck").addEventListener("change", async (e) => {
 });
 loadUpdate();
 setInterval(loadUpdate, 10 * 60 * 1000);
+
+// --- Wi-Fi login page (captive portal) ---------------------------------------
+// Asked once per network: the tunnels can't connect before you log in.
+let captiveAsked = "";
+async function checkCaptive(st) {
+  if (!st || st.captive !== "portal") { if (st && st.captive === "online") captiveAsked = ""; return; }
+  const key = JSON.stringify(st.net_info || {});
+  if (captiveAsked === key || !$("#modal").hidden) return;
+  captiveAsked = key;
+  const ssid = st.net_info && st.net_info.ssid ? "“" + st.net_info.ssid + "”" : "This network";
+  const go = await ask(ssid + " wants you to log in on a web page first – until then no VPN can connect (apps in a tunnel stay blocked, nothing leaks).\n\nOpen the login page in a throwaway browser that goes past the tunnels? Close it when you are online; the tunnels connect by themselves.", { ok: "Open login page" });
+  if (!go) return toast("OK – later: tray → “Wi-Fi login page…” or `shunt captive`");
+  try { await api("POST", "/api/captive"); toast("Login browser starting…"); } catch (e) { toast(e.message); }
+}
