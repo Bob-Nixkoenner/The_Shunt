@@ -74,17 +74,18 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 ## 5. Todo / Fahrplan (Priorität von oben)
 
 **Laufend (diese Sitzung):**
-1. Installer: Netzwerk-Check vorab (20 s Timeout, Hinweis statt Hänger; bei aktivem Shunt
-   Angebot „am Tunnel vorbei“ neu starten), git-Timeouts. *(in Arbeit)*
-2. OpenVPN-Import providerfreundlich: Skriptzeilen auskommentieren statt ablehnen
-   (`ovpnconf.Sanitize`), Windows-only-Optionen ignorieren (`--ignore-unknown-option`). *(in Arbeit)*
+1. ✅ Installer: Netzwerk-Check vorab (20 s Timeout, Hinweis statt Hänger; bei aktivem Shunt
+   Angebot „am Tunnel vorbei“ neu starten), git-Timeouts.
+2. ✅ OpenVPN-Import providerfreundlich: Skriptzeilen auskommentieren statt ablehnen
+   (`ovpnconf.Sanitize`), Windows-only-Optionen ignorieren (`--ignore-unknown-option`).
 3. Kostenlosen OpenVPN zum Testen finden: Ergebnis bisher → **Proton VPN Free** (Konto nötig,
    OpenVPN-Zugangsdaten separat unter „OpenVPN / IKEv2 username“, Configs nur nach Login).
    VPN Gate (Uni Tsukuba, ohne Konto, ehrenamtliche Server – nicht vertrauenswürdig, nur zum
    Testen). Mullvad hat OpenVPN am 15.01.2026 abgeschaltet. **Mitliefern geht nicht**
    (Configs sind kontogebunden, Proton-Configs nur mit eigenem Login); Alternative später:
    Anbieter-Assistent (z. B. Mullvad-WireGuard per Kontonummer + API).
-4. Optik: Leak-Test-Tabelle (Spalten laufen über, „BLOCKED“-Text bricht hässlich um),
+4. 🔶 Optik: Leak-Test als Karten ✅, Mobile-Header ✅; weiter: Configure-Seite, Tray-Texte.
+   Ursprünglich: Leak-Test-Tabelle (Spalten laufen über, „BLOCKED“-Text bricht hässlich um),
    allgemeiner Feinschliff der Übersicht.
 5. CHANGELOG „Unreleased“ → v0.6.1 vorbereiten; Nutzer veröffentlicht.
 
@@ -104,6 +105,11 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   UI-Warnung vorhanden.
 
 ## 6. Fortschritt (neueste oben)
+
+- **13.10.2026, Schritt 2:** Installer-Netzcheck, OpenVPN-Sanitize (Provider-Dateien mit
+  `up`/`script-security` werden importiert, Zeilen auskommentiert; Integrationstest prüft, dass
+  das Skript nicht läuft), `--ignore-unknown-option` für Windows-Optionen, Leak-Test-Karten,
+  CHANGELOG „Unreleased“ ergänzt. Integration lokal 129/129.
 
 - **13.10.2026, Cloud-Sitzung:** Übergabe-Datei angelegt. Captive-Portal-Erkennung
   (commit 46bc6c5) gepusht, CI grün. Update-Banner beim Nutzer funktioniert (Screenshot),

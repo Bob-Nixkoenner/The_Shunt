@@ -177,7 +177,8 @@ func importTunnel(c *api.Client, args []string) error {
 		req.Name = tunnelName(file)
 	}
 	if !strings.Contains(req.Conf, "[Interface]") {
-		oc, err := ovpnconf.Parse(req.Conf, "")
+		clean, _ := ovpnconf.Sanitize(req.Conf) // shuntd does the same and reports it
+		oc, err := ovpnconf.Parse(clean, "")
 		if err != nil {
 			return err
 		}

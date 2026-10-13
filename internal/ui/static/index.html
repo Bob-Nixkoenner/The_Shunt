@@ -41,7 +41,8 @@ section.half { grid-column: span 6; }
   #state { order: 5; flex-basis: 100%; text-align: center; }
   .brand { white-space: nowrap; }
 }
-h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+h2 input { min-width: 0; max-width: 100%; }
 h2 .spacer { flex: 1; }
 .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); }
@@ -76,6 +77,18 @@ input.grow { flex: 1; min-width: 180px; }
 .apps { max-height: 360px; overflow: auto; }
 .apps td:first-child { font-weight: 600; }
 .verdict { font-weight: 700; }
+.leaklist { display: grid; gap: 8px; }
+.leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
+.leakrow.ok { border-left-color: var(--accent); } .leakrow.leak { border-left-color: var(--bad); } .leakrow.warn { border-left-color: var(--warn); } .leakrow.blocked { border-left-color: var(--info); }
+.leakhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.leakkv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; font-size: 13px; color: var(--muted); }
+.leakkv .mono { color: var(--text); overflow-wrap: anywhere; }
+.leaknote { font-size: 12px; margin-top: 4px; }
+.pill.verdict { font-size: 11px; padding: 2px 8px; }
+.pill.verdict.ok { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pill.verdict.leak { background: color-mix(in srgb, var(--bad) 18%, transparent); }
+.pill.verdict.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.pill.verdict.blocked { background: color-mix(in srgb, var(--info) 18%, transparent); }
 .verdict.ok { color: var(--accent); } .verdict.leak { color: var(--bad); } .verdict.warn { color: var(--warn); } .verdict.blocked { color: var(--info); } .verdict.error { color: var(--muted); }
 nav.tabs { display: flex; gap: 4px; }
 nav.tabs button { background: transparent; border-color: transparent; color: var(--muted); font-weight: 600; }
@@ -159,7 +172,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <section class="half">
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins</span></h2>
     <table><tbody id="rules"></tbody></table>
-    <div class="hint">Edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”.</div>
+    <div class="hint">Change them under <b>Configure</b> (or edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”).</div>
   </section>
 
   <section class="half">
@@ -223,7 +236,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <h2>Tunnels</h2>
     <table><tbody id="c-tunnels"></tbody></table>
     <div class="editor">
-      <div class="row"><b>Import a WireGuard or OpenVPN config</b><span class="muted">(stored with mode 600; scripts in it are ignored or refused)</span></div>
+      <div class="row"><b>Import a WireGuard or OpenVPN config</b><span class="muted">(stored with mode 600; scripts in it are switched off)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="t-name" placeholder="name, e.g. vps" style="width:140px" maxlength="10">
         <div id="t-drop" class="drop grow" style="flex:1">drop a .conf / .ovpn file here, or <label style="color:var(--accent);cursor:pointer"><input type="file" id="t-file" accept=".conf,.ovpn,text/plain,application/x-openvpn-profile" hidden>choose one</label></div>

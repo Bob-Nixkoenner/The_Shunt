@@ -59,6 +59,59 @@ var fileArgs = map[string]bool{
 	"extra-certs": true, "dh": true, "http-proxy-user-pass": true,
 }
 
+// refuseAlways: directives that make a config something Shunt can't run at
+// all; Sanitize does not remove them (the file is not a client config).
+var refuseAlways = map[string]bool{
+	"server": true, "mode": true, "tls-server": true, "client-config-dir": true, "ifconfig-pool": true,
+}
+
+// Sanitize comments out what Parse refuses (provider files often ship
+// "script-security 2" and "up /etc/openvpn/update-resolv-conf" – Shunt does
+// DNS itself and runs no scripts) and drops forbidden inline blocks. It
+// returns the cleaned text and what was removed. Server configs stay
+// unchanged, Parse rejects them.
+func Sanitize(s string) (string, []string) {
+	var out []string
+	var removed []string
+	block, skip := "", false
+	for _, raw := range strings.Split(s, "\n") {
+		l := strings.TrimSpace(raw)
+		if block != "" {
+			if strings.EqualFold(l, "</"+block+">") {
+				block = ""
+				if skip {
+					skip = false
+					continue
+				}
+			}
+			if !skip {
+				out = append(out, raw)
+			}
+			continue
+		}
+		if strings.HasPrefix(l, "<") && strings.HasSuffix(l, ">") && !strings.HasPrefix(l, "</") {
+			block = strings.ToLower(strings.Trim(l, "<>"))
+			if _, bad := forbidden[block]; bad && !refuseAlways[block] {
+				skip = true
+				removed = append(removed, "<"+block+">")
+				continue
+			}
+			out = append(out, raw)
+			continue
+		}
+		if f := fields(l); len(f) > 0 {
+			name := strings.ToLower(strings.TrimPrefix(f[0], "--"))
+			if _, bad := forbidden[name]; bad && !refuseAlways[name] {
+				out = append(out, "# removed by The Shunt: "+l)
+				removed = append(removed, l)
+				continue
+			}
+		}
+		out = append(out, raw)
+	}
+	return strings.Join(out, "\n"), removed
+}
+
 // ParseFile reads and checks a .ovpn file. Relative file references are
 // resolved against its directory.
 func ParseFile(path string) (*Config, error) {
