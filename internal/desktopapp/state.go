@@ -67,6 +67,9 @@ func Compute(st *api.Status, err error, now time.Time) View {
 		}
 		line := TunnelLine{Name: t.Name}
 		switch {
+		case t.Disabled:
+			line.OK = true // switched off on purpose: nothing to warn about
+			line.Text = t.Name + ": switched off – its apps are blocked"
 		case !t.Up:
 			line.Text = t.Name + ": down – its apps are blocked"
 		case hs.IsZero():

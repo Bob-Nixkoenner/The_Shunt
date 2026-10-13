@@ -109,7 +109,9 @@ function renderConfig() {
       el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
       el("td", { class: "mono" }, (i.endpoint || "–") + "  ", el("span", { class: "muted" }, joinList(i.addresses))),
       el("td", {}, viaSel, el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Apps in this tunnel still reach printers, NAS and the router of the network you are in (private addresses only)" },
-        el("input", { type: "checkbox", checked: t.allow_lan ? "" : null, onchange: (e) => { t.allow_lan = e.target.checked || undefined; markDirty(); } }), "local network direct")),
+        el("input", { type: "checkbox", checked: t.allow_lan ? "" : null, onchange: (e) => { t.allow_lan = e.target.checked || undefined; markDirty(); } }), "local network direct"),
+      el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
+        el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
       el("td", {}, dnsSel),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard or OpenVPN config below."))]));

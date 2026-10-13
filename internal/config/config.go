@@ -186,6 +186,9 @@ type Tunnel struct {
 	// directly attached to (printer, NAS, router) past the tunnel.
 	// Only private ranges; everything else still goes through the tunnel.
 	AllowLAN bool `toml:"allow_lan,omitempty" json:"allow_lan,omitempty"`
+	// Disabled keeps the tunnel (files, rules) but does not start it: its
+	// route blocks, like a tunnel that is down.
+	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
