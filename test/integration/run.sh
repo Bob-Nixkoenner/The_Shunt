@@ -94,6 +94,8 @@ ip netns exec $WAN python3 "$ROOT/test/integration/portal.py" 10.99.0.1 "$WORK/p
 PORTAL_PID=$!
 export SHUNT_CAPTIVE_URL=http://10.99.0.1:8090/check
 export SHUNT_LINK_KINDS=cli0=ethernet,cli1=wifi
+# the test may run in a desktop session: never pop up polkit password dialogs
+export SHUNT_POLKIT_NO_DIALOG=1
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &

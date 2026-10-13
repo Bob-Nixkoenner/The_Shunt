@@ -103,8 +103,12 @@ func (d *Daemon) authorize(ctx context.Context, p *peer) error {
 	// Interactive: the desktop's polkit agent asks for the password.
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, pk, "--action-id", PolkitAction,
-		"--process", fmt.Sprintf("%d,%s,%d", p.pid, p.start, p.uid), "--allow-user-interaction")
+	args := []string{"--action-id", PolkitAction, "--process", fmt.Sprintf("%d,%s,%d", p.pid, p.start, p.uid)}
+	// tests run inside a desktop session: no password dialogs there
+	if os.Getenv("SHUNT_POLKIT_NO_DIALOG") == "" {
+		args = append(args, "--allow-user-interaction")
+	}
+	cmd := exec.CommandContext(cctx, pk, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		d.Log.Info("polkit denied", "uid", p.uid, "pid", p.pid, "out", strings.TrimSpace(string(out)))
 		return fmt.Errorf("%w: not authorized (polkit). Run with sudo or authenticate in the password dialog", errForbidden)
