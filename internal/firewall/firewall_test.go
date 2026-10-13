@@ -153,3 +153,18 @@ func TestHeldForReload(t *testing.T) {
 		t.Errorf("held group missing: %v", m.HeldFor("newroot"))
 	}
 }
+
+// A held program that ends without ever going online: its group and its
+// block rule both go.
+func TestUnaskedGoneDropsRule(t *testing.T) {
+	m, cg, rules := newMgr(t, config.FirewallAsk)
+	m.Unknown(100, appwatch.Proc{Comm: "sleep", Exe: "/usr/bin/sleep", Cgroup: app, UID: 1000})
+	if _, ok := (*rules)[len(*rules)-1]["p1"]; !ok {
+		t.Fatal("not held")
+	}
+	delete(cg.procs, "shunt/apps/ask/p1") // the program ended
+	m.Tick(time.Now())
+	if g, ok := (*rules)[len(*rules)-1]["p1"]; ok {
+		t.Fatalf("block rule of a gone program left behind: %v", g)
+	}
+}

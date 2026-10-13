@@ -187,8 +187,10 @@ func (m *Manager) Unknown(pid int, p appwatch.Proc) {
 			m.Log.Warn("app firewall: rules", "err", err)
 		}
 	}
-	if err := m.CG.Move(e.path, pid); err == nil {
-		m.Log.Debug("app firewall: holding", "app", name, "pid", pid)
+	if err := m.CG.Move(e.path, pid); err != nil {
+		m.Log.Warn("app firewall: cannot hold", "app", name, "pid", pid, "err", err)
+	} else {
+		m.Log.Info("app firewall: holding", "app", name, "pid", pid, "id", e.ID)
 	}
 }
 
@@ -262,8 +264,9 @@ func (m *Manager) Tick(now time.Time) {
 		case len(procs) == 0 && (e.Asked.IsZero() || now.Sub(e.Asked) > 5*time.Second):
 			// the program is gone (or exec'd another one, which got its
 			// own group); forget it – it is asked again next time
+			m.Log.Info("app firewall: waiting program gone", "app", e.Name, "id", e.ID, "asked", !e.Asked.IsZero())
 			m.drop(e)
-			changed = changed || !e.Asked.IsZero()
+			changed = true // its block rule goes too
 		}
 	}
 	if changed {
@@ -271,7 +274,7 @@ func (m *Manager) Tick(now time.Time) {
 	}
 	m.mu.Unlock()
 	if changed {
-		m.changed()
+		m.changed() // (also for unasked ones: cheap, keeps the code simple)
 	}
 }
 

@@ -582,7 +582,9 @@ if [[ -z $got ]]; then
 	echo "--- debug: ask_out"; cli nft list chain inet shunt ask_out || true
 	echo "--- debug: cgroups"; find "$CGMNT/$CG/apps" -name cgroup.procs -path '*ask*' -exec sh -c 'echo "$1: $(cat "$1")"' _ {} \; || true
 	echo "--- debug: scope"; cat "$CGMNT/$SCOPE/cgroup.procs" || true
-	echo "--- debug: log"; grep -i 'firewall\|ask' "$WORK/shuntd.log" | tail -20 || true
+	echo "--- debug: log"; grep -i 'firewall\|ask' "$WORK/shuntd.log" | tail -30 || true
+	echo "--- debug: pending"; shunt pending || true
+	echo "--- debug: fw processes"; ps -eo pid,args | grep -E 'fwcurl|sleep 1' | grep -v grep || true
 fi
 check "nothing went out while waiting" "" "$(cat "$WORK/fw1.out")"
 shunt allow fwcurl --via tunnel:vps >/dev/null || true
