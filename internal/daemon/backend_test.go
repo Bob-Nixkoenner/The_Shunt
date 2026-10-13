@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"os"
@@ -162,5 +164,26 @@ default_route = "direct"
 	}
 	if _, err := PrepareOn(path, "shunt", Env{Backend: newFake()}); err == nil {
 		t.Error("unknown dns_direct accepted")
+	}
+}
+
+// A switched-off tunnel stays in the config but is never started; its
+// route blocks (no interface: only the kill switch route).
+func TestDisabledTunnelNotStarted(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[dns]\ndisabled = true\n[tunnel.vpn]\nconfig = \"vpn.conf\"\ndisabled = true\n")
+	wg := "[Interface]\nPrivateKey = " + key + "\nAddress = 10.9.0.2/32\n[Peer]\nPublicKey = " + key + "\nEndpoint = 192.0.2.1:51820\nAllowedIPs = 0.0.0.0/0\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(d.ConfigPath), "vpn.conf"), []byte(wg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.tunnels) != 0 || len(d.tunErrors) != 0 {
+		t.Fatalf("switched-off tunnel was started: %v %v", d.tunnels, d.tunErrors)
+	}
+	st := d.status()
+	if len(st.Tunnels) != 1 || !st.Tunnels[0].Disabled || st.Tunnels[0].Up {
+		t.Fatalf("status: %+v", st.Tunnels)
 	}
 }

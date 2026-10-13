@@ -398,6 +398,9 @@ func status(c *api.Client, args []string) error {
 	fmt.Fprintln(w, "\nTUNNEL\tIFACE\tSTATE\tHANDSHAKE\tRX/TX")
 	for _, t := range st.Tunnels {
 		state := "down (blocked)"
+		if t.Disabled {
+			state = "off (blocked)"
+		}
 		if t.Up {
 			state = "up/" + t.Driver
 		}

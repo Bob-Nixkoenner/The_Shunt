@@ -544,6 +544,13 @@ func (d *Daemon) reload(selfCgroup string) error {
 func (d *Daemon) syncTunnels() error {
 	p := d.prep
 	for name, t := range d.tunnels {
+		if p.Config.Tunnels[name].Disabled {
+			d.Log.Info("tunnel switched off", "tunnel", name)
+			t.Down()
+			delete(d.tunnels, name)
+			delete(d.specHash, name)
+			continue
+		}
 		if p.Hashes[name] != d.specHash[name] || !t.Alive() {
 			if !t.Alive() {
 				d.Log.Warn("tunnel interface vanished, restarting", "tunnel", name)
@@ -558,7 +565,7 @@ func (d *Daemon) syncTunnels() error {
 	}
 	d.tunErrors = map[string]string{}
 	for name, tc := range p.Config.Tunnels {
-		if _, ok := d.tunnels[name]; ok {
+		if _, ok := d.tunnels[name]; ok || tc.Disabled {
 			continue
 		}
 		// A second hop's encrypted packets take the first hop's route.
@@ -1239,7 +1246,7 @@ func (d *Daemon) status() api.Status {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via}
+		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Disabled: d.cfg.Tunnels[n].Disabled}
 		if t, ok := d.tunnels[n]; ok {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()
