@@ -108,6 +108,14 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   Android/Windows, andere UI-Technik.
 
 **Bekannte Grenzen / offene Fragen:**
+- **DNS-Umleitung per NAT ist pro UDP-Fluss klebrig** (14.10.2026): `dns_redirect` ist eine
+  nat-Kette, die nur das erste Paket eines conntrack-Eintrags sieht. Nutzt ein Programm
+  innerhalb von ~30 s denselben Quellport + dasselbe Ziel wie ein Programm einer anderen
+  Route, landet seine Anfrage beim DNS-Proxy der anderen Route (z. B. Tunnel-App → direct).
+  `block` ist davon nicht betroffen (filter_out sperrt nach Markierung). Lösungsideen:
+  TPROXY statt NAT (pro Paket nach Markierung, Listener mit IP_TRANSPARENT, lokale
+  Zustellung per ip rule) oder der Proxy prüft die Markierung (SO_RCVMARK, Kernel ≥ 6.1).
+  Die verwandte ct-mark-Vererbung für UDP ist behoben (nur noch TCP erbt).
 - Ungetestet auf echter Hardware: SSID-Erkennung auf echtem WLAN, Captive-Browser-Fenster,
   „Restart service and app“ unter COSMIC, echte Provider-.ovpn.
 - Laufender Browser behält seine Route (neue Fenster im alten Prozess) → `shunt which`,

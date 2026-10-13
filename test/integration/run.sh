@@ -288,6 +288,10 @@ check "local stub is redirected" "direct 10.99.0.2" "$(dnsq -server 127.0.0.53:5
 check "DNS over TCP is redirected" "direct 10.99.0.2" "$(dnsq -tcp -server 10.99.0.1:53 -type TXT whoami.test)"
 check "tunnelled app resolves via tunnel" "tunnel 10.66.0.2" "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT whoami.test)"
 check "blocked app gets no DNS" yes "$(failed_closed "$(dnsq_via block -server 10.99.0.1:53 -type TXT whoami.test)")"
+# UDP has no connections: a blocked app reusing the source port a tunnelled
+# app's query just used must not inherit that flow's route
+check "same UDP port, tunnel first" "tunnel 10.66.0.2" "$(dnsq_via tunnel:vps -sport 40053 -server 10.99.0.1:53 -type TXT whoami.test)"
+check "same UDP port, then block: still blocked" yes "$(failed_closed "$(dnsq_via block -sport 40053 -server 10.99.0.1:53 -type TXT whoami.test)")"
 check "domain rule resolves via its tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT site.test)"
 check "domain target direct before lookup" 10.99.0.2 "$(fetch curl -s $URL_SITE)"
 check "domain rule A answer" 10.99.0.3 "$(dnsq -server 10.99.0.1:53 site.test)"

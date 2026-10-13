@@ -96,10 +96,14 @@ func query(args []string) {
 	server := fs.String("server", "127.0.0.53:53", "server")
 	typ := fs.String("type", "A", "A or TXT")
 	tcp := fs.Bool("tcp", false, "use TCP")
+	sport := fs.Int("sport", 0, "UDP source port (0: any)")
 	_ = fs.Parse(args)
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(fs.Arg(0)), dns.StringToType[*typ])
 	c := &dns.Client{Timeout: 3 * time.Second}
+	if *sport != 0 {
+		c.Dialer = &net.Dialer{Timeout: 3 * time.Second, LocalAddr: &net.UDPAddr{Port: *sport}}
+	}
 	if *tcp {
 		c.Net = "tcp"
 	}

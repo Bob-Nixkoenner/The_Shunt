@@ -49,7 +49,12 @@ func Render(p *engine.Plan) (string, error) {
 	// hop's encrypted packets entering the first tunnel, DNS upstream
 	// queries. Remember it, so replies pass reverse path filtering.
 	w("\t\tmeta mark and %#x == %#x ct mark set meta mark return", engine.MarkMask, engine.MarkBase)
-	w("\t\tct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
+	// A TCP connection keeps its route (sticky, also when a domain set
+	// entry expires). Not UDP: there a "connection" is just a 5-tuple, and
+	// a program reusing a port another program's flow just used would
+	// inherit that flow's route – a way out of block or a tunnel. UDP is
+	// classified by its socket, every packet.
+	w("\t\tmeta l4proto tcp ct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
 	w("\t\tct direction reply return")
 	if p.DNS {
 		// DNS to a local stub (127.0.0.53) is classified too, so it can be
