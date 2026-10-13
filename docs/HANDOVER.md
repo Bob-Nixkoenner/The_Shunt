@@ -98,6 +98,14 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 - App-Firewall („unbekannte Programme fragen“) – Entscheidungen ❓ A1–A5 klären, dann bauen.
 - Anbieter-Assistent (Mullvad automatisch, Proton geführt) – ❓ B1–B3 klären.
 
+**Nächste Version (vom Nutzer gewünscht, 14.10.2026):**
+- UI-Hinweis bei Regeln, die für gezielt gestartete Apps nicht greifen: Regel ohne
+  `override_explicit`, während Apps in einer via-Gruppe laufen → in der Übersicht/Regel
+  anzeigen „gilt nicht für: Firefox (tunnel:laptop)“ + Knopf „auch für gestartete Apps“.
+  Anlass: „Heimnetz – lokal“ (192.168.1.0/24 → direct) war im Browser nicht erreichbar,
+  im Terminal schon. Dabei auf `network`-Begrenzung hinweisen (192.168.1.x in fremden WLANs).
+- DNS-Umleitung per TPROXY statt NAT (siehe Bekannte Grenzen).
+
 **Danach (Roadmap, siehe DESIGN §9):**
 - Echttests beim Nutzer: Multi-Hop `sd1 via laptop`, Captive im Firmen-WLAN, WLAN-Profil.
 - Anbieter-Assistent (Mullvad/Proton WireGuard) statt mitgelieferter Configs.
