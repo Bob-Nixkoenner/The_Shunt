@@ -74,6 +74,11 @@ table inet shunt {
 		meta mark 0x5300e1 oifname != "lo" counter drop
 		meta mark 0x5300e2 oifname != "lo" counter drop
 	}
+	chain mss_clamp {
+		type filter hook postrouting priority mangle; policy accept;
+		oifname "sh-home" tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+		oifname "sh-vps" tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+	}
 	chain nat_post {
 		type nat hook postrouting priority srcnat; policy accept;
 		meta mark 0x530001 oifname "sh-home" masquerade

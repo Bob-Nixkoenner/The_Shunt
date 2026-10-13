@@ -11,6 +11,8 @@ class H(http.server.BaseHTTPRequestHandler):
         if ip.startswith("::ffff:"):  # IPv4 client on the dual-stack socket
             ip = ip[len("::ffff:"):]
         body = (ip + "\n").encode()
+        if self.path == "/mss":  # the MSS this connection ended up with
+            body = (str(self.connection.getsockopt(socket.IPPROTO_TCP, socket.TCP_MAXSEG)) + "\n").encode()
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

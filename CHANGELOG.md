@@ -18,6 +18,11 @@
   block other DNS servers until you log in, or use names only they know. Only that
   browser; everything else keeps its DNS. While a login page is detected it needs no
   password, otherwise it does (it leaves the default route).
+- **Fix: stalling TLS handshakes and downloads through some tunnels** (MSS clamping).
+  Programs announce their TCP segment size for the physical connection (1460) before
+  Shunt moves them into a tunnel (MTU 1420). Servers then sent packets too big for the
+  tunnel; where the "fragmentation needed" reply gets lost, connections hung – small
+  things like ping worked. TCP connections into a tunnel now announce what fits.
 - **Fix: UDP inherited the route of an earlier flow with the same ports.** A program
   sending from a source port another program's UDP flow just used (same destination)
   took that flow's route – seen as a sporadic "LEAK" of the block route in the leak
