@@ -163,6 +163,21 @@ func Render(p *engine.Plan) (string, error) {
 	}
 	w("\t}")
 
+	// --- MSS clamping: a classified socket wrote its MSS into the SYN for
+	// the physical route (e.g. 1460 for MTU 1500) before it was re-routed
+	// into a tunnel with a smaller MTU. The far end then sends segments
+	// that don't fit the tunnel: stalls on TLS handshakes and downloads
+	// where the path drops the ICMP "fragmentation needed". Set the MSS to
+	// what the tunnel route carries (rt mtu = the MTU after re-routing).
+	w("\tchain mss_clamp {")
+	w("\t\ttype filter hook postrouting priority mangle; policy accept;")
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteTunnel {
+			w("\t\toifname %q tcp flags syn / syn,rst tcp option maxseg size set rt mtu", r.Iface)
+		}
+	}
+	w("\t}")
+
 	// --- source NAT: classified sockets already picked the physical source
 	// address before being re-routed into the tunnel.
 	w("\tchain nat_post {")
