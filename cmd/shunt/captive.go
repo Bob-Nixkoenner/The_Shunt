@@ -69,7 +69,7 @@ func captive(c *api.Client, args []string) error {
 	defer os.RemoveAll(dir)
 
 	// this process (and so the browser) goes direct
-	if err := c.Do("POST", "/v1/run", api.RunRequest{Group: engine.ViaGroupName("direct")}, nil); err != nil {
+	if err := c.Do("POST", "/v1/run", api.RunRequest{Group: engine.CaptiveGroup}, nil); err != nil {
 		return err
 	}
 	var cmd *exec.Cmd

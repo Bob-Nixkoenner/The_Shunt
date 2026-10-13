@@ -563,7 +563,8 @@ cp "$(command -v curl)" "$BIN/fwcurl"
 cp "$(command -v curl)" "$BIN/fwcurl2"
 # like a desktop launcher: a wrapper script in the session that execs the program
 fwrun() { # cgroup program url
-	fetch_long sh -c 'echo $$ > /sys/fs/cgroup/'"$1"'/cgroup.procs; sleep 1; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$2"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 30 '"$3"
+	# setsid: no controlling terminal (programs started from a terminal are not held)
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$1"'/cgroup.procs; sleep 1; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$2"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 30 '"$3"
 }
 EXTRA_TUNNELS=$'[firewall]\nmode = "ask"\ntimeout = 4\n'
 write_config direct
@@ -626,9 +627,13 @@ fetch curl -s $URL >/dev/null
 for _ in $(seq 60); do shunt status --json | gq '"captive": "portal"' && break; sleep 0.5; done
 check "portal detected after network change" yes "$(shunt status --json | gq '"captive_url": "http://login.portal.test/welcome"' && echo yes || echo "no: $(shunt status --json | grep captive)")"
 check "status tells what to do" yes "$(shunt status | gq 'Wi-Fi login page in the way' && echo yes || echo no)"
+check "login browser goes direct without password" 10.99.0.2 "$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --group captive -- curl -s $URL)"
+check "login browser asks the network's DNS" "direct 10.99.0.2" "$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --group captive -- "$BIN/fakedns" query -server 192.0.2.53:53 -type TXT whoami.test)"
 echo online >"$WORK/portal.mode"
 for _ in $(seq 60); do shunt status --json | gq '"captive": "online"' && break; sleep 0.5; done
 check "login done noticed without network change" yes "$(shunt status --json | gq '"captive": "online"' && echo yes || echo no)"
+esc=$(fetch "${MEMBER[@]}" sh -c "'$BIN/shunt' -s '$SOCK' run --group captive -- curl -s $URL 2>&1")
+check "no login page: login browser needs the password" yes "$(grep -q 'leaving route tunnel:vps' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
 
 echo "== editor conflicts, DNS health, restart"
 capi GET /v1/config >/dev/null

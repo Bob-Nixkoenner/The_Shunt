@@ -22,6 +22,7 @@ table inet shunt {
 		oifname "lo" meta l4proto != { tcp, udp } return
 		oifname "lo" th dport != 53 return
 		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		socket cgroupv2 level 4 "system.slice/shuntd.service/apps/captive" meta mark set 0x5300f1 ct mark set meta mark accept
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/block" meta mark set 0x5300fe ct mark set meta mark accept
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/direct" meta mark set 0x5300f0 ct mark set meta mark accept
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-home" meta mark set 0x530001 ct mark set meta mark accept
@@ -62,6 +63,7 @@ table inet shunt {
 		meta mark 0x5300e0 meta l4proto { tcp, udp } th dport 53 redirect to :53534
 		meta mark 0x5300e1 meta l4proto { tcp, udp } th dport 53 redirect to :53535
 		meta mark 0x5300e2 meta l4proto { tcp, udp } th dport 53 redirect to :53536
+		meta mark 0x5300f1 meta l4proto { tcp, udp } th dport 53 redirect to :53529
 		meta mark and 0xffff00 != 0x530000 meta l4proto { tcp, udp } th dport 53 redirect to :53530
 	}
 	chain leak_guard {
