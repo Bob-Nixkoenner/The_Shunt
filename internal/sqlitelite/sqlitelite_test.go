@@ -1,6 +1,8 @@
 package sqlitelite
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -59,5 +61,25 @@ func FuzzRows(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_, _ = record(b)
 		_, _ = varint(b)
+	})
+}
+
+// A damaged database file must give an error, never a panic or a hang.
+func FuzzFile(f *testing.F) {
+	for _, s := range []string{"testdata/big.sqlite", "testdata/wal.sqlite"} {
+		b, err := os.ReadFile(s)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(b)
+	}
+	dir := f.TempDir()
+	f.Fuzz(func(t *testing.T, b []byte) {
+		p := filepath.Join(dir, "x.sqlite")
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = Rows(p, "Profiles")
+		_, _ = Rows(p, "other")
 	})
 }
