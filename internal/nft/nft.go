@@ -116,6 +116,9 @@ func Render(p *engine.Plan) (string, error) {
 			}
 			w("\t\tmeta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", r.Mark, r.DNSPort)
 		}
+		if p.Captive != nil {
+			w("\t\tmeta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", p.Captive.Mark, p.Captive.DNSPort)
+		}
 		w("\t\tmeta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", engine.MarkMask, engine.MarkBase, direct.DNSPort)
 		w("\t}")
 	}

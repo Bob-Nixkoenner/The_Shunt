@@ -13,8 +13,13 @@
 - **Fix: a fresh tunnel table got its routes before the kill switch route**; misses could
   fall through to the main table for a moment. One failing route no longer keeps the
   others out.
-- `shunt captive` still opens the login page direct without a password while a login
-  page is detected (see the next point).
+- **Wi-Fi login pages with your own DNS**: the login browser (`shunt captive`, tray) now
+  resolves through the Wi-Fi's own DNS server instead of `dns.direct` – guest Wi-Fis often
+  block other DNS servers until you log in, or use names only they know. Only that
+  browser; everything else keeps its DNS. While a login page is detected it needs no
+  password, otherwise it does (it leaves the default route).
+- **Fix: `allow_lan` skipped the LAN of the cable/Wi-Fi interfaces** once link routes
+  existed (they were taken for tunnel interfaces).
 
 - **Fix: held and default-route programs could move themselves to `direct`.** A program
   held by the app firewall, or running on a tunnel default route, could ask the daemon to

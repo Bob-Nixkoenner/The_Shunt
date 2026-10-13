@@ -311,6 +311,11 @@ func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 			})}
 		}
 	}
+	if p.Plan.Captive != nil {
+		// the login browser: the network's own resolvers (DHCP), never
+		// dns.direct – login pages often only resolve there
+		ups[dnsproxy.CaptiveUpstreams] = []dnsproxy.Upstream{dnsproxy.NewSystemUpstream(p.Plan.Captive.Mark)}
+	}
 	for _, r := range p.Plan.Routes {
 		if r.Kind != config.RouteLink {
 			continue
