@@ -32,7 +32,9 @@ jobs:
         run: |
           GOARCH=arm64 go build $(go list ./... | grep -v /cmd/shunt-desktop)
           go build -o /dev/null ./cmd/shunt-desktop
-          GOOS=windows go vet ./internal/config ./internal/wgconf ./internal/engine ./internal/nft ./internal/api
+          # everything but the Linux tray builds for other platforms (Backend, see internal/daemon/backend.go)
+          GOOS=windows go vet $(go list ./... | grep -v -e /internal/desktopapp -e /cmd/shunt-desktop)
+          GOOS=darwin go vet $(go list ./... | grep -v -e /internal/desktopapp -e /cmd/shunt-desktop)
 
   integration:
     runs-on: ubuntu-latest
