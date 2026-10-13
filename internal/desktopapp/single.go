@@ -13,7 +13,8 @@ type Single struct {
 	ln net.Listener
 }
 
-func socketName() string { return fmt.Sprintf("@the-shunt-desktop-%d", os.Getuid()) }
+// socketName is a variable so tests don't talk to a running app.
+var socketName = func() string { return fmt.Sprintf("@the-shunt-desktop-%d", os.Getuid()) }
 
 // Claim returns a Single if this is the first instance, or nil after it
 // has asked the running instance to show itself.

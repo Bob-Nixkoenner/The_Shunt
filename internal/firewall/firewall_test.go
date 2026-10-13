@@ -143,3 +143,17 @@ func TestWrapperExecGetsOwnDecision(t *testing.T) {
 		t.Errorf("%+v", l)
 	}
 }
+
+// A ruleset reload replaces the table: the held groups' rules must come
+// with the new ruleset (new root included), not after it.
+func TestRulesForReload(t *testing.T) {
+	m, _, _ := newMgr(t, config.FirewallBlock)
+	m.Unknown(100, appwatch.Proc{Comm: "curl", Exe: "/usr/bin/curl", Cgroup: app, UID: 1000})
+	s, err := m.RulesFor("newroot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s, `"newroot/apps/ask/p1"`) || !strings.Contains(s, "reject") {
+		t.Errorf("held group missing: %s", s)
+	}
+}

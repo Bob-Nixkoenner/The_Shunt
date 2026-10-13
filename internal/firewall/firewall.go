@@ -99,10 +99,10 @@ func (m *Manager) init() {
 	}
 }
 
-func (m *Manager) freePath() string { return path.Join(m.set.Root, "apps", "free") }
-func (m *Manager) askPath(id string) string {
-	return path.Join(m.set.Root, "apps", "ask", id)
-}
+func (m *Manager) freePath() string         { return path.Join(m.set.Root, "apps", "free") }
+func (m *Manager) askPath(id string) string { return askPathIn(m.set.Root, id) }
+
+func askPathIn(root, id string) string { return path.Join(root, "apps", "ask", id) }
 
 // Configure applies new settings and (re)installs the nft rules of the
 // waiting groups – call it after every ruleset reload. Switching the
@@ -370,16 +370,29 @@ func (m *Manager) Forget(key string) error {
 	return m.save()
 }
 
+// RulesFor returns the nft rules of the waiting groups for cgroup root
+// root. A ruleset reload replaces the table and with it these rules: append
+// them to the new ruleset so held programs never get out in between.
+func (m *Manager) RulesFor(root string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rules(root)
+}
+
+func (m *Manager) rules(root string) (string, error) {
+	groups := map[string]engine.Group{}
+	for id, e := range m.byID {
+		groups[id] = engine.Group{Name: "ask:" + e.Name, Path: askPathIn(root, id)}
+	}
+	return nft.AskRules(groups)
+}
+
 // applyRules installs the nft rules of all waiting groups. Caller holds m.mu.
 func (m *Manager) applyRules() error {
 	if m.Apply == nil {
 		return nil
 	}
-	groups := map[string]engine.Group{}
-	for id, e := range m.byID {
-		groups[id] = engine.Group{Name: "ask:" + e.Name, Path: e.path}
-	}
-	s, err := nft.AskRules(groups)
+	s, err := m.rules(m.set.Root)
 	if err != nil {
 		return err
 	}

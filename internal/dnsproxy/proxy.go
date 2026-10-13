@@ -45,6 +45,8 @@ type Proxy struct {
 	upstreams RouteUpstreams
 	byPort    map[int]*engine.Route
 	servers   map[int][]*dns.Server
+	// setDomains: the domains each set was filled for (set name -> list)
+	setDomains map[string]string
 
 	healthMu sync.Mutex
 	health   map[string]*routeHealth
@@ -151,11 +153,19 @@ func (p *Proxy) Update(plan *engine.Plan, ups RouteUpstreams) error {
 		p.servers[port] = srvs
 	}
 
+	// Set names follow the rule's position in the file: after an edit the
+	// same name may belong to a rule with other domains, whose addresses
+	// must not inherit the old ones.
 	keep := map[string]bool{}
+	domains := map[string]string{}
 	for _, r := range plan.DomainRules() {
-		keep[r.SetV4] = true
-		keep[r.SetV6] = true
+		ds := strings.Join(r.Domains, ",")
+		for _, set := range []string{r.SetV4, r.SetV6} {
+			domains[set] = ds
+			keep[set] = p.setDomains[set] == "" || p.setDomains[set] == ds
+		}
 	}
+	p.setDomains = domains
 	return p.sets.replay(keep)
 }
 
