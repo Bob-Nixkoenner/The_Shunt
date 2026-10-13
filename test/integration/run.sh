@@ -96,6 +96,8 @@ export SHUNT_CAPTIVE_URL=http://10.99.0.1:8090/check
 export SHUNT_LINK_KINDS=cli0=ethernet,cli1=wifi
 # the test may run in a desktop session: never pop up polkit password dialogs
 export SHUNT_POLKIT_NO_DIALOG=1
+# the leak test probes are started by shuntd: it must know the test's IP echo
+export SHUNT_PROBE_IP_URL=http://10.99.0.1:8080
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
@@ -331,7 +333,7 @@ write_config tunnel:vps
 shunt reload
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
-esc=$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL 2>&1)
+esc=$(fetch "${MEMBER[@]}" sh -c "'$BIN/shunt' -s '$SOCK' run --via direct -- curl -s $URL 2>&1")
 check "default-route app cannot escape to direct" yes "$(grep -q 'leaving route tunnel:vps' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
 check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
 hs=no
@@ -588,7 +590,7 @@ check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl
 check "pending decision from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X POST -o /dev/null -w '%{http_code}' --data '{"route":"direct"}' http://shuntd/v1/pending/p99 | sed 's/403/denied/')"
 # a held program (waiting group) asks the daemon to start it direct
 mkdir -p "$CGMNT/$CG/apps/ask/pesc"
-esc=$(fetch sh -c 'echo $$ > /sys/fs/cgroup/'"$CG"'/apps/ask/pesc/cgroup.procs; exec "$@"' _ "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL 2>&1)
+esc=$(fetch sh -c 'echo $$ > /sys/fs/cgroup/'"$CG"'/apps/ask/pesc/cgroup.procs; exec "$@" 2>&1' _ "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)
 check "held program cannot let itself out" yes "$(grep -q 'leaving route block' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
 rmdir "$CGMNT/$CG/apps/ask/pesc" 2>/dev/null || true
 check "forget from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X DELETE -o /dev/null -w '%{http_code}' "http://shuntd/v1/firewall/apps?key=$BIN/fwcurl" | sed 's/403/denied/')"
