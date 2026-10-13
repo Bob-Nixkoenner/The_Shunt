@@ -87,7 +87,8 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 4. 🔶 Optik: Leak-Test als Karten ✅, Mobile-Header ✅; weiter: Configure-Seite, Tray-Texte.
    Ursprünglich: Leak-Test-Tabelle (Spalten laufen über, „BLOCKED“-Text bricht hässlich um),
    allgemeiner Feinschliff der Übersicht.
-5. CHANGELOG „Unreleased“ → v0.6.1 vorbereiten; Nutzer veröffentlicht.
+5. CHANGELOG „Unreleased“ → v0.6.1 vorbereiten; Nutzer veröffentlicht. *(Text steht, wartet auf Veröffentlichung)*
+6. ✅ `allow_lan` pro Tunnel (LAN am Tunnel vorbei), Checkbox in Configure, Integrationstest.
 
 **Danach (Roadmap, siehe DESIGN §9):**
 - Echttests beim Nutzer: Multi-Hop `sd1 via laptop`, Captive im Firmen-WLAN, WLAN-Profil.
@@ -105,6 +106,11 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   UI-Warnung vorhanden.
 
 ## 6. Fortschritt (neueste oben)
+
+- **13.10.2026, Schritt 3:** Configure-Optik (Hinweistexte, Auswahlbreite), `allow_lan`
+  (Routing kopiert angeschlossene private Netze in die Tunnel-Tabelle, leak_guard lässt private
+  Ziele durch), Panik-Hotkey dokumentiert (Desktop-Tastenkürzel → `shunt panic on`).
+  CI für 1b7328b grün, Integration lokal 134/134.
 
 - **13.10.2026, Schritt 2:** Installer-Netzcheck, OpenVPN-Sanitize (Provider-Dateien mit
   `up`/`script-security` werden importiert, Zeilen auskommentiert; Integrationstest prüft, dass

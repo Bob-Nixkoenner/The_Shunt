@@ -127,6 +127,13 @@ func Render(p *engine.Plan) (string, error) {
 		if err := checkIdent(r.Iface); err != nil {
 			return "", err
 		}
+		if r.AllowLAN {
+			// allow_lan: private destinations may leave elsewhere (the
+			// routing table only sends directly attached networks there)
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } meta nfproto ipv4 ip daddr != { %s } counter drop", r.Mark, r.Iface, strings.Join(engine.LANv4, ", "))
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } meta nfproto ipv6 ip6 daddr != { %s } counter drop", r.Mark, r.Iface, strings.Join(engine.LANv6, ", "))
+			continue
+		}
 		w("\t\tmeta mark %#x oifname != { %q, \"lo\" } counter drop", r.Mark, r.Iface)
 	}
 	w("\t}")

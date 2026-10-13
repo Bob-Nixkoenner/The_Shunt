@@ -492,6 +492,11 @@ func (d *Daemon) checkNetwork() {
 	}
 	d.netInfo = info
 	go d.probeCaptive()
+	if d.prep != nil { // allow_lan routes follow the attached networks
+		if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+			d.Log.Warn("routing sync after network change", "err", err)
+		}
+	}
 	want := ""
 	if n := d.cfg.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
 		want = n.Name

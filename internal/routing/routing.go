@@ -52,19 +52,82 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 	}
 	var errs []error
 	wantRules := map[int]uint32{}
+	var lan []netlink.Route
+	for _, r := range p.Routes {
+		if r.AllowLAN {
+			lan = lanRoutes(p)
+			break
+		}
+	}
 	for _, r := range p.Routes {
 		if r.Kind != config.RouteTunnel {
 			continue
 		}
 		wantRules[r.Table] = r.Mark
-		errs = append(errs, syncTable(r, ifaceUp[r.Iface]))
+		var extra []netlink.Route
+		if r.AllowLAN {
+			extra = lan
+		}
+		errs = append(errs, syncTable(r, ifaceUp[r.Iface], extra))
 	}
 	errs = append(errs, syncRules(wantRules))
 	return errors.Join(errs...)
 }
 
-func syncTable(r *engine.Route, up bool) error {
+// lanRoutes returns the directly attached private networks of the main
+// table (what allow_lan routes may reach past their tunnel).
+func lanRoutes(p *engine.Plan) []netlink.Route {
+	tunnels := map[string]bool{}
+	for _, r := range p.Routes {
+		tunnels[r.Iface] = true
+	}
+	var lan []netip.Prefix
+	for _, s := range append(append([]string{}, engine.LANv4...), engine.LANv6...) {
+		lan = append(lan, netip.MustParsePrefix(s))
+	}
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: unix.RT_TABLE_MAIN}, netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return nil
+	}
+	var out []netlink.Route
+	for _, rt := range routes {
+		if rt.Dst == nil || rt.Scope != netlink.SCOPE_LINK || rt.Gw != nil {
+			continue
+		}
+		if l, err := netlink.LinkByIndex(rt.LinkIndex); err != nil || tunnels[l.Attrs().Name] {
+			continue
+		}
+		pfx, ok := netip.AddrFromSlice(rt.Dst.IP)
+		if !ok {
+			continue
+		}
+		ones, _ := rt.Dst.Mask.Size()
+		dst := netip.PrefixFrom(pfx.Unmap(), ones)
+		if dst.Addr().IsLinkLocalUnicast() {
+			continue // one per interface, needs a zone anyway
+		}
+		for _, l := range lan {
+			if l.Contains(dst.Addr()) && dst.Bits() >= l.Bits() {
+				out = append(out, rt)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 	var want []*netlink.Route
+	for _, l := range lan {
+		want = append(want, &netlink.Route{
+			LinkIndex: l.LinkIndex,
+			Type:      unix.RTN_UNICAST,
+			Table:     r.Table,
+			Dst:       l.Dst,
+			Scope:     netlink.SCOPE_LINK,
+			Src:       l.Src,
+		})
+	}
 	for _, fam := range families {
 		want = append(want, &netlink.Route{
 			Family:   fam,

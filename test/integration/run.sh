@@ -499,6 +499,19 @@ EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
 
+echo "== allow_lan: tunnel apps reach the local network"
+check "without allow_lan the LAN goes through the tunnel" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+VPS_EXTRA='allow_lan = true'
+write_config tunnel:vps
+shunt reload
+check "allow_lan: attached LAN goes direct" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+check "allow_lan: the rest still through the tunnel" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s http://10.66.0.1:8080)"
+check "allow_lan: LAN route in the tunnel table" yes "$(cli ip route show table 5301 | gq '10.99.0.0/24 dev cli0' && echo yes || echo "no: $(cli ip route show table 5301)")"
+VPS_EXTRA=
+write_config tunnel:vps
+shunt reload
+check "allow_lan off again: LAN through the tunnel" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
+
 echo "== Wi-Fi login page (captive portal)"
 check "no portal: online" yes "$(shunt status --json | gq '"captive": "online"' && echo yes || echo "no: $(shunt status --json | grep captive)")"
 echo portal >"$WORK/portal.mode"

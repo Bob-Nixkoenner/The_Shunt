@@ -92,3 +92,26 @@ func TestRuleOrder(t *testing.T) {
 		t.Error("explicit rules must come before implicit --via rules")
 	}
 }
+
+func TestAllowLANLeakGuard(t *testing.T) {
+	c, err := config.Parse("[tunnel.vps]\nconfig = \"vps.conf\"\nallow_lan = true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := engine.Compile(c, "shunt", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`meta mark 0x530001 oifname != { "sh-vps", "lo" } meta nfproto ipv4 ip daddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } counter drop`,
+		`meta nfproto ipv6 ip6 daddr != { fc00::/7, fe80::/10 } counter drop`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
