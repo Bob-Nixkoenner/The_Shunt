@@ -46,6 +46,7 @@ import (
 type Daemon struct {
 	ConfigPath string
 	Log        *slog.Logger
+	Version    string // build version, reported in the status
 
 	mu        sync.Mutex
 	cfg       *config.Config
@@ -182,7 +183,7 @@ func PrepareOn(path, cgroupRoot string, net *netdetect.Info) (*Prepared, error) 
 			eff, p.Network = &cc, n.Name
 		}
 	}
-	p.Plan, err = engine.Compile(eff, cgroupRoot, infos)
+	p.Plan, err = engine.CompileOn(eff, cgroupRoot, infos, p.Network)
 	if err != nil {
 		return nil, err
 	}
@@ -457,6 +458,14 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
+	// After a restart the processes are still in their groups but the new
+	// watcher does not know them: adopt them, so sticky routes keep working.
+	for _, g := range append(p.Plan.Groups, engine.Group{Path: path.Join(p.Plan.CgroupRoot, "apps", "free")}) {
+		procs, _ := d.cg.Procs(g.Path)
+		for _, pid := range procs {
+			d.watcher.Place(pid, g.Path)
+		}
+	}
 	return d.syncTunnels()
 }
 
@@ -989,7 +998,7 @@ func (d *Daemon) status() api.Status {
 	defer d.mu.Unlock()
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
-		Firewall: d.cfg.FirewallMode(d.prep.Network)}
+		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
 	}

@@ -457,7 +457,13 @@ func runUI(c *api.Client, sock string, args []string) error {
 	}
 	srv := &ui.Server{Socket: sock, Self: self(), Client: c}
 	if !*noUpdate {
-		srv.Update = &update.Checker{Current: version}
+		srv.Update = &update.Checker{Current: version, Installed: func() string {
+			var st api.Status
+			if c.Do("GET", "/v1/status", nil, &st) != nil {
+				return ""
+			}
+			return st.Version
+		}}
 		go srv.Update.Run(context.Background())
 	}
 	ln, url, err := srv.Listen(*port)

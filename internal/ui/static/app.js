@@ -332,10 +332,19 @@ $("#allapps").addEventListener("change", renderApps);
 let upd = null;
 async function loadUpdate() {
   try { upd = await api("GET", "/api/update"); } catch { return; }
-  $("#updbar").hidden = !upd.available;
-  if (upd.available) {
+  // the service was updated but this app still runs the old version
+  const stale = status && status.version && upd.app && status.version !== upd.app && upd.app !== "dev";
+  $("#updbar").hidden = !upd.available && !stale;
+  $("#upd-cmd").hidden = $("#upd-copy").hidden = !upd.available;
+  if (stale && !upd.available) {
+    $("#updbar").firstElementChild.textContent = "Updated to " + status.version;
+    $("#upd-ver").textContent = "– this window still runs " + upd.app + ".";
+    $("#updbar").children[2].textContent = "Restart the app: tray → “Restart service and app”.";
+  } else if (upd.available) {
+    $("#updbar").firstElementChild.textContent = "Update available";
+    $("#updbar").children[2].textContent = "Run this in a terminal:";
     $("#upd-cmd").textContent = upd.command;
-    $("#upd-ver").textContent = "(installed " + upd.current + ")";
+    $("#upd-ver").textContent = "(installed " + (status && status.version || upd.current) + ")";
   }
   const cb = $("#c-updcheck");
   if (cb) {
@@ -364,7 +373,7 @@ $("#c-updcheck").addEventListener("change", async (e) => {
   loadUpdate();
 });
 loadUpdate();
-setInterval(loadUpdate, 10 * 60 * 1000);
+setInterval(loadUpdate, 60 * 1000);
 
 // --- Wi-Fi login page (captive portal) ---------------------------------------
 // Asked once per network: the tunnels can't connect before you log in.

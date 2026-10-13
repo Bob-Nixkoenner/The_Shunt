@@ -86,10 +86,59 @@ func TestRenderRejectsInjection(t *testing.T) {
 
 func TestRuleOrder(t *testing.T) {
 	got, _ := Render(plan(t))
-	ssh := strings.Index(got, "dport { 22 }")
+	block := strings.Index(got, `apps/via/block`)
 	via := strings.Index(got, `apps/via/tunnel-vps`)
-	if ssh < 0 || via < 0 || ssh > via {
-		t.Error("explicit rules must come before implicit --via rules")
+	ssh := strings.Index(got, "dport { 22 }")
+	// block before everything; programs started in a route keep it unless a
+	// rule says override_explicit
+	if block < 0 || via < 0 || ssh < 0 || block > via || via > ssh {
+		t.Errorf("order: block %d, via %d, ssh rule %d", block, via, ssh)
+	}
+}
+
+func TestOverrideAndNetwork(t *testing.T) {
+	c, err := config.Parse(`
+[[network]]
+name = "home"
+ssid = ["Weifi_5G"]
+default_route = "direct"
+
+[[rule]]
+name = "lan direct for everyone"
+cidr = ["192.168.1.0/24"]
+route = "direct"
+override_explicit = true
+
+[[rule]]
+name = "home only"
+cidr = ["10.1.0.0/16"]
+route = "block"
+network = ["home"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		network  string
+		withHome bool
+	}{{"home", true}, {"", false}} {
+		p, err := engine.CompileOn(c, "shunt", nil, tc.network)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := Render(p)
+		block := strings.Index(got, `apps/via/block`)
+		lan := strings.Index(got, "192.168.1.0/24")
+		direct := strings.Index(got, `apps/via/direct"`)
+		if !(block < lan && lan < direct) {
+			t.Errorf("%q: override rule must sit between block and the via groups (%d %d %d)", tc.network, block, lan, direct)
+		}
+		if strings.Contains(got, "10.1.0.0/16") != tc.withHome {
+			t.Errorf("%q: home-only rule present = %v", tc.network, !tc.withHome)
+		}
+	}
+	if _, err := config.Parse("[[rule]]\ncidr = [\"1.2.3.4\"]\nroute = \"direct\"\nnetwork = [\"nope\"]\n"); err == nil {
+		t.Error("unknown network profile accepted")
 	}
 }
 
