@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+**Security fixes from a code review.**
+
+- **Fix: held and default-route programs could move themselves to `direct`.** A program
+  held by the app firewall, or running on a tunnel default route, could ask the daemon to
+  start it in another route without the password. Now that counts as leaving a route:
+  with a tunnel as default route, `shunt run --via direct …` asks for the password.
+- **Fix: a blocked program could forget its own block** (`shunt firewall forget`) without
+  the password; now the same rule as for answering applies.
+- **Fix: held programs had network for a moment on every reload** (and for good if the
+  reload failed halfway); their rules now come with the new ruleset in one transaction.
+- **Fix: a network profile switch that failed was never retried** – the previous
+  profile's default route stayed (e.g. `direct` from home on a café Wi-Fi). Retried every
+  5 s now.
+- **Fix: after editing rules, addresses of an old domain rule could land in another
+  rule** (up to 2 h, until they expired). They are only kept when the rule's domains are
+  unchanged.
+
 ## v0.7.0-rc1
 
 **App firewall, sticky routes, rule priorities and rules per network.**
