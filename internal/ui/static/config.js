@@ -351,6 +351,13 @@ function renderNetworks() {
             el("option", { value: "" }, "as set below"), el("option", { value: "off" }, "off"), el("option", { value: "ask" }, "ask"), el("option", { value: "block" }, "block"));
           f.value = n.firewall || "";
           return f;
+        })()),
+        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS for direct and Wi-Fi/cable routes on this network" }, "DNS direct "), (() => {
+          const d = el("select", { onchange: (e) => { n.dns_direct = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "as set in DNS"), el("option", { value: "system" }, "the network's own"),
+            ...Object.keys((model.dns || {}).upstream || {}).sort().map((u) => el("option", { value: u }, u)));
+          d.value = n.dns_direct || "";
+          return d;
         })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));

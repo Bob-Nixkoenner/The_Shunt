@@ -199,6 +199,13 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		if n := c.MatchNetwork(net.SSID, net.GatewayMAC); n != nil {
 			cc := *c
 			cc.Daemon.DefaultRoute = n.DefaultRoute
+			switch n.DNSDirect {
+			case "":
+			case config.DNSSystem:
+				cc.DNS.Direct = ""
+			default:
+				cc.DNS.Direct = n.DNSDirect
+			}
 			eff, p.Network = &cc, n.Name
 		}
 	}
@@ -223,15 +230,16 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		return nil, err
 	}
 	if p.Plan.DNS {
-		p.prepareDNS()
+		p.prepareDNS(eff)
 	} else {
 		p.Warnings = append(p.Warnings, "DNS routing is disabled: DNS queries leak past the tunnels")
 	}
 	return p, nil
 }
 
-func (p *Prepared) prepareDNS() {
-	c := p.Config
+// prepareDNS works on c, the config in effect (a network profile may
+// change dns.direct).
+func (p *Prepared) prepareDNS(c *config.Config) {
 	p.DNSUpstreams = map[string][]config.UpstreamSpec{}
 	if c.DNS.Direct != "" {
 		u, _ := config.ParseUpstream(c.DNS.Upstream[c.DNS.Direct]) // validated

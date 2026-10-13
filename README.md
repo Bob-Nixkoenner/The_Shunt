@@ -66,7 +66,8 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   choose the route in a dialog (remembered); no answer → default route after 30 s, or
   blocked until you decide (paranoid). Only desktop-session programs, never system services
 - **Network profiles**: `[[network]]` per Wi-Fi name and router MAC – e.g. at home
-  everything direct, everywhere else through the tunnel
+  everything direct, everywhere else through the tunnel, and the direct DNS per network
+  (`dns_direct = "pihole"` at home, `"system"` = whatever the network hands out)
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
   asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
   or the tray)

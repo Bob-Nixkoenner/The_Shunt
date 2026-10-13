@@ -13,6 +13,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -108,5 +109,58 @@ func TestReloadKeepsHeldGroups(t *testing.T) {
 	}
 	if f.routes == 0 {
 		t.Error("routes never synced")
+	}
+}
+
+// A network profile can switch the direct DNS: home Pi-hole, the
+// network's own resolvers, or keep dns.direct.
+func TestNetworkDNSDirect(t *testing.T) {
+	conf := `[daemon]
+socket = "/nonexistent/s.sock"
+[dns]
+direct = "cloudflare"
+[dns.upstream.cloudflare]
+addr = "1.1.1.1"
+[dns.upstream.pihole]
+addr = "192.168.1.2"
+[[network]]
+name = "home"
+ssid = ["home"]
+default_route = "direct"
+dns_direct = "pihole"
+[[network]]
+name = "guest"
+ssid = ["guest"]
+default_route = "direct"
+dns_direct = "system"
+[[network]]
+name = "work"
+ssid = ["work"]
+default_route = "direct"
+`
+	path := filepath.Join(t.TempDir(), "shunt.toml")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for ssid, want := range map[string]string{"home": "192.168.1.2:53", "guest": "system", "work": "1.1.1.1:53", "elsewhere": "1.1.1.1:53"} {
+		p, err := PrepareOn(path, "shunt", Env{Net: &netdetect.Info{SSID: ssid}, Backend: newFake()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := "system"
+		if ups := p.DNSUpstreams["direct"]; len(ups) > 0 {
+			got = ups[0].Addr.String()
+		} else if !p.DirectSystem {
+			got = "none"
+		}
+		if got != want {
+			t.Errorf("%s: direct DNS %s, want %s", ssid, got, want)
+		}
+	}
+	if err := os.WriteFile(path, []byte(conf+"[[network]]\nname = \"x\"\nssid = [\"x\"]\ndefault_route = \"direct\"\ndns_direct = \"nope\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareOn(path, "shunt", Env{Backend: newFake()}); err == nil {
+		t.Error("unknown dns_direct accepted")
 	}
 }
