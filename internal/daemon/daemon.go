@@ -67,6 +67,7 @@ type Daemon struct {
 	// tunEvents: an OpenVPN tunnel connected or disconnected.
 	tunEvents chan struct{}
 	netInfo   netdetect.Info
+	netRetry  bool // a profile switch failed: retry on the next network tick
 	restart   chan struct{}
 
 	fw *firewall.Manager
@@ -427,7 +428,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 			return fmt.Errorf("cgroup %s: %w", g.Name, err)
 		}
 	}
-	if err := nft.Apply(p.Ruleset); err != nil {
+	script := p.Ruleset
+	if d.fw != nil {
+		ask, err := d.fw.RulesFor(p.Plan.CgroupRoot)
+		if err != nil {
+			return err
+		}
+		script += ask
+	}
+	if err := nft.Apply(script); err != nil {
 		return err
 	}
 	if d.proxy == nil {
@@ -540,15 +549,18 @@ func firewallSettings(p *Prepared) firewall.Settings {
 func (d *Daemon) checkNetwork() {
 	info := netdetect.Current()
 	d.mu.Lock()
-	if info.Key() == d.netInfo.Key() {
+	moved := info.Key() != d.netInfo.Key()
+	if !moved && !d.netRetry {
 		d.mu.Unlock()
 		return
 	}
 	d.netInfo = info
-	go d.probeCaptive()
-	if d.prep != nil { // allow_lan routes follow the attached networks
-		if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
-			d.Log.Warn("routing sync after network change", "err", err)
+	if moved {
+		go d.probeCaptive()
+		if d.prep != nil { // allow_lan routes follow the attached networks
+			if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+				d.Log.Warn("routing sync after network change", "err", err)
+			}
 		}
 	}
 	want := ""
@@ -556,13 +568,19 @@ func (d *Daemon) checkNetwork() {
 		want = n.Name
 	}
 	have, root := d.prep.Network, d.plan.CgroupRoot
+	d.netRetry = false
 	d.mu.Unlock()
 	if want == have {
 		return
 	}
 	d.Log.Info("network changed", "ssid", info.SSID, "gateway_mac", info.GatewayMAC, "profile", want, "previous", have)
 	if err := d.reload(root); err != nil {
-		d.Log.Error("reload for network change failed", "err", err)
+		// the old profile's default route stays in force: try again on
+		// the next tick instead of waiting for the next network change
+		d.Log.Error("reload for network change failed, retrying", "err", err)
+		d.mu.Lock()
+		d.netRetry = true
+		d.mu.Unlock()
 	}
 }
 
@@ -762,7 +780,7 @@ func (d *Daemon) routes() http.Handler {
 		}
 		d.mu.Lock()
 		g, ok := d.plan.Group(req.Group)
-		from, to := d.currentRoute(int(p.pid)), d.groupRoute(g)
+		from, to := d.leaveRoute(int(p.pid)), d.groupRoute(g)
 		d.mu.Unlock()
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown group %q", req.Group))
@@ -937,6 +955,13 @@ func (d *Daemon) routes() http.Handler {
 		writeJSON(w, http.StatusOK, d.fw.Remembered())
 	})
 	mux.HandleFunc("DELETE /v1/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
+		// same as deciding: a blocked program must not forget its own block
+		if p := peerOf(r.Context()); p == nil || d.inShuntGroup(int(p.pid)) {
+			if err := d.authorize(r.Context(), p); err != nil {
+				writeErr(w, http.StatusForbidden, fmt.Errorf("forgetting from inside a route: %w", err))
+				return
+			}
+		}
 		if err := d.fw.Forget(r.URL.Query().Get("key")); err != nil {
 			writeErr(w, http.StatusNotFound, err)
 			return
@@ -1106,33 +1131,65 @@ func (d *Daemon) procs(name string) []api.ProcRoute {
 // inShuntGroup reports whether pid runs inside Shunt's cgroup tree (a
 // route group or a waiting group).
 func (d *Daemon) inShuntGroup(pid int) bool {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	if err != nil {
+	cg, ok := cgroupOf(pid)
+	if !ok {
 		return true // gone or unreadable: treat as untrusted
 	}
 	d.mu.Lock()
 	root := d.plan.CgroupRoot
 	d.mu.Unlock()
+	return under(cg, path.Join(root, "apps"))
+}
+
+// cgroupOf returns pid's cgroup v2 path without leading slash.
+func cgroupOf(pid int) (string, bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return "", false
+	}
 	for _, l := range strings.Split(string(b), "\n") {
 		if c, ok := strings.CutPrefix(l, "0::"); ok {
-			c = strings.Trim(c, "/")
-			return c == root+"/apps" || strings.HasPrefix(c, root+"/apps/")
+			return strings.Trim(c, "/"), true
 		}
 	}
-	return false
+	return "", false
+}
+
+// under reports whether cgroup cg is dir or below it.
+func under(cg, dir string) bool { return cg == dir || strings.HasPrefix(cg, dir+"/") }
+
+// leaveRoute is the route pid would leave by moving: its group's route,
+// "block" while the app firewall holds it (or it is gone), the default
+// route otherwise – "" when that is direct, which anyone may leave.
+// Caller holds d.mu.
+func (d *Daemon) leaveRoute(pid int) string {
+	cg, ok := cgroupOf(pid)
+	if !ok {
+		return "block"
+	}
+	return fromRoute(cg, d.plan, d.groupRoute)
+}
+
+func fromRoute(cg string, p *engine.Plan, groupRoute func(engine.Group) string) string {
+	for _, g := range p.Groups {
+		if under(cg, g.Path) {
+			return groupRoute(g)
+		}
+	}
+	if under(cg, path.Join(p.CgroupRoot, "apps", "ask")) {
+		return "block" // held by the app firewall: leaving is an escape
+	}
+	if p.DefaultRoute.Kind == config.RouteDirect {
+		return ""
+	}
+	return p.DefaultRoute.String()
 }
 
 // groupOf returns the Shunt group pid is in. Caller holds d.mu.
 func (d *Daemon) groupOf(pid int) (engine.Group, bool) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	if err != nil {
+	cg, ok := cgroupOf(pid)
+	if !ok {
 		return engine.Group{}, false
-	}
-	var cg string
-	for _, l := range strings.Split(string(b), "\n") {
-		if c, ok := strings.CutPrefix(l, "0::"); ok {
-			cg = strings.Trim(c, "/")
-		}
 	}
 	for _, g := range d.plan.Groups {
 		if cg == g.Path || strings.HasPrefix(cg, g.Path+"/") {
@@ -1159,15 +1216,6 @@ func procNames(pids []int) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// currentRoute returns the route of the Shunt group pid is in, or "".
-// Caller holds d.mu.
-func (d *Daemon) currentRoute(pid int) string {
-	if g, ok := d.groupOf(pid); ok {
-		return d.groupRoute(g)
-	}
-	return ""
 }
 
 // groupRoute is the route of the first rule using g. Caller holds d.mu.

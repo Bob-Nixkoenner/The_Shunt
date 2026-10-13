@@ -92,6 +92,10 @@ func TestAutostart(t *testing.T) {
 }
 
 func TestSingleInstance(t *testing.T) {
+	name := fmt.Sprintf("@the-shunt-desktop-test-%d-%d", os.Getuid(), os.Getpid())
+	old := socketName
+	socketName = func() string { return name }
+	t.Cleanup(func() { socketName = old })
 	s, err := Claim()
 	if err != nil || s == nil {
 		t.Fatalf("first claim: %v", err)
