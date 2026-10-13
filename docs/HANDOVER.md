@@ -90,6 +90,10 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 5. CHANGELOG „Unreleased“ → v0.6.1 vorbereiten; Nutzer veröffentlicht. *(Text steht, wartet auf Veröffentlichung)*
 6. ✅ `allow_lan` pro Tunnel (LAN am Tunnel vorbei), Checkbox in Configure, Integrationstest.
 
+**Als Nächstes (mit dem Nutzer, siehe `docs/PLAN-firewall-providers.md`):**
+- App-Firewall („unbekannte Programme fragen“) – Entscheidungen ❓ A1–A5 klären, dann bauen.
+- Anbieter-Assistent (Mullvad automatisch, Proton geführt) – ❓ B1–B3 klären.
+
 **Danach (Roadmap, siehe DESIGN §9):**
 - Echttests beim Nutzer: Multi-Hop `sd1 via laptop`, Captive im Firmen-WLAN, WLAN-Profil.
 - Anbieter-Assistent (Mullvad/Proton WireGuard) statt mitgelieferter Configs.
@@ -106,6 +110,11 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   UI-Warnung vorhanden.
 
 ## 6. Fortschritt (neueste oben)
+
+- **13.10.2026, Schritt 4:** Nächste Bauabschnitte geplant: `docs/PLAN-firewall-providers.md`
+  (App-Firewall „fragen“ + Anbieter-Assistent) mit offenen Entscheidungen (❓) für den Nutzer.
+  Prototyp bestätigt: NFLOG mit nur `CAP_NET_ADMIN`, Zuordnung per Log-Prefix pro Wartegruppe,
+  UID kommt mit (`github.com/florianl/go-nflog/v2`).
 
 - **13.10.2026, Schritt 3:** Configure-Optik (Hinweistexte, Auswahlbreite), `allow_lan`
   (Routing kopiert angeschlossene private Netze in die Tunnel-Tabelle, leak_guard lässt private
