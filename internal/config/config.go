@@ -26,6 +26,49 @@ type Config struct {
 	Rules   []Rule            `toml:"rule,omitempty" json:"rule,omitempty"`
 	// Networks change the default route depending on where you are.
 	Networks []Network `toml:"network,omitempty" json:"network,omitempty"`
+	// Firewall: what happens to programs without a rule.
+	Firewall *Firewall `toml:"firewall,omitempty" json:"firewall,omitempty"`
+}
+
+// Firewall modes for programs without a rule.
+const (
+	FirewallOff   = "off"   // they take the default route (as before)
+	FirewallAsk   = "ask"   // held until you choose a route; after Timeout the default route
+	FirewallBlock = "block" // held until you choose; no timeout
+)
+
+// Firewall configures the app firewall. Only programs of the desktop
+// session are held; system services never are.
+type Firewall struct {
+	Mode string `toml:"mode" json:"mode"`
+	// Timeout (ask mode): seconds until an unanswered program gets the
+	// default route. Default 30.
+	Timeout int `toml:"timeout,omitempty" json:"timeout,omitempty"`
+	// AskTerminal: also hold programs started from a terminal. Default:
+	// they take the terminal's route without asking.
+	AskTerminal bool `toml:"ask_terminal,omitempty" json:"ask_terminal,omitempty"`
+}
+
+// FirewallMode returns the mode in effect on network (a [[network]] name,
+// "" = none matched).
+func (c *Config) FirewallMode(network string) string {
+	for _, n := range c.Networks {
+		if n.Name == network && network != "" && n.Firewall != "" {
+			return n.Firewall
+		}
+	}
+	if c.Firewall == nil || c.Firewall.Mode == "" {
+		return FirewallOff
+	}
+	return c.Firewall.Mode
+}
+
+// FirewallTimeout returns the ask timeout.
+func (c *Config) FirewallTimeout() int {
+	if c.Firewall == nil || c.Firewall.Timeout <= 0 {
+		return 30
+	}
+	return c.Firewall.Timeout
 }
 
 // Network is a known network (home, office). While connected to it, its
@@ -39,6 +82,8 @@ type Network struct {
 	// GatewayMAC: MAC address of the default gateway (router).
 	GatewayMAC   []string `toml:"gateway_mac,omitempty" json:"gateway_mac,omitempty"`
 	DefaultRoute string   `toml:"default_route" json:"default_route"`
+	// Firewall overrides firewall.mode on this network ("" = keep).
+	Firewall string `toml:"firewall,omitempty" json:"firewall,omitempty"`
 }
 
 // MatchNetwork returns the first network matching the current SSID and
@@ -263,6 +308,15 @@ func (c *Config) Validate() error {
 		}
 		if _, err := c.ParseRoute(n.DefaultRoute); err != nil {
 			return fmt.Errorf("%s: default_route: %w", where, err)
+		}
+	}
+	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
+	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
+		return fmt.Errorf("firewall.mode: %q (off | ask | block)", c.Firewall.Mode)
+	}
+	for _, n := range c.Networks {
+		if !validMode(n.Firewall) {
+			return fmt.Errorf("network %q: firewall %q (off | ask | block)", n.Name, n.Firewall)
 		}
 	}
 	if err := c.checkHops(); err != nil {

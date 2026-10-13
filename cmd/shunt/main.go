@@ -21,6 +21,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
@@ -38,6 +39,12 @@ commands:
              start CMD with its traffic classified by ROUTE
              (direct | block | tunnel:<name>) or by group rules
   status [--json]
+  pending    programs the app firewall holds back, waiting for a route
+  allow ID|NAME [--via ROUTE] [--once]
+             let a waiting program out (default: the default route), and
+             remember it unless --once
+  firewall apps | forget KEY
+             stored firewall decisions / forget one (asked again next time)
   which NAME show running processes named like NAME and the route each one takes
   import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]
              add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
@@ -80,6 +87,12 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "pending":
+		err = pendingCmd(c)
+	case "allow":
+		err = allowCmd(c, args[1:])
+	case "firewall":
+		err = firewallCmd(c, args[1:])
 	case "which":
 		err = which(c, args[1:])
 	case "import":
@@ -239,6 +252,87 @@ func tunnelName(file string) string {
 		n = "tunnel"
 	}
 	return n
+}
+
+func pendingCmd(c *api.Client) error {
+	var ps []firewall.Pending
+	if err := c.Do("GET", "/v1/pending", nil, &ps); err != nil {
+		return err
+	}
+	if len(ps) == 0 {
+		fmt.Println("no program is waiting")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tPROGRAM\tPROCS\tWAITING\tTHEN")
+	for _, p := range ps {
+		then := "blocked until you decide"
+		if !p.Deadline.IsZero() {
+			then = "default route in " + time.Until(p.Deadline).Round(time.Second).String()
+		}
+		fmt.Fprintf(w, "%s\t%s (%s)\t%d\t%s\t%s\n", p.ID, p.Name, p.Key, p.Procs, time.Since(p.Asked).Round(time.Second), then)
+	}
+	w.Flush()
+	fmt.Println("\nshunt allow <ID> --via <route>   (direct | tunnel:<name> | block)")
+	return nil
+}
+
+func allowCmd(c *api.Client, args []string) error {
+	fs := flag.NewFlagSet("allow", flag.ExitOnError)
+	via := fs.String("via", "", "route (default: the default route)")
+	once := fs.Bool("once", false, "only for this run, don't remember")
+	var target string
+	for len(args) > 0 {
+		_ = fs.Parse(args)
+		if fs.NArg() == 0 {
+			break
+		}
+		target, args = fs.Arg(0), fs.Args()[1:]
+	}
+	if target == "" {
+		return fmt.Errorf("usage: shunt allow ID|NAME [--via ROUTE] [--once]")
+	}
+	var ps []firewall.Pending
+	if err := c.Do("GET", "/v1/pending", nil, &ps); err != nil {
+		return err
+	}
+	id := ""
+	for _, p := range ps {
+		if p.ID == target || p.Name == target {
+			id = p.ID
+		}
+	}
+	if id == "" {
+		return fmt.Errorf("no waiting program %q (see shunt pending)", target)
+	}
+	if err := c.Do("POST", "/v1/pending/"+id, api.FirewallDecision{Route: *via, Remember: !*once}, nil); err != nil {
+		return err
+	}
+	fmt.Printf("%s goes %s\n", target, map[bool]string{true: "via the default route", false: "via " + *via}[*via == ""])
+	return nil
+}
+
+func firewallCmd(c *api.Client, args []string) error {
+	switch {
+	case len(args) == 1 && args[0] == "apps":
+		var rs []firewall.Remembered
+		if err := c.Do("GET", "/v1/firewall/apps", nil, &rs); err != nil {
+			return err
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "PROGRAM\tROUTE\tKEY")
+		for _, r := range rs {
+			route := r.Route
+			if route == "" {
+				route = "(default route)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Name, route, r.Key)
+		}
+		return w.Flush()
+	case len(args) == 2 && args[0] == "forget":
+		return c.Do("DELETE", "/v1/firewall/apps?key="+url.QueryEscape(args[1]), nil, nil)
+	}
+	return fmt.Errorf("usage: shunt firewall apps | forget KEY")
 }
 
 func which(c *api.Client, args []string) error {

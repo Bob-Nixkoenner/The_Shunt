@@ -86,9 +86,14 @@ func Render(p *engine.Plan) (string, error) {
 	w("\t}")
 
 	// --- enforcement: the block route.
+	// ask_out holds the app firewall's waiting programs (filled at run time
+	// by the daemon, see AskRules); loopback stays open (DNS to the proxy).
+	w("\tchain ask_out {")
+	w("\t}")
 	w("\tchain filter_out {")
 	w("\t\ttype filter hook output priority filter; policy accept;")
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
+	w("\t\toifname != \"lo\" jump ask_out")
 	if p.BlockDoT {
 		w("\t\t%s accept", dg)
 		w("\t\tmeta l4proto { tcp, udp } th dport 853 counter reject with icmpx admin-prohibited")
@@ -298,4 +303,29 @@ func Apply(script string) error {
 		return fmt.Errorf("nft: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// AskLogGroup is the NFLOG group of the app firewall's waiting programs.
+const AskLogGroup = 5301
+
+// AskRules replaces the rules of the ask_out chain: every waiting group
+// (cgroup path → id) logs its first packets to AskLogGroup with prefix
+// "ask:<id> " and is rejected.
+func AskRules(groups map[string]engine.Group) (string, error) {
+	var b strings.Builder
+	fmt.Fprintf(&b, "flush chain inet %s ask_out\n", Table)
+	ids := make([]string, 0, len(groups))
+	for id := range groups {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		m, err := cgroupMatch(groups[id])
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "add rule inet %s ask_out %s limit rate 5/second burst 10 packets log prefix \"ask:%s \" group %d\n", Table, m, id, AskLogGroup)
+		fmt.Fprintf(&b, "add rule inet %s ask_out %s counter reject with icmpx port-unreachable\n", Table, m)
+	}
+	return b.String(), nil
 }

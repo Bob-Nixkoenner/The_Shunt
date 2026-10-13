@@ -73,3 +73,7 @@ func (m Manager) Procs(rel string) ([]int, error) {
 	}
 	return out, nil
 }
+
+// Remove deletes an empty cgroup (errors are ignored by most callers: a
+// group that still has processes simply stays).
+func (m Manager) Remove(rel string) error { return os.Remove(m.abs(rel)) }

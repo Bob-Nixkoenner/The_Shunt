@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -32,6 +33,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
@@ -65,6 +67,8 @@ type Daemon struct {
 	tunEvents chan struct{}
 	netInfo   netdetect.Info
 	restart   chan struct{}
+
+	fw *firewall.Manager
 
 	captive, captiveURL string
 	captiveAt           time.Time // last probe
@@ -339,6 +343,23 @@ func (d *Daemon) Run(ctx context.Context) error {
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
 	go d.watcher.Run(stopWatch)
+	go func() {
+		if err := firewall.Listen(ctx, d.fw.Seen); err != nil {
+			d.Log.Warn("app firewall: cannot read the log of waiting programs (they stay blocked without a question)", "err", err)
+		}
+	}()
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				d.fw.Tick(now)
+			}
+		}
+	}()
 
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
@@ -420,9 +441,17 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(w)
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
-	if d.watcher == nil {
-		d.watcher = &appwatch.Watcher{Log: d.Log, Mover: d.cg}
+	if d.fw == nil {
+		d.fw = &firewall.Manager{Log: d.Log, CG: d.cg, Apply: nft.Apply, Store: filepath.Join(filepath.Dir(d.ConfigPath), "apps.json")}
 	}
+	if err := d.fw.Configure(firewallSettings(p)); err != nil {
+		d.Log.Warn("app firewall", "err", err)
+	}
+	if d.watcher == nil {
+		d.watcher = &appwatch.Watcher{Log: d.Log, Mover: d.cg, Unknown: d.fw.Unknown}
+		d.fw.Placed = d.watcher.Place
+	}
+	d.watcher.Recheck = path.Join(p.Plan.CgroupRoot, "apps", "ask")
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
@@ -478,6 +507,22 @@ func (d *Daemon) syncTunnels() error {
 		d.Log.Info("tunnel up", "tunnel", name, "iface", tc.Interface, "driver", t.DriverName(), "via", tc.Via)
 	}
 	return routing.Sync(p.Plan, d.ifaceUp(p))
+}
+
+// firewallSettings derives the app firewall settings from a prepared config.
+func firewallSettings(p *Prepared) firewall.Settings {
+	groups := map[string]string{}
+	for _, r := range p.Plan.Routes {
+		if g, ok := p.Plan.Group(engine.ViaGroupName(r.String())); ok {
+			groups[r.String()] = g.Path
+		}
+	}
+	s := firewall.Settings{Mode: p.Config.FirewallMode(p.Network), Timeout: time.Duration(p.Config.FirewallTimeout()) * time.Second,
+		Root: p.Plan.CgroupRoot, Groups: groups}
+	if p.Config.Firewall != nil {
+		s.AskTerminal = p.Config.Firewall.AskTerminal
+	}
+	return s
 }
 
 // checkNetwork follows network changes (Wi-Fi roaming, cable plugged in)
@@ -737,6 +782,7 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusConflict, errors.New("caller is gone"))
 			return
 		}
+		d.watcher.Place(int(p.pid), g.Path) // desktops/browsers move it into scopes: keep it here
 		d.Log.Info("process attached", "pid", p.pid, "uid", p.uid, "group", g.Name)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -851,6 +897,43 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, d.fw.List())
+	})
+	mux.HandleFunc("POST /v1/pending/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var req api.FirewallDecision
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		// A program that is itself held or routed must not let itself out:
+		// deciding is for the desktop user (or root/polkit).
+		if p := peerOf(r.Context()); p == nil || d.inShuntGroup(int(p.pid)) {
+			if err := d.authorize(r.Context(), p); err != nil {
+				writeErr(w, http.StatusForbidden, fmt.Errorf("deciding from inside a route: %w", err))
+				return
+			}
+		}
+		if err := d.fw.Decide(r.PathValue("id"), req.Route, req.Remember); err != nil {
+			code := http.StatusUnprocessableEntity
+			if errors.Is(err, firewall.ErrUnknown) {
+				code = http.StatusNotFound
+			}
+			writeErr(w, code, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, d.fw.Remembered())
+	})
+	mux.HandleFunc("DELETE /v1/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.fw.Forget(r.URL.Query().Get("key")); err != nil {
+			writeErr(w, http.StatusNotFound, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.ToLower(r.URL.Query().Get("name"))
 		if name == "" {
@@ -905,7 +988,11 @@ func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{},
-		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL}
+		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
+		Firewall: d.cfg.FirewallMode(d.prep.Network)}
+	if d.fw != nil {
+		st.Pending = len(d.fw.List())
+	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	for route, ups := range d.dnsUps {
 		for _, u := range ups {
@@ -1005,6 +1092,25 @@ func (d *Daemon) procs(name string) []api.ProcRoute {
 		}
 	}
 	return out
+}
+
+// inShuntGroup reports whether pid runs inside Shunt's cgroup tree (a
+// route group or a waiting group).
+func (d *Daemon) inShuntGroup(pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return true // gone or unreadable: treat as untrusted
+	}
+	d.mu.Lock()
+	root := d.plan.CgroupRoot
+	d.mu.Unlock()
+	for _, l := range strings.Split(string(b), "\n") {
+		if c, ok := strings.CutPrefix(l, "0::"); ok {
+			c = strings.Trim(c, "/")
+			return c == root+"/apps" || strings.HasPrefix(c, root+"/apps/")
+		}
+	}
+	return false
 }
 
 // groupOf returns the Shunt group pid is in. Caller holds d.mu.

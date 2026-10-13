@@ -263,7 +263,7 @@ func (a *trayApp) poll() {
 		for _, n := range desktopapp.Diff(prev, v, first) {
 			a.notifier.Notify(n)
 		}
-		if v.Captive && (first || !prev.Captive) {
+		if (v.Captive && (first || !prev.Captive)) || v.Pending > prev.Pending {
 			a.show() // the window asks how to go on
 		}
 		a.render(v)

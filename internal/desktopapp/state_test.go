@@ -136,3 +136,15 @@ func TestCaptive(t *testing.T) {
 		t.Errorf("%+v", n)
 	}
 }
+
+func TestPending(t *testing.T) {
+	now := time.Now()
+	v := Compute(&api.Status{DefaultRoute: "direct", Pending: 2}, nil, now)
+	if v.Level != Warn || v.Pending != 2 {
+		t.Fatalf("%+v", v)
+	}
+	n := Diff(View{Down: map[string]bool{}, DNSDown: map[string]bool{}}, v, false)
+	if len(n) != 1 || n[0].Summary != "An app wants to go online" {
+		t.Errorf("%+v", n)
+	}
+}

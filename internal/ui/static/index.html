@@ -110,11 +110,17 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 #updbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px auto 0; max-width: 1140px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: var(--r); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
 #updbar[hidden] { display: none; }
 #updbar code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 6px 8px; background: var(--panel2); border-radius: 6px; font-size: 12px; }
-#modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-#modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+#modal, #fwmodal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+#modal .box, #fwmodal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
 #modal .box p { margin: 0 0 14px; white-space: pre-line; }
 #modal .box input { width: 100%; margin-bottom: 14px; }
 #modal .row { justify-content: flex-end; }
+#fwmodal[hidden], #modal[hidden] { display: none; }
+#fwmodal .box { max-width: 520px; }
+#fw-routes { margin: 6px 0 12px; }
+#fw-routes button { flex: 1 1 auto; }
+#fw-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+#fw-key { font-size: 12px; overflow-wrap: anywhere; margin-bottom: 12px; }
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
@@ -264,6 +270,25 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   </section>
 
   <section>
+    <h2>App firewall <span class="muted" style="text-transform:none;letter-spacing:0">programs without a rule</span><span class="spacer"></span>
+      <span class="row" style="text-transform:none;letter-spacing:0"><span class="muted" style="font-size:12px">presets:</span>
+        <button id="fw-p-paranoid" title="Unknown programs blocked until you decide; everything else through the first tunnel">Paranoid</button>
+        <button id="fw-p-normal" title="Ask; no answer in 30 s → default route">Normal</button>
+        <button id="fw-p-off" title="No questions, unknown programs take the default route">Off</button></span></h2>
+    <div class="form">
+      <label for="c-fwmode">New programs</label><select id="c-fwmode">
+        <option value="off">take the default route (no questions)</option>
+        <option value="ask">ask me – no answer: default route after the timeout</option>
+        <option value="block">ask me – blocked until I decide</option></select>
+      <label for="c-fwtimeout">Timeout</label><div class="row"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
+      <label>Terminal programs</label><label class="row" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
+    </div>
+    <div class="hint">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
+    <h2 style="margin-top:16px">Remembered decisions</h2>
+    <table><tbody id="c-fwapps"></tbody></table>
+  </section>
+
+  <section>
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins · after them: apps started via a route, then the default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>
@@ -299,6 +324,15 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 </main>
 <div id="toast"></div>
 <!-- own dialog instead of confirm()/prompt(): embedded web views may not show those -->
+<!-- app firewall: a program wants to go online -->
+<div id="fwmodal" hidden><div class="box" role="dialog" aria-modal="true">
+  <p id="fw-title"></p>
+  <div id="fw-key" class="muted mono"></div>
+  <div class="muted">wants to go online. Which way?</div>
+  <div id="fw-routes" class="row"></div>
+  <label class="row" style="color:var(--text)"><input type="checkbox" id="fw-remember" checked> remember for this program</label>
+  <div class="row" style="justify-content:space-between;margin-top:10px"><span id="fw-count" class="muted"></span><button id="fw-later">Later</button></div>
+</div></div>
 <div id="modal" hidden><div class="box" role="dialog" aria-modal="true">
   <p id="modal-msg"></p>
   <input id="modal-input" hidden>
