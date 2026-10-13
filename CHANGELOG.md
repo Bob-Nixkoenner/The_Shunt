@@ -1,8 +1,20 @@
 # Changelog
 
-## Unreleased
+## v0.7.0-rc2
 
-**Wi-Fi vs. cable, and security fixes from a code review.**
+**Wi-Fi vs. cable, DNS per network, Firefox profiles everywhere, and security fixes from
+a code review.**
+
+- **Leak test without password**: the daemon starts the probes right inside each route
+  (before, the CLI/UI moved them there and, with a tunnel as default route, every route
+  asked for the password). Wi-Fi/cable routes are judged by their own rules (same IP as
+  direct is expected, not a leak).
+- **App firewall**: the block rule of a held program that ended without going online is
+  removed with it; holding and releasing are logged.
+- **Under the hood – ready for other platforms**: the daemon talks to the operating system
+  only through one interface (`daemon.Backend`, Linux: cgroups/nftables/netlink).
+  Everything but the Linux tray builds for Windows and macOS, checked in CI – the base for
+  Windows and Android versions.
 
 - **New: routes per connection** – `link:wifi`, `link:ethernet`, `link:mobile`. With Wi-Fi
   and cable plugged in, one program can go over the Wi-Fi and another over the cable

@@ -55,5 +55,13 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --generate-notes --title "$TAG"
+            # v1.2.3-rc1 & co. are pre-releases; the notes are the tag's
+            # CHANGELOG section (GitHub's generated notes as fallback)
+            pre=; [[ $TAG == *-* ]] && pre=--prerelease
+            awk -v t="## $TAG" '$0 == t {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+            if [[ -s notes.md ]]; then
+              gh release create "$TAG" dist/* $pre --title "$TAG" --notes-file notes.md
+            else
+              gh release create "$TAG" dist/* $pre --title "$TAG" --generate-notes
+            fi
           fi
