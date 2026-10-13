@@ -36,6 +36,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
@@ -73,7 +74,9 @@ type Daemon struct {
 	links    links.State
 	linkDNS  sync.Map
 	netRetry bool // a profile switch failed: retry on the next network tick
-	restart  chan struct{}
+	// routeSoft: routes that could not be copied yet (retried every tick)
+	routeSoft string
+	restart   chan struct{}
 
 	fw *firewall.Manager
 
@@ -455,6 +458,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-netTick.C:
 			d.checkNetwork()
 			d.mu.Lock()
+			if d.routeSoft != "" && d.prep != nil {
+				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+					d.Log.Warn("routing sync", "err", err)
+				}
+			}
+			d.mu.Unlock()
+			d.mu.Lock()
 			again := d.captive != captive.Online && time.Since(d.captiveAt) > 15*time.Second
 			d.mu.Unlock()
 			if again { // waiting for the user to log in
@@ -560,7 +570,7 @@ func (d *Daemon) syncTunnels() error {
 			delete(d.specHash, name)
 		}
 	}
-	if err := d.Backend.SyncRoutes(p.Plan, d.ifaceUp(p)); err != nil {
+	if err := d.syncRoutes(p.Plan, d.ifaceUp(p)); err != nil {
 		return err
 	}
 	d.tunErrors = map[string]string{}
@@ -591,7 +601,7 @@ func (d *Daemon) syncTunnels() error {
 		d.specHash[name] = p.Hashes[name]
 		d.Log.Info("tunnel up", "tunnel", name, "iface", tc.Interface, "driver", t.DriverName(), "via", tc.Via)
 	}
-	return d.Backend.SyncRoutes(p.Plan, d.ifaceUp(p))
+	return d.syncRoutes(p.Plan, d.ifaceUp(p))
 }
 
 // firewallSettings derives the app firewall settings from a prepared config.
@@ -621,7 +631,7 @@ func (d *Daemon) checkNetwork() {
 	if ls.Key() != d.links.Key() {
 		d.setLinks(ls)
 		if !relink && d.prep != nil { // same interfaces, new gateway
-			if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after link change", "err", err)
 			}
 		}
@@ -639,7 +649,7 @@ func (d *Daemon) checkNetwork() {
 	if moved {
 		go d.probeCaptive()
 		if d.prep != nil { // allow_lan routes follow the attached networks
-			if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after network change", "err", err)
 			}
 		}
@@ -664,6 +674,23 @@ func (d *Daemon) checkNetwork() {
 		d.netRetry = true
 		d.mu.Unlock()
 	}
+}
+
+// syncRoutes brings the routing tables in line with plan. Routes that could
+// not be copied yet (a link coming up: its table blocks meanwhile) are
+// logged and retried on the next network tick instead of failing a reload.
+// Caller holds d.mu.
+func (d *Daemon) syncRoutes(plan *engine.Plan, up map[string]bool) error {
+	hard, soft := routing.Split(d.Backend.SyncRoutes(plan, up))
+	msg := ""
+	for _, e := range soft {
+		msg += e.Error() + "; "
+	}
+	if msg != "" && msg != d.routeSoft {
+		d.Log.Warn("routes not in place yet, retrying", "errors", msg)
+	}
+	d.routeSoft = msg
+	return hard
 }
 
 // setLinks stores the connected links and their DNS servers. Caller holds
@@ -793,7 +820,7 @@ func (d *Daemon) tunnelChanged() {
 		}
 	}
 	if d.prep != nil {
-		if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+		if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 			d.Log.Error("routing sync failed", "err", err)
 		}
 	}
@@ -850,7 +877,7 @@ func (d *Daemon) shutdown() {
 	}
 	d.tunnels = map[string]tunnel.Device{}
 	if d.plan != nil {
-		_ = d.Backend.SyncRoutes(d.plan, nil)
+		_ = d.Backend.SyncRoutes(d.plan, nil) // shutting down: soft or not
 	}
 	if d.proxy != nil {
 		d.proxy.Close() // redirect rules stay: DNS fails closed while we're down
