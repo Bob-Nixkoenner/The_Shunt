@@ -41,9 +41,12 @@ table inet shunt {
 		type filter hook prerouting priority mangle; policy accept;
 		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
 	}
+	chain ask_out {
+	}
 	chain filter_out {
 		type filter hook output priority filter; policy accept;
 		meta mark 0x5300fe counter reject with icmpx admin-prohibited
+		oifname != "lo" jump ask_out
 		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" accept
 		meta l4proto { tcp, udp } th dport 853 counter reject with icmpx admin-prohibited
 	}

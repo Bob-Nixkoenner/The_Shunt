@@ -115,3 +115,14 @@ func TestAllowLANLeakGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestAskRules(t *testing.T) {
+	s, err := AskRules(map[string]engine.Group{"p2": {Name: "ask:firefox", Path: "shunt/apps/ask/p2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `add rule inet shunt ask_out socket cgroupv2 level 4 "shunt/apps/ask/p2" limit rate 5/second burst 10 packets log prefix "ask:p2 " group 5301`
+	if !strings.Contains(s, "flush chain inet shunt ask_out\n") || !strings.Contains(s, want) {
+		t.Errorf("got:\n%s", s)
+	}
+}

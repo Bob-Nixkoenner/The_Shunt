@@ -19,6 +19,7 @@ require (
 )
 
 require (
+	github.com/florianl/go-nflog/v2 v2.3.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/mdlayher/genetlink v1.4.0 // indirect
 	github.com/mdlayher/netlink v1.11.2 // indirect

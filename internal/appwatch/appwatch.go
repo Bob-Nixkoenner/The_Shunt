@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -49,16 +50,35 @@ type Watcher struct {
 	// be touched: shuntd itself and everything already placed by Shunt.
 	Skip string
 
+	// Recheck is a cgroup prefix inside Skip whose processes are still
+	// looked at: the app firewall's waiting groups (a held wrapper script
+	// that execs the real program must not decide for it).
+	Recheck string
+	// Unknown, if set, gets every process no target matched (and that
+	// is not already placed by Shunt): the app firewall decides on it.
+	Unknown func(pid int, p Proc)
+
 	mu      sync.RWMutex
 	targets []Target
-	seen    map[int]bool
+	seen    map[int]string // pid -> comm when last checked (exec changes it)
+	placed  map[int]placement
+}
+
+// Proc describes a process for the app firewall.
+type Proc struct {
+	Comm   string
+	Exe    string // may be empty (other user's process) – see readProc
+	Argv0  string
+	Cgroup string
+	TTY    bool // has a controlling terminal (started from a shell)
+	UID    int
 }
 
 // SetTargets replaces the rules and re-scans running processes.
 func (w *Watcher) SetTargets(t []Target, skip string) {
 	w.mu.Lock()
 	w.targets, w.Skip = t, skip
-	w.seen = map[int]bool{}
+	w.seen = map[int]string{}
 	w.mu.Unlock()
 	w.scan()
 }
@@ -77,6 +97,7 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 			}
 		}()
 	}
+	go w.sticky(stop)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -102,9 +123,11 @@ func (w *Watcher) scan() {
 		}
 		alive[pid] = true
 		w.mu.RLock()
-		seen := w.seen[pid]
+		seen, ok := w.seen[pid]
 		w.mu.RUnlock()
-		if !seen {
+		// a known pid is checked again when its name changed: it exec'd
+		// another program (the process connector may have missed it)
+		if !ok || seen != comm(w.proc(), pid) {
 			w.check(pid)
 		}
 	}
@@ -128,19 +151,20 @@ func (w *Watcher) proc() string {
 func (w *Watcher) check(pid int) {
 	w.mu.Lock()
 	if w.seen == nil {
-		w.seen = map[int]bool{}
+		w.seen = map[int]string{}
 	}
-	w.seen[pid] = true
-	targets, skip := w.targets, w.Skip
+	w.seen[pid] = comm(w.proc(), pid)
+	targets, skip, unknown, recheck := w.targets, w.Skip, w.Unknown, w.Recheck
 	w.mu.Unlock()
-	if len(targets) == 0 || pid <= 1 {
+	if (len(targets) == 0 && unknown == nil) || pid <= 1 {
 		return
 	}
 	info, err := readProc(w.proc(), pid)
 	if err != nil || info.argv0 == "" { // gone, or a kernel thread (empty cmdline)
 		return
 	}
-	if skip != "" && (info.cgroup == skip || strings.HasPrefix(info.cgroup, skip+"/")) {
+	held := recheck != "" && strings.HasPrefix(info.cgroup, recheck+"/")
+	if skip != "" && (info.cgroup == skip || strings.HasPrefix(info.cgroup, skip+"/")) && !held {
 		return // shuntd itself, or already placed (shunt run wins)
 	}
 	for _, t := range targets {
@@ -155,9 +179,18 @@ func (w *Watcher) check(pid int) {
 				return
 			}
 			w.Log.Info("app attached", "pid", pid, "app", info.comm, "rule", t.Name)
+			w.Place(pid, t.Path)
 			return
 		}
 	}
+	if unknown != nil {
+		unknown(pid, Proc{Comm: info.comm, Exe: info.exe, Argv0: info.argv0, Cgroup: info.cgroup, TTY: info.tty, UID: info.uid})
+	}
+}
+
+func comm(proc string, pid int) string {
+	b, _ := os.ReadFile(filepath.Join(proc, strconv.Itoa(pid), "comm"))
+	return strings.TrimSpace(string(b))
 }
 
 type procInfo struct {
@@ -165,6 +198,8 @@ type procInfo struct {
 	exe    string // empty if unreadable (other user's process, see readProc)
 	argv0  string
 	cgroup string // v2 path without leading slash
+	tty    bool
+	uid    int
 }
 
 func readProc(proc string, pid int) (procInfo, error) {
@@ -187,6 +222,19 @@ func readProc(proc string, pid int) (procInfo, error) {
 	p.exe = strings.TrimSuffix(p.exe, " (deleted)")
 	if p.exe == "" && strings.HasPrefix(p.argv0, "/") {
 		p.exe = p.argv0
+	}
+	// field 7 of stat: controlling terminal (0 = none)
+	if b, err := os.ReadFile(filepath.Join(dir, "stat")); err == nil {
+		if i := strings.LastIndexByte(string(b), ')'); i >= 0 {
+			if f := strings.Fields(string(b)[i+1:]); len(f) > 4 {
+				p.tty = f[4] != "0"
+			}
+		}
+	}
+	if st, err := os.Stat(dir); err == nil {
+		if s, ok := st.Sys().(*syscall.Stat_t); ok {
+			p.uid = int(s.Uid)
+		}
 	}
 	b, err = os.ReadFile(filepath.Join(dir, "cgroup"))
 	if err != nil {
