@@ -23,6 +23,9 @@
   took that flow's route – seen as a sporadic "LEAK" of the block route in the leak
   test, and usable to leave a tunnel or block. Only TCP keeps its connection's route
   now; UDP is classified by its program on every packet.
+- **Switch tunnels off without deleting them**: `disabled = true` (Configure → Tunnels →
+  “switched on”). Files, password and rules stay; the tunnel is not connected and its
+  apps are blocked (never sent another way). The tray doesn't warn about it.
 - **DNS per network profile**: `dns_direct` in a `[[network]]` (Configure → Networks →
   “DNS direct”): e.g. the Pi-hole at home, 1.1.1.1 on a guest Wi-Fi, or `"system"` for
   the network's own DNS server. Applies to `direct` and the Wi-Fi/cable routes.
