@@ -252,6 +252,9 @@ check "args rule: profile sm tunnelled" 10.66.0.2 "$(fetch "${NOBODY[@]}" "$BIN/
 check "args rule: other profile untouched" 10.99.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
 check "status shows app group" yes "$(shunt status | gq '^app:apptest auto-detected' && echo yes || echo no)"
 
+cli "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sleep 20 &
+sleep 0.5
+check "which shows the route of a process" yes "$(shunt which sleep | gq 'sleep  *tunnel:vps' && echo yes || echo "no: $(shunt which sleep)")"
 echo "== permissions (group member, not root)"
 mshunt() { cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" "$@"; }
 check "member: status allowed" yes "$(mshunt status >/dev/null 2>&1 && echo yes || echo no)"

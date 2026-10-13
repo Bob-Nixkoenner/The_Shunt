@@ -798,6 +798,14 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.ToLower(r.URL.Query().Get("name"))
+		if name == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("name missing"))
+			return
+		}
+		writeJSON(w, http.StatusOK, d.procs(name))
+	})
 	mux.HandleFunc("POST /v1/restart", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -913,6 +921,56 @@ func (d *Daemon) status() api.Status {
 	return st
 }
 
+// procs lists processes whose name contains name, with their route.
+func (d *Daemon) procs(name string) []api.ProcRoute {
+	ents, _ := os.ReadDir("/proc")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := []api.ProcRoute{}
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
+		comm := strings.TrimSpace(string(b))
+		if err != nil || !strings.Contains(strings.ToLower(comm), name) {
+			continue
+		}
+		pr := api.ProcRoute{PID: pid, Name: comm}
+		if g, ok := d.groupOf(pid); ok {
+			pr.Group, pr.Route = g.Name, d.groupRoute(g)
+		} else {
+			pr.Route = d.plan.DefaultRoute.String() + " (default)"
+		}
+		out = append(out, pr)
+		if len(out) >= 200 {
+			break
+		}
+	}
+	return out
+}
+
+// groupOf returns the Shunt group pid is in. Caller holds d.mu.
+func (d *Daemon) groupOf(pid int) (engine.Group, bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return engine.Group{}, false
+	}
+	var cg string
+	for _, l := range strings.Split(string(b), "\n") {
+		if c, ok := strings.CutPrefix(l, "0::"); ok {
+			cg = strings.Trim(c, "/")
+		}
+	}
+	for _, g := range d.plan.Groups {
+		if cg == g.Path || strings.HasPrefix(cg, g.Path+"/") {
+			return g, true
+		}
+	}
+	return engine.Group{}, false
+}
+
 // procNames returns the distinct program names of pids.
 func procNames(pids []int) []string {
 	seen := map[string]bool{}
@@ -935,20 +993,8 @@ func procNames(pids []int) []string {
 // currentRoute returns the route of the Shunt group pid is in, or "".
 // Caller holds d.mu.
 func (d *Daemon) currentRoute(pid int) string {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	if err != nil {
-		return ""
-	}
-	var cg string
-	for _, l := range strings.Split(string(b), "\n") {
-		if c, ok := strings.CutPrefix(l, "0::"); ok {
-			cg = strings.Trim(c, "/")
-		}
-	}
-	for _, g := range d.plan.Groups {
-		if cg == g.Path || strings.HasPrefix(cg, g.Path+"/") {
-			return d.groupRoute(g)
-		}
+	if g, ok := d.groupOf(pid); ok {
+		return d.groupRoute(g)
 	}
 	return ""
 }

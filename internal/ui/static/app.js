@@ -166,12 +166,32 @@ function renderApps() {
           await api("POST", "/api/apps", { id: a.id, route: e.target.value });
           a.route = e.target.value;
           toast(a.name + (a.route ? " now starts via " + a.route : " restored to its original entry") + " – close all its windows and start it again");
+          warnRunning(a);
         } catch (err) { toast(err.message); e.target.value = a.route || ""; }
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s));
   }));
+}
+
+// processName guesses the process name of a menu app: "brave-browser" ->
+// "brave", "org.mozilla.firefox" -> "firefox", "firefox-esr" -> "firefox".
+function processName(id) {
+  const last = id.split(".").pop().toLowerCase();
+  return last.split("-")[0] || last;
+}
+
+// warnRunning: a browser that already runs keeps its route – new windows
+// open in the old process. Say so instead of letting the user wonder.
+async function warnRunning(a) {
+  const want = a.route || status.default_route;
+  let ps = [];
+  try { ps = await api("GET", "/api/procs?name=" + encodeURIComponent(processName(a.id))); } catch { return; }
+  const wrong = ps.filter((p) => p.route.replace(/ \(default\)$/, "") !== want);
+  if (!wrong.length) return;
+  const routes = [...new Set(wrong.map((p) => p.route))].join(", ");
+  await ask(a.name + " is still running (" + wrong.length + " processes in " + routes + ").\n\nNew windows open in that old process and keep its route. Quit it completely – also from the tray or background mode (Brave/Chrome: Settings → System → “Continue running background apps” off) – then start it again.\n\nCheck with: shunt which " + processName(a.id), { ok: "Got it" });
 }
 
 function routeSelect(value, onchange, withDefault) {
@@ -302,3 +322,41 @@ $("#allapps").addEventListener("change", renderApps);
   await loadApps();
   setInterval(refresh, 2000);
 })();
+
+// --- updates ---------------------------------------------------------------
+let upd = null;
+async function loadUpdate() {
+  try { upd = await api("GET", "/api/update"); } catch { return; }
+  $("#updbar").hidden = !upd.available;
+  if (upd.available) {
+    $("#upd-cmd").textContent = upd.command;
+    $("#upd-ver").textContent = "(installed " + upd.current + ")";
+  }
+  const cb = $("#c-updcheck");
+  if (cb) {
+    cb.checked = !upd.disabled;
+    $("#c-updinfo").textContent = upd.disabled ? "off – no requests to GitHub" :
+      "installed " + upd.current + (upd.checked && !upd.checked.startsWith("0001") ? " · last check " + ago(upd.checked) : "") +
+      (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
+  }
+}
+$("#upd-copy").addEventListener("click", async () => {
+  const cmd = $("#upd-cmd").textContent;
+  try {
+    await navigator.clipboard.writeText(cmd);
+    toast("Copied – paste it into a terminal (Ctrl+Shift+V)");
+  } catch {
+    // no clipboard API: select the text so Ctrl+C works
+    const r = document.createRange();
+    r.selectNodeContents($("#upd-cmd"));
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+    toast("Selected – press Ctrl+C, then paste it into a terminal");
+  }
+});
+$("#c-updcheck").addEventListener("change", async (e) => {
+  try { await api("POST", "/api/update", { enabled: e.target.checked }); } catch (err) { toast(err.message); }
+  loadUpdate();
+});
+loadUpdate();
+setInterval(loadUpdate, 10 * 60 * 1000);

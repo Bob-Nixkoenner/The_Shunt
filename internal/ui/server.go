@@ -30,6 +30,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/argv"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
 
 //go:embed static
@@ -40,6 +41,8 @@ type Server struct {
 	Socket string // shuntd socket
 	Self   string // path of the shunt binary
 	Client *api.Client
+	// Update, if set, reports whether a newer version is on GitHub.
+	Update *update.Checker
 
 	token string
 	host  string
@@ -117,6 +120,35 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		writeJSON(w, list)
+	})
+	mux.HandleFunc("GET /api/update", func(w http.ResponseWriter, r *http.Request) {
+		if s.Update == nil {
+			writeJSON(w, update.Info{Disabled: true})
+			return
+		}
+		writeJSON(w, s.Update.Get())
+	})
+	mux.HandleFunc("POST /api/update", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Enabled bool }
+		if !decode(w, r, &req) {
+			return
+		}
+		if err := update.SetEnabled(req.Enabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if req.Enabled && s.Update != nil {
+			s.Update.Check(r.Context())
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
+		var ps []api.ProcRoute
+		if err := s.Client.Do("GET", "/v1/procs?name="+url.QueryEscape(r.URL.Query().Get("name")), nil, &ps); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, ps)
 	})
 	mux.HandleFunc("POST /api/apps", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ ID, Route string }

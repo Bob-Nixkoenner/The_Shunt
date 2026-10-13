@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 	"golang.org/x/term"
 )
 
@@ -36,6 +38,7 @@ commands:
              start CMD with its traffic classified by ROUTE
              (direct | block | tunnel:<name>) or by group rules
   status [--json]
+  which NAME show running processes named like NAME and the route each one takes
   import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]
              add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
              for root-only files like /etc/wireguard/*.conf. --via makes it a
@@ -47,7 +50,7 @@ commands:
   restart    restart shuntd (tunnels reconnect; tunnelled apps are blocked meanwhile)
   panic on|off
              drop all traffic except loopback / undo
-  ui [--port N] [--no-browser]
+  ui [--port N] [--no-browser] [--no-update-check]
              open the web interface (local only)
   leaktest   check public IP and DNS resolver of every route
              (contacts api.ipify.org and Google DNS through each route)
@@ -77,6 +80,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "which":
+		err = which(c, args[1:])
 	case "import":
 		err = importTunnel(c, args[1:])
 	case "version":
@@ -235,6 +240,34 @@ func tunnelName(file string) string {
 	return n
 }
 
+func which(c *api.Client, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: shunt which NAME   (e.g. shunt which brave)")
+	}
+	var ps []api.ProcRoute
+	if err := c.Do("GET", "/v1/procs?name="+url.QueryEscape(args[0]), nil, &ps); err != nil {
+		return err
+	}
+	if len(ps) == 0 {
+		fmt.Printf("no running process named like %q\n", args[0])
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "PID\tNAME\tROUTE\tGROUP")
+	routes := map[string]bool{}
+	for _, p := range ps {
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", p.PID, p.Name, p.Route, p.Group)
+		routes[p.Route] = true
+	}
+	w.Flush()
+	if len(routes) > 1 {
+		fmt.Println("\nNote: this program runs in more than one route. A browser that is already")
+		fmt.Println("running opens new windows in its *old* process and route: quit it completely")
+		fmt.Println("(also from the tray / background) and start it again.")
+	}
+	return nil
+}
+
 func status(c *api.Client, args []string) error {
 	var st api.Status
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
@@ -322,11 +355,16 @@ func runUI(c *api.Client, sock string, args []string) error {
 	fs := flag.NewFlagSet("ui", flag.ExitOnError)
 	port := fs.Int("port", 0, "port on 127.0.0.1 (0 = random)")
 	noBrowser := fs.Bool("no-browser", false, "only print the address")
+	noUpdate := fs.Bool("no-update-check", false, "don't ask GitHub for a newer version")
 	_ = fs.Parse(args)
 	if err := c.Do("GET", "/v1/status", nil, nil); err != nil {
 		return fmt.Errorf("%w\n(is shuntd running, and are you in group 'shunt'?)", err)
 	}
 	srv := &ui.Server{Socket: sock, Self: self(), Client: c}
+	if !*noUpdate {
+		srv.Update = &update.Checker{Current: version}
+		go srv.Update.Run(context.Background())
+	}
 	ln, url, err := srv.Listen(*port)
 	if err != nil {
 		return err
