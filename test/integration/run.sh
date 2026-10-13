@@ -446,12 +446,16 @@ if command -v openvpn >/dev/null; then
 	ovpn_conf() { printf 'client\ndev tun\nproto udp\nremote %s 1194\nnobind\nauth-user-pass\nremote-cert-tls server\n<ca>\n%s\n</ca>\n' "$1" "$(cat "$O/ca.crt")"; }
 	j() { python3 -c 'import json,sys; d=dict(a.split("=",1) for a in sys.argv[2:]); d["conf"]=sys.argv[1]; print(json.dumps(d))' "$@"; }
 	check "ovpn without login rejected" 422 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)" name=ovpn)")"
-	check "ovpn with script rejected" 422 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)"$'\nup /tmp/x' name=ovpn username=alice password=s3cret)")"
-	check "ovpn import" 200 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)" name=ovpn username=alice password=s3cret)")"
+	check "ovpn server config rejected" 422 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)"$'\nmode server' name=ovpn username=alice password=s3cret)")"
+	# provider style: DNS scripts in the file are switched off, not run
+	check "ovpn import (scripts switched off)" 200 "$(capi POST /v1/tunnels "$(j "$(ovpn_conf 10.99.0.1)"$'\nscript-security 2\nup /bin/touch /tmp/ovpn-pwned' name=ovpn username=alice password=s3cret)")"
+	check "import reports the removed lines" yes "$(gq 'not used from the OpenVPN file' "$WORK/api.out" && echo yes || echo no)"
+	check "removed lines commented out in the stored file" yes "$(gq '^# removed by The Shunt: up' "$WORK/etc/tunnels/ovpn.ovpn" && echo yes || echo no)"
 	check "ovpn auth file is 0600" 600 "$(stat -c %a "$WORK/etc/tunnels/ovpn.auth" 2>/dev/null)"
 	got=
 	for _ in $(seq 40); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:ovpn -- curl -s $URL); [[ $got == 10.88.0.2 ]] && break; sleep 0.5; done
 	check "ovpn tunnel carries traffic" 10.88.0.2 "$got"
+	check "up script from the file not run" no "$([[ -e /tmp/ovpn-pwned ]] && echo yes || echo no)"
 	if [[ -n ${SHUNT_HOLD_OVPN:-} ]]; then echo "holding $WORK"; until [[ -e $SHUNT_HOLD_OVPN ]]; do sleep 1; done; fi
 	check "ovpn: pushed DNS used through the tunnel" "ovpn 10.88.0.2" "$(dnsq_via tunnel:ovpn -server 10.99.0.1:53 -type TXT whoami.test)"
 	check "ovpn: pushed redirect-gateway ignored" 10.66.0.2 "$(fetch curl -s $URL)"

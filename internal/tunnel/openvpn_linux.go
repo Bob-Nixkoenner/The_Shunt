@@ -105,6 +105,10 @@ func (o *OpenVPN) killLeftover() {
 
 func (o *OpenVPN) args() []string {
 	a := []string{
+		// Windows-only and removed options that provider files still carry
+		// and that make openvpn 2.6 on Linux refuse to start
+		"--ignore-unknown-option", "block-outside-dns", "register-dns", "ncp-disable", "keysize",
+		"win-sys", "ip-win32", "dhcp-renew", "dhcp-release", "dhcp-pre-release", "tap-sleep", "show-net-up", "service",
 		"--config", o.spec.Config,
 		"--cd", filepath.Dir(o.spec.Config),
 		"--dev", o.spec.Iface, "--dev-type", "tun",

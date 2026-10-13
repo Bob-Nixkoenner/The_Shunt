@@ -55,6 +55,25 @@ func TestForbidden(t *testing.T) {
 	}
 }
 
+func TestSanitize(t *testing.T) {
+	in := "client\nremote a.example 1194\nscript-security 2\nup /etc/openvpn/update-resolv-conf\ndown /etc/openvpn/update-resolv-conf\n<plugin>\nx\n</plugin>\n<ca>\nup inside a cert\n</ca>\n"
+	out, removed := Sanitize(in)
+	if len(removed) != 4 {
+		t.Errorf("removed: %q", removed)
+	}
+	if _, err := Parse(out, ""); err != nil {
+		t.Fatalf("sanitized config refused: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "up inside a cert") || strings.Contains(out, "<plugin>") {
+		t.Errorf("wrong cut:\n%s", out)
+	}
+	if out, _ := Sanitize("server 10.8.0.0 255.255.255.0\nremote a 1\n"); !strings.Contains(out, "\nremote") {
+		t.Error("server line handling")
+	} else if _, err := Parse(out, ""); err == nil {
+		t.Error("server config accepted after sanitize")
+	}
+}
+
 func TestInlineAuthAndFiles(t *testing.T) {
 	c, err := Parse("remote a 1\nauth-user-pass\n<auth-user-pass>\nu\np\n</auth-user-pass>\n", "")
 	if err != nil || c.NeedsAuth {

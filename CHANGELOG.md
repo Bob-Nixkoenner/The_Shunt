@@ -8,6 +8,13 @@
   throwaway browser that goes past the tunnels. When you are logged in, the tunnels
   connect by themselves. `shunt status` says so too. Off with
   `[daemon] captive_check = false` (the check asks nmcheck.gnome.org over plain HTTP).
+- **Provider .ovpn files import as they are**: DNS scripts and other lines Shunt does not
+  run (`script-security`, `up`, `down`, plugins …) are commented out with a note instead
+  of refusing the file; Windows-only options (`block-outside-dns`, …) no longer stop
+  openvpn on Linux.
+- **Installer** checks the connection to GitHub first (20 s) instead of hanging silently;
+  with The Shunt active it offers to run itself past the tunnels.
+- Leak test easier to read (one card per route, long IPv6 resolvers wrap).
 
 ## v0.6.0
 

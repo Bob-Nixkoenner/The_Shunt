@@ -184,6 +184,13 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 			warn = append(warn, "ignored in the WireGuard file: "+strings.Join(wc.Ignored, ", "))
 		}
 	} else {
+		// provider files often carry DNS scripts (up/down): Shunt does
+		// DNS itself, so they are commented out instead of refusing the file
+		clean, removed := ovpnconf.Sanitize(req.Conf)
+		if len(removed) > 0 {
+			req.Conf = clean
+			warn = append(warn, "not used from the OpenVPN file (Shunt does routing and DNS itself, no scripts): "+strings.Join(removed, ", "))
+		}
 		// separate certificate files can't be imported: dir ""
 		oc, err := ovpnconf.Parse(req.Conf, "")
 		if err != nil {

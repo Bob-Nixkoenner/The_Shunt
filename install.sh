@@ -82,6 +82,7 @@ APT=(apt-get -o DPkg::Lock::Timeout=600 -y -q)
 
 SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
 MODE=install FROM_SOURCE=0 PURGE=0
+ARGS=("$@")
 for a in "$@"; do
 	case $a in
 	--uninstall) MODE=uninstall ;;
@@ -144,6 +145,23 @@ if modprobe -n wireguard 2>/dev/null; then
 	ok "kernel WireGuard available"
 else
 	warn "no WireGuard kernel module: Shunt will use its built-in wireguard-go (slower, works)"
+fi
+
+# ---------------------------------------------------------------- network
+# Fail fast with a hint instead of hanging: with The Shunt already active
+# and a tunnel as default route, a broken tunnel looks like no internet.
+say "Checking the network"
+export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 # git: give up on a stalled download
+if curl -fsS --connect-timeout 8 --max-time 20 -o /dev/null https://github.com 2>/dev/null; then
+	ok "github.com reachable"
+else
+	if [[ -z ${SHUNT_DIRECT:-} && -f $0 && -x $BIN_DIR/shunt && -S /run/shunt/shuntd.sock ]]; then
+		warn "github.com is not reachable through this terminal's route (The Shunt is active – is the tunnel up?)"
+		if yes_no "Run the installer past the tunnels instead (direct, with your real IP)?" y; then
+			exec env SHUNT_DIRECT=1 "$BIN_DIR/shunt" run --via direct -- bash "$0" "${ARGS[@]}"
+		fi
+	fi
+	die "no connection to github.com within 20 s – check the network (with The Shunt active: shunt status)"
 fi
 
 say "Installing dependencies"

@@ -303,13 +303,14 @@ $("#leak").addEventListener("click", async () => {
   $("#leakres").replaceChildren(el("span", { class: "muted" }, "Probing every route, this takes a few seconds…"));
   try {
     const res = await api("POST", "/api/leaktest");
-    $("#leakres").replaceChildren(el("table", {},
-      el("thead", {}, el("tr", {}, el("th", {}, "Route"), el("th", {}, "Public IP"), el("th", {}, "DNS resolver"), el("th", {}, "Result"))),
-      el("tbody", {}, ...res.map((r) => el("tr", {},
-        el("td", {}, routeTag(r.route)),
-        el("td", { class: "mono" }, r.result.ip || "–"),
-        el("td", { class: "mono" }, r.result.resolver || "–"),
-        el("td", {}, el("span", { class: "verdict " + r.verdict }, r.verdict.toUpperCase()), r.note ? el("div", { class: "muted" }, r.note) : ""))))));
+    // one compact row per route: route + verdict, then IP and resolver
+    // (long IPv6 resolvers wrap inside their cell instead of widening it)
+    $("#leakres").replaceChildren(el("div", { class: "leaklist" }, ...res.map((r) => el("div", { class: "leakrow " + r.verdict },
+      el("div", { class: "leakhead" }, routeTag(r.route), el("span", { class: "pill verdict " + r.verdict }, r.verdict.toUpperCase())),
+      r.verdict === "blocked" && !r.result.ip ? el("div", { class: "muted" }, r.note || "nothing gets out") : el("div", { class: "leakkv" },
+        el("span", {}, "public IP"), el("span", { class: "mono" }, r.result.ip || "–"),
+        el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || "–")),
+      r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, r.note) : ""))));
   } catch (e) { $("#leakres").textContent = "Leak test failed: " + e.message; }
   b.disabled = false;
   b.textContent = "Run again";
