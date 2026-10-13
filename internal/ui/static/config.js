@@ -49,7 +49,9 @@ async function loadConfig() {
   renderConfig();
 }
 
-const modelRoutes = () => ["direct", "block", ...Object.keys(model.tunnel).sort().map((n) => "tunnel:" + n)];
+// link routes: out over one kind of connection only (blocked without it)
+const LINKS = [["link:wifi", "Wi-Fi"], ["link:ethernet", "cable"], ["link:mobile", "mobile"]];
+const modelRoutes = () => ["direct", "block", ...Object.keys(model.tunnel).sort().map((n) => "tunnel:" + n), ...LINKS.map((l) => l[0])];
 
 function fill(sel, options, value) {
   const s = $(sel);
@@ -100,7 +102,8 @@ function renderConfig() {
     const loops = (m) => { for (let c = m, k = 0; c && k < 20; k++) { if (c === n) return true; c = ((model.tunnel[c] || {}).via || "").replace(/^tunnel:/, ""); } return false; };
     const viaSel = el("select", { title: "multi-hop", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
       el("option", { value: "" }, "direct to its server"),
-      ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)));
+      ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)),
+      ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
     viaSel.value = t.via || "";
     return el("tr", {},
       el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
@@ -270,7 +273,8 @@ function takeFile(f) {
 function fillVia() {
   const tunnels = Object.keys(model.tunnel || {}).sort();
   const cur = $("#t-via").value;
-  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, "through tunnel " + n + " (multi-hop)"])], cur);
+  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, "through tunnel " + n + " (multi-hop)"]),
+    ...LINKS.map(([v, l]) => [v, "over " + l + " only"])], cur);
 }
 $("#t-conf").addEventListener("input", updateImportForm);
 $("#t-file").addEventListener("change", (e) => { takeFile(e.target.files[0]); e.target.value = ""; });

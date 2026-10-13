@@ -34,7 +34,7 @@ func TestParseValid(t *testing.T) {
 	if c.Tunnels["vps"].Interface != "sh-vps" || c.Tunnels["vps"].Driver != "auto" {
 		t.Errorf("defaults not applied: %+v", c.Tunnels["vps"])
 	}
-	if got := len(c.Routes()); got != 3 {
+	if got := len(c.Routes()); got != 3+len(LinkKinds) {
 		t.Errorf("routes: %d", got)
 	}
 }
@@ -167,5 +167,16 @@ func TestFirewallMode(t *testing.T) {
 	c, _ = Parse("")
 	if c.FirewallMode("") != "off" {
 		t.Error("default not off")
+	}
+}
+
+func TestLinkRoutes(t *testing.T) {
+	c := &Config{}
+	r, err := c.ParseRoute("link:wifi")
+	if err != nil || r.Kind != RouteLink || r.String() != "link:wifi" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := c.ParseRoute("link:carrier-pigeon"); err == nil {
+		t.Error("unknown connection kind accepted")
 	}
 }

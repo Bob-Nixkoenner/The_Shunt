@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -300,8 +301,8 @@ func (c *Config) Validate() error {
 		}
 		if t.Via != "" {
 			r, err := c.ParseRoute(t.Via)
-			if err != nil || r.Kind != RouteTunnel {
-				return fmt.Errorf("tunnel %q: via must be \"tunnel:<name>\"", n)
+			if err != nil || (r.Kind != RouteTunnel && r.Kind != RouteLink) {
+				return fmt.Errorf("tunnel %q: via must be \"tunnel:<name>\" or \"link:<%s>\"", n, strings.Join(LinkKinds, "|"))
 			}
 		}
 		if len(t.Interface) > 15 {
@@ -453,12 +454,19 @@ const (
 	RouteDirect RouteKind = iota
 	RouteBlock
 	RouteTunnel
+	// RouteLink leaves through one kind of network connection (Wi-Fi,
+	// cable, mobile) without a tunnel – blocked while it is not connected.
+	RouteLink
 )
+
+// LinkKinds are the connection kinds a link route can name, in route order.
+var LinkKinds = []string{"wifi", "ethernet", "mobile"}
 
 // Route is a parsed route reference.
 type Route struct {
 	Kind   RouteKind
 	Tunnel string
+	Link   string // RouteLink: one of LinkKinds
 }
 
 func (r Route) String() string {
@@ -467,6 +475,8 @@ func (r Route) String() string {
 		return "block"
 	case RouteTunnel:
 		return "tunnel:" + r.Tunnel
+	case RouteLink:
+		return "link:" + r.Link
 	}
 	return "direct"
 }
@@ -485,11 +495,17 @@ func (c *Config) ParseRoute(s string) (Route, error) {
 		}
 		return Route{Kind: RouteTunnel, Tunnel: n}, nil
 	}
-	return Route{}, fmt.Errorf("invalid route %q (direct | block | tunnel:<name>)", s)
+	if k, ok := strings.CutPrefix(s, "link:"); ok {
+		if !slices.Contains(LinkKinds, k) {
+			return Route{}, fmt.Errorf("unknown connection %q (%s)", k, strings.Join(LinkKinds, " | "))
+		}
+		return Route{Kind: RouteLink, Link: k}, nil
+	}
+	return Route{}, fmt.Errorf("invalid route %q (direct | block | tunnel:<name> | link:<%s>)", s, strings.Join(LinkKinds, "|"))
 }
 
 // Routes returns every route the config can produce, in stable order:
-// direct, block, then tunnels sorted by name.
+// direct, block, tunnels sorted by name, then the link routes.
 func (c *Config) Routes() []Route {
 	rs := []Route{{Kind: RouteDirect}, {Kind: RouteBlock}}
 	names := make([]string, 0, len(c.Tunnels))
@@ -499,6 +515,9 @@ func (c *Config) Routes() []Route {
 	sort.Strings(names)
 	for _, n := range names {
 		rs = append(rs, Route{Kind: RouteTunnel, Tunnel: n})
+	}
+	for _, k := range LinkKinds {
+		rs = append(rs, Route{Kind: RouteLink, Link: k})
 	}
 	return rs
 }
