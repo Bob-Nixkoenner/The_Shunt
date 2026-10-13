@@ -164,8 +164,16 @@ func judge(rs []RouteResult) {
 			if res.IP == "" {
 				r.Verdict, r.Note = "error", "no internet on the direct route"
 			}
-		case res.IP == "" && res.Resolver == "" && strings.HasPrefix(r.Route, "link:"):
-			r.Verdict, r.Note = "blocked", "not connected: blocked instead of using another connection"
+		case strings.HasPrefix(r.Route, "link:"):
+			// no tunnel: the public IP of that connection is the point
+			switch {
+			case res.IP == "" && res.Resolver == "":
+				r.Verdict, r.Note = "blocked", "not connected: blocked instead of using another connection"
+			case res.IP == "":
+				r.Verdict, r.Note = "warn", "partly working: "+strings.TrimSpace(res.IPErr+" "+res.DNSErr)
+			default:
+				r.Verdict, r.Note = "ok", "no tunnel: this connection's own address"
+			}
 		case res.IP == "" && res.Resolver == "":
 			r.Verdict, r.Note = "blocked", "tunnel not usable: blocked instead of leaking"
 		case direct != nil && direct.IP != "" && res.IP == direct.IP:
