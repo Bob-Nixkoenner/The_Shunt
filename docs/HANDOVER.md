@@ -111,6 +111,16 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 
 ## 6. Fortschritt (neueste oben)
 
+- **13.10.2026, Schritt 5:** **App-Firewall** gebaut (Entscheidungen des Nutzers: 30 s →
+  Default-Route; Terminal-Programme erben die Route des Terminals, `ask_terminal` schaltbar;
+  „merken“ standardmäßig an; Modus pro Netzwerkprofil + Presets Paranoid/Normal/Off).
+  **Bugfix Brave/Chromium unter COSMIC** (Befund aus der lokalen Sitzung): „klebende Routen“.
+  Integration lokal 145/145. Offen beim Nutzer: Echttest Brave via sd1 nach Update;
+  Anbieter-Assistent (Proton geführt; Mullvad erst mit Konto; API über Tunnel erlaubt,
+  abschaltbar). Nebenbefund systemd-Warnung beim Dienst-Neustart („processes remain in
+  cgroup“) ist gewollt (`KillMode=process`, Apps überleben den Neustart) – evtl. später Apps
+  in eigene delegierte Scope-Unit verlagern.
+
 - **13.10.2026, Schritt 4:** Nächste Bauabschnitte geplant: `docs/PLAN-firewall-providers.md`
   (App-Firewall „fragen“ + Anbieter-Assistent) mit offenen Entscheidungen (❓) für den Nutzer.
   Prototyp bestätigt: NFLOG mit nur `CAP_NET_ADMIN`, Zuordnung per Log-Prefix pro Wartegruppe,

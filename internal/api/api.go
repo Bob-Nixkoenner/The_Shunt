@@ -40,6 +40,10 @@ type Status struct {
 	// check off). CaptiveURL is the login page.
 	Captive    string `json:"captive,omitempty"`
 	CaptiveURL string `json:"captive_url,omitempty"`
+	// Firewall is the app firewall mode in effect (off | ask | block),
+	// Pending the number of programs waiting for a decision.
+	Firewall string `json:"firewall,omitempty"`
+	Pending  int    `json:"pending,omitempty"`
 	// DNSFailing: routes whose DNS servers don't answer (route -> last error).
 	DNSFailing map[string]string `json:"dns_failing,omitempty"`
 	NetInfo    netdetect.Info    `json:"net_info"`
@@ -126,6 +130,13 @@ type ProcRoute struct {
 	Name  string `json:"name"`
 	Route string `json:"route"`
 	Group string `json:"group,omitempty"` // Shunt group, "" = none (default route)
+}
+
+// FirewallDecision is the body of POST /v1/pending/{id}: the route for a
+// waiting program ("" = the default route) and whether to keep it.
+type FirewallDecision struct {
+	Route    string `json:"route"`
+	Remember bool   `json:"remember"`
 }
 
 // PanicRequest switches the panic mode.

@@ -41,6 +41,7 @@ type View struct {
 	Down    map[string]bool // tunnels without a working connection
 	DNSDown map[string]bool // routes whose DNS servers don't answer
 	Captive bool            // a Wi-Fi login page is in the way
+	Pending int             // programs the app firewall holds, waiting for a route
 	Warn    []string
 }
 
@@ -51,6 +52,7 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	}
 	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: st.Warnings}
 	v.Captive = st.Captive == "portal"
+	v.Pending = st.Pending
 	for r := range st.DNSFailing {
 		v.DNSDown[r] = true
 	}
@@ -86,6 +88,8 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	switch {
 	case st.Panic:
 		v.Level, v.Title = Bad, "PANIC – all traffic blocked"
+	case v.Pending > 0:
+		v.Level, v.Title = Warn, fmt.Sprintf("%d app(s) waiting – choose a route", v.Pending)
 	case v.Captive:
 		v.Level, v.Title = Warn, "Wi-Fi login needed – tray: “Wi-Fi login page…”"
 	case len(v.Down) > 0:
@@ -144,6 +148,9 @@ func Diff(prev, cur View, first bool) []Notification {
 		if !prev.Down[n] {
 			out = append(out, Notification{"Tunnel " + n + " has no connection", "Its apps are blocked – nothing leaks. The Shunt keeps retrying.", true})
 		}
+	}
+	if cur.Pending > prev.Pending {
+		out = append(out, Notification{"An app wants to go online", "The Shunt holds it until you choose a route (window is open).", true})
 	}
 	if cur.Captive && !prev.Captive {
 		out = append(out, Notification{"Wi-Fi login needed", "This network shows a login page first; the VPN connects after you log in. Tray → “Wi-Fi login page…”", true})

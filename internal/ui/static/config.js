@@ -70,6 +70,7 @@ function renderConfig() {
   defaultHint();
   fillVia();
   renderNetworks();
+  renderFirewall();
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
@@ -330,7 +331,13 @@ function renderNetworks() {
       el("td", {}, el("b", {}, n.name)),
       el("td", {}, ...crit.map((x) => el("span", { class: "chip" }, x)),
         weak ? el("div", { style: "color:var(--warn)" }, "Wi-Fi names are easy to fake: add the router MAC") : ""),
-      el("td", {}, el("span", { class: "muted" }, "everything else goes "), route),
+      el("td", {}, el("span", { class: "muted" }, "everything else goes "), route,
+        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted" }, "app firewall "), (() => {
+          const f = el("select", { onchange: (e) => { n.firewall = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "as set below"), el("option", { value: "off" }, "off"), el("option", { value: "ask" }, "ask"), el("option", { value: "block" }, "block"));
+          f.value = n.firewall || "";
+          return f;
+        })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
 }
@@ -358,3 +365,40 @@ setInterval(async () => {
     if (v.version !== cfgView.version) await loadConfig();
   } catch { /* daemon away: the status pill says so */ }
 }, 5000);
+
+// --- app firewall ------------------------------------------------------------
+function fwModel() { model.firewall = model.firewall || { mode: "off" }; return model.firewall; }
+function renderFirewall() {
+  const f = model.firewall || {};
+  $("#c-fwmode").value = f.mode || "off";
+  $("#c-fwtimeout").value = f.timeout || 30;
+  $("#c-fwterm").checked = !!f.ask_terminal;
+  $("#c-fwtimeout").disabled = (f.mode || "off") !== "ask";
+  loadFwApps();
+}
+async function loadFwApps() {
+  let rs = [];
+  try { rs = await api("GET", "/api/firewall/apps"); } catch { /* daemon away */ }
+  $("#c-fwapps").replaceChildren(...(rs.length ? rs.map((r) => el("tr", {},
+    el("td", {}, el("b", {}, r.name), el("div", { class: "muted mono", style: "font-size:12px" }, r.key)),
+    el("td", {}, routeTag(r.route || (status ? status.default_route : "default"))),
+    el("td", {}, el("button", { class: "iconbtn", title: "forget – asked again next start", onclick: async () => {
+      try { await api("DELETE", "/api/firewall/apps?key=" + encodeURIComponent(r.key)); toast(r.name + " forgotten"); loadFwApps(); } catch (e) { toast(e.message); }
+    } }, "✕")))) : [el("tr", {}, el("td", { class: "muted" }, "None yet – answers with “remember” show up here."))]));
+}
+$("#c-fwmode").addEventListener("change", (e) => { fwModel().mode = e.target.value; markDirty(); renderFirewall(); });
+$("#c-fwtimeout").addEventListener("change", (e) => { fwModel().timeout = Math.max(5, +e.target.value || 30); markDirty(); });
+$("#c-fwterm").addEventListener("change", (e) => { fwModel().ask_terminal = e.target.checked || undefined; markDirty(); });
+function fwPreset(mode, defaultToTunnel) {
+  fwModel().mode = mode;
+  if (defaultToTunnel) {
+    const t = Object.keys(model.tunnel).sort()[0];
+    if (t) model.daemon.default_route = "tunnel:" + t;
+  }
+  markDirty();
+  renderConfig();
+  toast("Preset set – press “Save & apply”");
+}
+$("#fw-p-paranoid").addEventListener("click", () => fwPreset("block", true));
+$("#fw-p-normal").addEventListener("click", () => fwPreset("ask", false));
+$("#fw-p-off").addEventListener("click", () => fwPreset("off", false));

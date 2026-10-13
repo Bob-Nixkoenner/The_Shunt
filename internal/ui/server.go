@@ -29,6 +29,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/argv"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
@@ -151,6 +152,32 @@ func (s *Server) handler() http.Handler {
 			s.Update.Check(r.Context())
 		}
 		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("GET /api/pending", func(w http.ResponseWriter, r *http.Request) {
+		var ps []firewall.Pending
+		if err := s.Client.Do("GET", "/v1/pending", nil, &ps); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, ps)
+	})
+	mux.HandleFunc("POST /api/pending/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var req api.FirewallDecision
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/pending/"+url.PathEscape(r.PathValue("id")), req)
+	})
+	mux.HandleFunc("GET /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
+		var rs []firewall.Remembered
+		if err := s.Client.Do("GET", "/v1/firewall/apps", nil, &rs); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, rs)
+	})
+	mux.HandleFunc("DELETE /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "DELETE", "/v1/firewall/apps?key="+url.QueryEscape(r.URL.Query().Get("key")), nil)
 	})
 	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
 		var ps []api.ProcRoute

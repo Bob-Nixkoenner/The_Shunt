@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **App firewall** (`[firewall] mode = "ask"` or Configure → App firewall, presets
+  Paranoid / Normal / Off, per network profile): a program of your desktop session
+  without a rule is held when it first goes online – nothing gets out – and the window
+  asks which way it may go (tunnel, direct, block; remembered by default). No answer
+  within 30 s → default route (`ask`), or blocked until you decide (`block`). Terminal
+  programs take the terminal's route unless `ask_terminal = true`; system services are
+  never held. CLI: `shunt pending`, `shunt allow`, `shunt firewall apps|forget`.
+- **Fix: Brave/Chrome left their route under COSMIC.** The desktop moves started apps
+  into systemd scopes of their own, and Chromium-based browsers move themselves once
+  more – out of Shunt's group, onto the default route. Shunt now remembers every
+  process it placed (with its children) and moves it back within 0.1 s.
 - **Wi-Fi login pages are detected**: after every network change shuntd checks for a
   captive portal (hotel, train, company guest Wi-Fi). The tray turns yellow, a
   notification comes, and the window asks whether to open the login page in a

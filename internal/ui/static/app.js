@@ -93,6 +93,7 @@ function render() {
   const down = st.tunnels.filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
+  else if (st.pending) { state.className = "pill warn"; state.textContent = st.pending + " app(s) waiting for a route"; }
   else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
   else if (st.dns_failing && Object.keys(st.dns_failing).length) { state.className = "pill warn"; state.textContent = "DNS not working: " + Object.keys(st.dns_failing).sort().join(", "); }
   else { state.className = "pill ok"; state.textContent = "protected"; }
@@ -265,6 +266,7 @@ async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
   render();
   checkCaptive(status);
+  checkPending(status);
   if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
 }
 
@@ -377,3 +379,47 @@ async function checkCaptive(st) {
   if (!go) return toast("OK – later: tray → “Wi-Fi login page…” or `shunt captive`");
   try { await api("POST", "/api/captive"); toast("Login browser starting…"); } catch (e) { toast(e.message); }
 }
+
+// --- app firewall: programs waiting for a route ------------------------------
+let fwCurrent = null;
+const fwLater = new Set();
+async function checkPending(st) {
+  if (!st || !st.pending) { if (fwCurrent) closeFw(); return; }
+  let list = [];
+  try { list = await api("GET", "/api/pending"); } catch { return; }
+  if (fwCurrent && !list.some((p) => p.id === fwCurrent.id)) closeFw(); // decided elsewhere / timed out
+  if (fwCurrent || !$("#modal").hidden) return;
+  const p = list.find((x) => !fwLater.has(x.id));
+  if (p) showFw(p, st);
+}
+function showFw(p, st) {
+  fwCurrent = p;
+  $("#fw-title").textContent = p.name;
+  $("#fw-key").textContent = p.key + (p.procs > 1 ? " · " + p.procs + " processes" : "");
+  const routes = st.routes.filter((r) => r !== "block");
+  $("#fw-routes").replaceChildren(
+    ...routes.map((r) => el("button", { class: r === st.default_route ? "primary" : "", onclick: () => decideFw(r) }, r === "direct" ? "direct (real IP)" : r.replace(/^tunnel:/, "tunnel ") )),
+    el("button", { class: "danger", onclick: () => decideFw("block") }, "block"));
+  $("#fw-remember").checked = true;
+  $("#fwmodal").hidden = false;
+  tickFw();
+}
+function tickFw() {
+  if (!fwCurrent) return;
+  const d = fwCurrent.deadline && !fwCurrent.deadline.startsWith("0001") ? new Date(fwCurrent.deadline) : null;
+  $("#fw-count").textContent = d
+    ? "No answer: default route (" + (status ? status.default_route : "") + ") in " + Math.max(0, Math.round((d - Date.now()) / 1000)) + " s"
+    : "Blocked until you decide.";
+  setTimeout(tickFw, 1000);
+}
+function closeFw() { fwCurrent = null; $("#fwmodal").hidden = true; }
+async function decideFw(route) {
+  const p = fwCurrent;
+  if (!p) return;
+  closeFw();
+  try {
+    await api("POST", "/api/pending/" + encodeURIComponent(p.id), { route, remember: $("#fw-remember").checked });
+    toast(p.name + " → " + route + ($("#fw-remember").checked ? " (remembered)" : ""));
+  } catch (e) { toast(e.message); }
+}
+$("#fw-later").addEventListener("click", () => { if (fwCurrent) fwLater.add(fwCurrent.id); closeFw(); });

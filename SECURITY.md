@@ -51,6 +51,13 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
 - **Multi-hop endpoints given as host names** are resolved by shuntd directly
   (your local DNS learns the name of the inner server). Use an IP address in
   the inner config if that matters.
+- **Desktops and browsers move programs into systemd scopes** of their own (COSMIC,
+  Chromium). Shunt moves them back within about 0.1 s; a connection opened in that
+  window keeps the default route. For apps that must never touch the default route,
+  make the default route a tunnel or use the app firewall in `block` mode.
+- **The app firewall holds programs of the desktop session only.** Its first packets
+  are rejected (not delayed); programs that talk through an already running process
+  (D-Bus services, browser handover) take that process's route.
 - **root on the machine** can do anything, including turning Shunt off.
 
 ## Verifying downloads

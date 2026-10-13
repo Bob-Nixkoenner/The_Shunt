@@ -59,6 +59,8 @@ func TestParseInvalid(t *testing.T) {
 		"net bad mac":    "[[network]]\nname=\"x\"\ngateway_mac=[\"zz\"]\ndefault_route=\"direct\"\n",
 		"net bad route":  "[[network]]\nname=\"x\"\nssid=[\"a\"]\ndefault_route=\"tunnel:nope\"\n",
 		"net dup":        "[[network]]\nname=\"x\"\nssid=[\"a\"]\ndefault_route=\"direct\"\n[[network]]\nname=\"x\"\nssid=[\"b\"]\ndefault_route=\"direct\"\n",
+		"bad fw mode":    "[firewall]\nmode=\"maybe\"\n",
+		"bad net fw":     "[[network]]\nname=\"x\"\nssid=[\"a\"]\ndefault_route=\"direct\"\nfirewall=\"x\"\n",
 		"via loop":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:b\"\n[tunnel.b]\nconfig=\"y\"\nvia=\"tunnel:a\"\n",
 	} {
 		if _, err := Parse(in); err == nil {
@@ -152,4 +154,18 @@ func FuzzParse(f *testing.F) {
 			t.Fatalf("round trip of accepted config failed: %v\n%s", err, b)
 		}
 	})
+}
+
+func TestFirewallMode(t *testing.T) {
+	c, err := Parse("[firewall]\nmode = \"ask\"\n[[network]]\nname = \"home\"\nssid = [\"h\"]\ndefault_route = \"direct\"\nfirewall = \"off\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.FirewallMode("") != "ask" || c.FirewallMode("home") != "off" || c.FirewallTimeout() != 30 {
+		t.Errorf("%s %s %d", c.FirewallMode(""), c.FirewallMode("home"), c.FirewallTimeout())
+	}
+	c, _ = Parse("")
+	if c.FirewallMode("") != "off" {
+		t.Error("default not off")
+	}
 }

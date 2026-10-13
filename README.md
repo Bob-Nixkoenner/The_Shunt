@@ -57,6 +57,9 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   router stay reachable for tunnelled apps; only directly attached private networks
 - **Panic hotkey**: bind `shunt panic on` to a key in your desktop's keyboard settings
   (COSMIC/GNOME: Settings → Keyboard → Custom Shortcuts)
+- **App firewall**: programs without a rule are held when they first go online and you
+  choose the route in a dialog (remembered); no answer → default route after 30 s, or
+  blocked until you decide (paranoid). Only desktop-session programs, never system services
 - **Network profiles**: `[[network]]` per Wi-Fi name and router MAC – e.g. at home
   everything direct, everywhere else through the tunnel
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app

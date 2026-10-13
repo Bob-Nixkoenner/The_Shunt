@@ -499,6 +499,53 @@ EXTRA_TUNNELS=
 write_config tunnel:vps
 shunt reload
 
+echo "== sticky routes (desktop / browser moves the process into its own scope)"
+OUT=shunt-it-outside/app-cosmic-test-1.scope
+mkdir -p "$CGMNT/$OUT"
+check "process moved out by the desktop is put back" 10.66.0.2 "$(fetch_long "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c 'echo $$ > /sys/fs/cgroup/'"$OUT"'/cgroup.procs; sleep 0.5; exec curl -s '"$URL")"
+check "children started after the move follow" 10.66.0.2 "$(fetch_long "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sh -c 'echo $$ > /sys/fs/cgroup/'"$OUT"'/cgroup.procs; sh -c "sleep 0.5; curl -s '"$URL"'"; true')"
+rmdir "$CGMNT/$OUT" "$CGMNT/shunt-it-outside" 2>/dev/null || true
+
+echo "== app firewall (ask)"
+SCOPE=user.slice/user-4242.slice/user@4242.service/app.slice/app-shunttest-1.scope
+SYSSVC=system.slice/shunttest-fw.service
+mkdir -p "$CGMNT/$SCOPE" "$CGMNT/$SYSSVC"
+cp "$(command -v curl)" "$BIN/fwcurl"
+cp "$(command -v curl)" "$BIN/fwcurl2"
+# like a desktop launcher: a wrapper script in the session that execs the program
+fwrun() { # cgroup program url
+	fetch_long sh -c 'echo $$ > /sys/fs/cgroup/'"$1"'/cgroup.procs; sleep 1; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$2"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 30 '"$3"
+}
+EXTRA_TUNNELS=$'[firewall]\nmode = "ask"\ntimeout = 4\n'
+write_config direct
+shunt reload
+fwrun "$SCOPE" "$BIN/fwcurl" $URL >"$WORK/fw1.out" &
+FW1=$!
+got=
+for _ in $(seq 40); do got=$(shunt pending | awk '/fwcurl/{print $1}'); [[ -n $got ]] && break; sleep 0.5; done
+check "unknown program held and asked (not its wrapper)" yes "$([[ -n $got ]] && ! shunt pending | gq '^p[0-9]* *dash ' && echo yes || echo "no: $(shunt pending)")"
+if [[ -z $got ]]; then
+	echo "--- debug: ask_out"; cli nft list chain inet shunt ask_out || true
+	echo "--- debug: cgroups"; find "$CGMNT/$CG/apps" -name cgroup.procs -path '*ask*' -exec sh -c 'echo "$1: $(cat "$1")"' _ {} \; || true
+	echo "--- debug: scope"; cat "$CGMNT/$SCOPE/cgroup.procs" || true
+	echo "--- debug: log"; grep -i 'firewall\|ask' "$WORK/shuntd.log" | tail -20 || true
+fi
+check "nothing went out while waiting" "" "$(cat "$WORK/fw1.out")"
+shunt allow fwcurl --via tunnel:vps >/dev/null || true
+wait $FW1
+check "allowed via tunnel" 10.66.0.2 "$(cat "$WORK/fw1.out")"
+check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps' && echo yes || echo no)"
+check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
+check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
+check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
+check "pending decision from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X POST -o /dev/null -w '%{http_code}' --data '{"route":"direct"}' http://shuntd/v1/pending/p99 | sed 's/403/denied/')"
+shunt firewall forget "$BIN/fwcurl" || true
+check "forget removes the decision" no "$(shunt firewall apps | gq fwcurl && echo yes || echo no)"
+EXTRA_TUNNELS=
+write_config tunnel:vps
+shunt reload
+rmdir "$CGMNT/$SCOPE" "$CGMNT/$SYSSVC" "$CGMNT/user.slice/user-4242.slice/user@4242.service/app.slice" "$CGMNT/user.slice/user-4242.slice/user@4242.service" "$CGMNT/user.slice/user-4242.slice" 2>/dev/null || true
+
 echo "== allow_lan: tunnel apps reach the local network"
 check "without allow_lan the LAN goes through the tunnel" 10.66.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s $URL)"
 VPS_EXTRA='allow_lan = true'
