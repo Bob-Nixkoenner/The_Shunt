@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/argv"
 )
 
 const firefox = `[Desktop Entry]
@@ -138,14 +140,16 @@ func TestClone(t *testing.T) {
 	}
 }
 
-func TestFirefoxProfiles(t *testing.T) {
+func TestFirefoxProfilesHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	d := filepath.Join(home, ".mozilla", "firefox")
-	_ = os.MkdirAll(d, 0o755)
+	_ = os.MkdirAll(filepath.Join(d, "x.sm"), 0o755)
+	_ = os.MkdirAll(filepath.Join(d, "y.medien"), 0o755)
 	_ = os.WriteFile(filepath.Join(d, "profiles.ini"), []byte("[Profile1]\nName=sm\nPath=x.sm\n[Profile0]\nName=medien\nPath=y.medien\n[General]\nVersion=2\n"), 0o644)
 	got := FirefoxProfiles()
-	if len(got) != 2 || got[0] != "medien" || got[1] != "sm" {
+	if len(got) != 2 || got[0].Name != "medien" || got[1].Name != "sm" || got[1].Path != filepath.Join(d, "x.sm") {
 		t.Fatalf("got %v", got)
 	}
 }
@@ -181,5 +185,33 @@ func TestPanelLaunchers(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "17000.desktop"+panelBackup)); !os.IsNotExist(err) {
 		t.Fatal("backup left behind")
+	}
+}
+
+// Profile launchers start a profile by folder; folders have spaces
+// ("pi01WzXq.Profil 1") and must reach Firefox as one argument.
+func TestCloneProfileFolder(t *testing.T) {
+	home, _ := setup(t)
+	dir := "/home/u/.config/mozilla/firefox/pi01WzXq.Profil 1"
+	id, err := Clone("firefox-esr", "Firefox SM", `--new-instance --profile "`+dir+`"`, "tunnel:laptop", "/usr/local/bin/shunt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := readMain(filepath.Join(home, "applications", id+".desktop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	words, err := argv.Split(kv["Exec"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for i, w := range words {
+		if w == "--profile" && i+1 < len(words) && words[i+1] == dir {
+			found = true
+		}
+	}
+	if !found || words[3] != "tunnel:laptop" {
+		t.Fatalf("Exec %q -> %q", kv["Exec"], words)
 	}
 }

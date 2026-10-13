@@ -221,13 +221,14 @@ function renderLaunchers() {
 
   const ff = firefoxApp();
   const have = new Set(launchers.map((a) => a.args));
-  const todo = ff ? ffProfiles.filter((p) => !have.has(profileArgs(p))) : [];
+  // launchers made before profiles were started by folder used -P <name>
+  const todo = ff ? ffProfiles.filter((p) => !have.has(profileArgs(p)) && !have.has(legacyProfileArgs(p.name))) : [];
   $("#ffprofiles").replaceChildren(...(todo.length ? [el("div", { class: "row", style: "margin-bottom:10px" },
     el("span", { class: "muted" }, "Firefox profiles found:"),
     ...todo.map((p) => {
       const sel = routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
-      return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center" }, p, sel,
-        el("button", { onclick: () => createLauncher(ff, "Firefox " + p, profileArgs(p), sel.value) }, "+ launcher"));
+      return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
+        el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher"));
     }))] : []));
 
   const lapp = $("#lapp");
@@ -240,7 +241,10 @@ function renderLaunchers() {
   lroute.value = curRoute || status.routes.find((r) => r.startsWith("tunnel:")) || "direct";
 }
 
-function profileArgs(p) { return "--new-instance -P " + (/\s/.test(p) ? '"' + p + '"' : p); }
+// By folder, not -P <name>: profiles of Firefox's newer profile manager are
+// not in profiles.ini, and names differ between machines anyway.
+function profileArgs(p) { return '--new-instance --profile "' + p.path.replace(/(["\\`$])/g, "\\$1") + '"'; }
+function legacyProfileArgs(n) { return "--new-instance -P " + (/\s/.test(n) ? '"' + n + '"' : n); }
 
 async function createLauncher(app, name, args, route) {
   try {
