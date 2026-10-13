@@ -122,7 +122,7 @@ network = ["home"]
 		network  string
 		withHome bool
 	}{{"home", true}, {"", false}} {
-		p, err := engine.CompileOn(c, "shunt", nil, tc.network)
+		p, err := engine.CompileOn(c, "shunt", nil, tc.network, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

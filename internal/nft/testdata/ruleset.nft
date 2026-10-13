@@ -26,6 +26,9 @@ table inet shunt {
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/direct" meta mark set 0x5300f0 ct mark set meta mark accept
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-home" meta mark set 0x530001 ct mark set meta mark accept
 		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-vps" meta mark set 0x530002 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-wifi" meta mark set 0x5300e0 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-ethernet" meta mark set 0x5300e1 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-mobile" meta mark set 0x5300e2 ct mark set meta mark accept
 		meta l4proto tcp th dport { 22 } meta mark set 0x5300f0 ct mark set meta mark accept
 		ip daddr @dom2_v4a meta l4proto tcp th dport { 443 } meta mark set 0x5300f0 ct mark set meta mark accept
 		ip daddr @dom2_v4b meta l4proto tcp th dport { 443 } meta mark set 0x5300f0 ct mark set meta mark accept
@@ -56,12 +59,18 @@ table inet shunt {
 		meta mark 0x5300f0 meta l4proto { tcp, udp } th dport 53 redirect to :53530
 		meta mark 0x530001 meta l4proto { tcp, udp } th dport 53 redirect to :53532
 		meta mark 0x530002 meta l4proto { tcp, udp } th dport 53 redirect to :53533
+		meta mark 0x5300e0 meta l4proto { tcp, udp } th dport 53 redirect to :53534
+		meta mark 0x5300e1 meta l4proto { tcp, udp } th dport 53 redirect to :53535
+		meta mark 0x5300e2 meta l4proto { tcp, udp } th dport 53 redirect to :53536
 		meta mark and 0xffff00 != 0x530000 meta l4proto { tcp, udp } th dport 53 redirect to :53530
 	}
 	chain leak_guard {
 		type filter hook postrouting priority filter; policy accept;
 		meta mark 0x530001 oifname != { "sh-home", "lo" } counter drop
 		meta mark 0x530002 oifname != { "sh-vps", "lo" } counter drop
+		meta mark 0x5300e0 oifname != "lo" counter drop
+		meta mark 0x5300e1 oifname != "lo" counter drop
+		meta mark 0x5300e2 oifname != "lo" counter drop
 	}
 	chain nat_post {
 		type nat hook postrouting priority srcnat; policy accept;

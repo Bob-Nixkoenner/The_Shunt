@@ -98,9 +98,9 @@ func (d *Daemon) checkCandidate(raw []byte) (*Prepared, error) {
 	}
 	defer os.Remove(tmp)
 	d.mu.Lock()
-	ni := d.netInfo
+	ni, ls := d.netInfo, d.links
 	d.mu.Unlock()
-	return PrepareOn(tmp, root, &ni)
+	return PrepareOn(tmp, root, &ni, ls)
 }
 
 func (d *Daemon) absConf(p string) string {
