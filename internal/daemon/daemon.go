@@ -26,21 +26,16 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
@@ -50,18 +45,20 @@ type Daemon struct {
 	ConfigPath string
 	Log        *slog.Logger
 	Version    string // build version, reported in the status
+	// Backend enforces plans on this platform (nil: DefaultBackend).
+	Backend Backend
 
 	mu        sync.Mutex
 	cfg       *config.Config
 	plan      *engine.Plan
 	prep      *Prepared
-	cg        cgroup.Manager
+	cg        firewall.CGroups
 	tunnels   map[string]tunnel.Device
 	specHash  map[string]string
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
-	watcher   *appwatch.Watcher
+	watcher   AppWatcher
 	saveMu    sync.Mutex // serializes config writes
 	dnsUps    dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
@@ -111,12 +108,23 @@ type Prepared struct {
 
 // Prepare loads everything and compiles the plan without touching the system.
 func Prepare(path, cgroupRoot string) (*Prepared, error) {
-	return PrepareOn(path, cgroupRoot, nil, links.Current())
+	return PrepareOn(path, cgroupRoot, Env{Links: links.Current(), Backend: DefaultBackend()})
 }
 
-// PrepareOn is Prepare for the network net is on: a matching [[network]]
-// replaces the default route. ls are the connected links (link routes).
-func PrepareOn(path, cgroupRoot string, net *netdetect.Info, ls links.State) (*Prepared, error) {
+// Env is what a config is prepared for.
+type Env struct {
+	// Net is the network we are on: a matching [[network]] replaces the
+	// default route (nil: none).
+	Net *netdetect.Info
+	// Links are the connected Wi-Fi/cable/mobile interfaces (link routes).
+	Links links.State
+	// Backend renders the plan into the platform's ruleset.
+	Backend Backend
+}
+
+// PrepareOn is Prepare for the environment env.
+func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
+	net, ls := env.Net, env.Links
 	c, err := config.Load(path)
 	if err != nil {
 		return nil, err
@@ -207,7 +215,10 @@ func PrepareOn(path, cgroupRoot string, net *netdetect.Info, ls links.State) (*P
 			p.Warnings = append(p.Warnings, fmt.Sprintf("route link:%s is used, but no %s connection is up: its traffic is blocked until it is", r, linkLabel(r)))
 		}
 	}
-	p.Ruleset, err = nft.Render(p.Plan)
+	if env.Backend == nil {
+		return nil, errors.New("no backend for this platform")
+	}
+	p.Ruleset, err = env.Backend.Render(p.Plan)
 	if err != nil {
 		return nil, err
 	}
@@ -341,15 +352,17 @@ func checkSecretFile(path string) error {
 
 // Run starts the daemon and blocks until ctx is cancelled.
 func (d *Daemon) Run(ctx context.Context) error {
-	mount, err := cgroup.Mount()
+	if d.Backend == nil {
+		d.Backend = DefaultBackend()
+	}
+	if d.Backend == nil {
+		return errors.New("the shunt has no backend for this platform yet")
+	}
+	self, err := d.Backend.Init()
 	if err != nil {
 		return err
 	}
-	self, err := cgroup.Self()
-	if err != nil {
-		return err
-	}
-	d.cg = cgroup.Manager{Mount: mount}
+	d.cg = d.Backend.Groups()
 	d.tunnels = map[string]tunnel.Device{}
 	d.tunEvents = make(chan struct{}, 1)
 	d.restart = make(chan struct{}, 1)
@@ -363,7 +376,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	// The plan is in place: lift the boot lockdown if it was set.
-	if err := nft.Apply(nft.DeleteScript(nft.LockdownTable)); err != nil {
+	if err := d.Backend.LiftLockdown(); err != nil {
 		d.Log.Warn("could not remove lockdown table", "err", err)
 	}
 
@@ -384,7 +397,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	defer close(stopWatch)
 	go d.watcher.Run(stopWatch)
 	go func() {
-		if err := firewall.Listen(ctx, d.fw.Seen); err != nil {
+		if err := d.Backend.WatchHeld(ctx, d.fw.Seen); err != nil {
 			d.Log.Warn("app firewall: cannot read the log of waiting programs (they stay blocked without a question)", "err", err)
 		}
 	}()
@@ -447,7 +460,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, &d.netInfo, d.links)
+	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend})
 	if err != nil {
 		return err
 	}
@@ -466,19 +479,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 			return fmt.Errorf("cgroup %s: %w", g.Name, err)
 		}
 	}
-	script := p.Ruleset
+	var held map[string]engine.Group
 	if d.fw != nil {
-		ask, err := d.fw.RulesFor(p.Plan.CgroupRoot)
-		if err != nil {
-			return err
-		}
-		script += ask
+		held = d.fw.HeldFor(p.Plan.CgroupRoot)
 	}
-	if err := nft.Apply(script); err != nil {
+	if err := d.Backend.Apply(p.Ruleset, held); err != nil {
 		return err
 	}
 	if d.proxy == nil {
-		d.proxy = dnsproxy.New(d.Log, dnsproxy.NftSets{Table: nft.Table})
+		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
 	}
 	ups := d.upstreams(p)
 	if err := d.proxy.Update(p.Plan, ups); err != nil {
@@ -490,16 +499,16 @@ func (d *Daemon) reload(selfCgroup string) error {
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
 	if d.fw == nil {
-		d.fw = &firewall.Manager{Log: d.Log, CG: d.cg, Apply: nft.Apply, Store: filepath.Join(filepath.Dir(d.ConfigPath), "apps.json")}
+		d.fw = &firewall.Manager{Log: d.Log, CG: d.cg, Hold: d.Backend.Hold, Store: filepath.Join(filepath.Dir(d.ConfigPath), "apps.json")}
 	}
 	if err := d.fw.Configure(firewallSettings(p)); err != nil {
 		d.Log.Warn("app firewall", "err", err)
 	}
 	if d.watcher == nil {
-		d.watcher = &appwatch.Watcher{Log: d.Log, Mover: d.cg, Unknown: d.fw.Unknown}
+		d.watcher = d.Backend.Watcher(d.Log, d.fw.Unknown)
 		d.fw.Placed = d.watcher.Place
 	}
-	d.watcher.Recheck = path.Join(p.Plan.CgroupRoot, "apps", "ask")
+	d.watcher.SetRecheck(path.Join(p.Plan.CgroupRoot, "apps", "ask"))
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
@@ -531,7 +540,7 @@ func (d *Daemon) syncTunnels() error {
 			delete(d.specHash, name)
 		}
 	}
-	if err := routing.Sync(p.Plan, d.ifaceUp(p)); err != nil {
+	if err := d.Backend.SyncRoutes(p.Plan, d.ifaceUp(p)); err != nil {
 		return err
 	}
 	d.tunErrors = map[string]string{}
@@ -562,7 +571,7 @@ func (d *Daemon) syncTunnels() error {
 		d.specHash[name] = p.Hashes[name]
 		d.Log.Info("tunnel up", "tunnel", name, "iface", tc.Interface, "driver", t.DriverName(), "via", tc.Via)
 	}
-	return routing.Sync(p.Plan, d.ifaceUp(p))
+	return d.Backend.SyncRoutes(p.Plan, d.ifaceUp(p))
 }
 
 // firewallSettings derives the app firewall settings from a prepared config.
@@ -592,7 +601,7 @@ func (d *Daemon) checkNetwork() {
 	if ls.Key() != d.links.Key() {
 		d.setLinks(ls)
 		if !relink && d.prep != nil { // same interfaces, new gateway
-			if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+			if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after link change", "err", err)
 			}
 		}
@@ -610,7 +619,7 @@ func (d *Daemon) checkNetwork() {
 	if moved {
 		go d.probeCaptive()
 		if d.prep != nil { // allow_lan routes follow the attached networks
-			if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+			if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after network change", "err", err)
 			}
 		}
@@ -759,12 +768,12 @@ func (d *Daemon) tunnelChanged() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for name, t := range d.tunnels {
-		if o, ok := t.(*tunnel.OpenVPN); ok {
+		if o, ok := t.(tunnel.Pusher); ok {
 			d.pushed.Store(name, o.DNS())
 		}
 	}
 	if d.prep != nil {
-		if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+		if err := d.Backend.SyncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 			d.Log.Error("routing sync failed", "err", err)
 		}
 	}
@@ -821,7 +830,7 @@ func (d *Daemon) shutdown() {
 	}
 	d.tunnels = map[string]tunnel.Device{}
 	if d.plan != nil {
-		_ = routing.Sync(d.plan, nil)
+		_ = d.Backend.SyncRoutes(d.plan, nil)
 	}
 	if d.proxy != nil {
 		d.proxy.Close() // redirect rules stay: DNS fails closed while we're down
@@ -836,9 +845,7 @@ func (d *Daemon) listen() (net.Listener, error) {
 		return nil, err
 	}
 	_ = os.Remove(sock)
-	old := unix.Umask(0o177)
-	ln, err := net.Listen("unix", sock)
-	unix.Umask(old)
+	ln, err := listenPrivate(sock)
 	if err != nil {
 		return nil, err
 	}
@@ -1124,11 +1131,7 @@ func (d *Daemon) routes() http.Handler {
 				return
 			}
 		}
-		script := nft.DeleteScript(nft.PanicTable)
-		if req.On {
-			script = nft.RenderPanic()
-		}
-		if err := nft.Apply(script); err != nil {
+		if err := d.Backend.Panic(req.On); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -1156,7 +1159,7 @@ func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/proc/self/exe", "probe")
+	cmd := exec.CommandContext(ctx, selfExe(), "probe")
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -1230,7 +1233,7 @@ func (d *Daemon) status() api.Status {
 			if e := t.Err(); e != "" && ts.Error == "" {
 				ts.Error = e
 			}
-			if o, ok := t.(*tunnel.OpenVPN); ok && o.Connected() && d.cfg.Tunnels[n].DNS == "" && len(o.DNS()) == 0 {
+			if o, ok := t.(tunnel.Pusher); ok && o.Connected() && d.cfg.Tunnels[n].DNS == "" && len(o.DNS()) == 0 {
 				st.Warnings = append(st.Warnings, fmt.Sprintf("tunnel %q: the OpenVPN server pushed no DNS server; set dns = \"<upstream>\" for it", n))
 			}
 		}
@@ -1241,7 +1244,7 @@ func (d *Daemon) status() api.Status {
 	}
 	for _, g := range d.plan.Groups {
 		procs, _ := d.cg.Procs(g.Path)
-		gs := api.GroupStatus{Name: g.Name, Procs: len(procs), Apps: procNames(procs)}
+		gs := api.GroupStatus{Name: g.Name, Procs: len(procs), Apps: d.procNames(procs)}
 	rules:
 		for _, r := range d.plan.Rules {
 			for _, rg := range r.Groups {
@@ -1261,18 +1264,13 @@ func (d *Daemon) status() api.Status {
 
 // procs lists processes whose name contains name, with their route.
 func (d *Daemon) procs(name string) []api.ProcRoute {
-	ents, _ := os.ReadDir("/proc")
+	pids := d.Backend.Pids()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	out := []api.ProcRoute{}
-	for _, e := range ents {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
-		comm := strings.TrimSpace(string(b))
-		if err != nil || !strings.Contains(strings.ToLower(comm), name) {
+	for _, pid := range pids {
+		comm, ok := d.Backend.Comm(pid)
+		if !ok || !strings.Contains(strings.ToLower(comm), name) {
 			continue
 		}
 		pr := api.ProcRoute{PID: pid, Name: comm}
@@ -1292,7 +1290,7 @@ func (d *Daemon) procs(name string) []api.ProcRoute {
 // inShuntGroup reports whether pid runs inside Shunt's cgroup tree (a
 // route group or a waiting group).
 func (d *Daemon) inShuntGroup(pid int) bool {
-	cg, ok := cgroupOf(pid)
+	cg, ok := d.Backend.CgroupOf(pid)
 	if !ok {
 		return true // gone or unreadable: treat as untrusted
 	}
@@ -1300,20 +1298,6 @@ func (d *Daemon) inShuntGroup(pid int) bool {
 	root := d.plan.CgroupRoot
 	d.mu.Unlock()
 	return under(cg, path.Join(root, "apps"))
-}
-
-// cgroupOf returns pid's cgroup v2 path without leading slash.
-func cgroupOf(pid int) (string, bool) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	if err != nil {
-		return "", false
-	}
-	for _, l := range strings.Split(string(b), "\n") {
-		if c, ok := strings.CutPrefix(l, "0::"); ok {
-			return strings.Trim(c, "/"), true
-		}
-	}
-	return "", false
 }
 
 // under reports whether cgroup cg is dir or below it.
@@ -1324,7 +1308,7 @@ func under(cg, dir string) bool { return cg == dir || strings.HasPrefix(cg, dir+
 // route otherwise – "" when that is direct, which anyone may leave.
 // Caller holds d.mu.
 func (d *Daemon) leaveRoute(pid int) string {
-	cg, ok := cgroupOf(pid)
+	cg, ok := d.Backend.CgroupOf(pid)
 	if !ok {
 		return "block"
 	}
@@ -1348,7 +1332,7 @@ func fromRoute(cg string, p *engine.Plan, groupRoute func(engine.Group) string) 
 
 // groupOf returns the Shunt group pid is in. Caller holds d.mu.
 func (d *Daemon) groupOf(pid int) (engine.Group, bool) {
-	cg, ok := cgroupOf(pid)
+	cg, ok := d.Backend.CgroupOf(pid)
 	if !ok {
 		return engine.Group{}, false
 	}
@@ -1361,16 +1345,12 @@ func (d *Daemon) groupOf(pid int) (engine.Group, bool) {
 }
 
 // procNames returns the distinct program names of pids.
-func procNames(pids []int) []string {
+func (d *Daemon) procNames(pids []int) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, pid := range pids {
-		b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
-		if err != nil {
-			continue
-		}
-		n := strings.TrimSpace(string(b))
-		if !seen[n] {
+		n, ok := d.Backend.Comm(pid)
+		if ok && !seen[n] {
 			seen[n] = true
 			out = append(out, n)
 		}
@@ -1403,13 +1383,12 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, api.Error{Error: err.Error()})
 }
 
-// Cleanup removes every trace of Shunt from the kernel: nft tables, ip rules
-// and routing tables. This disables all kill switches.
+// Cleanup removes every trace of Shunt from the system: rules, routes and
+// tables. This disables all kill switches.
 func Cleanup() error {
-	var errs []error
-	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable} {
-		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
+	b := DefaultBackend()
+	if b == nil {
+		return errors.New("no backend for this platform")
 	}
-	errs = append(errs, routing.Cleanup())
-	return errors.Join(errs...)
+	return b.Cleanup()
 }

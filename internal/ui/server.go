@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
@@ -264,7 +263,7 @@ func (s *Server) handler() http.Handler {
 // launch starts args in route, detached from the UI process.
 func (s *Server) launch(route string, args []string) error {
 	cmd := exec.Command(s.Self, append([]string{"-s", s.Socket, "run", "--via", route, "--"}, args...)...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	detach(cmd)
 	devnull, _ := os.Open(os.DevNull)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = devnull, devnull, devnull
 	if err := cmd.Start(); err != nil {

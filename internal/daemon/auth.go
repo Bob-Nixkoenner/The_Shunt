@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // Who may do what through the API socket (members of daemon.socket_group):
@@ -40,23 +38,12 @@ type peer struct {
 type peerKey struct{}
 
 func connContext(ctx context.Context, c net.Conn) context.Context {
-	uc, ok := c.(*net.UnixConn)
+	pid, uid, ok := peerCred(c)
 	if !ok {
 		return ctx
 	}
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		return ctx
-	}
-	var cred *unix.Ucred
-	_ = raw.Control(func(fd uintptr) {
-		cred, _ = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	})
-	if cred == nil {
-		return ctx
-	}
-	p := &peer{pid: uint32(cred.Pid), uid: cred.Uid}
-	p.start, _ = procStart(int(cred.Pid))
+	p := &peer{pid: pid, uid: uid}
+	p.start, _ = procStart(int(pid))
 	return context.WithValue(ctx, peerKey{}, p)
 }
 
