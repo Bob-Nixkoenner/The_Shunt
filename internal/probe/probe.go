@@ -8,6 +8,8 @@
 package probe
 
 import (
+	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -100,9 +101,21 @@ type RouteResult struct {
 	Note    string `json:"note,omitempty"`
 }
 
-// LeakTest runs a probe in every route. self is the shunt binary; it is
-// started as `self -s socket run --via <route> -- self probe`.
-func LeakTest(ctx context.Context, self, socket string, routes []string) []RouteResult {
+// Runner runs the probe inside route and returns its JSON Result.
+type Runner func(ctx context.Context, route string) ([]byte, error)
+
+// DaemonRunner lets shuntd start the probe right inside the route: no
+// `shunt run`, so no password for leaving the caller's own route.
+func DaemonRunner(c *api.Client) Runner {
+	return func(_ context.Context, route string) ([]byte, error) {
+		var raw json.RawMessage
+		err := c.Do("POST", "/v1/probe", api.ProbeRequest{Route: route}, &raw)
+		return raw, err
+	}
+}
+
+// LeakTest runs a probe in every route.
+func LeakTest(ctx context.Context, run Runner, routes []string) []RouteResult {
 	out := make([]RouteResult, len(routes))
 	var wg sync.WaitGroup
 	for i, route := range routes {
@@ -110,8 +123,7 @@ func LeakTest(ctx context.Context, self, socket string, routes []string) []Route
 		go func() {
 			defer wg.Done()
 			out[i] = RouteResult{Route: route}
-			cmd := exec.CommandContext(ctx, self, "-s", socket, "run", "--via", route, "--", self, "probe")
-			b, err := cmd.Output()
+			b, err := run(ctx, route)
 			if err != nil {
 				out[i].Verdict, out[i].Note = "error", fmt.Sprintf("probe failed: %v", err)
 				return
@@ -152,6 +164,8 @@ func judge(rs []RouteResult) {
 			if res.IP == "" {
 				r.Verdict, r.Note = "error", "no internet on the direct route"
 			}
+		case res.IP == "" && res.Resolver == "" && strings.HasPrefix(r.Route, "link:"):
+			r.Verdict, r.Note = "blocked", "not connected: blocked instead of using another connection"
 		case res.IP == "" && res.Resolver == "":
 			r.Verdict, r.Note = "blocked", "tunnel not usable: blocked instead of leaking"
 		case direct != nil && direct.IP != "" && res.IP == direct.IP:

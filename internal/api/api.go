@@ -78,6 +78,12 @@ type RunRequest struct {
 	Group string `json:"group"`
 }
 
+// ProbeRequest asks the daemon to run the leak test probe in a route
+// (POST /v1/probe, answer: probe.Result).
+type ProbeRequest struct {
+	Route string `json:"route"`
+}
+
 // ConfigView is returned by GET /v1/config. Private keys are never included.
 type ConfigView struct {
 	Raw string `json:"raw"`
