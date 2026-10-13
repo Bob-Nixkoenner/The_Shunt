@@ -27,6 +27,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -64,6 +65,10 @@ type Daemon struct {
 	tunEvents chan struct{}
 	netInfo   netdetect.Info
 	restart   chan struct{}
+
+	captive, captiveURL string
+	captiveAt           time.Time // last probe
+	probing             bool
 }
 
 // ErrRestart: Run ended because a restart was requested through the API;
@@ -308,6 +313,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.specHash = map[string]string{}
 	d.tunErrors = map[string]string{}
 	d.netInfo = netdetect.Current()
+	go d.probeCaptive()
 
 	if err := d.reload(self); err != nil {
 		return err
@@ -361,6 +367,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.tunnelChanged()
 		case <-netTick.C:
 			d.checkNetwork()
+			d.mu.Lock()
+			again := d.captive != captive.Online && time.Since(d.captiveAt) > 15*time.Second
+			d.mu.Unlock()
+			if again { // waiting for the user to log in
+				go d.probeCaptive()
+			}
 		}
 	}
 }
@@ -479,6 +491,7 @@ func (d *Daemon) checkNetwork() {
 		return
 	}
 	d.netInfo = info
+	go d.probeCaptive()
 	want := ""
 	if n := d.cfg.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
 		want = n.Name
@@ -518,6 +531,41 @@ func hopConf(p *Prepared, name string) *wgconf.Config {
 	c := *wc
 	c.MTU = mtu - HopOverhead
 	return &c
+}
+
+func quoteSSID(s string) string {
+	if s == "" {
+		return ""
+	}
+	return " (" + strconv.Quote(s) + ")"
+}
+
+// probeCaptive looks for a Wi-Fi login page (see package captive).
+func (d *Daemon) probeCaptive() {
+	d.mu.Lock()
+	if d.probing || (d.cfg != nil && d.cfg.Daemon.CaptiveCheck != nil && !*d.cfg.Daemon.CaptiveCheck) {
+		d.mu.Unlock()
+		return
+	}
+	d.probing = true
+	d.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	state, login := captive.Probe(ctx, captive.URL())
+	cancel()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.probing, d.captiveAt = false, time.Now()
+	if state != d.captive {
+		switch state {
+		case captive.Portal:
+			d.Log.Warn("Wi-Fi login page detected: tunnels cannot connect until you log in (shunt captive)", "page", login, "ssid", d.netInfo.SSID)
+		case captive.Online:
+			if d.captive == captive.Portal {
+				d.Log.Info("Wi-Fi login done, network is open")
+			}
+		}
+	}
+	d.captive, d.captiveURL = state, login
 }
 
 // signalTunnel is called by OpenVPN tunnels from their own goroutines; it
@@ -852,7 +900,7 @@ func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{},
-		Network: d.prep.Network, NetInfo: d.netInfo}
+		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	for route, ups := range d.dnsUps {
 		for _, u := range ups {
@@ -861,6 +909,9 @@ func (d *Daemon) status() api.Status {
 				st.Warnings = append(st.Warnings, "no system DNS resolver found for the direct route (yet): set dns.direct if this persists")
 			}
 		}
+	}
+	if d.captive == captive.Portal {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("Wi-Fi login page in the way%s: tunnels can't connect until you log in – shunt captive (or the tray: Wi-Fi login page)", quoteSSID(d.netInfo.SSID)))
 	}
 	if d.proxy != nil {
 		if f := d.proxy.Health(); len(f) > 0 {

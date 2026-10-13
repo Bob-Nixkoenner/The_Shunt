@@ -121,6 +121,16 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, list)
 	})
+	mux.HandleFunc("POST /api/captive", func(w http.ResponseWriter, r *http.Request) {
+		// a throwaway browser past the tunnels, for the Wi-Fi login page
+		cmd := exec.Command(s.Self, "-s", s.Socket, "captive")
+		if err := cmd.Start(); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		go func() { _ = cmd.Wait() }()
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /api/update", func(w http.ResponseWriter, r *http.Request) {
 		if s.Update == nil {
 			writeJSON(w, update.Info{Disabled: true})

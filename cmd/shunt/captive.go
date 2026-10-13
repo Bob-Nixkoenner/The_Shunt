@@ -32,8 +32,15 @@ var captiveBrowsers = []struct {
 func captive(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("captive", flag.ExitOnError)
 	browser := fs.String("browser", "", "browser binary (default: first of firefox, chromium, brave, chrome)")
-	url := fs.String("url", captivePortalURL, "page to open")
+	url := fs.String("url", "", "page to open (default: the login page shuntd found, else "+captivePortalURL+")")
 	_ = fs.Parse(args)
+	if *url == "" {
+		*url = captivePortalURL
+		var st api.Status
+		if c.Do("GET", "/v1/status", nil, &st) == nil && st.CaptiveURL != "" {
+			*url = st.CaptiveURL
+		}
+	}
 
 	bin, chromium := "", false
 	for _, b := range captiveBrowsers {

@@ -119,3 +119,20 @@ func TestWriteIcons(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("icon%d.png", i)), Icon(l), 0o644)
 	}
 }
+
+func TestCaptive(t *testing.T) {
+	now := time.Now()
+	st := &api.Status{DefaultRoute: "tunnel:vps", Captive: "portal"}
+	v := Compute(st, nil, now)
+	if v.Level != Warn || !v.Captive {
+		t.Fatalf("%+v", v)
+	}
+	n := Diff(View{Down: map[string]bool{}, DNSDown: map[string]bool{}}, v, false)
+	if len(n) != 1 || n[0].Summary != "Wi-Fi login needed" {
+		t.Errorf("%+v", n)
+	}
+	st.Captive = "online"
+	if n := Diff(v, Compute(st, nil, now), false); len(n) != 1 || n[0].Summary != "Wi-Fi login done" {
+		t.Errorf("%+v", n)
+	}
+}

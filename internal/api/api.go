@@ -35,6 +35,11 @@ type Status struct {
 	// Network is the matched [[network]] profile ("" = none), NetInfo what
 	// the machine is connected to right now.
 	Network string `json:"network,omitempty"`
+	// Captive: "portal" when a Wi-Fi login page is in the way (tunnels
+	// can't connect until you log in), "online", "offline" or "" (unknown,
+	// check off). CaptiveURL is the login page.
+	Captive    string `json:"captive,omitempty"`
+	CaptiveURL string `json:"captive_url,omitempty"`
 	// DNSFailing: routes whose DNS servers don't answer (route -> last error).
 	DNSFailing map[string]string `json:"dns_failing,omitempty"`
 	NetInfo    netdetect.Info    `json:"net_info"`
