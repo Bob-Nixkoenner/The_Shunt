@@ -116,8 +116,10 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   TPROXY statt NAT (pro Paket nach Markierung, Listener mit IP_TRANSPARENT, lokale
   Zustellung per ip rule) oder der Proxy prüft die Markierung (SO_RCVMARK, Kernel ≥ 6.1).
   Die verwandte ct-mark-Vererbung für UDP ist behoben (nur noch TCP erbt).
-- Ungetestet auf echter Hardware: SSID-Erkennung auf echtem WLAN, Captive-Browser-Fenster,
-  „Restart service and app“ unter COSMIC, echte Provider-.ovpn.
+- Ungetestet auf echter Hardware: Captive-Browser-Fenster, „Restart service and app“ unter
+  COSMIC. **Getestet 14.10.2026:** SSID-Erkennung + Netzwerkprofil (Weifi_5G), echte
+  Provider-.ovpn (VPNBook de220, TCP 443, Benutzer/Passwort), `link:wifi`/`link:ethernet`,
+  `dns_direct` pro Profil, Integrationstest 170/170 auf dem Laptop.
 - Laufender Browser behält seine Route (neue Fenster im alten Prozess) → `shunt which`,
   UI-Warnung vorhanden.
 
