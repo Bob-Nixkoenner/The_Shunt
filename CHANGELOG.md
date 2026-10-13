@@ -23,6 +23,11 @@
   took that flow's route – seen as a sporadic "LEAK" of the block route in the leak
   test, and usable to leave a tunnel or block. Only TCP keeps its connection's route
   now; UDP is classified by its program on every packet.
+- **Firefox profiles found wherever Firefox keeps them**: newer Firefox (`~/.config/mozilla`),
+  deb/ESR (`~/.mozilla`), Ubuntu's snap, flatpak, Windows (`%APPDATA%`) and macOS – and the
+  profiles of Firefox's newer profile manager, whose names are only in its database
+  (read with a small built-in reader, no SQLite library). Profile launchers now start
+  the profile by folder (`--profile`), so they work for those profiles too.
 - **Switch tunnels off without deleting them**: `disabled = true` (Configure → Tunnels →
   “switched on”). Files, password and rules stay; the tunnel is not connected and its
   apps are blocked (never sent another way). The tray doesn't warn about it.

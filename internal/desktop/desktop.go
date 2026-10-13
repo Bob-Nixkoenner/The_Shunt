@@ -396,28 +396,3 @@ func slug(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// FirefoxProfiles returns the profile names of the user's Firefox
-// installations (deb, snap and flatpak locations).
-func FirefoxProfiles() []string {
-	home, _ := os.UserHomeDir()
-	seen := map[string]bool{}
-	var out []string
-	for _, f := range []string{
-		filepath.Join(home, ".mozilla", "firefox", "profiles.ini"),
-		filepath.Join(home, "snap", "firefox", "common", ".mozilla", "firefox", "profiles.ini"),
-		filepath.Join(home, ".var", "app", "org.mozilla.firefox", ".mozilla", "firefox", "profiles.ini"),
-	} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		for _, l := range strings.Split(string(b), "\n") {
-			if n, ok := strings.CutPrefix(strings.TrimSpace(l), "Name="); ok && n != "" && !seen[n] {
-				seen[n] = true
-				out = append(out, n)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
