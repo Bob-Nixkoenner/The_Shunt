@@ -19,10 +19,13 @@ jobs:
       - run: go test ./...
       - name: fuzz parsers (short)
         run: |
-          go test ./internal/wgconf -run '^$' -fuzz FuzzParse -fuzztime 20s
-          go test ./internal/config -run '^$' -fuzz FuzzParse -fuzztime 20s
-          go test ./internal/argv -run '^$' -fuzz FuzzSplit -fuzztime 15s
-          go test ./internal/appwatch -run '^$' -fuzz FuzzParseExecEvents -fuzztime 15s
+          # a count instead of a duration: a time limit that ends during an
+          # input makes go test report "context deadline exceeded" as failure
+          go test ./internal/wgconf -run '^$' -fuzz FuzzParse -fuzztime 500000x
+          go test ./internal/config -run '^$' -fuzz FuzzParse -fuzztime 500000x
+          go test ./internal/argv -run '^$' -fuzz FuzzSplit -fuzztime 500000x
+          go test ./internal/appwatch -run '^$' -fuzz FuzzParseExecEvents -fuzztime 500000x
+          go test ./internal/ovpnconf -run '^$' -fuzz FuzzParse -fuzztime 500000x
       - name: known vulnerabilities (govulncheck)
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: cross-build (portability check)
