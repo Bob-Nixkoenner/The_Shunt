@@ -23,6 +23,10 @@ const (
 	// MarkBypass is set by the tunnel itself on its encrypted UDP packets so
 	// they never get routed into a tunnel (no routing loops).
 	MarkBypass uint32 = MarkBase | 0xff
+	// MarkCaptive: the Wi-Fi login browser (shunt captive). Leaves like
+	// direct, but resolves through the network's own DNS server: login
+	// pages often only resolve there, or block other DNS servers.
+	MarkCaptive uint32 = MarkBase | 0xf1
 	// TableBase is the first routing table used for tunnels.
 	TableBase = 5300
 	// LinkSlot is the first mark/table slot of the link routes (after
@@ -31,6 +35,8 @@ const (
 	// DNSPortBase: the DNS proxy listens on 127.0.0.1/[::1] at
 	// DNSPortBase + route index; queries are redirected there per route.
 	DNSPortBase = 53530
+	// DNSPortCaptive is the DNS listener of the login browser.
+	DNSPortCaptive = DNSPortBase - 1
 	// RulePriority is the ip rule priority used for all Shunt rules
 	// (well before the main table at 32766).
 	RulePriority = 5300
@@ -65,6 +71,9 @@ type Route struct {
 	DNSPort int
 	// AllowLAN: directly attached private networks go past the tunnel.
 	AllowLAN bool
+	// Captive: the login browser's route (see MarkCaptive); it is not in
+	// Plan.Routes.
+	Captive bool
 }
 
 // Group is a process group backed by a cgroup.
@@ -104,9 +113,11 @@ type Plan struct {
 	Groups       []Group // user groups and implicit via-groups
 	Rules        []Rule
 	DefaultRoute *Route
-	DNS          bool // per-route DNS proxy + redirection active
-	BlockDoT     bool
-	BlockDoH     bool
+	// Captive is the route of CaptiveGroup (the Wi-Fi login browser).
+	Captive  *Route
+	DNS      bool // per-route DNS proxy + redirection active
+	BlockDoT bool
+	BlockDoH bool
 }
 
 // AppRules returns the rules with app selectors, in order.
@@ -150,6 +161,9 @@ func (p *Plan) Group(name string) (Group, bool) {
 	}
 	return Group{}, false
 }
+
+// CaptiveGroup is the group of the Wi-Fi login browser (shunt captive).
+const CaptiveGroup = "captive"
 
 // ViaGroupName is the implicit group for `shunt run --via <route>`.
 func ViaGroupName(route string) string { return "via:" + route }
@@ -282,6 +296,11 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		g, _ := p.Group(ViaGroupName(r.String()))
 		return Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: r}
 	}
+	// The login browser first: nothing may send it elsewhere.
+	p.Captive = &Route{Route: config.Route{Kind: config.RouteDirect}, Mark: MarkCaptive, DNSPort: DNSPortCaptive, Captive: true}
+	cg := Group{Name: CaptiveGroup, Path: path.Join(cgroupRoot, "apps", "captive")}
+	p.Groups = append(p.Groups, cg)
+	p.Rules = append(p.Rules, Rule{Name: CaptiveGroup, Groups: []Group{cg}, AnyFamily: true, Route: p.Captive})
 	p.Rules = append(p.Rules, via(p.RouteByName("block")))
 	p.Rules = append(p.Rules, override...)
 	for _, r := range p.Routes {

@@ -76,7 +76,9 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 func lanRoutes(p *engine.Plan) []netlink.Route {
 	tunnels := map[string]bool{}
 	for _, r := range p.Routes {
-		tunnels[r.Iface] = true
+		if r.Kind == config.RouteTunnel { // link routes name physical interfaces
+			tunnels[r.Iface] = true
+		}
 	}
 	var lan []netip.Prefix
 	for _, s := range append(append([]string{}, engine.LANv4...), engine.LANv6...) {

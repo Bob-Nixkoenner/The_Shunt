@@ -30,6 +30,9 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 )
 
+// CaptiveUpstreams is the RouteUpstreams key of the Wi-Fi login browser.
+const CaptiveUpstreams = "captive"
+
 // RouteUpstreams maps a route (by name, e.g. "tunnel:vps") to its upstreams,
 // tried in order.
 type RouteUpstreams map[string][]Upstream
@@ -128,6 +131,9 @@ func (p *Proxy) Update(plan *engine.Plan, ups RouteUpstreams) error {
 			if r.Kind != config.RouteBlock {
 				byPort[r.DNSPort] = r
 			}
+		}
+		if plan.Captive != nil {
+			byPort[plan.Captive.DNSPort] = plan.Captive
 		}
 	}
 	p.mu.Lock()
@@ -248,6 +254,9 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 	route := src
 	var rule *engine.Rule
 	for _, dr := range plan.DomainRules() {
+		if src.Captive {
+			break // the login browser asks the network, nothing else
+		}
 		if matchDomain(name, dr.Domains) {
 			rule, route = dr, dr.Route
 			break
@@ -263,7 +272,11 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 	defer cancel()
 	var resp *dns.Msg
 	lastErr := fmt.Errorf("no DNS server configured for this route")
-	for _, u := range ups[route.String()] {
+	key := route.String()
+	if route.Captive {
+		key = CaptiveUpstreams
+	}
+	for _, u := range ups[key] {
 		resp, lastErr = u.Exchange(ctx, q2)
 		if lastErr == nil {
 			break
@@ -271,7 +284,7 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 		lastErr = fmt.Errorf("%s: %w", u.String(), lastErr)
 		p.Log.Debug("dns upstream failed", "route", route.String(), "err", lastErr)
 	}
-	p.record(route.String(), lastErr)
+	p.record(key, lastErr)
 	if resp == nil {
 		// No fallback to another route: failing is the safe outcome.
 		return fail(r, dns.RcodeServerFailure)
