@@ -114,6 +114,15 @@ type TunnelImport struct {
 	Via string `json:"via,omitempty"`
 }
 
+// ProcRoute is a running process and the route its traffic takes
+// (GET /v1/procs?name=...).
+type ProcRoute struct {
+	PID   int    `json:"pid"`
+	Name  string `json:"name"`
+	Route string `json:"route"`
+	Group string `json:"group,omitempty"` // Shunt group, "" = none (default route)
+}
+
 // PanicRequest switches the panic mode.
 type PanicRequest struct {
 	On bool `json:"on"`

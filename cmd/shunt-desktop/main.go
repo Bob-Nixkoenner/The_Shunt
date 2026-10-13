@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktopapp"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
 
 var version = "dev"
@@ -53,6 +55,9 @@ func main() {
 	}
 	client := api.NewClient(*sock)
 	srv := &ui.Server{Socket: *sock, Self: shunt, Client: client}
+	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), exe: self, shunt: shunt, sock: *sock}
+	srv.Update = &update.Checker{Current: version, OnAvailable: app.updateAvailable}
+	app.checker = srv.Update
 	ln, url, err := srv.Listen(0)
 	if err != nil {
 		log.Fatal(err)
@@ -72,7 +77,7 @@ func main() {
 	}
 	go single.Requests(show)
 
-	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), show: show, exe: self, shunt: shunt, sock: *sock}
+	app.show = show
 	start, end := systray.RunWithExternalLoop(app.onReady, func() {})
 	start()
 	defer end()
@@ -96,6 +101,9 @@ type trayApp struct {
 	notifier *desktopapp.Notifier
 	show     func()
 	exe      string
+	update   *systray.MenuItem
+	checker  *update.Checker
+	updOn    *systray.MenuItem
 	shunt    string // CLI, for the captive portal browser
 	sock     string
 
@@ -124,7 +132,10 @@ func (a *trayApp) onReady() {
 	systray.AddSeparator()
 	restart := systray.AddMenuItem("Restart service", "Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment")
 	restartAll := systray.AddMenuItem("Restart service and app", "Restart shuntd, then this tray app and window")
+	a.update = systray.AddMenuItem("Update available – how to update…", "Shows the command to update The Shunt")
+	a.update.Hide()
 	systray.AddSeparator()
+	a.updOn = systray.AddMenuItemCheckbox("Check for updates", "Ask GitHub every 3 hours whether a newer version exists", update.Enabled())
 	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
 	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
 	systray.SetOnTapped(a.show) // left click on the icon
@@ -136,6 +147,20 @@ func (a *trayApp) onReady() {
 				a.show()
 			case <-a.panic.ClickedCh:
 				a.togglePanic()
+			case <-a.update.ClickedCh:
+				a.show() // the window shows the command with a copy button
+			case <-a.updOn.ClickedCh:
+				on := !a.updOn.Checked()
+				if err := update.SetEnabled(on); err != nil {
+					a.notifier.Notify(desktopapp.Notification{Summary: "Update check", Body: err.Error()})
+					continue
+				}
+				if on {
+					a.updOn.Check()
+				} else {
+					a.updOn.Uncheck()
+					a.update.Hide()
+				}
 			case <-restart.ClickedCh:
 				go a.restartService(false)
 			case <-restartAll.ClickedCh:
@@ -170,6 +195,15 @@ func (a *trayApp) onReady() {
 		}
 	}()
 	go a.poll()
+	go a.checker.Run(context.Background())
+}
+
+// updateAvailable is called once per found update.
+func (a *trayApp) updateAvailable(i update.Info) {
+	if a.update != nil {
+		a.update.Show()
+	}
+	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt: update available", Body: "Open the tray menu → “Update available” for the command (one click to copy)."})
 }
 
 // restartService asks shuntd to restart and waits until it answers again;

@@ -94,6 +94,9 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .drop.over { border-color: var(--accent); color: var(--accent); }
 #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 9px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 #toast.show { opacity: 1; }
+#updbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px auto 0; max-width: 1140px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: var(--r); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+#updbar[hidden] { display: none; }
+#updbar code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 6px 8px; background: var(--panel2); border-radius: 6px; font-size: 12px; }
 #modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 #modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
 #modal .box p { margin: 0 0 14px; white-space: pre-line; }
@@ -116,6 +119,12 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
 </header>
 
+<div id="updbar" hidden>
+  <b>Update available</b> <span class="muted" id="upd-ver"></span>
+  <span>Run this in a terminal:</span>
+  <code id="upd-cmd" class="mono"></code>
+  <button id="upd-copy" class="primary">Copy</button>
+</div>
 <main id="page-overview">
   <div id="banners" style="display:contents"></div>
 
@@ -192,6 +201,9 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
       <label>Encrypted DNS of apps</label>
       <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label></div>
+      <label>Updates</label>
+      <div><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
+        <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
     </div>
     <div class="hint">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div>
   </section>
