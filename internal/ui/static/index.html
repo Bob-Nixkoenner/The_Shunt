@@ -209,16 +209,16 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <section class="half">
     <h2>General</h2>
     <div class="form">
-      <label for="c-default">Everything else goes</label><div><select id="c-default"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
+      <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
       <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
       <label>Encrypted DNS of apps</label>
       <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
-        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label></div>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
+        <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
       <label>Updates</label>
       <div><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
         <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
     </div>
-    <div class="hint">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div>
   </section>
 
   <section class="half">

@@ -32,6 +32,13 @@ const (
 	RulePriority = 5300
 )
 
+// Private ranges a route with allow_lan may reach past its tunnel (only the
+// parts that are directly attached to the machine are routed there).
+var (
+	LANv4 = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"}
+	LANv6 = []string{"fc00::/7", "fe80::/10"}
+)
+
 // TunnelInfo carries what the plan needs to know about a tunnel's config.
 type TunnelInfo struct {
 	Iface      string
@@ -52,6 +59,8 @@ type Route struct {
 	AllowedIPs []netip.Prefix
 	// DNSPort is where the DNS proxy listens for this route's queries.
 	DNSPort int
+	// AllowLAN: directly attached private networks go past the tunnel.
+	AllowLAN bool
 }
 
 // Group is a process group backed by a cgroup.
@@ -173,6 +182,7 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
+			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
 		}
 		p.Routes = append(p.Routes, r)
 	}

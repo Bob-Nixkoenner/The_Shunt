@@ -14,6 +14,9 @@
   openvpn on Linux.
 - **Installer** checks the connection to GitHub first (20 s) instead of hanging silently;
   with The Shunt active it offers to run itself past the tunnels.
+- **Local network past the tunnel** (`allow_lan = true` per tunnel, checkbox in Configure):
+  apps in that tunnel still reach printer, NAS and router of the network you are in;
+  only directly attached private networks, everything else stays in the tunnel.
 - Leak test easier to read (one card per route, long IPv6 resolvers wrap).
 
 ## v0.6.0
