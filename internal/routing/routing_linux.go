@@ -147,13 +147,13 @@ func syncLinkTable(r *engine.Route) error {
 			}
 		}
 	}
-	return applyTable(r.Table, want)
+	return applyTable(r.Table, nil, want)
 }
 
 func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
-	var want []*netlink.Route
+	var want, soft []*netlink.Route
 	for _, l := range lan {
-		want = append(want, &netlink.Route{
+		soft = append(soft, &netlink.Route{
 			LinkIndex: l.LinkIndex,
 			Type:      unix.RTN_UNICAST,
 			Table:     r.Table,
@@ -185,12 +185,13 @@ func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 			})
 		}
 	}
-	return applyTable(r.Table, want)
+	return applyTable(r.Table, want, soft)
 }
 
 // applyTable makes table hold the unreachable defaults plus want: new
 // routes first, stale ones removed after (never an empty table).
-func applyTable(table int, routes []*netlink.Route) error {
+// Failing soft routes (copies of link/LAN routes) give SoftErrors.
+func applyTable(table int, routes, soft []*netlink.Route) error {
 	// unreachable first: a fresh table must never hold only some routes,
 	// misses would fall through to the main table
 	var want []*netlink.Route
@@ -212,6 +213,13 @@ func applyTable(table int, routes []*netlink.Route) error {
 			errs = append(errs, fmt.Errorf("table %d route %v: %w", table, rt.Dst, err))
 		}
 	}
+	// copies of the interfaces' own routes: may fail while a link comes up
+	for _, rt := range soft {
+		if err := netlink.RouteReplace(rt); err != nil {
+			errs = append(errs, &SoftError{fmt.Errorf("table %d route %v via %v: %w", table, rt.Dst, rt.Gw, err)})
+		}
+	}
+	want = append(want, soft...)
 	// remove stale routes
 	have, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: table}, netlink.RT_FILTER_TABLE)
 	if err != nil {
