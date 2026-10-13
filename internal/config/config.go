@@ -129,6 +129,10 @@ type Tunnel struct {
 	// Via makes this tunnel a second hop: its encrypted packets travel
 	// through that tunnel ("tunnel:<name>") instead of the local network.
 	Via string `toml:"via,omitempty" json:"via,omitempty"`
+	// AllowLAN: this route's apps reach the networks the machine is
+	// directly attached to (printer, NAS, router) past the tunnel.
+	// Only private ranges; everything else still goes through the tunnel.
+	AllowLAN bool `toml:"allow_lan,omitempty" json:"allow_lan,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.

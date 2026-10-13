@@ -53,6 +53,10 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   round. The first hop sees only the second hop's server, the second hop's server
   only the first hop's exit. First hop down → second hop blocked, nothing goes
   direct. The inner MTU is lowered automatically
+- **Local network past the tunnel** per tunnel (`allow_lan = true`): printer, NAS and
+  router stay reachable for tunnelled apps; only directly attached private networks
+- **Panic hotkey**: bind `shunt panic on` to a key in your desktop's keyboard settings
+  (COSMIC/GNOME: Settings → Keyboard → Custom Shortcuts)
 - **Network profiles**: `[[network]]` per Wi-Fi name and router MAC – e.g. at home
   everything direct, everywhere else through the tunnel
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
