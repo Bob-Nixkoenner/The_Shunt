@@ -38,7 +38,9 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
   `SHUNT_DRIVER=userspace` testet wireguard-go.
 - CI (`.github/workflows/ci.yml`): unit (gofmt, vet, test, fuzz, govulncheck, Cross-Build arm64 +
   Windows-vet für portable Pakete), integration (kernel + userspace), echter Install-Job.
-  Linux-only Code braucht `_linux.go` bzw. Build-Tags (Windows-vet bricht sonst).
+  Linux-only Code braucht `_linux.go` bzw. Build-Tags: CI vettet **alles außer dem Tray** für
+  Windows und macOS. Neue Linux-Mechanik gehört hinter `daemon.Backend` oder in eine
+  `_linux.go`-Datei mit Stub (`_other.go`).
 - In Test-Skripten **kein `| grep -q`** (pipefail + SIGPIPE) → Helper `gq` benutzen.
 - UI-Änderungen mit Playwright prüfen (Chromium in `/opt/pw-browsers`); Mock-Daemon-Beispiel
   im Verlauf: Python-Unix-Socket-Server, der `/v1/status`, `/v1/config` liefert.
@@ -68,6 +70,8 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 | `internal/update` | GitHub-Update-Check (3 h) |
 | `internal/desktopapp` | Tray-Logik (State, Diff→Notifications, Icon, Autostart) |
 | `internal/ui` | lokaler HTTP-Server + `static/` (index.html, app.js, config.js) |
+| `internal/daemon/backend.go` | **Plattform-Schicht**: `Backend`-Interface (Gruppen, Regeln, Routing, Panik, App-Watcher, Prozesse); Linux in `backend_linux.go`, Fake in `backend_test.go` |
+| `internal/links` | Verbindungen nach Art (WLAN/Kabel/Mobil) für `link:`-Routen |
 | `install.sh` | Installer/Updater/Uninstaller |
 | `test/integration/run.sh` | Netns-End-to-End (WG, Multi-Hop, OpenVPN, DNS, Profile, Captive, Restart …) |
 

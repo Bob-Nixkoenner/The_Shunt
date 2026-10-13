@@ -1,0 +1,120 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+)
+
+// DefaultBackend is the platform's backend.
+func DefaultBackend() Backend { return &linuxBackend{} }
+
+// linuxBackend: cgroup v2 groups, nftables marks and rules, policy routing
+// tables (see packages cgroup, nft, routing, appwatch).
+type linuxBackend struct{ cg cgroup.Manager }
+
+func (b *linuxBackend) Init() (string, error) {
+	mount, err := cgroup.Mount()
+	if err != nil {
+		return "", err
+	}
+	b.cg = cgroup.Manager{Mount: mount}
+	return cgroup.Self()
+}
+
+func (b *linuxBackend) Groups() firewall.CGroups { return b.cg }
+
+func (b *linuxBackend) Render(p *engine.Plan) (string, error) { return nft.Render(p) }
+
+func (b *linuxBackend) Apply(ruleset string, held map[string]engine.Group) error {
+	ask, err := nft.AskRules(held)
+	if err != nil {
+		return err
+	}
+	return nft.Apply(ruleset + ask)
+}
+
+func (b *linuxBackend) Hold(held map[string]engine.Group) error {
+	s, err := nft.AskRules(held)
+	if err != nil {
+		return err
+	}
+	return nft.Apply(s)
+}
+
+func (b *linuxBackend) WatchHeld(ctx context.Context, seen func(id string, uid int)) error {
+	return firewall.Listen(ctx, seen)
+}
+
+func (b *linuxBackend) SyncRoutes(p *engine.Plan, up map[string]bool) error {
+	return routing.Sync(p, up)
+}
+
+func (b *linuxBackend) Panic(on bool) error {
+	if on {
+		return nft.Apply(nft.RenderPanic())
+	}
+	return nft.Apply(nft.DeleteScript(nft.PanicTable))
+}
+
+func (b *linuxBackend) LiftLockdown() error {
+	return nft.Apply(nft.DeleteScript(nft.LockdownTable))
+}
+
+func (b *linuxBackend) Cleanup() error {
+	var errs []error
+	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable} {
+		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
+	}
+	errs = append(errs, routing.Cleanup())
+	return errors.Join(errs...)
+}
+
+func (b *linuxBackend) DomainSets() dnsproxy.SetWriter { return dnsproxy.NftSets{Table: nft.Table} }
+
+func (b *linuxBackend) Watcher(log *slog.Logger, unknown func(int, appwatch.Proc)) AppWatcher {
+	return &appwatch.Watcher{Log: log, Mover: b.cg, Unknown: unknown}
+}
+
+func (b *linuxBackend) CgroupOf(pid int) (string, bool) {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
+	if err != nil {
+		return "", false
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		if c, ok := strings.CutPrefix(l, "0::"); ok {
+			return strings.Trim(c, "/"), true
+		}
+	}
+	return "", false
+}
+
+func (b *linuxBackend) Comm(pid int) (string, bool) {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(raw)), true
+}
+
+func (b *linuxBackend) Pids() []int {
+	ents, _ := os.ReadDir("/proc")
+	var out []int
+	for _, e := range ents {
+		if pid, err := strconv.Atoi(e.Name()); err == nil {
+			out = append(out, pid)
+		}
+	}
+	return out
+}

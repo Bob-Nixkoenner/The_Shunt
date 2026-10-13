@@ -100,7 +100,7 @@ func (d *Daemon) checkCandidate(raw []byte) (*Prepared, error) {
 	d.mu.Lock()
 	ni, ls := d.netInfo, d.links
 	d.mu.Unlock()
-	return PrepareOn(tmp, root, &ni, ls)
+	return PrepareOn(tmp, root, Env{Net: &ni, Links: ls, Backend: d.Backend})
 }
 
 func (d *Daemon) absConf(p string) string {

@@ -3,10 +3,10 @@
 // leaks) until the user picks a route for it – or, in "ask" mode, until a
 // timeout gives it the default route.
 //
-// How a held program is noticed: its cgroup gets an nft rule that logs its
-// first packets to an NFLOG group with the prefix "ask:<id> " and rejects
-// them (see nft.AskRules). Programs that never use the network are held
-// silently and never asked about.
+// How a held program is noticed: the platform blocks its waiting group and
+// reports its first packets (Linux: an nft rule logs them to NFLOG with the
+// prefix "ask:<id> ", see nft.AskRules and Listen). Programs that never use
+// the network are held silently and never asked about.
 package firewall
 
 import (
@@ -26,7 +26,6 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 )
 
 // CGroups is what the firewall needs from the cgroup manager.
@@ -72,10 +71,12 @@ type entry struct {
 
 // Manager holds and releases programs.
 type Manager struct {
-	Log   *slog.Logger
-	CG    CGroups
-	Apply func(script string) error // nft
-	Store string                    // remembered decisions (JSON)
+	Log *slog.Logger
+	CG  CGroups
+	// Hold blocks the given waiting groups (id -> group) and only them;
+	// called whenever the set changes.
+	Hold  func(held map[string]engine.Group) error
+	Store string // remembered decisions (JSON)
 	// Changed is called (without locks held) when the pending list changes.
 	Changed func()
 	// Placed is told about every process the firewall moves into a route
@@ -370,33 +371,30 @@ func (m *Manager) Forget(key string) error {
 	return m.save()
 }
 
-// RulesFor returns the nft rules of the waiting groups for cgroup root
-// root. A ruleset reload replaces the table and with it these rules: append
-// them to the new ruleset so held programs never get out in between.
-func (m *Manager) RulesFor(root string) (string, error) {
+// HeldFor returns the waiting groups (id -> group) for cgroup root root.
+// A ruleset reload replaces the platform's rules and with them the block of
+// these groups: install them together with the new ruleset so held
+// programs never get out in between.
+func (m *Manager) HeldFor(root string) map[string]engine.Group {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.rules(root)
+	return m.held(root)
 }
 
-func (m *Manager) rules(root string) (string, error) {
+func (m *Manager) held(root string) map[string]engine.Group {
 	groups := map[string]engine.Group{}
 	for id, e := range m.byID {
 		groups[id] = engine.Group{Name: "ask:" + e.Name, Path: askPathIn(root, id)}
 	}
-	return nft.AskRules(groups)
+	return groups
 }
 
-// applyRules installs the nft rules of all waiting groups. Caller holds m.mu.
+// applyRules blocks all waiting groups. Caller holds m.mu.
 func (m *Manager) applyRules() error {
-	if m.Apply == nil {
+	if m.Hold == nil {
 		return nil
 	}
-	s, err := m.rules(m.set.Root)
-	if err != nil {
-		return err
-	}
-	return m.Apply(s)
+	return m.Hold(m.held(m.set.Root))
 }
 
 func (m *Manager) load() {

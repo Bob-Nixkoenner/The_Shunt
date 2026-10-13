@@ -4,12 +4,12 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 )
 
 type fakeCG struct{ procs map[string][]int }
@@ -43,11 +43,11 @@ func (f *fakeCG) where(pid int) string {
 
 const app = "user.slice/user-1000.slice/user@1000.service/app.slice/app-firefox-1.scope"
 
-func newMgr(t *testing.T, mode string) (*Manager, *fakeCG, *[]string) {
+func newMgr(t *testing.T, mode string) (*Manager, *fakeCG, *[]map[string]engine.Group) {
 	cg := &fakeCG{procs: map[string][]int{}}
-	var rules []string
+	var rules []map[string]engine.Group
 	m := &Manager{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), CG: cg, Store: filepath.Join(t.TempDir(), "apps.json"),
-		Apply: func(s string) error { rules = append(rules, s); return nil }}
+		Hold: func(h map[string]engine.Group) error { rules = append(rules, h); return nil }}
 	err := m.Configure(Settings{Mode: mode, Timeout: 30 * time.Second, Root: "shunt",
 		Groups: map[string]string{"tunnel:vps": "shunt/apps/via/tunnel-vps", "direct": "shunt/apps/via/direct"}})
 	if err != nil {
@@ -64,8 +64,8 @@ func TestHoldAskDecide(t *testing.T) {
 	if cg.where(100) != "shunt/apps/ask/p1" || cg.where(101) != "shunt/apps/ask/p1" {
 		t.Fatalf("not held: %v", cg.procs)
 	}
-	if !strings.Contains((*rules)[len(*rules)-1], `prefix "ask:p1 "`) {
-		t.Errorf("no rule: %s", (*rules)[len(*rules)-1])
+	if g := (*rules)[len(*rules)-1]["p1"]; g.Path != "shunt/apps/ask/p1" {
+		t.Errorf("not blocked: %v", (*rules)[len(*rules)-1])
 	}
 	if len(m.List()) != 0 {
 		t.Error("listed before it used the network")
@@ -144,16 +144,12 @@ func TestWrapperExecGetsOwnDecision(t *testing.T) {
 	}
 }
 
-// A ruleset reload replaces the table: the held groups' rules must come
-// with the new ruleset (new root included), not after it.
-func TestRulesForReload(t *testing.T) {
+// A ruleset reload replaces the table: the held groups must come with the
+// new ruleset (new root included), not after it.
+func TestHeldForReload(t *testing.T) {
 	m, _, _ := newMgr(t, config.FirewallBlock)
 	m.Unknown(100, appwatch.Proc{Comm: "curl", Exe: "/usr/bin/curl", Cgroup: app, UID: 1000})
-	s, err := m.RulesFor("newroot")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(s, `"newroot/apps/ask/p1"`) || !strings.Contains(s, "reject") {
-		t.Errorf("held group missing: %s", s)
+	if g := m.HeldFor("newroot")["p1"]; g.Path != "newroot/apps/ask/p1" {
+		t.Errorf("held group missing: %v", m.HeldFor("newroot"))
 	}
 }

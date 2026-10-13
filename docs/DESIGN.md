@@ -314,7 +314,14 @@ Hotel-WLAN `192.168.1.0/24` vs. Homelab hinter dem Tunnel ebenfalls `192.168.1.0
 | Domain-Regeln | DNS-Proxy im VpnService + Routen | WFP + Routen | NE DNS-Proxy |
 | Bemerkung | Großteil existiert in Rethink → Kooperation statt Klon prüfen | „Hier wohnen Drachen“ | niedrige Priorität |
 
-Der Core bleibt identisch; `Capabilities()` meldet, was die Plattform kann, Frontends blenden Nichtunterstütztes aus.
+Der Core bleibt identisch. **Stand Oktober 2026:** Der Daemon spricht das Betriebssystem nur noch über
+`daemon.Backend` an (`internal/daemon/backend.go`: Prozessgruppen, Regelwerk + festgehaltene Gruppen in
+einem Schritt, Routing/Kill-Switch, Panik, Lockdown, App-Watcher, Prozessliste). `backend_linux.go` ist
+die cgroup/nftables/netlink-Umsetzung. Tunnel, Netzwerkerkennung, Links und DNS-Upstreams sind eigene
+Pakete mit Dateien pro Plattform (`_linux.go` + `_other.go`-Stub). Alles außer dem Tray baut für Windows
+und macOS (CI). Ein Windows-Backend wäre `backend_windows.go` (WFP + Routing-Tabelle), Android nutzt
+voraussichtlich nur `config`/`engine`/`dnsproxy` als Bibliothek (gomobile), weil `VpnService` ein
+anderes Modell ist (ein TUN, Pakete im Prozess verteilen).
 
 ---
 

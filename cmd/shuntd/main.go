@@ -9,13 +9,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/daemon"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -58,7 +58,10 @@ func main() {
 			os.Exit(75)
 		}
 	case "check":
-		root, _ := cgroup.Self()
+		var root string
+		if b := daemon.DefaultBackend(); b != nil {
+			root, _ = b.CgroupOf(os.Getpid())
+		}
 		var p *daemon.Prepared
 		if p, err = daemon.Prepare(*cfgPath, root); err == nil {
 			fmt.Print(p.Ruleset)
