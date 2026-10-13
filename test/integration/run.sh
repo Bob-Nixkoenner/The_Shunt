@@ -345,6 +345,11 @@ for _ in $(seq 25); do shunt status | gq ' ago ' && hs=yes && break; sleep 0.2; 
 check "handshake shown in status (bypass mark)" yes "$hs"
 check "default DNS via tunnel" "tunnel 10.66.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)"
 ((HAVE_V6)) && check "IPv6 default blocked (tunnel v4-only)" "" "$(fetch curl -s -6 "$URL6")"
+# a server that does not clamp: its tunnel side can take 1500-byte packets
+ip -n $WAN link set wgs mtu 1500
+mss=$(fetch "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s http://10.66.0.1:8080/mss)
+check "TCP into a tunnel announces the tunnel's MSS (clamped)" yes "$([[ -n $mss && $mss -le 1380 ]] && echo yes || echo "no: $mss")"
+ip -n $WAN link set wgs mtu 1420
 
 echo "== config editing API"
 capi() { curl -s --unix-socket "$SOCK" -X "$1" -o "$WORK/api.out" -w '%{http_code}' "http://shuntd$2" ${3:+-H 'Content-Type: application/json' --data-binary "$3"}; }
