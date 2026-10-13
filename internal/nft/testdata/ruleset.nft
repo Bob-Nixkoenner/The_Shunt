@@ -17,7 +17,7 @@ table inet shunt {
 		type route hook output priority mangle; policy accept;
 		meta mark 0x5300ff return
 		meta mark and 0xffff00 == 0x530000 ct mark set meta mark return
-		ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
+		meta l4proto tcp ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
 		ct direction reply return
 		oifname "lo" meta l4proto != { tcp, udp } return
 		oifname "lo" th dport != 53 return
