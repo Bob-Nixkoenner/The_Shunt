@@ -53,6 +53,11 @@ Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shun
   round. The first hop sees only the second hop's server, the second hop's server
   only the first hop's exit. First hop down → second hop blocked, nothing goes
   direct. The inner MTU is lowered automatically
+- **Wi-Fi vs. cable**: routes `link:wifi`, `link:ethernet`, `link:mobile` send a program
+  out over that connection only, with Wi-Fi and cable plugged in at the same time
+  (e.g. a download over cable, the browser over Wi-Fi). Not connected → blocked, never
+  the other connection. Works as a tunnel's `via` too (`via = "link:wifi"`: that tunnel
+  only over Wi-Fi). DNS: the DNS server that connection got, or your `dns.direct`
 - **Local network past the tunnel** per tunnel (`allow_lan = true`): printer, NAS and
   router stay reachable for tunnelled apps; only directly attached private networks
 - **Panic hotkey**: bind `shunt panic on` to a key in your desktop's keyboard settings
@@ -121,6 +126,27 @@ route = "tunnel:nl"              # Firefox: home -> nl -> internet
 
 `shunt run --via tunnel:home -- thunderbird` still uses `home` alone at the same time.
 Swap the order by moving `via` to the other tunnel.
+
+## Wi-Fi and cable at the same time
+
+```toml
+[[rule]]
+app   = ["qbittorrent"]
+route = "link:ethernet"          # downloads over the cable only
+
+[[rule]]
+app   = ["firefox"]
+route = "link:wifi"              # Firefox over the Wi-Fi only
+
+[tunnel.sd1]
+config = "tunnels/sd1.conf"
+via    = "link:wifi"             # this tunnel's packets leave over the Wi-Fi
+```
+
+Or ad hoc: `shunt run --via link:wifi -- firefox`. Which interface is which kind is
+found out automatically (sysfs: Wi-Fi, physical Ethernet incl. USB, WWAN modems);
+with two of a kind the one with the lower route metric wins. `shunt status` warns
+when a link route is used but not connected.
 
 ## How it works
 

@@ -34,6 +34,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
@@ -67,8 +68,13 @@ type Daemon struct {
 	// tunEvents: an OpenVPN tunnel connected or disconnected.
 	tunEvents chan struct{}
 	netInfo   netdetect.Info
-	netRetry  bool // a profile switch failed: retry on the next network tick
-	restart   chan struct{}
+	// links: the connected Wi-Fi/cable/mobile interfaces (link routes);
+	// linkDNS holds their DNS servers ([]netip.Addr per kind), read by
+	// the DNS proxy without d.mu.
+	links    links.State
+	linkDNS  sync.Map
+	netRetry bool // a profile switch failed: retry on the next network tick
+	restart  chan struct{}
 
 	fw *firewall.Manager
 
@@ -102,11 +108,13 @@ type Prepared struct {
 }
 
 // Prepare loads everything and compiles the plan without touching the system.
-func Prepare(path, cgroupRoot string) (*Prepared, error) { return PrepareOn(path, cgroupRoot, nil) }
+func Prepare(path, cgroupRoot string) (*Prepared, error) {
+	return PrepareOn(path, cgroupRoot, nil, links.Current())
+}
 
 // PrepareOn is Prepare for the network net is on: a matching [[network]]
-// replaces the default route.
-func PrepareOn(path, cgroupRoot string, net *netdetect.Info) (*Prepared, error) {
+// replaces the default route. ls are the connected links (link routes).
+func PrepareOn(path, cgroupRoot string, net *netdetect.Info, ls links.State) (*Prepared, error) {
 	c, err := config.Load(path)
 	if err != nil {
 		return nil, err
@@ -184,9 +192,18 @@ func PrepareOn(path, cgroupRoot string, net *netdetect.Info) (*Prepared, error) 
 			eff, p.Network = &cc, n.Name
 		}
 	}
-	p.Plan, err = engine.CompileOn(eff, cgroupRoot, infos, p.Network)
+	ifaces := map[string]string{}
+	for k, l := range ls {
+		ifaces[k] = l.Name
+	}
+	p.Plan, err = engine.CompileOn(eff, cgroupRoot, infos, p.Network, ifaces)
 	if err != nil {
 		return nil, err
+	}
+	for _, r := range usedLinks(eff, p.Plan) {
+		if ifaces[r] == "" {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("route link:%s is used, but no %s connection is up: its traffic is blocked until it is", r, linkLabel(r)))
+		}
 	}
 	p.Ruleset, err = nft.Render(p.Plan)
 	if err != nil {
@@ -281,6 +298,24 @@ func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 			})}
 		}
 	}
+	for _, r := range p.Plan.Routes {
+		if r.Kind != config.RouteLink {
+			continue
+		}
+		if direct, ok := p.DNSUpstreams["direct"]; ok {
+			// an own dns.direct (DoT/DoH) is used on every connection
+			for _, s := range direct {
+				ups[r.String()] = append(ups[r.String()], dnsproxy.NewUpstream(s, r.Mark))
+			}
+			continue
+		}
+		kind := r.Link
+		ups[r.String()] = []dnsproxy.Upstream{dnsproxy.NewLinkUpstream(r.Mark, func() []netip.Addr {
+			v, _ := d.linkDNS.Load(kind)
+			a, _ := v.([]netip.Addr)
+			return a
+		})}
+	}
 	for route, specs := range p.DNSUpstreams {
 		r := p.Plan.RouteByName(route)
 		for _, s := range specs {
@@ -319,6 +354,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.specHash = map[string]string{}
 	d.tunErrors = map[string]string{}
 	d.netInfo = netdetect.Current()
+	d.setLinks(links.Current())
 	go d.probeCaptive()
 
 	if err := d.reload(self); err != nil {
@@ -409,7 +445,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, &d.netInfo)
+	p, err := PrepareOn(d.ConfigPath, root, &d.netInfo, d.links)
 	if err != nil {
 		return err
 	}
@@ -547,9 +583,23 @@ func firewallSettings(p *Prepared) firewall.Settings {
 // and switches the default route when a [[network]] profile starts or stops
 // matching.
 func (d *Daemon) checkNetwork() {
-	info := netdetect.Current()
+	info, ls := netdetect.Current(), links.Current()
 	d.mu.Lock()
+	// another Wi-Fi/cable interface in use: the ruleset names it
+	relink := ls.Names() != d.links.Names()
+	if ls.Key() != d.links.Key() {
+		d.setLinks(ls)
+		if !relink && d.prep != nil { // same interfaces, new gateway
+			if err := routing.Sync(d.plan, d.ifaceUp(d.prep)); err != nil {
+				d.Log.Warn("routing sync after link change", "err", err)
+			}
+		}
+	}
 	moved := info.Key() != d.netInfo.Key()
+	if relink {
+		d.Log.Info("connections changed", "links", ls.Names())
+		d.netRetry = true // reload below
+	}
 	if !moved && !d.netRetry {
 		d.mu.Unlock()
 		return
@@ -568,9 +618,10 @@ func (d *Daemon) checkNetwork() {
 		want = n.Name
 	}
 	have, root := d.prep.Network, d.plan.CgroupRoot
+	retry := d.netRetry
 	d.netRetry = false
 	d.mu.Unlock()
-	if want == have {
+	if want == have && !retry {
 		return
 	}
 	d.Log.Info("network changed", "ssid", info.SSID, "gateway_mac", info.GatewayMAC, "profile", want, "previous", have)
@@ -584,6 +635,52 @@ func (d *Daemon) checkNetwork() {
 	}
 }
 
+// setLinks stores the connected links and their DNS servers. Caller holds
+// d.mu (or runs before anything else).
+func (d *Daemon) setLinks(ls links.State) {
+	d.links = ls
+	for _, k := range config.LinkKinds {
+		d.linkDNS.Store(k, ls[k].DNS)
+	}
+}
+
+// usedLinks lists the link kinds that rules, the default route or tunnels
+// (via) use.
+func usedLinks(c *config.Config, p *engine.Plan) []string {
+	used := map[string]bool{}
+	mark := func(s string) {
+		if k, ok := strings.CutPrefix(s, "link:"); ok {
+			used[k] = true
+		}
+	}
+	mark(p.DefaultRoute.String())
+	for _, r := range p.Rules {
+		if !strings.HasPrefix(r.Name, "via:") { // not the implicit run-in-route rules
+			mark(r.Route.String())
+		}
+	}
+	for _, t := range c.Tunnels {
+		mark(t.Via)
+	}
+	var out []string
+	for _, k := range config.LinkKinds {
+		if used[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func linkLabel(kind string) string {
+	switch kind {
+	case "wifi":
+		return "Wi-Fi"
+	case "ethernet":
+		return "cable (Ethernet)"
+	}
+	return "mobile (LTE/5G)"
+}
+
 // HopOverhead is what one WireGuard encapsulation adds (IPv6 outer header
 // worst case): a hop inside another tunnel needs that much less MTU.
 const HopOverhead = 80
@@ -593,7 +690,7 @@ const HopOverhead = 80
 func hopConf(p *Prepared, name string) *wgconf.Config {
 	wc := p.Confs[name]
 	tc := p.Config.Tunnels[name]
-	if tc.Via == "" || wc.MTU != 0 {
+	if tc.Via == "" || wc.MTU != 0 || strings.HasPrefix(tc.Via, "link:") {
 		return wc
 	}
 	outer := strings.TrimPrefix(tc.Via, "tunnel:")
@@ -781,6 +878,9 @@ func (d *Daemon) routes() http.Handler {
 		d.mu.Lock()
 		g, ok := d.plan.Group(req.Group)
 		from, to := d.leaveRoute(int(p.pid)), d.groupRoute(g)
+		// a Wi-Fi login page: the tunnels can't connect anyway, and the
+		// login browser (shunt captive) has to go direct
+		portal := d.captive == captive.Portal && to == "direct"
 		d.mu.Unlock()
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown group %q", req.Group))
@@ -788,7 +888,7 @@ func (d *Daemon) routes() http.Handler {
 		}
 		// A process that already runs in a route may only move to the same
 		// route or to block; anything else is an escape and needs manage.
-		if from != "" && from != to && to != "block" {
+		if from != "" && from != to && to != "block" && !portal {
 			if err := d.authorize(r.Context(), p); err != nil {
 				writeErr(w, http.StatusForbidden, fmt.Errorf("leaving route %s: %w", from, err))
 				return

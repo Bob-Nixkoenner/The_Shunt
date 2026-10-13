@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,6 +25,9 @@ const (
 	MarkBypass uint32 = MarkBase | 0xff
 	// TableBase is the first routing table used for tunnels.
 	TableBase = 5300
+	// LinkSlot is the first mark/table slot of the link routes (after
+	// the tunnels, before MarkDirect).
+	LinkSlot = 0xe0
 	// DNSPortBase: the DNS proxy listens on 127.0.0.1/[::1] at
 	// DNSPortBase + route index; queries are redirected there per route.
 	DNSPortBase = 53530
@@ -152,7 +156,7 @@ func ViaGroupName(route string) string { return "via:" + route }
 
 // Compile builds a plan. tunnels must contain info for every configured tunnel.
 func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo) (*Plan, error) {
-	return CompileOn(c, cgroupRoot, tunnels, "")
+	return CompileOn(c, cgroupRoot, tunnels, "", nil)
 }
 
 // CompileOn builds the plan for the network profile network ("" = none
@@ -164,7 +168,10 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 //  3. programs started in a route on purpose (shunt run --via, menu entries)
 //  4. all other rules
 //  5. the default route
-func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo, network string) (*Plan, error) {
+//
+// links maps a link kind ("wifi") to its connected interface; a link route
+// without one gets no interface and blocks.
+func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo, network string, links map[string]string) (*Plan, error) {
 	cgroupRoot = strings.Trim(cgroupRoot, "/")
 	p := &Plan{
 		CgroupRoot:  cgroupRoot,
@@ -183,7 +190,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.Mark = MarkBlock
 		case config.RouteTunnel:
 			tIdx++
-			if tIdx >= 0xf0 {
+			if tIdx >= LinkSlot {
 				return nil, fmt.Errorf("too many tunnels")
 			}
 			ti, ok := tunnels[cr.Tunnel]
@@ -196,6 +203,12 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
 			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
+		case config.RouteLink:
+			slot := LinkSlot + slices.Index(config.LinkKinds, cr.Link)
+			r.Mark = MarkBase | uint32(slot)
+			r.Table = TableBase + slot
+			r.Iface = links[cr.Link]
+			r.V4, r.V6 = true, true
 		}
 		p.Routes = append(p.Routes, r)
 	}

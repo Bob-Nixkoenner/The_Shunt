@@ -37,7 +37,7 @@ const usage = `usage: shunt [-s socket] <command>
 commands:
   run (--via ROUTE | --group NAME) -- CMD [ARGS...]
              start CMD with its traffic classified by ROUTE
-             (direct | block | tunnel:<name>) or by group rules
+             (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules
   status [--json]
   pending    programs the app firewall holds back, waiting for a route
   allow ID|NAME [--via ROUTE] [--once]
@@ -133,7 +133,7 @@ func main() {
 
 func run(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	via := fs.String("via", "", "route: direct | block | tunnel:<name>")
+	via := fs.String("via", "", "route: direct | block | tunnel:<name> | link:wifi|ethernet|mobile")
 	group := fs.String("group", "", "named group from the config")
 	_ = fs.Parse(args)
 	cmd := fs.Args()
@@ -160,7 +160,7 @@ func run(c *api.Client, args []string) error {
 func importTunnel(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	name := fs.String("name", "", "tunnel name (default: from the file name)")
-	via := fs.String("via", "", "second hop through this route (tunnel:<name>)")
+	via := fs.String("via", "", "second hop through this route (tunnel:<name>), or link:wifi|ethernet|mobile")
 	dns := fs.String("dns", "", "DNS upstream name from the config")
 	user := fs.String("user", "", "OpenVPN username (asked for if the server wants one)")
 	// flags may come after the file name

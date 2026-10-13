@@ -2,7 +2,19 @@
 
 ## Unreleased
 
-**Security fixes from a code review.**
+**Wi-Fi vs. cable, and security fixes from a code review.**
+
+- **New: routes per connection** – `link:wifi`, `link:ethernet`, `link:mobile`. With Wi-Fi
+  and cable plugged in, one program can go over the Wi-Fi and another over the cable
+  (rules, `shunt run --via link:wifi`, firewall answers, and `via = "link:wifi"` for a
+  tunnel). Not connected → its traffic is blocked, it never takes the other connection.
+  DNS goes to the server that connection got (or `dns.direct`). Interfaces are found
+  automatically and followed when they change.
+- **Fix: a fresh tunnel table got its routes before the kill switch route**; misses could
+  fall through to the main table for a moment. One failing route no longer keeps the
+  others out.
+- `shunt captive` still opens the login page direct without a password while a login
+  page is detected (see the next point).
 
 - **Fix: held and default-route programs could move themselves to `direct`.** A program
   held by the app firewall, or running on a tunnel default route, could ask the daemon to

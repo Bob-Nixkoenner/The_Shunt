@@ -19,7 +19,7 @@ function el(tag, attrs = {}, ...kids) {
 }
 
 function routeTag(r) {
-  const cls = r.startsWith("tunnel:") ? "tunnel" : r;
+  const cls = r.startsWith("tunnel:") ? "tunnel" : r.startsWith("link:") ? "link" : r;
   return el("span", { class: "route " + cls }, r || "–");
 }
 

@@ -126,6 +126,18 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain leak_guard {")
 	w("\t\ttype filter hook postrouting priority filter; policy accept;")
 	for _, r := range p.Routes {
+		if r.Kind == config.RouteLink {
+			// a link route leaves through its interface or not at all
+			if r.Iface == "" {
+				w("\t\tmeta mark %#x oifname != \"lo\" counter drop", r.Mark)
+				continue
+			}
+			if err := checkIdent(r.Iface); err != nil {
+				return "", err
+			}
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } counter drop", r.Mark, r.Iface)
+			continue
+		}
 		if r.Kind != config.RouteTunnel {
 			continue
 		}
@@ -148,7 +160,7 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain nat_post {")
 	w("\t\ttype nat hook postrouting priority srcnat; policy accept;")
 	for _, r := range p.Routes {
-		if r.Kind == config.RouteTunnel {
+		if (r.Kind == config.RouteTunnel || r.Kind == config.RouteLink) && r.Iface != "" {
 			w("\t\tmeta mark %#x oifname %q masquerade", r.Mark, r.Iface)
 		}
 	}

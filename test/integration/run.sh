@@ -93,6 +93,7 @@ echo online >"$WORK/portal.mode"
 ip netns exec $WAN python3 "$ROOT/test/integration/portal.py" 10.99.0.1 "$WORK/portal.mode" &
 PORTAL_PID=$!
 export SHUNT_CAPTIVE_URL=http://10.99.0.1:8090/check
+export SHUNT_LINK_KINDS=cli0=ethernet,cli1=wifi
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
@@ -328,6 +329,8 @@ write_config tunnel:vps
 shunt reload
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 check "default traffic via tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
+esc=$(fetch "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL 2>&1)
+check "default-route app cannot escape to direct" yes "$(grep -q 'leaving route tunnel:vps' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
 check "--via direct escapes default" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
 hs=no
 for _ in $(seq 25); do shunt status | gq ' ago ' && hs=yes && break; sleep 0.2; done
@@ -581,6 +584,12 @@ check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" 
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
 check "pending decision from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X POST -o /dev/null -w '%{http_code}' --data '{"route":"direct"}' http://shuntd/v1/pending/p99 | sed 's/403/denied/')"
+# a held program (waiting group) asks the daemon to start it direct
+mkdir -p "$CGMNT/$CG/apps/ask/pesc"
+esc=$(fetch sh -c 'echo $$ > /sys/fs/cgroup/'"$CG"'/apps/ask/pesc/cgroup.procs; exec "$@"' _ "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL 2>&1)
+check "held program cannot let itself out" yes "$(grep -q 'leaving route block' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
+rmdir "$CGMNT/$CG/apps/ask/pesc" 2>/dev/null || true
+check "forget from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X DELETE -o /dev/null -w '%{http_code}' "http://shuntd/v1/firewall/apps?key=$BIN/fwcurl" | sed 's/403/denied/')"
 shunt firewall forget "$BIN/fwcurl" || true
 check "forget removes the decision" no "$(shunt firewall apps | gq fwcurl && echo yes || echo no)"
 EXTRA_TUNNELS=
@@ -646,6 +655,31 @@ start_shuntd
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 got=; for _ in $(seq 20); do got=$(fetch curl -s $URL); [[ $got == 10.66.0.2 ]] && break; sleep 0.5; done
 check "back after restart" 10.66.0.2 "$got"
+
+echo "== link routes: Wi-Fi and cable at the same time"
+# a second uplink, declared Wi-Fi via SHUNT_LINK_KINDS (exported at the top)
+ip -n $WAN link add wan1 type veth peer name cli1
+ip -n $WAN link set cli1 netns $CLI
+ip -n $WAN addr add 10.98.0.1/24 dev wan1
+ip -n $CLI addr add 10.98.0.2/24 dev cli1
+ip -n $WAN link set wan1 up
+ip -n $CLI link set cli1 up
+ip -n $CLI route add default via 10.98.0.1 metric 200
+got=; for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via link:wifi -- curl -s $URL); [[ $got == 10.98.0.2 ]] && break; sleep 0.5; done
+check "link:wifi leaves over the Wi-Fi" 10.98.0.2 "$got"
+check "link:ethernet leaves over the cable" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via link:ethernet -- curl -s $URL)"
+check "default still through the tunnel" 10.66.0.2 "$(fetch curl -s $URL)"
+check "link:mobile not connected: blocked" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via link:mobile -- curl -s $URL)"
+check "link:wifi resolves over the Wi-Fi" "direct 10.98.0.2" "$(dnsq_via link:wifi -server 10.99.0.1:53 -type TXT whoami.test)"
+check "link table has the Wi-Fi gateway" yes "$(cli ip route show table $((5300 + 0xe0)) | gq 'default via 10.98.0.1 dev cli1' && echo yes || echo "no: $(cli ip route show table $((5300 + 0xe0)))")"
+ip -n $CLI link set cli1 down
+got=x; for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via link:wifi -- curl -s $URL); [[ -z $got ]] && break; sleep 0.5; done
+check "Wi-Fi gone: blocked, not over the cable" "" "$got"
+ip -n $CLI link set cli1 up
+ip -n $CLI route add default via 10.98.0.1 metric 200 2>/dev/null || true
+got=; for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via link:wifi -- curl -s $URL); [[ $got == 10.98.0.2 ]] && break; sleep 0.5; done
+check "Wi-Fi back: followed" 10.98.0.2 "$got"
+ip -n $CLI link del cli1
 
 echo "== panic"
 shunt panic on

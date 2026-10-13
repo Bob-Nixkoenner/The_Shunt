@@ -60,6 +60,11 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 		}
 	}
 	for _, r := range p.Routes {
+		if r.Kind == config.RouteLink {
+			wantRules[r.Table] = r.Mark
+			errs = append(errs, syncLinkTable(r))
+			continue
+		}
 		if r.Kind != config.RouteTunnel {
 			continue
 		}
@@ -116,6 +121,41 @@ func lanRoutes(p *engine.Plan) []netlink.Route {
 	return out
 }
 
+// syncLinkTable fills a link route's table with the main table's routes
+// through its interface (default route via the gateway, the attached
+// subnets). Without the interface only the unreachable routes stay.
+func syncLinkTable(r *engine.Route) error {
+	var want []*netlink.Route
+	if r.Iface != "" {
+		if link, err := netlink.LinkByName(r.Iface); err == nil {
+			main, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: unix.RT_TABLE_MAIN}, netlink.RT_FILTER_TABLE)
+			if err != nil {
+				return err
+			}
+			for _, rt := range main {
+				if rt.LinkIndex != link.Attrs().Index || rt.Type != unix.RTN_UNICAST || rt.MultiPath != nil {
+					continue
+				}
+				if rt.Dst != nil && rt.Dst.IP.IsLinkLocalUnicast() {
+					continue // fe80::/64 exists on every interface
+				}
+				want = append(want, &netlink.Route{
+					Family:    rt.Family,
+					LinkIndex: rt.LinkIndex,
+					Type:      unix.RTN_UNICAST,
+					Table:     r.Table,
+					Dst:       rt.Dst,
+					Gw:        rt.Gw,
+					Src:       rt.Src,
+					Scope:     rt.Scope,
+					Priority:  min(rt.Priority, UnreachableMetric-1),
+				})
+			}
+		}
+	}
+	return applyTable(r.Table, want)
+}
+
 func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 	var want []*netlink.Route
 	for _, l := range lan {
@@ -126,15 +166,6 @@ func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 			Dst:       l.Dst,
 			Scope:     netlink.SCOPE_LINK,
 			Src:       l.Src,
-		})
-	}
-	for _, fam := range families {
-		want = append(want, &netlink.Route{
-			Family:   fam,
-			Table:    r.Table,
-			Type:     unix.RTN_UNREACHABLE,
-			Dst:      defaultDst(fam),
-			Priority: UnreachableMetric,
 		})
 	}
 	var link netlink.Link
@@ -160,13 +191,35 @@ func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 			})
 		}
 	}
+	return applyTable(r.Table, want)
+}
+
+// applyTable makes table hold the unreachable defaults plus want: new
+// routes first, stale ones removed after (never an empty table).
+func applyTable(table int, routes []*netlink.Route) error {
+	// unreachable first: a fresh table must never hold only some routes,
+	// misses would fall through to the main table
+	var want []*netlink.Route
+	for _, fam := range families {
+		want = append(want, &netlink.Route{
+			Family:   fam,
+			Table:    table,
+			Type:     unix.RTN_UNREACHABLE,
+			Dst:      defaultDst(fam),
+			Priority: UnreachableMetric,
+		})
+	}
+	want = append(want, routes...)
+	var errs []error
 	for _, rt := range want {
 		if err := netlink.RouteReplace(rt); err != nil {
-			return fmt.Errorf("table %d route %v: %w", r.Table, rt.Dst, err)
+			// one odd route (a gateway gone meanwhile) must not keep the
+			// others out
+			errs = append(errs, fmt.Errorf("table %d route %v: %w", table, rt.Dst, err))
 		}
 	}
 	// remove stale routes
-	have, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: r.Table}, netlink.RT_FILTER_TABLE)
+	have, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: table}, netlink.RT_FILTER_TABLE)
 	if err != nil {
 		return err
 	}
@@ -182,7 +235,7 @@ func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 			_ = netlink.RouteDel(&h)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // hasAddr reports whether link has a usable (not link-local) address of fam.
@@ -201,7 +254,7 @@ func hasAddr(link netlink.Link, fam int) bool {
 
 func sameRoute(a netlink.Route, b *netlink.Route) bool {
 	return a.Type == b.Type && a.Priority == b.Priority && a.LinkIndex == b.LinkIndex &&
-		dstString(a.Dst, a.Family) == dstString(b.Dst, b.Family)
+		dstString(a.Dst, a.Family) == dstString(b.Dst, b.Family) && a.Gw.Equal(b.Gw)
 }
 
 func dstString(d *net.IPNet, fam int) string {
