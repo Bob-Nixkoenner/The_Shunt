@@ -56,3 +56,20 @@ func TestCheck(t *testing.T) {
 		t.Error("enable failed")
 	}
 }
+
+func TestInstalledChanges(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"sha":"ffff0000aaaa"}`))
+	}))
+	defer srv.Close()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	inst := "src-1234567"
+	c := &Checker{Current: "src-1234567", API: srv.URL, Installed: func() string { return inst }}
+	if !c.Check(context.Background()).Available {
+		t.Fatal("no update found")
+	}
+	inst = "src-ffff000" // updated, app not restarted
+	if i := c.Get(); i.Available || i.Current != "src-ffff000" {
+		t.Errorf("stale result after update: %+v", i)
+	}
+}

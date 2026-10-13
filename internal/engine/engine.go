@@ -152,6 +152,19 @@ func ViaGroupName(route string) string { return "via:" + route }
 
 // Compile builds a plan. tunnels must contain info for every configured tunnel.
 func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo) (*Plan, error) {
+	return CompileOn(c, cgroupRoot, tunnels, "")
+}
+
+// CompileOn builds the plan for the network profile network ("" = none
+// matched): rules limited to other networks are left out.
+//
+// Rule order (first match wins):
+//  1. programs started in the block route – nothing overrides block
+//  2. rules with override_explicit = true
+//  3. programs started in a route on purpose (shunt run --via, menu entries)
+//  4. all other rules
+//  5. the default route
+func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo, network string) (*Plan, error) {
 	cgroupRoot = strings.Trim(cgroupRoot, "/")
 	p := &Plan{
 		CgroupRoot:  cgroupRoot,
@@ -200,7 +213,11 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 		p.Groups = append(p.Groups, Group{Name: ViaGroupName(r.String()), Path: path.Join(cgroupRoot, "apps", "via", slug)})
 	}
 
+	var override, normal []Rule
 	for i, cr := range c.Rules {
+		if !cr.ActiveOn(network) {
+			continue // names below keep using i: stable across networks
+		}
 		route, _ := c.ParseRoute(cr.Route) // validated
 		rule := Rule{Name: cr.Name, Route: p.RouteByName(route.String()), AnyFamily: len(cr.CIDR)+len(cr.Domain) == 0}
 		if rule.Name == "" {
@@ -239,15 +256,27 @@ func Compile(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInfo)
 			ps, _ := config.ParsePort(s)
 			rule.Ports = append(rule.Ports, ps)
 		}
-		p.Rules = append(p.Rules, rule)
+		if cr.OverrideExplicit {
+			override = append(override, rule)
+		} else {
+			normal = append(normal, rule)
+		}
 	}
-	// Implicit rules: processes started with `shunt run --via X` take route X.
-	// They come after explicit rules so specific rules (e.g. "SSH direct")
-	// still win, as described in the design.
-	for _, r := range p.Routes {
+	// Implicit rules: processes started with `shunt run --via X` take
+	// route X. Block first, before anything; the others after the rules
+	// that explicitly override them.
+	via := func(r *Route) Rule {
 		g, _ := p.Group(ViaGroupName(r.String()))
-		p.Rules = append(p.Rules, Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: r})
+		return Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: r}
 	}
+	p.Rules = append(p.Rules, via(p.RouteByName("block")))
+	p.Rules = append(p.Rules, override...)
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteBlock {
+			p.Rules = append(p.Rules, via(r))
+		}
+	}
+	p.Rules = append(p.Rules, normal...)
 
 	dr, _ := c.ParseRoute(c.Daemon.DefaultRoute)
 	p.DefaultRoute = p.RouteByName(dr.String())

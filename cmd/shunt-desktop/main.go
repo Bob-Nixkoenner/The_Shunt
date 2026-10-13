@@ -56,7 +56,13 @@ func main() {
 	client := api.NewClient(*sock)
 	srv := &ui.Server{Socket: *sock, Self: shunt, Client: client}
 	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), exe: self, shunt: shunt, sock: *sock}
-	srv.Update = &update.Checker{Current: version, OnAvailable: app.updateAvailable}
+	srv.Update = &update.Checker{Current: version, OnAvailable: app.updateAvailable, Installed: func() string {
+		var st api.Status
+		if client.Do("GET", "/v1/status", nil, &st) != nil {
+			return ""
+		}
+		return st.Version
+	}}
 	app.checker = srv.Update
 	ln, url, err := srv.Listen(0)
 	if err != nil {
