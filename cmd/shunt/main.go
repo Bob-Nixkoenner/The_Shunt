@@ -486,7 +486,7 @@ func leaktest(c *api.Client, sock string) error {
 	fmt.Println("Probing every route (api.ipify.org + Google DNS)...")
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	res := probe.LeakTest(ctx, self(), sock, st.Routes)
+	res := probe.LeakTest(ctx, probe.DaemonRunner(c), st.Routes)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ROUTE\tPUBLIC IP\tDNS RESOLVER\tRESULT")
 	leak := false
