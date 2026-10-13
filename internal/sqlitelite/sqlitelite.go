@@ -173,12 +173,12 @@ func (d *db) cell(p []byte, c int) ([]byte, error) {
 	}
 	size, n := varint(p[c:])
 	c += n
-	_, n = varint(p[c:]) // rowid
-	c += n
-	total := int(size)
-	if total < 0 || total > 1<<24 {
+	_, m := varint(p[c:]) // rowid
+	c += m
+	if n == 0 || m == 0 || size > 1<<24 {
 		return nil, errors.New("bad payload size")
 	}
+	total := int(size)
 	u := d.usable
 	x := u - 35
 	local := total
@@ -221,7 +221,7 @@ func (d *db) cell(p []byte, c int) ([]byte, error) {
 // record decodes an SQLite record into values.
 func record(b []byte) ([]any, error) {
 	hsize, n := varint(b)
-	if n == 0 || int(hsize) > len(b) {
+	if n == 0 || hsize > uint64(len(b)) || hsize < uint64(n) {
 		return nil, errors.New("bad record header")
 	}
 	var types []int64
