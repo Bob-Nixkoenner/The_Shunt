@@ -177,7 +177,7 @@ func judge(rs []RouteResult) {
 				r.Verdict, r.Note = "ok", "no tunnel: this connection's own address"
 			}
 		case res.IP == "" && res.Resolver == "":
-			r.Verdict, r.Note = "blocked", "tunnel not usable: blocked instead of leaking"
+			r.Verdict, r.Note = "blocked", "no internet through this tunnel (it may still be up, e.g. one that only reaches a home network) - nothing leaked"
 		case direct != nil && direct.IP != "" && res.IP == direct.IP:
 			r.Verdict, r.Note = "leak", "same public IP as the direct route"
 		case direct != nil && direct.Resolver != "" && res.Resolver == direct.Resolver:

@@ -82,6 +82,18 @@ func (e *Engine) Status() string { return e.e.Status() }
 // NetworkChanged is called by the app when the default network changes.
 func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
 
+// SetTimezone sets the zone for times in the log (an IANA name such as
+// "Europe/Berlin", from java.util.TimeZone.getDefault().id): Go has no TZ
+// variable in an Android app and would print UTC.
+func SetTimezone(name string) error {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return err
+	}
+	time.Local = loc
+	return nil
+}
+
 // SetNetwork reports the network (link: "wifi", "mobile", "ethernet" or "";
 // ssid: Wi-Fi name, "" if unknown) and returns the name of the matching
 // network profile ("" = none). Call it on every network change, after
