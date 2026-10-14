@@ -425,6 +425,25 @@ func status(c *api.Client, args []string) error {
 			fmt.Fprintf(w, "  error:\t%s\n", t.Error)
 		}
 	}
+	if len(st.Traffic) > 1 { // "total" plus at least one tunnel
+		fmt.Fprintln(w, "\nTRAFFIC\tTHIS MONTH ↓/↑\tLAST MONTH ↓/↑\tTOTAL ↓/↑")
+		names := make([]string, 0, len(st.Traffic))
+		for n := range st.Traffic {
+			if n != "total" {
+				names = append(names, n)
+			}
+		}
+		sort.Strings(names)
+		for _, n := range append(names, "total") {
+			t := st.Traffic[n]
+			label := "tunnel:" + n
+			if n == "total" {
+				label = "all tunnels"
+			}
+			fmt.Fprintf(w, "%s\t%s / %s\t%s / %s\t%s / %s\n", label, humanBytes(t.Month.RX), humanBytes(t.Month.TX),
+				humanBytes(t.LastMonth.RX), humanBytes(t.LastMonth.TX), humanBytes(t.Total.RX), humanBytes(t.Total.TX))
+		}
+	}
 	if len(st.DNS) > 0 {
 		fmt.Fprintln(w, "\nDNS ROUTE\tUPSTREAMS")
 		routes := make([]string, 0, len(st.DNS))
@@ -573,4 +592,18 @@ func desktopCmd(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("usage: shunt desktop list | set <app-id> <route> | unset <app-id> | clone <app-id> <route> --name N [--args A] | profiles")
+}
+
+// humanBytes: 1.5 GB style (powers of 1000, like traffic plans count).
+func humanBytes(n int64) string {
+	const unit = 1000
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/miekg/dns"
 )
 
@@ -32,6 +33,15 @@ func (d *Daemon) checkHealth() {
 	if d.health == nil {
 		d.health = map[string]*health.Monitor{}
 	}
+	if d.book == nil {
+		b, err := stats.Open(d.statsPath())
+		if err != nil {
+			d.Log.Warn("traffic statistics off", "err", err)
+			b, _ = stats.Open("") // count in memory
+		}
+		d.book = b
+	}
+	book := d.book
 	var jobs []job
 	for name, t := range d.tunnels {
 		m := d.health[name]
@@ -55,6 +65,7 @@ func (d *Daemon) checkHealth() {
 	for name := range d.health { // removed tunnels
 		if _, ok := d.tunnels[name]; !ok {
 			delete(d.health, name)
+			book.Forget(name)
 		}
 	}
 	d.mu.Unlock()
@@ -69,6 +80,7 @@ func (d *Daemon) checkHealth() {
 		before := j.mon.Report(now).State
 		if j.ok {
 			j.mon.Observe(j.hs, j.rx, j.tx, now)
+			book.Observe(j.name, j.rx, j.tx, now)
 		}
 		if j.mon.Active(now) && len(j.ups) > 0 {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

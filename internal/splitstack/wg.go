@@ -211,6 +211,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 				hs = time.Unix(st.Handshake, 0)
 			}
 			t.mon.Observe(hs, st.RX, st.TX, now)
+			e.book.Observe(t.name, st.RX, st.TX, now)
 			if t.mon.Active(now) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
 				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dns))

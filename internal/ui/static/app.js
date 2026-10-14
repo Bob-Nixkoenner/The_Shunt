@@ -118,13 +118,20 @@ function render() {
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, "through " + t.via)] : []),
         el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
         el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
+        ...(st.traffic && st.traffic[t.name] ? [el("span", {}, "this month"), el("span", {},
+          "↓ " + bytes(st.traffic[t.name].month.rx) + "  ↑ " + bytes(st.traffic[t.name].month.tx) +
+          "  (total ↓ " + bytes(st.traffic[t.name].total.rx) + "  ↑ " + bytes(st.traffic[t.name].total.tx) + ")")] : []),
         ...(t.up && t.health && t.health.state !== "unknown" ? [el("span", {}, "health"), el("span", {},
           el("span", { class: "pill verdict " + ({ ok: "ok", idle: "", stale: "warn", down: "bad" }[t.health.state] || "") },
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
           t.health.loss > 0 ? " · " + Math.round(t.health.loss * 100) + " % lost" : "")] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])));
-  }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]));
+  }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
+    ...(st.traffic && st.traffic.total && st.traffic.total.total.rx + st.traffic.total.total.tx > 0 ? [el("div", { class: "muted", style: "grid-column:1/-1" },
+      "All tunnels: this month ↓ " + bytes(st.traffic.total.month.rx) + " ↑ " + bytes(st.traffic.total.month.tx) +
+      " · last month ↓ " + bytes(st.traffic.total.last_month.rx) + " ↑ " + bytes(st.traffic.total.last_month.tx) +
+      " · total ↓ " + bytes(st.traffic.total.total.rx) + " ↑ " + bytes(st.traffic.total.total.tx))] : []));
 
   // Selects are rebuilt only when the routes change: rebuilding closes a
   // dropdown the user has open.

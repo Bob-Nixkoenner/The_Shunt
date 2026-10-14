@@ -80,6 +80,9 @@ func (e *Engine) Status() string { return e.e.Status() }
 // NetworkChanged is called by the app when the default network changes.
 func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
 
+// ResetStats deletes the traffic totals.
+func (e *Engine) ResetStats() error { return e.e.ResetStats() }
+
 // Stop ends everything; the Engine cannot be started again.
 func (e *Engine) Stop() { e.e.Stop() }
 

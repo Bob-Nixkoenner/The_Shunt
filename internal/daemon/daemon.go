@@ -39,6 +39,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
@@ -89,6 +90,7 @@ type Daemon struct {
 
 	health     map[string]*health.Monitor // per tunnel, see health.go
 	healthBusy bool
+	book       *stats.Book // traffic totals, opened by checkHealth
 }
 
 // ErrRestart: Run ended because a restart was requested through the API;
@@ -897,6 +899,9 @@ func (d *Daemon) shutdown() {
 		t.Down()
 	}
 	d.tunnels = map[string]tunnel.Device{}
+	if d.book != nil {
+		_ = d.book.Close()
+	}
 	if d.plan != nil {
 		_ = d.Backend.SyncRoutes(d.plan, nil) // shutting down: soft or not
 	}
@@ -1268,6 +1273,9 @@ func (d *Daemon) status() api.Status {
 		st.Pending = len(d.fw.List())
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	if d.book != nil {
+		st.Traffic = d.book.Summaries(time.Now())
+	}
 	for route, ups := range d.dnsUps {
 		for _, u := range ups {
 			st.DNS[route] = append(st.DNS[route], u.String())
@@ -1458,6 +1466,15 @@ func (d *Daemon) procNames(pids []int) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// statsPath: systemd's StateDirectory (/var/lib/shunt), or next to the
+// config for units installed before traffic statistics existed.
+func (d *Daemon) statsPath() string {
+	if dir, _, _ := strings.Cut(os.Getenv("STATE_DIRECTORY"), ":"); dir != "" {
+		return filepath.Join(dir, "stats.json")
+	}
+	return filepath.Join(filepath.Dir(d.ConfigPath), "stats.json")
 }
 
 // filterDir is where blocklists are cached: systemd's CacheDirectory

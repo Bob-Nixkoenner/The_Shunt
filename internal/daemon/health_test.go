@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func (*healthUp) String() string { return "fake" }
 
 func TestCheckHealth(t *testing.T) {
 	up := &healthUp{}
-	d := &Daemon{Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	d := &Daemon{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), ConfigPath: filepath.Join(t.TempDir(), "shunt.toml"),
 		tunnels: map[string]tunnel.Device{"t": &healthDev{}},
 		dnsUps:  dnsproxy.RouteUpstreams{"tunnel:t": {up}}}
 	d.checkHealth()
@@ -46,6 +47,9 @@ func TestCheckHealth(t *testing.T) {
 	r := d.healthReport("t")
 	if r == nil || r.State != "ok" || r.LatencyMs < 1 {
 		t.Fatalf("working tunnel: %+v", r)
+	}
+	if tr := d.book.Summaries(time.Now())["t"]; tr.Month.TX != 100 { // 2 observations: one step of 100
+		t.Errorf("traffic: %+v", tr)
 	}
 	up.fail.Store(true)
 	d.checkHealth()
