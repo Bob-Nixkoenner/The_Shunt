@@ -53,12 +53,12 @@ beim Start die UIDs ein.
 # einmalig: SDK unter ~/Android (siehe ~/Android/setup.sh), dazu
 #   platforms;android-35, build-tools;35.0.0, ndk;27.2.12479018, Gradle 8.11
 android/build-core.sh                      # Go-Kern -> app/libs/shunt-core.aar
-cd android && gradle assembleDebug         # -> app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleDebug      # -> app/build/outputs/apk/debug/app-debug.apk (Wrapper lädt Gradle 8.11.1, Prüfsumme geprüft)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Go-Tests: `go test ./mobile/ ./internal/splitstack/`. Emulator-Test (Emulator läuft,
-`adb` verbunden): `GRADLE=~/Android/gradle-8.11.1/bin/gradle test/android/emulator-test.sh`.
+`adb` verbunden): `test/android/emulator-test.sh`. `android/build-core.sh` findet `javac` auch unter `$JAVA_HOME` oder `~/Android/jdk`.
 
 ## Offen / nächste Schritte
 

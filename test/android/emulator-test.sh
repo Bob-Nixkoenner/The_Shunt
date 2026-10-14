@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Android/Sdk} JAVA_HOME=${JAVA_HOME:-$HOME/Android/jdk}
 ADB=$ANDROID_HOME/platform-tools/adb
-GRADLE=${GRADLE:-gradle}
+GRADLE=${GRADLE:-./gradlew} # inside android/
 PKG=org.theshunt.app
 W=$(mktemp -d)
 trap 'kill $SRV 2>/dev/null; rm -rf "$W"' EXIT
