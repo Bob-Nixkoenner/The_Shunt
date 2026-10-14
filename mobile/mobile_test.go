@@ -214,6 +214,25 @@ func TestRoutes(t *testing.T) {
 	if _, err := udpQuery(app, netip.MustParseAddrPort(DNSAddr+":53")); err == nil {
 		t.Fatal("blocked app's DNS got an answer")
 	}
+	// a real DNS query of a blocked app is refused at once (no timeout)
+	{
+		q := new(dns.Msg)
+		q.SetQuestion("example.org.", dns.TypeA)
+		raw, _ := q.Pack()
+		c, err := gonet.DialUDP(app, nil, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{10, 111, 0, 53}), Port: 53}, ipv4.ProtocolNumber)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		c.Write(raw)
+		buf := make([]byte, 512)
+		n, err := c.Read(buf)
+		c.Close()
+		var r dns.Msg
+		if err != nil || r.Unpack(buf[:n]) != nil || r.Rcode != dns.RcodeRefused {
+			t.Fatalf("blocked app's DNS: want REFUSED, got %v (%v)", r.Rcode, err)
+		}
+	}
 	p.uid.Store(10002)
 	if err := echoTCP(app, echo); err != nil {
 		t.Fatalf("other app: %v", err)

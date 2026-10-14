@@ -2,6 +2,7 @@ package splitstack
 
 import (
 	"context"
+	"errors"
 
 	"golang.zx2c4.com/wireguard/tun"
 	"gvisor.dev/gvisor/pkg/buffer"
@@ -32,7 +33,10 @@ func TunLink(dev tun.Device, mtu int) (link stack.LinkEndpoint, stop func()) {
 		for ctx.Err() == nil {
 			cnt, err := dev.Read(bufs, sizes, tunOffset)
 			if err != nil && cnt == 0 {
-				return
+				if errors.Is(err, tun.ErrTooManySegments) {
+					continue // one oversized batch, not the end of the device
+				}
+				return // closed
 			}
 			for i := 0; i < cnt; i++ {
 				p := bufs[i][tunOffset : tunOffset+sizes[i]]
