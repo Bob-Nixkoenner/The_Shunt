@@ -8,8 +8,6 @@
 package probe
 
 import (
-	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
-
 	"context"
 	"encoding/json"
 	"fmt"
@@ -44,13 +42,27 @@ type Result struct {
 }
 
 // Run performs the probe from the current process.
-func Run(ctx context.Context) Result {
+func Run(ctx context.Context) Result { return RunWith(ctx, nil, nil) }
+
+// Dial opens a connection on some route (net.Dialer.DialContext style).
+type Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+
+// RunWith performs the probe with dial (nil: this process's own route) and
+// resolver (nil: the system's) - for engines that make every connection
+// themselves (internal/splitstack).
+func RunWith(ctx context.Context, dial Dial, resolver *net.Resolver) Result {
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
 	var r Result
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		c := &http.Client{Timeout: 8 * time.Second}
+		if dial != nil {
+			c.Transport = &http.Transport{DialContext: dial, Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}
+		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, IPURL, nil)
 		resp, err := c.Do(req)
 		if err != nil {
@@ -69,7 +81,7 @@ func Run(ctx context.Context) Result {
 		defer wg.Done()
 		dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 		defer cancel()
-		txt, err := net.DefaultResolver.LookupTXT(dctx, DNSName)
+		txt, err := resolver.LookupTXT(dctx, DNSName)
 		if err != nil {
 			r.DNSErr = short(err)
 			return
@@ -103,16 +115,6 @@ type RouteResult struct {
 
 // Runner runs the probe inside route and returns its JSON Result.
 type Runner func(ctx context.Context, route string) ([]byte, error)
-
-// DaemonRunner lets shuntd start the probe right inside the route: no
-// `shunt run`, so no password for leaving the caller's own route.
-func DaemonRunner(c *api.Client) Runner {
-	return func(_ context.Context, route string) ([]byte, error) {
-		var raw json.RawMessage
-		err := c.Do("POST", "/v1/probe", api.ProbeRequest{Route: route}, &raw)
-		return raw, err
-	}
-}
 
 // LeakTest runs a probe in every route.
 func LeakTest(ctx context.Context, run Runner, routes []string) []RouteResult {

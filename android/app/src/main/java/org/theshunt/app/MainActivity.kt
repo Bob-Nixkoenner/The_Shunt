@@ -92,6 +92,8 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
     var status by remember { mutableStateOf<JSONObject?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmPass by remember { mutableStateOf(false) }
+    var leak by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var leakRunning by remember { mutableStateOf(false) }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
@@ -145,6 +147,11 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                     status = VpnState.engine?.status()?.let { JSONObject(it) }
                 }) { Text(if (passLeft > 0) "End pass (%d:%02d)".format(passLeft / 60, passLeft % 60) else "Pass 5 min") }
             }
+            OutlinedButton({
+                leak = null; leakRunning = true
+                Thread { val r = VpnState.engine?.leakTest(); leak = r?.let { org.json.JSONArray(it) }; leakRunning = false }.start()
+            }, enabled = !leakRunning) { Text(if (leakRunning) "Leak test running…" else "Leak test") }
+            Text("The leak test asks api.ipify.org (public IP) and Google DNS (which resolver) through every route.", style = MaterialTheme.typography.bodySmall)
             if (panic) Text("Panic: everything is blocked, running connections were cut.", color = MaterialTheme.colorScheme.error)
             else if (passLeft > 0) Text(
                 "Pass: everything goes direct – your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
@@ -214,6 +221,29 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                 Text("$what ($name)")
             }
         }
+    }
+    leak?.let { rs ->
+        AlertDialog(
+            onDismissRequest = { leak = null },
+            title = { Text("Leak test") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (i in 0 until rs.length()) {
+                        val r = rs.getJSONObject(i)
+                        val res = r.optJSONObject("result")
+                        val v = r.optString("verdict")
+                        Column {
+                            Text("${r.optString("route")}: $v", style = MaterialTheme.typography.titleSmall,
+                                color = if (v == "leak") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                            res?.optString("ip")?.takeIf { it.isNotEmpty() }?.let { Text("IP $it", style = MaterialTheme.typography.bodySmall) }
+                            res?.optString("resolver")?.takeIf { it.isNotEmpty() }?.let { Text("DNS resolver $it", style = MaterialTheme.typography.bodySmall) }
+                            r.optString("note").takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton({ leak = null }) { Text("OK") } },
+        )
     }
     if (confirmPass) {
         AlertDialog(
