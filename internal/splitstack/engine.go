@@ -242,16 +242,42 @@ func (e *Engine) setRules(c *config) error {
 
 const filterLevel = "on"
 
+// lists caches parsed blocklists by path: SetRules runs on every rule
+// change in the app, and parsing 100k names each time would stall it.
+var lists struct {
+	sync.Mutex
+	m map[string]cachedList
+}
+
+type cachedList struct {
+	mod  time.Time
+	size int64
+	l    *blocklist.List
+}
+
 func loadList(b blocklistConf) (*blocklist.List, error) {
 	f, err := os.Open(b.Path)
 	if err != nil {
 		return nil, fmt.Errorf("blocklist %s: %w", b.Name, err)
 	}
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("blocklist %s: %w", b.Name, err)
+	}
+	lists.Lock()
+	defer lists.Unlock()
+	if c, ok := lists.m[b.Path]; ok && c.mod.Equal(st.ModTime()) && c.size == st.Size() && c.l.Name == b.Name {
+		return c.l, nil
+	}
 	l, err := blocklist.Parse(b.Name, f)
 	if err != nil {
 		return nil, fmt.Errorf("blocklist %s: %w", b.Name, err)
 	}
+	if lists.m == nil {
+		lists.m = map[string]cachedList{}
+	}
+	lists.m[b.Path] = cachedList{st.ModTime(), st.Size(), l}
 	return l, nil
 }
 
@@ -356,6 +382,9 @@ func CheckWireGuard(conf string) (string, error) {
 	}
 	if len(c.Peers) == 0 {
 		return "", errors.New("no [Peer] in the file")
+	}
+	if len(c.Addresses) == 0 {
+		return "", errors.New("no Address in [Interface]")
 	}
 	sum := struct {
 		Addresses []string `json:"addresses"`

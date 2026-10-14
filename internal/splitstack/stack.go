@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -174,6 +175,9 @@ func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
 			if errors.Is(err, errBlocked) {
 				e.blocked.Add(1)
 			}
+			if f.isDNS(e) {
+				refuseDNS(in) // answer at once instead of letting the app time out
+			}
 			in.Close()
 			return
 		}
@@ -185,8 +189,11 @@ func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
 	}()
 }
 
-// relayUDP copies datagrams both ways until the flow is idle.
+// relayUDP copies datagrams both ways until the flow is idle in both
+// directions (a one-way stream, e.g. media the app only receives, stays up).
 func relayUDP(in, out net.Conn, idle time.Duration) {
+	var last atomic.Int64 // unix nanos of the last datagram either way
+	last.Store(time.Now().UnixNano())
 	done := make(chan struct{}, 2)
 	cp := func(dst, src net.Conn) {
 		buf := make([]byte, 65535)
@@ -194,8 +201,13 @@ func relayUDP(in, out net.Conn, idle time.Duration) {
 			src.SetReadDeadline(time.Now().Add(idle))
 			n, err := src.Read(buf)
 			if err != nil {
+				var ne net.Error
+				if errors.As(err, &ne) && ne.Timeout() && time.Since(time.Unix(0, last.Load())) < idle {
+					continue // the other direction is still busy
+				}
 				break
 			}
+			last.Store(time.Now().UnixNano())
 			if _, err := dst.Write(buf[:n]); err != nil {
 				break
 			}
@@ -252,4 +264,26 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 	in.Close()
 	out.Close()
 	<-done
+}
+
+// refuseDNS answers every query on a DNS flow that may not go anywhere
+// (route block, tunnel down) with REFUSED until the flow is idle.
+func refuseDNS(in net.Conn) {
+	buf := make([]byte, 65535)
+	for {
+		in.SetReadDeadline(time.Now().Add(dnsIdle))
+		n, err := in.Read(buf)
+		if err != nil {
+			return
+		}
+		var q dns.Msg
+		if q.Unpack(buf[:n]) != nil || q.Response {
+			continue
+		}
+		r := new(dns.Msg)
+		r.SetRcode(&q, dns.RcodeRefused)
+		if b, err := r.Pack(); err == nil {
+			in.Write(b)
+		}
+	}
 }
