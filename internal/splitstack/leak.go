@@ -22,7 +22,7 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 		return func(context.Context, string, string) (net.Conn, error) { return nil, errBlocked }, &net.Resolver{PreferGo: true,
 			Dial: func(context.Context, string, string) (net.Conn, error) { return nil, errBlocked }}, nil
 	case route == RouteDirect:
-		dnsSrv = e.direct
+		dnsSrv = e.directDNS()
 		raw = func(ctx context.Context, network string, ap netip.AddrPort) (net.Conn, error) {
 			return e.o.DialDirect(ctx, network, ap.String())
 		}

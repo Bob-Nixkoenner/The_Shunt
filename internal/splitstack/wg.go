@@ -40,7 +40,7 @@ func parseWG(conf string) (*wgconf.Config, error) {
 // Go's default resolver finds no /etc/resolv.conf on Android.
 func (e *Engine) resolver() *net.Resolver {
 	return &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return e.o.DialDirect(ctx, network, netip.AddrPortFrom(e.direct, 53).String())
+		return e.o.DialDirect(ctx, network, netip.AddrPortFrom(e.directDNS(), 53).String())
 	}}
 }
 

@@ -83,7 +83,7 @@ func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 	if e.o.Owner != nil {
 		f.app = e.o.Owner(proto, f.src, f.dst)
 	}
-	normal := e.routeFor(f.app)
+	normal := e.routeFor(f.app, proto, f.dst, f.isDNS(e))
 	f.route = e.ov.Route(normal, time.Now())
 	f.pass = f.route == RouteDirect && normal != RouteDirect
 	e.flows.Add(1)
@@ -135,7 +135,7 @@ func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
 	}
 	if f.route == RouteDirect {
 		if f.isDNS(e) {
-			dst = netip.AddrPortFrom(e.direct, 53)
+			dst = netip.AddrPortFrom(e.directDNS(), 53)
 		}
 		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
 	}
@@ -299,6 +299,10 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 				}
 				continue
 			}
+			if r := e.domainRule(f.app, q.Question[0].Name); r != nil {
+				go e.resolveForRule(f, r, append([]byte(nil), buf[:n]...), in)
+				continue
+			}
 		}
 		if _, err := out.Write(buf[:n]); err != nil {
 			break
@@ -307,6 +311,55 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 	in.Close()
 	out.Close()
 	<-done
+}
+
+// resolveForRule sends one query for a domain rule's name over the rule's
+// route, remembers the addresses for the rule and answers the app. A route
+// that cannot be reached answers SERVFAIL: the name must not leak out on
+// the app's own route.
+func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
+	var q dns.Msg
+	q.Unpack(query)
+	fail := func(rcode int) {
+		m := new(dns.Msg)
+		m.SetRcode(&q, rcode)
+		if b, err := m.Pack(); err == nil {
+			in.Write(b)
+		}
+	}
+	rf := &flow{proto: 17, src: f.src, dst: f.dst, app: f.app, route: e.ov.Route(r.route, time.Now())}
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimout)
+	out, err := e.dial(ctx, rf)
+	cancel()
+	if err != nil {
+		if errors.Is(err, errBlocked) {
+			fail(dns.RcodeRefused)
+			return
+		}
+		fail(dns.RcodeServerFailure)
+		return
+	}
+	defer out.Close()
+	out.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := out.Write(query); err != nil {
+		fail(dns.RcodeServerFailure)
+		return
+	}
+	buf := make([]byte, 65535)
+	for {
+		n, err := out.Read(buf)
+		if err != nil {
+			fail(dns.RcodeServerFailure)
+			return
+		}
+		var resp dns.Msg
+		if resp.Unpack(buf[:n]) != nil || resp.Id != q.Id {
+			continue
+		}
+		e.domains.add(r.key, &resp, time.Now())
+		in.Write(buf[:n])
+		return
+	}
 }
 
 // refuseDNS answers every query on a DNS flow that may not go anywhere

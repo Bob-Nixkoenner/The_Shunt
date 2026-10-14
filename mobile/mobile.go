@@ -82,6 +82,12 @@ func (e *Engine) Status() string { return e.e.Status() }
 // NetworkChanged is called by the app when the default network changes.
 func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
 
+// SetNetwork reports the network (link: "wifi", "mobile", "ethernet" or "";
+// ssid: Wi-Fi name, "" if unknown) and returns the name of the matching
+// network profile ("" = none). Call it on every network change, after
+// NetworkChanged.
+func (e *Engine) SetNetwork(link, ssid string) string { return e.e.SetNetwork(link, ssid) }
+
 // SetPanic blocks everything at once, running connections included.
 func (e *Engine) SetPanic(on bool) { e.e.SetPanic(on) }
 

@@ -46,6 +46,7 @@ type tunnelStatus struct {
 }
 
 type status struct {
+	Network    string         `json:"network"`
 	Tunnels    []tunnelStatus `json:"tunnels"`
 	Blocked    int64          `json:"blocked"`
 	DNSBlocked int64          `json:"dns_blocked"`
@@ -61,6 +62,13 @@ var serverIP = netip.MustParseAddr("10.9.0.1")
 // wgServer runs a WireGuard peer on 127.0.0.1 with a TCP echo on :80 and a
 // UDP echo on :53 inside its tunnel network.
 func wgServer(t *testing.T, clientPub wgtypes.Key, tag string) (pub wgtypes.Key, port int) {
+	t.Helper()
+	return wgServerDNS(t, clientPub, tag, false)
+}
+
+// wgServerDNS is wgServer; with realDNS, :53 answers DNS queries with an
+// A record of serverIP (TTL 60) and echoes everything else.
+func wgServerDNS(t *testing.T, clientPub wgtypes.Key, tag string, realDNS bool) (pub wgtypes.Key, port int) {
 	t.Helper()
 	priv, _ := wgtypes.GeneratePrivateKey()
 	tdev, tnet, err := netstack.CreateNetTUN([]netip.Addr{serverIP}, nil, 1420)
@@ -100,6 +108,16 @@ func wgServer(t *testing.T, clientPub wgtypes.Key, tag string) (pub wgtypes.Key,
 			n, a, err := u.ReadFrom(buf)
 			if err != nil {
 				return
+			}
+			var q dns.Msg
+			if realDNS && q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
+				r := new(dns.Msg)
+				r.SetReply(&q)
+				r.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: q.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+					A: net.IP(serverIP.AsSlice())}}
+				b, _ := r.Pack()
+				u.WriteTo(b, a)
+				continue
 			}
 			u.WriteTo(append([]byte(tag+":"), buf[:n]...), a)
 		}
@@ -374,5 +392,161 @@ func TestDNSFilter(t *testing.T) {
 	json.Unmarshal([]byte(e.Status()), &st)
 	if st.DNSBlocked != 3 {
 		t.Errorf("dns_blocked = %d, want 3", st.DNSBlocked)
+	}
+}
+
+// askDNS sends one A query for name to the VPN's DNS address.
+func askDNS(t *testing.T, app *stack.Stack, name string) (*dns.Msg, string) {
+	t.Helper()
+	q := new(dns.Msg)
+	q.SetQuestion(name, dns.TypeA)
+	raw, _ := q.Pack()
+	c, err := gonet.DialUDP(app, nil, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{10, 111, 0, 53}), Port: 53}, ipv4.ProtocolNumber)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write(raw)
+	buf := make([]byte, 1500)
+	n, err := c.Read(buf)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	var r dns.Msg
+	if r.Unpack(buf[:n]) == nil && r.Response {
+		return &r, ""
+	}
+	return nil, string(buf[:n])
+}
+
+func twoTunnels(t *testing.T) []map[string]string {
+	b64 := func(k wgtypes.Key) string { return base64.StdEncoding.EncodeToString(k[:]) }
+	var tunnels []map[string]string
+	for _, name := range []string{"home", "work"} {
+		cpriv, _ := wgtypes.GeneratePrivateKey()
+		spub, port := wgServerDNS(t, cpriv.PublicKey(), name, name == "work")
+		tunnels = append(tunnels, map[string]string{"name": name, "conf": fmt.Sprintf(
+			"[Interface]\nPrivateKey = %s\nAddress = 10.9.0.2/32\nDNS = 10.9.0.1\n\n[Peer]\nPublicKey = %s\nEndpoint = 127.0.0.1:%d\nAllowedIPs = 0.0.0.0/0\n", b64(cpriv), b64(spub), port)})
+	}
+	return append(tunnels, map[string]string{"name": "broken", "conf": "[Interface]\n"})
+}
+
+// Domain rules: the name is resolved over the rule's route, and connections
+// to the answered addresses take that route, whatever the app's route is.
+func TestDomainRules(t *testing.T) {
+	b, _ := json.Marshal(map[string]any{"tunnels": twoTunnels(t), "default": "tunnel:home",
+		"rules": []map[string]any{
+			{"name": "dead", "domains": []string{"dead.example"}, "route": "tunnel:broken"},
+			{"name": "only-10002", "apps": []string{"10002"}, "domains": []string{"intranet.example"}, "route": "tunnel:work"},
+			{"name": "work", "domains": []string{"*.work.example"}, "route": "tunnel:work"},
+			{"name": "ssh", "cidr": []string{"10.9.0.1"}, "ports": []string{"tcp/22"}, "route": "block"},
+		}})
+	fds, _ := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET, 0)
+	p := &fakePlatform{}
+	p.uid.Store(10001)
+	e, err := Start(fds[0], string(b), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	app := appStack(t, fds[1])
+	dst := netip.AddrPortFrom(serverIP, 53)
+
+	if got, err := udpQuery(app, dst); err != nil || got != "home:q" {
+		t.Fatalf("before the lookup: %q %v, want home", got, err)
+	}
+	// a name of another app's rule stays on the app's route (home echoes)
+	if _, echo := askDNS(t, app, "intranet.example."); !strings.HasPrefix(echo, "home:") {
+		t.Errorf("app-scoped rule applied to another app: %q", echo)
+	}
+	r, echo := askDNS(t, app, "git.work.example.")
+	if r == nil || len(r.Answer) != 1 {
+		t.Fatalf("rule name not resolved over tunnel:work: %v %q", r, echo)
+	}
+	if got, err := udpQuery(app, dst); err != nil || got != "work:q" {
+		t.Errorf("after the lookup: %q %v, want work", got, err)
+	}
+	if err := echoTCP(app, netip.AddrPortFrom(serverIP, 80)); err != nil {
+		t.Errorf("tcp to the rule's address: %v", err)
+	}
+	// a rule's route that is down: SERVFAIL, the name does not go elsewhere
+	if r, echo := askDNS(t, app, "dead.example."); r == nil || r.Rcode != dns.RcodeServerFailure {
+		t.Errorf("rule over a broken tunnel: %v %q, want SERVFAIL", r, echo)
+	}
+	// cidr + port rule
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if c, err := gonet.DialContextTCP(ctx, app, full(netip.AddrPortFrom(serverIP, 22)), ipv4.ProtocolNumber); err == nil {
+		c.Close()
+		t.Error("tcp/22 rule did not block")
+	}
+	// rules swap: the work rule gone, addresses fall back to the default
+	b, _ = json.Marshal(map[string]any{"tunnels": twoTunnels(t), "default": "tunnel:home"})
+	if err := e.SetRules(string(b)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := udpQuery(app, dst); err != nil || got != "home:q" {
+		t.Errorf("after removing the rule: %q %v, want home", got, err)
+	}
+	bad, _ := json.Marshal(map[string]any{"tunnels": twoTunnels(t), "default": "tunnel:home",
+		"rules": []map[string]any{{"domains": []string{"a b"}, "route": "direct"}}})
+	if err := e.SetRules(string(bad)); err == nil {
+		t.Error("invalid domain accepted")
+	}
+}
+
+// Network profiles replace the default route per Wi-Fi name or link.
+func TestNetworkProfiles(t *testing.T) {
+	b, _ := json.Marshal(map[string]any{"tunnels": twoTunnels(t), "default": "tunnel:home",
+		"networks": []map[string]any{
+			{"name": "Cafe", "link": "wifi", "ssid": []string{"Cafe Lumen"}, "default": "tunnel:work"},
+			{"name": "Mobil", "link": "mobile", "default": "block"},
+		}})
+	fds, _ := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET, 0)
+	p := &fakePlatform{}
+	p.uid.Store(10001)
+	e, err := Start(fds[0], string(b), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	app := appStack(t, fds[1])
+	dst := netip.AddrPortFrom(serverIP, 53)
+	want := func(link, ssid, profile, route string) {
+		t.Helper()
+		if got := e.SetNetwork(link, ssid); got != profile {
+			t.Errorf("%s %q: profile %q, want %q", link, ssid, got, profile)
+		}
+		got, err := udpQuery(app, dst)
+		if route == "block" {
+			if err == nil {
+				t.Errorf("%s %q: got %q, want blocked", link, ssid, got)
+			}
+			return
+		}
+		if got != route+":q" {
+			t.Errorf("%s %q: got %q (%v), want %s", link, ssid, got, err, route)
+		}
+	}
+	want("wifi", "Cafe Lumen", "Cafe", "work")
+	want("wifi", "Zuhause", "", "home")
+	want("wifi", "", "", "home") // SSID unknown (no location permission)
+	want("mobile", "", "Mobil", "block")
+	want("ethernet", "", "", "home")
+	e.SetNetwork("wifi", "Cafe Lumen")
+	var st status
+	json.Unmarshal([]byte(e.Status()), &st)
+	if st.Network != "Cafe" {
+		t.Errorf("status network %q", st.Network)
+	}
+	// an app rule beats the profile
+	b, _ = json.Marshal(map[string]any{"tunnels": twoTunnels(t), "default": "tunnel:home", "apps": map[string]string{"10001": "tunnel:home"},
+		"networks": []map[string]any{{"name": "Cafe", "ssid": []string{"Cafe Lumen"}, "default": "tunnel:work"}}})
+	if err := e.SetRules(string(b)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := udpQuery(app, dst); got != "home:q" {
+		t.Errorf("app rule under a profile: %q, want home", got)
 	}
 }

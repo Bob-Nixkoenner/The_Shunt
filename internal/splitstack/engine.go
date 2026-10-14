@@ -70,6 +70,11 @@ type config struct {
 	// StatsPath: file for traffic totals per tunnel and month
 	// (internal/stats); "" counts in memory only.
 	StatsPath string `json:"stats_path"`
+
+	// Networks: profiles per Wi-Fi/link (SetNetwork); Rules: routes by
+	// destination (domain, CIDR, port), before the app rules. See rules.go.
+	Networks []networkConf `json:"networks"`
+	Rules    []ruleConf    `json:"rules"`
 }
 
 func parseConfig(js string) (*config, error) {
@@ -116,6 +121,26 @@ func parseConfig(js string) (*config, error) {
 			return nil, fmt.Errorf("apps[%s]: %w", app, err)
 		}
 	}
+	for _, n := range c.Networks {
+		if n.Default != "" {
+			if err := check(n.Default); err != nil {
+				return nil, fmt.Errorf("network %q: %w", n.Name, err)
+			}
+		}
+		if n.DirectDNS != "" {
+			if _, err := netip.ParseAddr(n.DirectDNS); err != nil {
+				return nil, fmt.Errorf("network %q: direct_dns: %w", n.Name, err)
+			}
+		}
+		switch n.Link {
+		case "", "wifi", "mobile", "ethernet":
+		default:
+			return nil, fmt.Errorf("network %q: link %q (wifi | mobile | ethernet)", n.Name, n.Link)
+		}
+	}
+	if _, err := compileRules(c.Rules, check); err != nil {
+		return nil, err
+	}
 	return c, nil
 }
 
@@ -148,11 +173,18 @@ type Engine struct {
 	stack   *stack.Stack
 	tunnels map[string]*wgTunnel
 	dns     netip.Addr
-	direct  netip.Addr // DNS of the direct route
 
 	mu         sync.RWMutex
 	apps       map[string]string
-	def        string
+	def        string     // default route now (network profile applied)
+	direct     netip.Addr // DNS of the direct route now
+	baseDef    string     // from the config, without profile
+	baseDirect netip.Addr
+	rules      []rule
+	networks   []networkConf
+	link, ssid string // current network (SetNetwork)
+	netName    string // matching profile, "" = none
+	domains    domainAddrs
 	filter     *blocklist.Filter
 	unfiltered map[string]bool
 	flows      atomic.Int64
@@ -184,7 +216,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if o.NewBind == nil {
 		o.NewBind = conn.NewDefaultBind
 	}
-	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr), direct: netip.MustParseAddr(c.DirectDNS)}
+	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr)}
 	book, err := stats.Open(c.StatsPath)
 	if err != nil {
 		e.logf("traffic statistics in memory only: %v", err)
@@ -227,7 +259,14 @@ func (e *Engine) SetRules(configJSON string) error {
 	if err != nil {
 		return err
 	}
-	for _, r := range append([]string{c.Default}, values(c.Apps)...) {
+	routes := append([]string{c.Default}, values(c.Apps)...)
+	for _, n := range c.Networks {
+		routes = append(routes, n.Default)
+	}
+	for _, r := range c.Rules {
+		routes = append(routes, r.Route)
+	}
+	for _, r := range routes {
 		if n, ok := strings.CutPrefix(r, tunnelPref); ok && e.tunnels[n] == nil {
 			return fmt.Errorf("tunnel %q is not running, restart the VPN", n)
 		}
@@ -264,8 +303,14 @@ func (e *Engine) setRules(c *config) error {
 	for _, u := range c.Unfiltered {
 		unf[u] = true
 	}
+	rules, err := compileRules(c.Rules, func(string) error { return nil })
+	if err != nil {
+		return err
+	}
 	e.mu.Lock()
-	e.apps, e.def, e.filter, e.unfiltered = apps, c.Default, filter, unf
+	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
+	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
+	e.applyNetwork()
 	e.mu.Unlock()
 	return nil
 }
@@ -326,8 +371,14 @@ func (e *Engine) blockedName(app, name string) string {
 	return f.Check(filterLevel, blocklist.Normalize(name))
 }
 
-// routeFor picks the route of an app.
-func (e *Engine) routeFor(app string) string {
+// routeFor picks the route of a connection: destination rules, then the
+// app's rule, then the default (of the network profile).
+func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool) string {
+	if !isDNS {
+		if r, _ := e.ruleRoute(app, proto, dst); r != "" {
+			return r
+		}
+	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	if r, ok := e.apps[app]; ok && app != "" {
@@ -450,6 +501,7 @@ type status struct {
 	// Traffic per tunnel and "total": this month, last month, all.
 	Traffic  map[string]stats.Summary `json:"traffic"`
 	Override override.Status          `json:"override"`
+	Network  string                   `json:"network"` // matching profile, "" = none
 }
 
 // Status returns the state as JSON.
@@ -459,6 +511,9 @@ func (e *Engine) Status() string {
 	for _, t := range e.tunnels {
 		st.Tunnels = append(st.Tunnels, t.status())
 	}
+	e.mu.RLock()
+	st.Network = e.netName
+	e.mu.RUnlock()
 	b, _ := json.Marshal(st)
 	return string(b)
 }
