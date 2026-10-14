@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
@@ -36,10 +37,22 @@ const (
 	mtu     = 1280
 )
 
+// cleanup runs before any exit once the adapter exists: closing it
+// removes the adapter and with it its addresses and routes.
+var cleanup []func()
+
+func fatalf(f string, a ...any) {
+	log.Printf(f, a...)
+	for i := len(cleanup) - 1; i >= 0; i-- {
+		cleanup[i]()
+	}
+	os.Exit(1)
+}
+
 func netsh(args ...string) {
 	out, err := exec.Command("netsh", args...).CombinedOutput()
 	if err != nil {
-		log.Fatalf("netsh %v: %v: %s", args, err, out)
+		fatalf("netsh %v: %v: %s", args, err, out)
 	}
 }
 
@@ -65,7 +78,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("wintun: %v (Administrator? wintun.dll next to the exe?)", err)
 	}
-	defer dev.Close()
+	cleanup = append(cleanup, func() { dev.Close() })
 	netsh("interface", "ipv4", "set", "address", "name="+adapter, "static", "10.111.0.2", "255.255.255.0")
 	netsh("interface", "ipv4", "set", "dnsservers", "name="+adapter, "static", splitstack.DNSAddr, "validate=no")
 	netsh("interface", "ipv4", "add", "route", "0.0.0.0/1", adapter, "10.111.0.1", "metric=1")
@@ -75,7 +88,7 @@ func main() {
 	netsh("interface", "ipv6", "add", "route", "8000::/1", adapter, "fd11:5ee:bad:c0de::1", "metric=1")
 
 	link, stop := splitstack.TunLink(dev, mtu)
-	defer stop()
+	cleanup = append(cleanup, stop)
 	owners := winsplit.NewOwners()
 	e, err := splitstack.New(splitstack.Options{
 		Link:       link,
@@ -94,18 +107,21 @@ func main() {
 		},
 	}, string(cfg))
 	if err != nil {
-		log.Fatal(err)
+		fatalf("%v", err)
 	}
-	defer e.Stop()
+	cleanup = append(cleanup, e.Stop)
 	log.Printf("running – Ctrl+C to stop (adapter %q, physical interface %d)", adapter, phys)
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM) // Ctrl+C, Ctrl+Break, closing the console
 	tick := time.NewTicker(10 * time.Second)
 	for {
 		select {
 		case <-sig:
 			log.Print("stopping")
+			for i := len(cleanup) - 1; i >= 0; i-- {
+				cleanup[i]()
+			}
 			return
 		case <-tick.C:
 			log.Print(e.Status())
