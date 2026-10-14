@@ -149,6 +149,15 @@ func (c *Checker) Check(ctx context.Context) Info {
 	} else {
 		c.info.Latest = latest
 		c.info.Available = newer(cur, latest)
+		if c.info.Available && strings.HasPrefix(cur, "src-") {
+			// A source build that is not GitHub's newest commit may be
+			// newer (local or pushed work on a branch): only behind counts.
+			behind, err := c.behind(ctx, latest, strings.TrimPrefix(cur, "src-"))
+			c.info.Available = behind
+			if err != nil {
+				c.info.Err = err.Error()
+			}
+		}
 		if c.info.Available {
 			c.info.Command = Command
 		}
@@ -173,6 +182,44 @@ func newer(current, latest string) bool {
 	default:
 		return latest != current
 	}
+}
+
+// behind asks GitHub how commit sha relates to the newest commit latest:
+// only "behind" or "diverged" (latest has commits sha lacks) is an update.
+// A commit GitHub does not know is a local build: no update.
+func (c *Checker) behind(ctx context.Context, latest, sha string) (bool, error) {
+	base := c.API
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	cl := c.Client
+	if cl == nil {
+		cl = &http.Client{Timeout: 20 * time.Second}
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", base+"/repos/"+Repo+"/compare/"+latest+"..."+sha+"?per_page=1", nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := cl.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return false, nil // not on GitHub: built from local commits
+	default:
+		return false, fmt.Errorf("github compare: %s", resp.Status)
+	}
+	var v struct {
+		Status string `json:"status"` // ahead | behind | identical | diverged
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&v); err != nil {
+		return false, err
+	}
+	return v.Status == "behind" || v.Status == "diverged", nil
 }
 
 func (c *Checker) latestFor(ctx context.Context, current string) (string, error) {

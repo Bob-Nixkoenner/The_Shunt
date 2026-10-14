@@ -27,6 +27,10 @@ func TestNewer(t *testing.T) {
 
 func TestCheck(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/"+Repo+"/compare/ffff0000aaaa...1234567" {
+			w.Write([]byte(`{"status":"behind"}`))
+			return
+		}
 		if r.URL.Path != "/repos/"+Repo+"/commits/HEAD" {
 			http.NotFound(w, r)
 			return
@@ -59,7 +63,7 @@ func TestCheck(t *testing.T) {
 
 func TestInstalledChanges(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"sha":"ffff0000aaaa"}`))
+		w.Write([]byte(`{"sha":"ffff0000aaaa","status":"behind"}`))
 	}))
 	defer srv.Close()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -71,5 +75,32 @@ func TestInstalledChanges(t *testing.T) {
 	inst = "src-ffff000" // updated, app not restarted
 	if i := c.Get(); i.Available || i.Current != "src-ffff000" {
 		t.Errorf("stale result after update: %+v", i)
+	}
+}
+
+// A source build GitHub's newest commit lacks is not outdated: built from
+// local commits (unknown to GitHub) or from a branch that is ahead.
+func TestSourceBuildAhead(t *testing.T) {
+	status := map[string]int{"1111111": http.StatusNotFound, "2222222": 0, "3333333": 0, "4444444": 0}
+	body := map[string]string{"2222222": "ahead", "3333333": "identical", "4444444": "diverged"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/"+Repo+"/commits/HEAD" {
+			w.Write([]byte(`{"sha":"ffff0000aaaa"}`))
+			return
+		}
+		sha := r.URL.Path[len(r.URL.Path)-7:]
+		if status[sha] != 0 {
+			w.WriteHeader(status[sha])
+			return
+		}
+		w.Write([]byte(`{"status":"` + body[sha] + `"}`))
+	}))
+	defer srv.Close()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for sha, want := range map[string]bool{"1111111": false, "2222222": false, "3333333": false, "4444444": true} {
+		c := &Checker{Current: "src-" + sha, API: srv.URL}
+		if i := c.Check(context.Background()); i.Available != want || i.Err != "" {
+			t.Errorf("%s: %+v", sha, i)
+		}
 	}
 }
