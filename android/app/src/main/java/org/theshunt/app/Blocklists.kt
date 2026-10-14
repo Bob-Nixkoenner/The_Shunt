@@ -28,6 +28,16 @@ object Blocklists {
     )
     val DEFAULT = listOf("easylist", "Phishing-Angriffe")
 
+    /** Web page of a list (shown when its name is tapped). */
+    fun page(name: String) = "https://github.com/RPiList/specials/blob/master/Blocklisten/$name"
+
+    /** Names in a downloaded list (0 if not downloaded): lines that are not comments. */
+    fun count(ctx: Context, name: String): Int {
+        val f = file(ctx, name)
+        if (!f.exists()) return 0
+        return f.useLines { ls -> ls.count { l -> l.isNotBlank() && !l.trimStart().startsWith("#") && !l.trimStart().startsWith("!") } }
+    }
+
     private const val MAX_AGE_MS = 24 * 3600 * 1000L
 
     fun file(ctx: Context, name: String) = File(File(ctx.filesDir, "blocklists"), name)

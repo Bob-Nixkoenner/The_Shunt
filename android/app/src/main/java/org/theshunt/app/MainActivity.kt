@@ -1,30 +1,45 @@
 package org.theshunt.app
 
+import android.Manifest
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.format.Formatter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
@@ -32,22 +47,41 @@ import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import org.theshunt.mobile.Mobile
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkThemeCompat()) darkColorScheme() else lightColorScheme()) {
-                Surface(Modifier.fillMaxSize()) { App() }
+            ShuntTheme(isSystemInDarkTheme()) {
+                Surface(Modifier.fillMaxSize(), color = LocalShunt.current.bg) { App() }
             }
         }
     }
+}
 
-    private fun isSystemInDarkThemeCompat(): Boolean =
-        (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
+/** Polls the core's status once a second while the VPN runs. */
+@Composable
+private fun rememberStatus(): State<JSONObject?> {
+    val running by VpnState.running.collectAsStateWithLifecycle()
+    val status = remember { mutableStateOf<JSONObject?>(null) }
+    LaunchedEffect(running) {
+        var shown = ""
+        while (running) {
+            val st = VpnState.engine?.status()?.let { JSONObject(it) }
+            status.value = st
+            VpnState.refreshKillSwitch() // turned on in the settings meanwhile?
+            val ov = st?.optJSONObject("override")
+            val now = "${ov?.optBoolean("panic")}/${(ov?.optLong("pass_left") ?: 0) > 0}/${VpnState.lockdown.value}"
+            if (now != shown) { shown = now; VpnState.refreshNotification() }
+            delay(1000)
+        }
+        status.value = null
+    }
+    return status
 }
 
 @Composable
@@ -56,26 +90,41 @@ private fun App() {
     var settings by remember { mutableStateOf(Store.load(ctx)) }
     var tab by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
+    val status by rememberStatus()
     val update: (Settings) -> Unit = { s ->
         settings = s
         Store.save(ctx, s)
         ShuntVpnService.applyRules(ctx, s)?.let { message = it }
     }
+    val c = LocalShunt.current
 
     Scaffold(
+        containerColor = c.bg,
+        topBar = { Header(status) },
         bottomBar = {
-            NavigationBar {
-                listOf("Status", "Tunnels", "Apps").forEachIndexed { i, label ->
-                    NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = {}, label = { Text(label) })
+            NavigationBar(containerColor = c.panel) {
+                listOf(
+                    "Status" to Icons.Filled.Home, "Tunnels" to Icons.Filled.Lock,
+                    "Apps" to Icons.AutoMirrored.Filled.List, "Filter" to Icons.Filled.Close,
+                ).forEachIndexed { i, (label, icon) ->
+                    NavigationBarItem(
+                        selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
+                        label = { Text(label, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
+                            selectedIconColor = c.accent, unselectedIconColor = c.muted,
+                        ),
+                    )
                 }
             }
         },
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> StatusScreen(settings, update)
+                0 -> StatusScreen(settings, status)
                 1 -> TunnelsScreen(settings, update) { message = it }
                 2 -> AppsScreen(settings, update)
+                3 -> FilterScreen(settings, update, status)
             }
         }
     }
@@ -84,167 +133,150 @@ private fun App() {
     }
 }
 
+/** Sticky header like the web UI: logo, state pill, PANIC. */
 @Composable
-private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
+private fun Header(status: JSONObject?) {
+    val c = LocalShunt.current
+    val running by VpnState.running.collectAsStateWithLifecycle()
+    val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
+    val ov = status?.optJSONObject("override")
+    val panic = ov?.optBoolean("panic") ?: false
+    val passLeft = ov?.optLong("pass_left") ?: 0L
+    Column(Modifier.background(c.bg).statusBarsPadding()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ShuntLogo()
+            Spacer(Modifier.width(10.dp))
+            Text("The Shunt", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text)
+            Spacer(Modifier.width(12.dp))
+            when {
+                !running -> Pill("off")
+                panic -> Pill("PANIC", Tone.Bad)
+                passLeft > 0 -> Pill("PASS %d:%02d".format(passLeft / 60, passLeft % 60), Tone.Bad)
+                !lockdown -> Pill("no kill switch", Tone.Warn)
+                else -> Pill("protected", Tone.Ok)
+            }
+            Spacer(Modifier.weight(1f))
+            if (running) {
+                ShuntButton(if (panic) "Release" else "PANIC", {
+                    VpnState.engine?.setPanic(!panic)
+                }, kind = Tone.Bad)
+            }
+        }
+        HorizontalDivider(color = c.line)
+    }
+}
+
+@Composable
+private fun StatusScreen(settings: Settings, status: JSONObject?) {
     val ctx = LocalContext.current
+    val c = LocalShunt.current
     val running by VpnState.running.collectAsStateWithLifecycle()
     val error by VpnState.error.collectAsStateWithLifecycle()
-    var status by remember { mutableStateOf<JSONObject?>(null) }
+    val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
+    val privateDns by VpnState.privateDns.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
     var confirmPass by remember { mutableStateOf(false) }
-    var leak by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var leak by remember { mutableStateOf<JSONArray?>(null) }
     var leakRunning by remember { mutableStateOf(false) }
-    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+    val askVpn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
-    LaunchedEffect(running) {
-        while (running) {
-            status = VpnState.engine?.status()?.let { JSONObject(it) }
-            VpnState.refreshKillSwitch() // turned on in the settings meanwhile?
-            delay(1000)
-        }
-        status = null
+    // the status notification needs this on Android 13+; the VPN runs without it too
+    val askNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val start = {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) askNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val intent = VpnService.prepare(ctx)
+        if (intent != null) askVpn.launch(intent) else ShuntVpnService.start(ctx)
     }
-    Column(Modifier.padding(16.dp).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("The Shunt", style = MaterialTheme.typography.headlineMedium)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (running) "VPN on" else "VPN off", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            Switch(checked = running, onCheckedChange = { on ->
-                if (!on) ShuntVpnService.stop(ctx)
-                else {
-                    val intent = VpnService.prepare(ctx)
-                    if (intent != null) askPermission.launch(intent) else ShuntVpnService.start(ctx)
-                }
-            })
-        }
-        error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
-        val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
+    val ov = status?.optJSONObject("override")
+    val panic = ov?.optBoolean("panic") ?: false
+    val passLeft = ov?.optLong("pass_left") ?: 0L
+
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        error?.let { Banner("VPN error", it, bad = true) }
+        if (panic) Banner("Panic", "Everything is blocked, running connections were cut.", bad = true)
+        else if (passLeft > 0) Banner(
+            "Pass – unprotected",
+            "Everything goes direct: your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
+            bad = true,
+        ) { TextButton({ VpnState.engine?.pass(0) }) { Text("End pass now") } }
         if (running && !lockdown) {
             // the only real kill switch on Android is the system's: without
             // it, apps get out unprotected while the VPN (re)starts or crashes
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("No kill switch", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "While the VPN starts, restarts or crashes, apps can get out unprotected. " +
-                            "Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    TextButton({ ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") }
-                }
-            }
+            Banner(
+                "No kill switch",
+                "While the VPN starts, restarts or crashes, apps can get out unprotected. " +
+                    "Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
+            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") } }
         }
-        if (running) {
-            val ov = status?.optJSONObject("override")
-            val panic = ov?.optBoolean("panic") ?: false
-            val passLeft = ov?.optLong("pass_left") ?: 0L
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    { VpnState.engine?.setPanic(!panic); status = VpnState.engine?.status()?.let { JSONObject(it) } },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text(if (panic) "Release panic" else "PANIC") }
-                OutlinedButton({
-                    if (passLeft > 0) VpnState.engine?.pass(0) else confirmPass = true
-                    status = VpnState.engine?.status()?.let { JSONObject(it) }
-                }) { Text(if (passLeft > 0) "End pass (%d:%02d)".format(passLeft / 60, passLeft % 60) else "Pass 5 min") }
-            }
-            OutlinedButton({
-                leak = null; leakRunning = true
-                Thread { val r = VpnState.engine?.leakTest(); leak = r?.let { org.json.JSONArray(it) }; leakRunning = false }.start()
-            }, enabled = !leakRunning) { Text(if (leakRunning) "Leak test running…" else "Leak test") }
-            Text("The leak test asks api.ipify.org (public IP) and Google DNS (which resolver) through every route.", style = MaterialTheme.typography.bodySmall)
-            if (panic) Text("Panic: everything is blocked, running connections were cut.", color = MaterialTheme.colorScheme.error)
-            else if (passLeft > 0) Text(
-                "Pass: everything goes direct – your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
-                color = MaterialTheme.colorScheme.error,
-            )
+        if (running && privateDns) {
+            Banner(
+                "Private DNS is on",
+                "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. " +
+                    "Set Private DNS to \"Off\" so every app resolves through its route.",
+            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text("Open network settings") } }
         }
-        Text("Default route: ${settings.defaultRoute}", style = MaterialTheme.typography.bodyMedium)
-        if (settings.tunnels.isEmpty()) Text("No tunnel yet – import one under Tunnels.")
-        status?.let { st ->
-            Text("Connections: ${st.optLong("flows")}, blocked: ${st.optLong("blocked")}, DNS names filtered: ${st.optLong("dns_blocked")}")
-            val ts = st.optJSONArray("tunnels")
-            for (i in 0 until (ts?.length() ?: 0)) {
-                val t = ts!!.getJSONObject(i)
-                val hs = t.optLong("handshake")
-                val ago = if (hs == 0L) "no handshake" else "handshake ${st.optLong("time") - hs}s ago"
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        val h = t.optJSONObject("health")
-                        val state = h?.optString("state") ?: "unknown"
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("tunnel:${t.getString("name")}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                when (state) {
-                                    "ok" -> "● ok"; "idle" -> "● idle"; "stale" -> "● no answers"; "down" -> "● down"; else -> "● …"
-                                },
-                                color = when (state) {
-                                    "ok" -> androidx.compose.ui.graphics.Color(0xFF2E7D32)
-                                    "stale" -> androidx.compose.ui.graphics.Color(0xFFF9A825)
-                                    "down" -> MaterialTheme.colorScheme.error
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                        if (!t.optBoolean("up")) Text("down: ${t.optString("error")}", color = MaterialTheme.colorScheme.error)
-                        else {
-                            Text("$ago · ↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
-                            val ms = h?.optLong("latency_ms") ?: 0
-                            val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
-                            if (ms > 0) Text("latency $ms ms" + if (loss > 0) " · $loss % lost" else "", style = MaterialTheme.typography.bodySmall)
-                        }
-                        st.optJSONObject("traffic")?.optJSONObject(t.getString("name"))?.let { tr ->
-                            Text(trafficLine(ctx, tr), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        }
-        status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
-            if (tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L > 0L) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("All tunnels: " + trafficLine(ctx, tot), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    TextButton({ confirmReset = true }) { Text("Reset") }
-                }
-            }
-        }
-        HorizontalDivider()
-        Text("DNS filter", style = MaterialTheme.typography.titleMedium)
-        Text("Names on these lists get no answer (NXDOMAIN). Per app: Apps → filter.", style = MaterialTheme.typography.bodySmall)
-        Blocklists.ALL.forEach { (name, what) ->
+
+        Section("VPN") {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(name in settings.filterLists, { on ->
-                    val s = settings.copy(filterLists = if (on) settings.filterLists + name else settings.filterLists - name)
-                    if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
-                    update(s)
-                })
-                Text("$what ($name)")
-            }
-        }
-    }
-    leak?.let { rs ->
-        AlertDialog(
-            onDismissRequest = { leak = null },
-            title = { Text("Leak test") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    for (i in 0 until rs.length()) {
-                        val r = rs.getJSONObject(i)
-                        val res = r.optJSONObject("result")
-                        val v = r.optString("verdict")
-                        Column {
-                            Text("${r.optString("route")}: $v", style = MaterialTheme.typography.titleSmall,
-                                color = if (v == "leak") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                            res?.optString("ip")?.takeIf { it.isNotEmpty() }?.let { Text("IP $it", style = MaterialTheme.typography.bodySmall) }
-                            res?.optString("resolver")?.takeIf { it.isNotEmpty() }?.let { Text("DNS resolver $it", style = MaterialTheme.typography.bodySmall) }
-                            r.optString("note").takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        }
+                Column(Modifier.weight(1f)) {
+                    Text(if (running) "On" else "Off", fontWeight = FontWeight.Bold, color = c.text)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("default route ", color = c.muted, fontSize = 13.sp)
+                        RouteTag(settings.defaultRoute)
                     }
                 }
-            },
-            confirmButton = { TextButton({ leak = null }) { Text("OK") } },
-        )
+                Switch(
+                    checked = running,
+                    onCheckedChange = { on -> if (!on) ShuntVpnService.stop(ctx) else start() },
+                    colors = SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.accentInk),
+                )
+            }
+            if (running) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ShuntButton(
+                        if (passLeft > 0) "End pass" else "Pass 5 min",
+                        { if (passLeft > 0) VpnState.engine?.pass(0) else confirmPass = true },
+                    )
+                }
+                status?.let {
+                    Hint("Connections ${it.optLong("flows")} · blocked ${it.optLong("blocked")} · DNS names filtered ${it.optLong("dns_blocked")}")
+                }
+            }
+            if (settings.tunnels.isEmpty()) Hint("No tunnel yet – import one under Tunnels.")
+        }
+
+        val ts = status?.optJSONArray("tunnels")
+        if (ts != null && ts.length() > 0) {
+            Section("Tunnels") {
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status)
+            }
+        }
+
+        status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
+            if ((tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L) > 0L) {
+                Section("Traffic", action = { TextButton({ confirmReset = true }) { Text("Reset") } }) {
+                    TrafficRows(status.optJSONObject("traffic")!!, ts)
+                }
+            }
+        }
+
+        if (running) {
+            Section("Leak test", action = {
+                ShuntButton(if (leakRunning) "Running…" else if (leak == null) "Run" else "Run again", {
+                    leakRunning = true
+                    Thread { val r = VpnState.engine?.leakTest(); leak = r?.let { JSONArray(it) }; leakRunning = false }.start()
+                }, enabled = !leakRunning)
+            }) {
+                leak?.let { rs -> for (i in 0 until rs.length()) LeakRow(rs.getJSONObject(i)) }
+                    ?: Hint("Asks api.ipify.org (public IP) and Google DNS (which resolver) through every route.")
+            }
+        }
     }
     if (confirmPass) {
         AlertDialog(
@@ -263,6 +295,80 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
             confirmButton = { TextButton({ VpnState.engine?.resetStats(); confirmReset = false }) { Text("Reset") } },
             dismissButton = { TextButton({ confirmReset = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun TunnelCard(t: JSONObject, st: JSONObject) {
+    val ctx = LocalContext.current
+    val h = t.optJSONObject("health")
+    val state = h?.optString("state") ?: "unknown"
+    val up = t.optBoolean("up")
+    val tone = when {
+        !up || state == "down" -> Tone.Bad
+        state == "stale" -> Tone.Warn
+        state == "ok" || state == "idle" -> Tone.Ok
+        else -> Tone.Neutral
+    }
+    EdgeCard(tone) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(t.getString("name"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
+            Pill(
+                when {
+                    !up -> "down"; state == "ok" -> "up"; state == "idle" -> "idle"; state == "stale" -> "no answers"; state == "down" -> "down"; else -> "waiting"
+                },
+                tone,
+            )
+        }
+        if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
+        else {
+            val hs = t.optLong("handshake")
+            KV("handshake", if (hs == 0L) "never" else "${st.optLong("time") - hs}s ago")
+            val ms = h?.optLong("latency_ms") ?: 0
+            val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
+            if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) " · $loss % lost" else "")
+            KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+        }
+    }
+}
+
+/** Month and total per tunnel and for all together (web: TRAFFIC table). */
+@Composable
+private fun TrafficRows(traffic: JSONObject, tunnels: JSONArray?) {
+    val ctx = LocalContext.current
+    val c = LocalShunt.current
+    fun b(o: JSONObject?, k: String) = Formatter.formatShortFileSize(ctx, o?.optLong(k) ?: 0)
+    val names = buildList {
+        for (i in 0 until (tunnels?.length() ?: 0)) add(tunnels!!.getJSONObject(i).getString("name"))
+        add("total")
+    }
+    Row { listOf("", "this month", "total").forEachIndexed { i, h -> Text(h.uppercase(), Modifier.weight(if (i == 0) 1f else 1.3f), color = c.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) } }
+    for (n in names) {
+        val tr = traffic.optJSONObject(n) ?: continue
+        HorizontalDivider(color = c.line)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { if (n == "total") Text("all", color = c.muted, fontSize = 13.sp) else RouteTag("tunnel:$n") }
+            Text("↓ ${b(tr.optJSONObject("month"), "rx")} ↑ ${b(tr.optJSONObject("month"), "tx")}", Modifier.weight(1.3f), fontSize = 12.5.sp, color = c.text)
+            Text("↓ ${b(tr.optJSONObject("total"), "rx")} ↑ ${b(tr.optJSONObject("total"), "tx")}", Modifier.weight(1.3f), fontSize = 12.5.sp, color = c.text)
+        }
+    }
+}
+
+@Composable
+private fun LeakRow(r: JSONObject) {
+    val c = LocalShunt.current
+    val v = r.optString("verdict")
+    val tone = when (v) { "ok" -> Tone.Ok; "leak" -> Tone.Bad; "warn" -> Tone.Warn; "blocked" -> Tone.Info; else -> Tone.Neutral }
+    val res = r.optJSONObject("result")
+    EdgeCard(tone) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RouteTag(r.optString("route"))
+            Spacer(Modifier.weight(1f))
+            Pill(v.uppercase(), tone)
+        }
+        res?.optString("ip")?.takeIf { it.isNotEmpty() }?.let { KV("public IP", it, mono = true) }
+        res?.optString("resolver")?.takeIf { it.isNotEmpty() }?.let { KV("DNS resolver", it, mono = true) }
+        r.optString("note").takeIf { it.isNotEmpty() }?.let { Text(it, color = c.muted, fontSize = 12.sp) }
     }
 }
 
@@ -291,27 +397,28 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { add("qr", it) } }
     var confirmDelete by remember { mutableStateOf<Tunnel?>(null) }
 
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button({ pickFile.launch(arrayOf("*/*")) }) { Text("Import file") }
-            OutlinedButton({
-                scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard QR code").setBeepEnabled(false))
-            }) { Text("Scan QR") }
-        }
-        settings.tunnels.forEach { t ->
-            val sum = remember(t.conf) { runCatching { JSONObject(Mobile.checkWireGuard(t.conf)) }.getOrNull() }
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("tunnel:${t.name}", style = MaterialTheme.typography.titleSmall)
-                        sum?.let {
-                            Text(
-                                "${it.optJSONArray("addresses")?.join(", ")?.replace("\"", "")} → ${it.optJSONArray("endpoints")?.join(", ")?.replace("\"", "")}",
-                                style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                            )
-                        }
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("Tunnels") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
+                ShuntButton("Scan QR", {
+                    scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard QR code").setBeepEnabled(false))
+                })
+            }
+            if (settings.tunnels.isEmpty()) Hint("A WireGuard file (.conf) or the QR code your VPN server shows.")
+            settings.tunnels.forEach { t ->
+                val sum = remember(t.conf) { runCatching { JSONObject(Mobile.checkWireGuard(t.conf)) }.getOrNull() }
+                EdgeCard(Tone.Ok) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
+                        TextButton({ confirmDelete = t }) { Text("Delete", color = LocalShunt.current.bad) }
                     }
-                    TextButton({ confirmDelete = t }) { Text("Delete") }
+                    sum?.let {
+                        fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
+                        KV("address", list("addresses"), mono = true)
+                        KV("endpoint", list("endpoints"), mono = true)
+                        list("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
+                    }
                 }
             }
         }
@@ -342,6 +449,7 @@ private class AppEntry(val pkg: String, val label: String, val info: Application
 @Composable
 private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
     val ctx = LocalContext.current
+    val c = LocalShunt.current
     val pm = ctx.packageManager
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var query by remember { mutableStateOf("") }
@@ -349,44 +457,91 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .filter { it.packageName != ctx.packageName && pm.checkPermission(android.Manifest.permission.INTERNET, it.packageName) == PackageManager.PERMISSION_GRANTED }
+                .filter { it.packageName != ctx.packageName && pm.checkPermission(Manifest.permission.INTERNET, it.packageName) == PackageManager.PERMISSION_GRANTED }
                 .map { AppEntry(it.packageName, pm.getApplicationLabel(it).toString(), it, it.flags and ApplicationInfo.FLAG_SYSTEM != 0 && pm.getLaunchIntentForPackage(it.packageName) == null) }
                 .sortedBy { it.label.lowercase() }
         }
     }
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("All other apps:", Modifier.weight(1f))
-            RoutePicker(settings.defaultRoute, settings.routes()) { update(settings.copy(defaultRoute = it)) }
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Section("Where traffic goes") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("All other apps", Modifier.weight(1f), color = c.text)
+                RoutePicker(settings.defaultRoute, settings.routes()) { update(settings.copy(defaultRoute = it)) }
+            }
+            OutlinedTextField(
+                query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("filter…") }, singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = c.panel2, focusedContainerColor = c.panel2, unfocusedBorderColor = c.line),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(showSystem, { showSystem = it })
+                Text("Show system services", color = c.muted, fontSize = 13.sp)
+            }
         }
-        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search apps") }, singleLine = true)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(showSystem, { showSystem = it })
-            Text("Show system services")
-        }
-        LazyColumn {
+        LazyColumn(Modifier.weight(1f)) {
             items(apps.filter { (showSystem || !it.system) && (query.isBlank() || it.label.contains(query, true) || it.pkg.contains(query, true)) }, key = { it.pkg }) { a ->
                 val icon = remember(a.pkg) { runCatching { pm.getApplicationIcon(a.info).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
                 val route = settings.apps[a.pkg]
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     icon?.let { Image(it, null, Modifier.size(36.dp)) } ?: Spacer(Modifier.size(36.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(a.label, maxLines = 1)
-                        Text(a.pkg, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(a.label, maxLines = 1, fontWeight = FontWeight.SemiBold, color = c.text)
+                        Text(a.pkg, maxLines = 1, fontFamily = Mono, fontSize = 11.5.sp, color = c.muted)
                     }
                     if (settings.filterLists.isNotEmpty()) {
                         val filtered = a.pkg !in settings.unfiltered
                         FilterChip(filtered, {
                             update(settings.copy(unfiltered = if (filtered) settings.unfiltered + a.pkg else settings.unfiltered - a.pkg))
-                        }, label = { Text("filter") })
+                        }, label = { Text("filter", fontSize = 12.sp) }, colors = FilterChipDefaults.filterChipColors(
+                            containerColor = c.panel, labelColor = c.muted,
+                            selectedContainerColor = c.accent.copy(alpha = .18f), selectedLabelColor = c.accent,
+                        ))
                         Spacer(Modifier.width(6.dp))
                     }
                     RoutePicker(route ?: "default", listOf("default") + settings.routes()) { r ->
                         update(settings.copy(apps = if (r == "default") settings.apps - a.pkg else settings.apps + (a.pkg to r)))
                     }
                 }
+                HorizontalDivider(color = c.line)
             }
+        }
+    }
+}
+
+/** DNS filter lists: on/off, where they come from, how many names. */
+@Composable
+private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?) {
+    val ctx = LocalContext.current
+    val c = LocalShunt.current
+    var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    LaunchedEffect(settings.filterLists) {
+        while (true) {
+            counts = withContext(Dispatchers.IO) { Blocklists.ALL.keys.associateWith { Blocklists.count(ctx, it) } }
+            delay(5000) // a list switched on is downloaded in the background
+        }
+    }
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("DNS filter") {
+            Hint("Names on these lists get no answer (NXDOMAIN). Per app: Apps → filter. Tap a list's name to see its source.")
+            status?.let { Hint("${it.optLong("dns_blocked")} names blocked since the VPN started") }
+            Blocklists.ALL.forEach { (name, what) ->
+                HorizontalDivider(color = c.line)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(name in settings.filterLists, { on ->
+                        val s = settings.copy(filterLists = if (on) settings.filterLists + name else settings.filterLists - name)
+                        if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
+                        update(s)
+                    })
+                    Column(Modifier.weight(1f)) {
+                        Text(what, color = c.text, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            name, fontFamily = Mono, fontSize = 12.sp, color = c.info, textDecoration = TextDecoration.Underline,
+                            modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Blocklists.page(name)))) },
+                        )
+                    }
+                    counts[name]?.takeIf { it > 0 }?.let { Text(if (it == 1) "1 name" else "%,d names".format(it), color = c.muted, fontSize = 12.sp) }
+                }
+            }
+            Hint("Lists: RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts.")
         }
     }
 }
@@ -395,19 +550,14 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
 private fun RoutePicker(current: String, choices: List<String>, onPick: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        AssistChip(onClick = { open = true }, label = { Text(current) })
-        DropdownMenu(open, { open = false }) {
+        Row(Modifier.clickable { open = true }, verticalAlignment = Alignment.CenterVertically) {
+            RouteTag(current)
+            Text(" ▾", color = LocalShunt.current.muted, fontSize = 12.sp)
+        }
+        DropdownMenu(open, { open = false }, containerColor = LocalShunt.current.panel2) {
             choices.forEach { r ->
-                DropdownMenuItem(text = { Text(r) }, onClick = { open = false; onPick(r) })
+                DropdownMenuItem(text = { RouteTag(r) }, onClick = { open = false; onPick(r) })
             }
         }
     }
-}
-
-/** "this month ↓ 1.2 GB ↑ 80 MB · total ↓ … ↑ …" from a traffic summary. */
-private fun trafficLine(ctx: android.content.Context, tr: JSONObject): String {
-    fun b(o: JSONObject?, k: String) = Formatter.formatShortFileSize(ctx, o?.optLong(k) ?: 0)
-    val m = tr.optJSONObject("month")
-    val t = tr.optJSONObject("total")
-    return "this month ↓ ${b(m, "rx")} ↑ ${b(m, "tx")} · total ↓ ${b(t, "rx")} ↑ ${b(t, "tx")}"
 }

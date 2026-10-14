@@ -11,7 +11,8 @@ val gitVersion: String = runCatching {
         .standardOutput.asText.get().trim().removePrefix("v")
 }.getOrDefault("").ifEmpty { "0.0.0-dev" }
 val gitVersionCode: Int = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(gitVersion)
-    ?.destructured?.let { (a, b, c) -> a.toInt() * 10000 + b.toInt() * 100 + c.toInt() } ?: 1
+    ?.destructured?.let { (a, b, c) -> a.toInt() * 10000 + b.toInt() * 100 + c.toInt() }
+    ?.takeIf { it > 0 } ?: 1 // no tag (shallow clone): 0.0.0-dev, but Android needs >= 1
 
 android {
     namespace = "org.theshunt.app"
