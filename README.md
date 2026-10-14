@@ -46,6 +46,16 @@ their `SHA256SUMS` carry the release signature (`ssh-keygen -Y verify`, key in
 `/var/log/shunt-install.log`.
 Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).
 
+Testing a branch before its release (e.g. in a VM): build that branch from source,
+
+```sh
+sudo SHUNT_REF=features bash install.sh --from-source
+```
+
+On Arch and Fedora the installer uses pacman/dnf; it needs Go, which it installs
+itself if missing. Use a fresh WireGuard key per machine (two devices with one key
+disturb each other).
+
 ## What works
 
 - Several WireGuard and **OpenVPN** tunnels at once, each in its own routing table
@@ -264,6 +274,11 @@ sudo SHUNT_DRIVER=userspace ./test/integration/run.sh
 The integration test builds a small internet in two network namespaces (WireGuard
 server + "whoami" HTTP server) and checks every route, the kill switch, panic mode
 and fail-closed behaviour after the daemon stops.
+
+`test/farm.sh` runs all CI checks (gofmt, vet, unit tests, race detector, fuzzing,
+cross builds, govulncheck, both integration drivers; `--full`: installer in Arch,
+Fedora and Debian containers) spread over machines reachable by SSH, listed in
+`~/.config/shunt-farm/hosts`. `test/farm.sh --help` explains the host flags.
 
 ## Security
 
