@@ -31,11 +31,20 @@ $ shunt captive                              # hotel Wi-Fi login past the tunnel
 
 ## Install (Debian, Ubuntu, Pop!_OS, Kali, Arch, Fedora)
 
+Run the steps one by one (not as one pasted block):
+
 ```sh
-curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
-less install.sh            # read what you run as root
+curl -fL --connect-timeout 10 --max-time 120 -o install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
+```
+
+```sh
+sudo bash install.sh --dry-run   # checks the system, shows what would happen, changes nothing
 sudo bash install.sh
 ```
+
+Want to read it first (it runs as root)? `less install.sh`, quit with `q`.
+If the download hangs (no progress bar): press Ctrl+C and add `-4` to the curl
+line (broken IPv6, common in VMs), or check DNS with `getent hosts raw.githubusercontent.com`.
 
 The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
 verified release (or builds from source), imports your WireGuard config, writes
