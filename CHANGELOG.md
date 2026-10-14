@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.0-rc3
 
 **DNS filter: blocklists inside The Shunt, like Pi-hole – per app, tunnel and network.**
 
@@ -24,6 +24,9 @@
 - Lists: [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) –
   thank you to the RPiList project. Own lists: any https URL (hosts, domain list or
   `||name^`).
+- **Fix: no false “Update available”** for source builds that are newer than GitHub's
+  newest commit (local commits, or a branch ahead of it). The check now asks GitHub how
+  the build relates to the newest commit; only “behind” (or diverged) is an update.
 - The systemd unit gets `CacheDirectory=shunt` (update with the installer); older units
   keep the lists in `/etc/shunt/blocklists`.
 
