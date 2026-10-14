@@ -44,6 +44,8 @@ $ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
 $ADB push "$W/easylist" /data/local/tmp/shunt-easylist >/dev/null
 $ADB shell "run-as $PKG sh -c 'mkdir -p files/blocklists && cp /data/local/tmp/shunt-settings.json files/settings.json && cp /data/local/tmp/shunt-easylist files/blocklists/easylist && touch files/blocklists/easylist'"
 $ADB shell appops set $PKG ACTIVATE_VPN allow
+# no notification permission dialog in front of the switch (Android 13+)
+$ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 
 # start: the switch on the status screen
 $ADB shell am start -W -n $PKG/.MainActivity >/dev/null
@@ -64,8 +66,9 @@ wait_vpn() { # wait_vpn up|down
 	done
 	return 1
 }
-toggle
-wait_vpn up || true
+sleep 2
+# with always-on VPN set for the app, Android has started it already
+if vpn_up; then echo "  ok   VPN already up (always-on started it)"; else toggle; wait_vpn up || true; fi
 sleep 3
 $ADB logcat -d -s Shunt | grep -q 'E Shunt' && { $ADB logcat -d -s Shunt | tail -20; echo "VPN start failed"; exit 1; }
 $ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\[' || { echo "VPN is not up"; exit 1; }
@@ -116,7 +119,7 @@ sleep 2
 if tap_text "PANIC"; then
 	sleep 2
 	check "panic blocks the tunnel too (refused at once)" "refused" "$(get)"
-	tap_text "Release panic" && sleep 2
+	tap_text "Release" && sleep 2
 	check "after panic: tunnel again" "tunnel=work" "$(get)"
 fi
 if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, then the dialog's confirm
@@ -126,6 +129,9 @@ if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, the
 	tap_text "End pass" && sleep 2
 	check "after the pass: tunnel again" "tunnel=work" "$(get)"
 fi
+echo "== status notification"
+n=$($ADB shell dumpsys notification --noredact | grep -A30 "pkg=$PKG" | grep -o 'android.text=[^,]*' | head -1)
+check "notification shows the state" "android.text=" "$n"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }

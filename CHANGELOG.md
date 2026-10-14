@@ -13,6 +13,14 @@ Fixes from the VM tests (Ubuntu 26.04, CachyOS, Windows 11).
   enough. The hint only appears when the user is new in the group.
 - **No DNS warning for Wi-Fi or mobile data that isn't there** (`link:wifi`,
   `link:mobile` without a connection or without the hardware).
+- **Android app looks like the desktop UI**: same colours (dark and light), header with
+  state and PANIC, sections, tunnel cards, route colours, leak test on the page, own
+  "Filter" tab whose list names open their source and show how many names they hold.
+- **Android: steadier VPN** (ideas from Rethink DNS): Android is told which real network
+  carries the VPN (apps see Wi-Fi vs. mobile data), network changes are settled for a
+  second before WireGuard reconnects, a status notification (foreground service, with
+  Panic and Stop) keeps Android from ending the VPN, and a warning shows when Android's
+  "Private DNS" is on (it bypasses the VPN's DNS and the filter).
 - **`shunt remove NAME`** deletes a tunnel and its imported files (refused while the
   default route, a rule or another tunnel's `via` uses it).
 
