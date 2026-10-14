@@ -115,6 +115,22 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
             })
         }
         error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
+        val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
+        if (running && !lockdown) {
+            // the only real kill switch on Android is the system's: without
+            // it, apps get out unprotected while the VPN (re)starts or crashes
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("No kill switch", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "While the VPN starts, restarts or crashes, apps can get out unprotected. " +
+                            "Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton({ ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") }
+                }
+            }
+        }
         if (running) {
             val ov = status?.optJSONObject("override")
             val panic = ov?.optBoolean("panic") ?: false
