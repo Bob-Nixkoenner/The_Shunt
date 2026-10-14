@@ -92,6 +92,13 @@ func TestPanicAndPass(t *testing.T) {
 	if _, err := open(); err == nil {
 		t.Error("new connection during panic")
 	}
+	var cnt struct {
+		Blocked int64 `json:"blocked"`
+	}
+	json.Unmarshal([]byte(e.Status()), &cnt)
+	if cnt.Blocked < 1 {
+		t.Errorf("connection refused by panic not counted as blocked (blocked = %d)", cnt.Blocked)
+	}
 	e.SetPanic(false)
 
 	// a pass opens a blocked default for a while, its end cuts what it opened

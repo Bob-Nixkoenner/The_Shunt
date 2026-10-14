@@ -100,6 +100,7 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
     LaunchedEffect(running) {
         while (running) {
             status = VpnState.engine?.status()?.let { JSONObject(it) }
+            VpnState.refreshKillSwitch() // turned on in the settings meanwhile?
             delay(1000)
         }
         status = null

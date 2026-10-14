@@ -24,6 +24,15 @@ object VpnState {
     /** Android's own kill switch: always-on VPN with "block connections without VPN". */
     val alwaysOn = MutableStateFlow(false)
     val lockdown = MutableStateFlow(false)
+    /** The running service, to ask it again: the user turns always-on on while it runs. */
+    @Volatile var service: VpnService? = null
+
+    /** Re-reads the kill switch (the UI calls this while it is visible). */
+    fun refreshKillSwitch() {
+        val s = service ?: return
+        alwaysOn.value = s.isAlwaysOn
+        lockdown.value = s.isLockdownEnabled
+    }
 
     val isRunning: StateFlow<Boolean> get() = running
 }
@@ -66,6 +75,7 @@ class ShuntVpnService : VpnService() {
             val pfd = b.establish() ?: throw IllegalStateException("VPN permission missing")
             tun = pfd
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            runCatching { Mobile.setTimezone(java.util.TimeZone.getDefault().id) } // log times in local time
             VpnState.engine = Mobile.start(pfd.fd.toLong(), settings.coreJson(this), CorePlatform(cm))
             // Wi-Fi <-> mobile data: WireGuard needs new sockets on the new network
             netCallback = object : ConnectivityManager.NetworkCallback() {
@@ -77,8 +87,8 @@ class ShuntVpnService : VpnService() {
             }.also { cm.registerDefaultNetworkCallback(it) }
             VpnState.error.value = null
             VpnState.running.value = true
-            VpnState.alwaysOn.value = isAlwaysOn
-            VpnState.lockdown.value = isLockdownEnabled
+            VpnState.service = this
+            VpnState.refreshKillSwitch()
             // filter lists: start with what is on disk, then refresh (also
             // without network the VPN must come up at once)
             if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
@@ -96,6 +106,7 @@ class ShuntVpnService : VpnService() {
         netCallback = null
         VpnState.engine?.stop()
         VpnState.engine = null
+        VpnState.service = null
         tun?.close()
         tun = null
         VpnState.running.value = false

@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -512,6 +513,7 @@ func (e *Engine) Status() string {
 	for _, t := range e.tunnels {
 		st.Tunnels = append(st.Tunnels, t.status())
 	}
+	sort.Slice(st.Tunnels, func(i, j int) bool { return st.Tunnels[i].Name < st.Tunnels[j].Name }) // map order: cards would jump
 	e.mu.RLock()
 	st.Network = e.netName
 	e.mu.RUnlock()

@@ -4,6 +4,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Version from the git tag (v0.7.0-rc4 -> "0.7.0-rc4", 2 commits later
+// "0.7.0-rc4-2-gabc1234"); versionCode = major*10000 + minor*100 + patch.
+val gitVersion: String = runCatching {
+    providers.exec { commandLine("git", "describe", "--tags", "--match", "v[0-9]*") }
+        .standardOutput.asText.get().trim().removePrefix("v")
+}.getOrDefault("").ifEmpty { "0.0.0-dev" }
+val gitVersionCode: Int = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(gitVersion)
+    ?.destructured?.let { (a, b, c) -> a.toInt() * 10000 + b.toInt() * 100 + c.toInt() } ?: 1
+
 android {
     namespace = "org.theshunt.app"
     compileSdk = 35
@@ -12,8 +21,8 @@ android {
         applicationId = "org.theshunt.app"
         minSdk = 29 // getConnectionOwnerUid: which app owns a connection
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitVersionCode
+        versionName = gitVersion
     }
 
     buildTypes {
