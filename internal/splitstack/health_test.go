@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,7 +61,8 @@ func TestTunnelHealth(t *testing.T) {
 	b64 := func(k wgtypes.Key) string { return base64.StdEncoding.EncodeToString(k[:]) }
 	spub := spriv.PublicKey()
 	conf := fmt.Sprintf("[Interface]\nPrivateKey = %s\nAddress = 10.9.0.2/32\nDNS = 10.9.0.1\n\n[Peer]\nPublicKey = %s\nEndpoint = 127.0.0.1:%d\nAllowedIPs = 0.0.0.0/0\n", b64(cpriv), b64(spub), port)
-	cfg, _ := json.Marshal(map[string]any{"tunnels": []map[string]string{{"name": "t", "conf": conf}}, "default": "tunnel:t"})
+	statsPath := t.TempDir() + "/stats.json"
+	cfg, _ := json.Marshal(map[string]any{"tunnels": []map[string]string{{"name": "t", "conf": conf}}, "default": "tunnel:t", "stats_path": statsPath})
 	appDev, apps, _ := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("10.111.0.2")}, nil, 1280)
 	link, stop := TunLink(appDev, 1280)
 	defer appDev.Close()
@@ -108,8 +111,21 @@ func TestTunnelHealth(t *testing.T) {
 	if s := waitFor("ok"); s != "ok" {
 		t.Fatalf("working tunnel: state %q", s)
 	}
+	var tr struct {
+		Traffic map[string]struct {
+			Month struct{ RX, TX int64 } `json:"month"`
+		} `json:"traffic"`
+	}
+	json.Unmarshal([]byte(e.Status()), &tr)
+	if tr.Traffic["t"].Month.TX == 0 || tr.Traffic["total"].Month.TX != tr.Traffic["t"].Month.TX {
+		t.Errorf("traffic not counted: %+v", tr.Traffic)
+	}
 	sdev.Close() // the server is gone
 	if s := waitFor("stale", "down"); s != "stale" && s != "down" {
 		t.Fatalf("dead tunnel: state %q", s)
+	}
+	e.Stop()
+	if raw, err := os.ReadFile(statsPath); err != nil || !strings.Contains(string(raw), `"t"`) {
+		t.Errorf("traffic totals not saved on Stop: %s %v", raw, err)
 	}
 }

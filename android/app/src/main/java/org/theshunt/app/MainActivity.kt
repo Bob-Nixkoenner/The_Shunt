@@ -90,6 +90,7 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
     val running by VpnState.running.collectAsStateWithLifecycle()
     val error by VpnState.error.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf<JSONObject?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
@@ -148,7 +149,18 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
                             if (ms > 0) Text("latency $ms ms" + if (loss > 0) " · $loss % lost" else "", style = MaterialTheme.typography.bodySmall)
                         }
+                        st.optJSONObject("traffic")?.optJSONObject(t.getString("name"))?.let { tr ->
+                            Text(trafficLine(ctx, tr), style = MaterialTheme.typography.bodySmall)
+                        }
                     }
+                }
+            }
+        }
+        status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
+            if (tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L > 0L) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("All tunnels: " + trafficLine(ctx, tot), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton({ confirmReset = true }) { Text("Reset") }
                 }
             }
         }
@@ -165,6 +177,15 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                 Text("$what ($name)")
             }
         }
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Reset traffic statistics?") },
+            text = { Text("All monthly and total counts are deleted.") },
+            confirmButton = { TextButton({ VpnState.engine?.resetStats(); confirmReset = false }) { Text("Reset") } },
+            dismissButton = { TextButton({ confirmReset = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -304,4 +325,12 @@ private fun RoutePicker(current: String, choices: List<String>, onPick: (String)
             }
         }
     }
+}
+
+/** "this month ↓ 1.2 GB ↑ 80 MB · total ↓ … ↑ …" from a traffic summary. */
+private fun trafficLine(ctx: android.content.Context, tr: JSONObject): String {
+    fun b(o: JSONObject?, k: String) = Formatter.formatShortFileSize(ctx, o?.optLong(k) ?: 0)
+    val m = tr.optJSONObject("month")
+    val t = tr.optJSONObject("total")
+    return "this month ↓ ${b(m, "rx")} ↑ ${b(m, "tx")} · total ↓ ${b(t, "rx")} ↑ ${b(t, "tx")}"
 }

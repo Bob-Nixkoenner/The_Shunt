@@ -55,6 +55,7 @@ data class Settings(
             .put("apps", uids)
             .put("blocklists", lists)
             .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
+            .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
             .toString()
     }
 

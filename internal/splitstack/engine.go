@@ -29,6 +29,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"golang.zx2c4.com/wireguard/conn"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -65,6 +66,9 @@ type config struct {
 	// apps in Unfiltered.
 	Blocklists []blocklistConf `json:"blocklists"`
 	Unfiltered []string        `json:"unfiltered"`
+	// StatsPath: file for traffic totals per tunnel and month
+	// (internal/stats); "" counts in memory only.
+	StatsPath string `json:"stats_path"`
 }
 
 func parseConfig(js string) (*config, error) {
@@ -156,6 +160,7 @@ type Engine struct {
 	stop       sync.Once
 	stopHealth context.CancelFunc
 	healthDone chan struct{}
+	book       *stats.Book
 }
 
 // New starts the tunnels and takes over the TUN (o.Link; the platform
@@ -175,6 +180,12 @@ func New(o Options, configJSON string) (*Engine, error) {
 		o.NewBind = conn.NewDefaultBind
 	}
 	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr), direct: netip.MustParseAddr(c.DirectDNS)}
+	book, err := stats.Open(c.StatsPath)
+	if err != nil {
+		e.logf("traffic statistics in memory only: %v", err)
+		book, _ = stats.Open("")
+	}
+	e.book = book
 	if err := e.setRules(c); err != nil {
 		return nil, err
 	}
@@ -185,6 +196,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt = &wgTunnel{name: t.Name, err: err.Error()}
 		}
 		e.tunnels[t.Name] = wt
+		// a new userspace tunnel starts at zero: count from the first byte
+		e.book.Observe(t.Name, 0, 0, time.Now())
 	}
 	s, err := newStack(o.Link, e)
 	if err != nil {
@@ -334,6 +347,9 @@ func (e *Engine) NetworkChanged() {
 	}
 }
 
+// ResetStats deletes the traffic totals.
+func (e *Engine) ResetStats() error { return e.book.Reset() }
+
 // Stop ends everything; the Engine cannot be started again.
 func (e *Engine) Stop() {
 	e.stop.Do(func() {
@@ -346,6 +362,9 @@ func (e *Engine) Stop() {
 			e.stack.Wait()
 		}
 		e.closeTunnels()
+		if err := e.book.Close(); err != nil {
+			e.logf("traffic statistics: %v", err)
+		}
 		e.logf("stopped")
 	})
 }
@@ -372,11 +391,14 @@ type status struct {
 	Blocked    int64          `json:"blocked"`     // of those, blocked
 	DNSBlocked int64          `json:"dns_blocked"` // names answered NXDOMAIN by the filter
 	Time       int64          `json:"time"`
+	// Traffic per tunnel and "total": this month, last month, all.
+	Traffic map[string]stats.Summary `json:"traffic"`
 }
 
 // Status returns the state as JSON.
 func (e *Engine) Status() string {
-	st := status{Flows: e.flows.Load(), Blocked: e.blocked.Load(), DNSBlocked: e.dnsBlocked.Load(), Time: time.Now().Unix()}
+	st := status{Flows: e.flows.Load(), Blocked: e.blocked.Load(), DNSBlocked: e.dnsBlocked.Load(), Time: time.Now().Unix(),
+		Traffic: e.book.Summaries(time.Now())}
 	for _, t := range e.tunnels {
 		st.Tunnels = append(st.Tunnels, t.status())
 	}

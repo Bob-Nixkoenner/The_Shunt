@@ -18,6 +18,8 @@ RuntimeDirectory=shunt
 RuntimeDirectoryMode=0755
 # DNS filter blocklists (downloaded only while a filter level uses them)
 CacheDirectory=shunt
+# traffic totals per tunnel and month (internal/stats)
+StateDirectory=shunt
 Restart=on-failure
 RestartSec=2
 

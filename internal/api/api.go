@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"io"
 	"net"
 	"net/http"
@@ -19,17 +18,21 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
 // Status is returned by GET /v1/status.
 type Status struct {
-	DefaultRoute string         `json:"default_route"`
-	Panic        bool           `json:"panic"`
-	Tunnels      []TunnelStatus `json:"tunnels"`
-	Groups       []GroupStatus  `json:"groups"`
-	Rules        []string       `json:"rules"`
+	// Traffic: totals per tunnel and "total" (this month, last month, all).
+	Traffic      map[string]stats.Summary `json:"traffic,omitempty"`
+	DefaultRoute string                   `json:"default_route"`
+	Panic        bool                     `json:"panic"`
+	Tunnels      []TunnelStatus           `json:"tunnels"`
+	Groups       []GroupStatus            `json:"groups"`
+	Rules        []string                 `json:"rules"`
 	// Routes lists every route name ("direct", "block", "tunnel:vps").
 	Routes []string `json:"routes"`
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
