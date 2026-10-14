@@ -417,9 +417,12 @@ check "tunnel import" 200 "$(capi POST /v1/tunnels "$imp")"
 check "imported key file is 0600" 600 "$(stat -c %a "$WORK/etc/tunnels/vps2.conf" 2>/dev/null)"
 check "imported tunnel in status" yes "$(shunt status | gq '^vps2 ' && echo yes || echo no)"
 check "bad tunnel name rejected" 422 "$(capi POST /v1/tunnels '{"name":"../x","conf":"[Interface]"}')"
-check "tunnel delete" 204 "$(capi DELETE /v1/tunnels/vps2)"
+check "tunnel delete (shunt remove)" yes "$(shunt remove tunnel:vps2 2>&1 | gq 'removed' && echo yes || echo no)"
 check "deleted tunnel file gone" no "$([[ -e $WORK/etc/tunnels/vps2.conf ]] && echo yes || echo no)"
+check "deleted tunnel gone from status" no "$(shunt status | gq '^vps2 ' && echo yes || echo no)"
 check "tunnel in use cannot be deleted" 422 "$(capi DELETE /v1/tunnels/vps)"
+rm_out=$(shunt remove vps 2>&1 || true) # fails on purpose; no pipe under pipefail
+check "shunt remove names the reason" yes "$(gq -E 'default route|uses tunnel' <<<"$rm_out" && echo yes || echo "no: $rm_out")"
 
 echo "== system resolver changes are picked up without restart"
 # `ip netns exec` bind-mounts this file over /etc/resolv.conf; rewrite it in
@@ -742,11 +745,14 @@ check "panic blocks everything" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via di
 shunt panic off
 check "panic off restores" 10.66.0.2 "$(fetch curl -s $URL)"
 
-echo "== daemon stopped: fail closed"
+echo "== daemon stopped: tunnels fail closed, direct goes on"
 kill "$SHUNTD_PID"; wait "$SHUNTD_PID" 2>/dev/null || true; SHUNTD_PID=
 check "tunnel group blocked while daemon is down" "" "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/tunnel-vps/cgroup.procs; curl -s $URL")"
 check "default (tunnel) blocked while daemon is down" "" "$(fetch curl -s $URL)"
 check "DNS fails closed while daemon is down" yes "$(failed_closed "$(dnsq -server 10.99.0.1:53 -type TXT whoami.test)")"
+check "tunnel group DNS fails closed while daemon is down" yes "$(failed_closed "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/tunnel-vps/cgroup.procs; exec $BIN/fakedns query -server 10.99.0.1:53 -type TXT whoami.test")")"
+check "direct group still resolves while daemon is down" "direct 10.99.0.2" "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/direct/cgroup.procs; exec $BIN/fakedns query -server 10.99.0.1:53 -type TXT whoami.test")"
+check "direct group still connects while daemon is down" 10.99.0.2 "$(fetch sh -c "echo \$\$ > /sys/fs/cgroup/$CG/apps/via/direct/cgroup.procs; curl -s $URL")"
 cli "$BIN/shuntd" cleanup
 check "cleanup restores direct" 10.99.0.2 "$(fetch curl -s $URL)"
 check "cleanup removes nft table" no "$(cli nft list tables | gq shunt && echo yes || echo no)"

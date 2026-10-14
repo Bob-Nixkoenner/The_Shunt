@@ -433,9 +433,15 @@ unit_src() { # file name -> path of packaged unit (or download)
 # ---------------------------------------------------------------- config
 say "Configuration"
 getent group shunt >/dev/null || groupadd --system shunt
+NEW_MEMBER=
 if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then
+	id -nG "$SUDO_USER" | tr ' ' '\n' | grep -qx shunt || NEW_MEMBER=1
 	usermod -aG shunt "$SUDO_USER"
-	ok "user $SUDO_USER may use the 'shunt' command (after logging in again)"
+	if [[ -n $NEW_MEMBER ]]; then
+		ok "user $SUDO_USER may use the 'shunt' command (after a restart)"
+	else
+		ok "user $SUDO_USER may use the 'shunt' command"
+	fi
 fi
 install -d -m755 "$ETC"
 install -d -m700 "$ETC/tunnels"
@@ -594,10 +600,13 @@ ${c_bld}Done.${c_off} Quick reference:
 Changing the config, reloading or lifting panic asks for your admin password
 (polkit); status, starting apps and PANIC never do.
 
-${c_yel}Stopping shuntd keeps the kill switch active (on purpose).${c_off}
+${c_yel}Stopping shuntd keeps the kill switch for tunnels (on purpose); direct traffic goes on.${c_off}
 Emergency exit:  sudo shuntd cleanup
 Uninstall:       sudo bash install.sh --uninstall
 Paranoid mode (block network at boot until shuntd runs):
                  sudo systemctl enable shunt-lockdown
 EOF
-[[ -n ${SUDO_USER:-} ]] && echo "Note: log out and in again so '$SUDO_USER' can use 'shunt' without sudo."
+if [[ -n ${NEW_MEMBER:-} ]]; then
+	echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"
+	echo "(logging out is not always enough: the desktop's user services keep the old group list)."
+fi

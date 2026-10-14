@@ -204,7 +204,7 @@ func NewClient(socket string) *Client {
 				var d net.Dialer
 				c, err := d.DialContext(ctx, "unix", socket)
 				if errors.Is(err, syscall.EACCES) {
-					return nil, fmt.Errorf("no access to %s: log out and in again (new 'shunt' group membership), or use sudo", socket)
+					return nil, fmt.Errorf("no access to %s: restart the computer (new 'shunt' group membership; logging out is not always enough), or use sudo", socket)
 				}
 				return c, err
 			},

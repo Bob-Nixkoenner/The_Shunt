@@ -920,6 +920,20 @@ func (d *Daemon) anyDead() bool {
 	return false
 }
 
+// linkAbsent tells whether route is a link route (link:wifi, …) whose
+// connection does not exist right now. Called with d.mu held.
+func (d *Daemon) linkAbsent(route string) bool {
+	if d.plan == nil || !strings.HasPrefix(route, "link:") {
+		return false
+	}
+	for _, r := range d.plan.Routes {
+		if r.Kind == config.RouteLink && r.String() == route {
+			return r.Iface == ""
+		}
+	}
+	return false
+}
+
 // shutdown removes tunnels but leaves nft rules and kill switch tables in
 // place: traffic of tunnelled apps stays blocked until shuntd is back or
 // `shuntd cleanup` is run explicitly.
@@ -936,11 +950,18 @@ func (d *Daemon) shutdown() {
 	if d.plan != nil {
 		_ = d.Backend.SyncRoutes(d.plan, nil) // shutting down: soft or not
 	}
+	if d.plan != nil {
+		// tunnels' DNS keeps going to the closed proxy (fails closed), direct
+		// DNS reaches the system resolver again
+		if err := d.Backend.Stopped(d.plan); err != nil {
+			d.Log.Warn("direct DNS stays blocked while shuntd is down", "err", err)
+		}
+	}
 	if d.proxy != nil {
-		d.proxy.Close() // redirect rules stay: DNS fails closed while we're down
+		d.proxy.Close()
 	}
 	_ = os.Remove(d.cfg.Daemon.Socket)
-	d.Log.Info("shuntd stopped; kill switch stays active")
+	d.Log.Info("shuntd stopped; kill switch stays active for tunnels, direct goes on")
 }
 
 func (d *Daemon) listen() (net.Listener, error) {
@@ -1348,6 +1369,12 @@ func (d *Daemon) status() api.Status {
 			for r := range f {
 				// a switched-off tunnel is blocked on purpose, DNS included
 				if t, ok := d.cfg.Tunnels[strings.TrimPrefix(r, "tunnel:")]; ok && strings.HasPrefix(r, "tunnel:") && t.Disabled {
+					delete(f, r)
+					continue
+				}
+				// no Wi-Fi / mobile connection (or no such hardware): its
+				// route is blocked on purpose, there is no DNS to expect
+				if d.linkAbsent(r) {
 					delete(f, r)
 					continue
 				}

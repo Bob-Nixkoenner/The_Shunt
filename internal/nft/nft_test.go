@@ -246,3 +246,77 @@ dns_filter = "off"
 }
 
 func strconvI(i int) string { return fmt.Sprint(i) }
+
+// While shuntd is down only the queries of tunnels and the login browser go
+// to their (closed) proxy port; direct ones reach the system resolver.
+func TestStoppedDNS(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "direct"
+[tunnel.vps]
+config = "vps.conf"
+[[rule]]
+name = "firefox"
+app = ["firefox"]
+dns_filter = "off"
+[[rule]]
+name = "brave"
+app = ["brave"]
+route = "tunnel:vps"
+dns_filter = "paranoid"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+	p, err := engine.Compile(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.DNS {
+		t.Skip("plan without DNS proxy")
+	}
+	full, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := StoppedDNS(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, "flush chain inet shunt dns_redirect\n") {
+		t.Errorf("no flush first:\n%s", got)
+	}
+	for _, r := range p.Routes {
+		line := fmt.Sprintf("meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect", r.Mark)
+		switch r.Kind {
+		case config.RouteDirect:
+			if !strings.Contains(full, line) || strings.Contains(got, line) {
+				t.Errorf("direct (%#x): running has it %v, stopped has it %v", r.Mark, strings.Contains(full, line), strings.Contains(got, line))
+			}
+		case config.RouteTunnel:
+			if !strings.Contains(got, line) {
+				t.Errorf("tunnel %s not redirected while stopped:\n%s", r, got)
+			}
+		}
+	}
+	if strings.Contains(got, fmt.Sprintf("!= %#x", engine.MarkBase)) {
+		t.Errorf("unmarked (direct) queries still redirected while stopped:\n%s", got)
+	}
+	// filter copies: firefox (r1, any route) keeps its tunnel copies but
+	// loses the direct one, brave (r2, tunnel) keeps its copy
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteDirect {
+			continue
+		}
+		if strings.Contains(got, fmt.Sprintf(`apps/app/r1" meta mark %#x `, r.Mark)) {
+			t.Errorf("firefox's direct filter copy still redirected while stopped:\n%s", got)
+		}
+	}
+	if !strings.Contains(got, `apps/app/r2" meta mark`) {
+		t.Errorf("brave's tunnel filter copy missing while stopped:\n%s", got)
+	}
+	if p.Captive != nil && !strings.Contains(got, fmt.Sprintf("meta mark %#x", p.Captive.Mark)) {
+		t.Errorf("login browser not redirected while stopped:\n%s", got)
+	}
+}

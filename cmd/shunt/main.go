@@ -50,6 +50,9 @@ commands:
              add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
              for root-only files like /etc/wireguard/*.conf. --via makes it a
              second hop through that tunnel; OpenVPN logins are asked for.
+  remove NAME
+             delete a tunnel and its imported files (not while the default
+             route, a rule or another tunnel's --via uses it)
   captive [--browser B]
              Wi-Fi login page (hotel, train): opens a throwaway browser
              that goes direct, past the tunnels
@@ -100,6 +103,8 @@ func main() {
 		err = which(c, args[1:])
 	case "import":
 		err = importTunnel(c, args[1:])
+	case "remove":
+		err = removeTunnel(c, args[1:])
 	case "version":
 		fmt.Println(version)
 	case "ui":
@@ -351,6 +356,18 @@ func firewallCmd(c *api.Client, args []string) error {
 		return c.Do("DELETE", "/v1/firewall/apps?key="+url.QueryEscape(args[1]), nil, nil)
 	}
 	return fmt.Errorf("usage: shunt firewall apps | forget KEY")
+}
+
+func removeTunnel(c *api.Client, args []string) error {
+	if len(args) != 1 || args[0] == "" {
+		return fmt.Errorf("usage: shunt remove NAME")
+	}
+	name := strings.TrimPrefix(args[0], "tunnel:")
+	if err := c.Do("DELETE", "/v1/tunnels/"+url.PathEscape(name), nil, nil); err != nil {
+		return err
+	}
+	fmt.Printf("tunnel %q removed\n", name)
+	return nil
 }
 
 func which(c *api.Client, args []string) error {

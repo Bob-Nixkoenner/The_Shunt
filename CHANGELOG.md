@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Fixes from the VM tests (Ubuntu 26.04, CachyOS, Windows 11).
+
+- **Stopping shuntd keeps direct traffic working, DNS included.** Tunnels and the
+  login browser stay blocked (their DNS too, fails closed), but direct programs now
+  resolve names through the system resolver while shuntd is down. Before, every name
+  lookup failed and the whole Internet looked gone.
+- **Installer: restart instead of logging out** after being added to the `shunt` group;
+  on KDE (and other desktops whose user services keep running) logging out was not
+  enough. The hint only appears when the user is new in the group.
+- **No DNS warning for Wi-Fi or mobile data that isn't there** (`link:wifi`,
+  `link:mobile` without a connection or without the hardware).
+- **`shunt remove NAME`** deletes a tunnel and its imported files (refused while the
+  default route, a rule or another tunnel's `via` uses it).
+
 ## v0.7.0-rc4
 
 **Installer for Arch and Fedora, tunnel health, traffic statistics, panic button and
