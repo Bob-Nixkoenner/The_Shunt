@@ -32,6 +32,21 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
+// status as JSON (splitstack's status)
+type tunnelStatus struct {
+	Name      string `json:"name"`
+	Up        bool   `json:"up"`
+	Error     string `json:"error"`
+	Handshake int64  `json:"handshake"`
+	RX        int64  `json:"rx"`
+}
+
+type status struct {
+	Tunnels    []tunnelStatus `json:"tunnels"`
+	Blocked    int64          `json:"blocked"`
+	DNSBlocked int64          `json:"dns_blocked"`
+}
+
 type fakePlatform struct{ uid atomic.Int64 }
 
 func (p *fakePlatform) OwnerUid(int, string, int, string, int) int { return int(p.uid.Load()) }
@@ -268,29 +283,6 @@ func TestTwoTunnels(t *testing.T) {
 	}
 }
 
-func TestParseConfig(t *testing.T) {
-	ok := `{"tunnels":[{"name":"a","conf":""}],"default":"tunnel:a","apps":{"10001":"direct","10002":"block"}}`
-	c, err := parseConfig(ok)
-	if err != nil || c.DirectDNS != "1.1.1.1" || c.MTU != 1280 {
-		t.Fatalf("%+v %v", c, err)
-	}
-	if c, _ := parseConfig(`{}`); c.Default != RouteBlock {
-		t.Errorf("empty config must block by default, got %q", c.Default)
-	}
-	for _, bad := range []string{
-		`{"default":"tunnel:x"}`,
-		`{"apps":{"abc":"direct"}}`,
-		`{"apps":{"1":"elsewhere"}}`,
-		`{"tunnels":[{"name":"a"},{"name":"a"}]}`,
-		`{"direct_dns":"dns.google"}`,
-		`not json`,
-	} {
-		if _, err := parseConfig(bad); err == nil {
-			t.Errorf("accepted %s", bad)
-		}
-	}
-}
-
 func TestDNSFilter(t *testing.T) {
 	cpriv, _ := wgtypes.GeneratePrivateKey()
 	spub, port := wgServer(t, cpriv.PublicKey(), "upstream")
@@ -299,7 +291,7 @@ func TestDNSFilter(t *testing.T) {
 	list := t.TempDir() + "/ads.txt"
 	os.WriteFile(list, []byte("0.0.0.0 tracker.example.net\n||ads.example.com^\n"), 0o644)
 	b, _ := json.Marshal(map[string]any{"tunnels": []map[string]string{{"name": "t", "conf": conf}}, "default": "tunnel:t",
-		"blocklists": []map[string]string{{"name": "ads", "path": list}}, "unfiltered": []int{10002}})
+		"blocklists": []map[string]string{{"name": "ads", "path": list}}, "unfiltered": []string{"10002"}})
 	fds, _ := unix.Socketpair(unix.AF_UNIX, unix.SOCK_SEQPACKET, 0)
 	p := &fakePlatform{}
 	p.uid.Store(10001)

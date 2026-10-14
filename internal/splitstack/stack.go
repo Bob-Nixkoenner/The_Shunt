@@ -1,6 +1,4 @@
-//go:build linux
-
-package mobile
+package splitstack
 
 import (
 	"context"
@@ -14,11 +12,9 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/fdbased"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -38,18 +34,11 @@ var errBlocked = errors.New("blocked")
 
 // newStack terminates the TUN: every TCP connection and UDP flow the apps
 // open lands in a forwarder below.
-func newStack(fd int, mtu uint32, e *Engine) (*stack.Stack, error) {
-	if err := unix.SetNonblock(fd, true); err != nil {
-		return nil, fmt.Errorf("tun fd: %w", err)
-	}
+func newStack(ep stack.LinkEndpoint, e *Engine) (*stack.Stack, error) {
 	s := stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
-	ep, err := fdbased.New(&fdbased.Options{FDs: []int{fd}, MTU: mtu, PacketDispatchMode: fdbased.Readv})
-	if err != nil {
-		return nil, fmt.Errorf("tun endpoint: %v", err)
-	}
 	if terr := s.CreateNIC(nicID, ep); terr != nil {
 		return nil, fmt.Errorf("nic: %v", terr)
 	}
@@ -79,16 +68,16 @@ func addrPort(a tcpip.Address, port uint16) netip.AddrPort {
 type flow struct {
 	proto    int // 6 TCP, 17 UDP
 	src, dst netip.AddrPort
-	uid      int
+	app      string // owner, "" = unknown
 	route    string
 }
 
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
-	f := &flow{proto: proto, src: addrPort(id.RemoteAddress, id.RemotePort), dst: addrPort(id.LocalAddress, id.LocalPort), uid: -1}
-	if e.p != nil {
-		f.uid = e.p.OwnerUid(proto, f.src.Addr().String(), int(f.src.Port()), f.dst.Addr().String(), int(f.dst.Port()))
+	f := &flow{proto: proto, src: addrPort(id.RemoteAddress, id.RemotePort), dst: addrPort(id.LocalAddress, id.LocalPort)}
+	if e.o.Owner != nil {
+		f.app = e.o.Owner(proto, f.src, f.dst)
 	}
-	f.route = e.routeFor(f.uid)
+	f.route = e.routeFor(f.app)
 	e.flows.Add(1)
 	return f
 }
@@ -106,8 +95,7 @@ func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
 		if f.isDNS(e) {
 			dst = netip.AddrPortFrom(e.direct, 53)
 		}
-		var d net.Dialer
-		return d.DialContext(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
+		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
 	}
 	t := e.tunnels[strings.TrimPrefix(f.route, tunnelPref)]
 	if t == nil || t.net == nil {
@@ -247,7 +235,7 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		}
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
-			if list := e.blockedName(f.uid, q.Question[0].Name); list != "" {
+			if list := e.blockedName(f.app, q.Question[0].Name); list != "" {
 				e.dnsBlocked.Add(1)
 				r := new(dns.Msg)
 				r.SetRcode(&q, dns.RcodeNameError)

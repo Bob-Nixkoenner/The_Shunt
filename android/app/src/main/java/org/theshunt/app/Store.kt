@@ -52,7 +52,7 @@ data class Settings(
         return toJson()
             .put("apps", uids)
             .put("blocklists", lists)
-            .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it) }))
+            .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
             .toString()
     }
 

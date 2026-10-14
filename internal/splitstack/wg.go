@@ -1,6 +1,4 @@
-//go:build linux
-
-package mobile
+package splitstack
 
 import (
 	"bufio"
@@ -35,16 +33,15 @@ func parseWG(conf string) (*wgconf.Config, error) {
 	return wgconf.Parse(strings.NewReader(conf))
 }
 
-// resolver asks the DNS server of the direct route; Go's default resolver
-// finds no /etc/resolv.conf on Android.
-func resolver(dns netip.Addr) *net.Resolver {
+// resolver asks the DNS server of the direct route, on the direct route;
+// Go's default resolver finds no /etc/resolv.conf on Android.
+func (e *Engine) resolver() *net.Resolver {
 	return &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, network, netip.AddrPortFrom(dns, 53).String())
+		return e.o.DialDirect(ctx, network, netip.AddrPortFrom(e.direct, 53).String())
 	}}
 }
 
-func newWGTunnel(name, conf string, directDNS netip.Addr, mtu int) (*wgTunnel, error) {
+func newWGTunnel(name, conf string, r *net.Resolver, bind conn.Bind, bindUp func(conn.Bind) error, mtu int) (*wgTunnel, error) {
 	c, err := parseWG(conf)
 	if err != nil {
 		return nil, err
@@ -68,7 +65,7 @@ func newWGTunnel(name, conf string, directDNS netip.Addr, mtu int) (*wgTunnel, e
 		t.v4 = t.v4 || a.Addr().Is4()
 		t.v6 = t.v6 || a.Addr().Is6()
 	}
-	uapi, err := uapiConfig(c, resolver(directDNS))
+	uapi, err := uapiConfig(c, r)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +74,7 @@ func newWGTunnel(name, conf string, directDNS netip.Addr, mtu int) (*wgTunnel, e
 		return nil, err
 	}
 	logger := &device.Logger{Verbosef: device.DiscardLogf, Errorf: device.DiscardLogf}
-	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
+	dev := device.NewDevice(tdev, bind, logger)
 	if err := dev.IpcSet(uapi); err != nil {
 		dev.Close()
 		return nil, err
@@ -85,6 +82,12 @@ func newWGTunnel(name, conf string, directDNS netip.Addr, mtu int) (*wgTunnel, e
 	if err := dev.Up(); err != nil {
 		dev.Close()
 		return nil, err
+	}
+	if bindUp != nil {
+		if err := bindUp(bind); err != nil {
+			dev.Close()
+			return nil, err
+		}
 	}
 	t.dev, t.net = dev, tnet
 	return t, nil
