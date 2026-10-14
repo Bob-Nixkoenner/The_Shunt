@@ -138,7 +138,7 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(name in settings.filterLists, { on ->
                     val s = settings.copy(filterLists = if (on) settings.filterLists + name else settings.filterLists - name)
-                    if (on) Thread { Blocklists.refresh(ctx, listOf(name)); ShuntVpnService.applyRules(ctx, s) }.start()
+                    if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
                     update(s)
                 })
                 Text("$what ($name)")

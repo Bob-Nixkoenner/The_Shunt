@@ -32,8 +32,12 @@ object Blocklists {
 
     fun file(ctx: Context, name: String) = File(File(ctx.filesDir, "blocklists"), name)
 
-    /** Downloads missing and day-old lists; an old copy is kept if the download fails. */
-    fun refresh(ctx: Context, names: Collection<String>) {
+    /**
+     * Downloads missing and day-old lists; an old copy is kept if the
+     * download fails. Returns whether any list changed.
+     */
+    fun refresh(ctx: Context, names: Collection<String>): Boolean {
+        var changed = false
         for (name in names) {
             val f = file(ctx, name)
             if (f.exists() && System.currentTimeMillis() - f.lastModified() < MAX_AGE_MS) continue
@@ -45,10 +49,11 @@ object Blocklists {
                 c.readTimeout = 30_000
                 c.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
                 if (c.responseCode != 200) throw IllegalStateException("HTTP ${c.responseCode}")
-                tmp.renameTo(f)
+                if (tmp.renameTo(f)) changed = true
             } catch (e: Exception) {
                 Log.w("Shunt", "blocklist $name: ${e.message}")
             }
         }
+        return changed
     }
 }

@@ -14,6 +14,7 @@ import org.theshunt.mobile.Mobile
 import org.theshunt.mobile.Platform
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.Executors
 
 /** What the UI shows: running or not, last error. */
 object VpnState {
@@ -31,25 +32,23 @@ object VpnState {
  * the real network without a loop.
  */
 class ShuntVpnService : VpnService() {
-    private var tun: ParcelFileDescriptor? = null
-    private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            synchronized(this) { stopEngine() }
-            stopSelf()
+            worker.execute { stopEngine() }
+            stopSelf(startId) // not if a newer start came in meanwhile
             return START_NOT_STICKY
         }
-        // null intent: restarted by the system or always-on VPN. Off the main
-        // thread: list downloads and endpoint lookups take a moment.
-        Thread { synchronized(this) { startEngine() } }.start()
+        // null intent: restarted by the system or always-on VPN. On the
+        // worker: endpoint lookups and list downloads take a moment, and
+        // start/stop must not overlap.
+        worker.execute { startEngine() }
         return START_STICKY
     }
 
     private fun startEngine() {
         stopEngine()
         val settings = Store.load(this)
-        Blocklists.refresh(this, settings.filterLists)
         try {
             val b = Builder()
                 .setSession("The Shunt")
@@ -75,6 +74,9 @@ class ShuntVpnService : VpnService() {
             }.also { cm.registerDefaultNetworkCallback(it) }
             VpnState.error.value = null
             VpnState.running.value = true
+            // filter lists: start with what is on disk, then refresh (also
+            // without network the VPN must come up at once)
+            if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
             VpnState.error.value = e.message ?: e.toString()
@@ -95,12 +97,12 @@ class ShuntVpnService : VpnService() {
     }
 
     override fun onRevoke() { // another VPN took over, or the user switched it off
-        stopEngine()
+        worker.execute { stopEngine() }
         super.onRevoke()
     }
 
     override fun onDestroy() {
-        stopEngine()
+        worker.execute { stopEngine() }
         super.onDestroy()
     }
 
@@ -122,6 +124,14 @@ class ShuntVpnService : VpnService() {
 
     companion object {
         private const val TAG = "Shunt"
+
+        /** Start and stop run one after the other, off the main thread. */
+        private val worker = Executors.newSingleThreadExecutor()
+
+        // One VPN per process, whichever service instance started it; only
+        // touched on the worker.
+        private var tun: ParcelFileDescriptor? = null
+        private var netCallback: ConnectivityManager.NetworkCallback? = null
         const val ACTION_STOP = "org.theshunt.app.STOP"
 
         fun start(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java))

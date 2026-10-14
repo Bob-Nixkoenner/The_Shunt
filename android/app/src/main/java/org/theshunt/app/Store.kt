@@ -2,8 +2,10 @@ package org.theshunt.app
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /** One imported WireGuard tunnel (the wg-quick file as text). */
 data class Tunnel(val name: String, val conf: String)
@@ -79,14 +81,27 @@ data class Settings(
 object Store {
     private const val FILE = "settings.json"
 
+    // AtomicFile: the VPN service may read while the UI writes; a torn file
+    // would start the VPN with the defaults (everything blocked, no tunnels).
+    private fun file(ctx: Context) = AtomicFile(File(ctx.filesDir, FILE))
+
     fun load(ctx: Context): Settings = try {
-        Settings.fromJson(JSONObject(ctx.openFileInput(FILE).bufferedReader().readText()))
+        Settings.fromJson(JSONObject(String(file(ctx).readFully())))
     } catch (e: Exception) {
         Settings()
     }
 
+    @Synchronized
     fun save(ctx: Context, s: Settings) {
-        ctx.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(s.toJson().toString(2).toByteArray()) }
+        val f = file(ctx)
+        val out = f.startWrite()
+        try {
+            out.write(s.toJson().toString(2).toByteArray())
+            f.finishWrite(out)
+        } catch (e: Exception) {
+            f.failWrite(out)
+            throw e
+        }
     }
 
     /** Turns a file name or QR import into a tunnel name like on the desktop: a-z 0-9 -, max. 10. */
