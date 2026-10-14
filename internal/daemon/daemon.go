@@ -28,6 +28,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -59,6 +60,7 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
+	filter    *blocklist.Manager
 	watcher   AppWatcher
 	saveMu    sync.Mutex // serializes config writes
 	dnsUps    dnsproxy.RouteUpstreams
@@ -387,10 +389,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.netInfo = netdetect.Current()
 	d.setLinks(links.Current())
 	go d.probeCaptive()
+	d.filter = &blocklist.Manager{Dir: d.filterDir(), Log: d.Log, Client: d.downloadClient,
+		OnChange: func(f *blocklist.Filter) { d.proxy.SetFilter(f) }}
 
 	if err := d.reload(self); err != nil {
 		return err
 	}
+	go d.filter.Run(ctx)
 	// The plan is in place: lift the boot lockdown if it was set.
 	if err := d.Backend.LiftLockdown(); err != nil {
 		d.Log.Warn("could not remove lockdown table", "err", err)
@@ -517,6 +522,13 @@ func (d *Daemon) reload(selfCgroup string) error {
 		return err
 	}
 	d.dnsUps = ups
+	if d.filter != nil {
+		var used []string
+		if p.Plan.DNS {
+			used = p.Config.UsedFilterLevels()
+		}
+		d.filter.Configure(p.Config.Filter(), used)
+	}
 	for _, w := range p.Warnings {
 		d.Log.Warn(w)
 	}
@@ -713,7 +725,7 @@ func usedLinks(c *config.Config, p *engine.Plan) []string {
 	}
 	mark(p.DefaultRoute.String())
 	for _, r := range p.Rules {
-		if !strings.HasPrefix(r.Name, "via:") { // not the implicit run-in-route rules
+		if !strings.HasPrefix(r.Name, "via:") && r.Route != nil { // not the implicit run-in-route rules
 			mark(r.Route.String())
 		}
 	}
@@ -1002,6 +1014,14 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/dnsfilter/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		d.filter.Refresh()
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
@@ -1301,15 +1321,34 @@ func (d *Daemon) status() api.Status {
 		for _, r := range d.plan.Rules {
 			for _, rg := range r.Groups {
 				if rg.Path == g.Path {
-					gs.Route = r.Route.String()
+					gs.Route = ruleRoute(d.plan, r)
 					break rules
 				}
 			}
 		}
 		st.Groups = append(st.Groups, gs)
 	}
+	if d.plan.DNS && d.filter != nil {
+		fs := &api.DNSFilterStatus{Default: d.cfg.Filter().Default, Routes: map[string]string{}, Rules: map[string]string{},
+			Lists: d.filter.Status(), Stats: d.proxy.FilterStats()}
+		for _, r := range d.plan.Routes {
+			if r.Kind != config.RouteBlock {
+				fs.Routes[r.String()] = r.Filter
+			}
+		}
+		for _, r := range d.plan.Rules {
+			if r.Filter != "" {
+				fs.Rules[r.Name] = r.Filter
+			}
+		}
+		st.DNSFilter = fs
+	}
 	for _, r := range d.plan.Rules {
-		st.Rules = append(st.Rules, fmt.Sprintf("%s -> %s", r.Name, r.Route))
+		line := fmt.Sprintf("%s -> %s", r.Name, ruleRoute(d.plan, r))
+		if r.Filter != "" {
+			line += ", dns filter " + r.Filter
+		}
+		st.Rules = append(st.Rules, line)
 	}
 	return st
 }
@@ -1411,12 +1450,39 @@ func (d *Daemon) procNames(pids []int) []string {
 	return out
 }
 
+// filterDir is where blocklists are cached: systemd's CacheDirectory
+// (/var/cache/shunt), or next to the config for units installed before the
+// DNS filter existed.
+func (d *Daemon) filterDir() string {
+	if c, _, _ := strings.Cut(os.Getenv("CACHE_DIRECTORY"), ":"); c != "" {
+		return filepath.Join(c, "blocklists")
+	}
+	return filepath.Join(filepath.Dir(d.ConfigPath), "blocklists")
+}
+
+// downloadClient: blocklist downloads take the default route (and its DNS).
+func (d *Daemon) downloadClient() *http.Client {
+	d.mu.Lock()
+	r := d.plan.DefaultRoute
+	d.mu.Unlock()
+	return dnsproxy.RouteHTTPClient(r.Mark, r.DNSPort)
+}
+
+// ruleRoute names the route of rule r; a rule that only sets a DNS filter
+// leaves its programs on the default route.
+func ruleRoute(p *engine.Plan, r engine.Rule) string {
+	if r.Route == nil {
+		return p.DefaultRoute.String() + " (default)"
+	}
+	return r.Route.String()
+}
+
 // groupRoute is the route of the first rule using g. Caller holds d.mu.
 func (d *Daemon) groupRoute(g engine.Group) string {
 	for _, r := range d.plan.Rules {
 		for _, rg := range r.Groups {
 			if rg.Path == g.Path {
-				return r.Route.String()
+				return ruleRoute(d.plan, r)
 			}
 		}
 	}

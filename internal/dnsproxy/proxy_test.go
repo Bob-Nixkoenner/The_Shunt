@@ -5,8 +5,10 @@ import (
 	"io"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"testing"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/miekg/dns"
@@ -63,5 +65,47 @@ func TestCaptiveUpstream(t *testing.T) {
 	}
 	if got := ask(1, "portal.example."); got != "dns.direct" {
 		t.Errorf("direct asked %s", got)
+	}
+}
+
+// Blocked names never reach an upstream; domain rules and the login
+// browser are not filtered; each listener filters at its own level.
+func TestFilter(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 1, Filter: "normal"}
+	off := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 4, Filter: "off"}
+	captive := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 2, Captive: true, Filter: "off"}
+	vps := &engine.Route{Route: config.Route{Kind: config.RouteTunnel, Tunnel: "vps"}, DNSPort: 3, Filter: "paranoid"}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct, vps}, Captive: captive,
+		Rules: []engine.Rule{{Name: "d", Domains: []string{"routed.ads.example"}, Route: vps}}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct, 2: captive, 3: vps, 4: off}
+	p.upstreams = RouteUpstreams{"direct": {tagUpstream("direct")}, CaptiveUpstreams: {tagUpstream("network")}, "tunnel:vps": {tagUpstream("vps")}}
+	ads, _ := blocklist.Parse("ads", strings.NewReader("||ads.example^\n"))
+	mal, _ := blocklist.Parse("mal", strings.NewReader("||evil.example^\n"))
+	p.SetFilter(blocklist.NewFilter(map[string][]*blocklist.List{"normal": {ads}, "paranoid": {ads, mal}}, nil))
+	ask := func(port int, name string) int {
+		q := new(dns.Msg)
+		q.SetQuestion(name, dns.TypeA)
+		return p.handle(port, q).Rcode
+	}
+	for _, c := range []struct {
+		port int
+		name string
+		want int
+	}{
+		{1, "x.ads.example.", dns.RcodeNameError},
+		{1, "evil.example.", dns.RcodeSuccess},
+		{3, "evil.example.", dns.RcodeNameError},
+		{4, "x.ads.example.", dns.RcodeSuccess},
+		{2, "x.ads.example.", dns.RcodeSuccess},
+		{1, "routed.ads.example.", dns.RcodeSuccess},
+	} {
+		if got := ask(c.port, c.name); got != c.want {
+			t.Errorf("port %d %s: rcode %d", c.port, c.name, got)
+		}
+	}
+	st := p.FilterStats()
+	if st.Blocked != 2 || st.ByLevel["paranoid"] != 1 || len(st.Recent) != 2 || st.Recent[0].Name != "evil.example" || st.Recent[0].List != "mal" {
+		t.Errorf("stats %+v", st)
 	}
 }

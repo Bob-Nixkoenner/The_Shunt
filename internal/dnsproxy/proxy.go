@@ -19,13 +19,16 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 )
@@ -53,6 +56,62 @@ type Proxy struct {
 
 	healthMu sync.Mutex
 	health   map[string]*routeHealth
+
+	filter  atomic.Pointer[blocklist.Filter]
+	statsMu sync.Mutex
+	stats   FilterStats
+}
+
+// FilterStats counts what the DNS filter blocked since the daemon started.
+type FilterStats struct {
+	Blocked uint64            `json:"blocked"`
+	ByLevel map[string]uint64 `json:"by_level,omitempty"`
+	// Recent: the last blocked queries, newest first.
+	Recent []Blocked `json:"recent,omitempty"`
+}
+
+// Blocked is one blocked query.
+type Blocked struct {
+	Time  time.Time `json:"time"`
+	Name  string    `json:"name"`
+	Level string    `json:"level"`
+	List  string    `json:"list"`
+	Route string    `json:"route"`
+}
+
+// RecentBlocked: how many blocked queries FilterStats keeps.
+const RecentBlocked = 50
+
+// SetFilter switches to a new blocklist snapshot (nil = nothing blocked).
+func (p *Proxy) SetFilter(f *blocklist.Filter) { p.filter.Store(f) }
+
+// FilterStats returns a copy of the counters.
+func (p *Proxy) FilterStats() FilterStats {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	s := FilterStats{Blocked: p.stats.Blocked, ByLevel: map[string]uint64{}, Recent: slices.Clone(p.stats.Recent)}
+	for k, v := range p.stats.ByLevel {
+		s.ByLevel[k] = v
+	}
+	return s
+}
+
+func (p *Proxy) countBlocked(b Blocked) {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+	if p.stats.ByLevel == nil {
+		p.stats.ByLevel = map[string]uint64{}
+	}
+	p.stats.Blocked++
+	p.stats.ByLevel[b.Level]++
+	if n := len(p.stats.Recent); n > 0 && p.stats.Recent[0].Name == b.Name && p.stats.Recent[0].Level == b.Level {
+		p.stats.Recent[0].Time = b.Time // a retrying program fills nothing up
+		return
+	}
+	p.stats.Recent = append([]Blocked{b}, p.stats.Recent...)
+	if len(p.stats.Recent) > RecentBlocked {
+		p.stats.Recent = p.stats.Recent[:RecentBlocked]
+	}
 }
 
 // routeHealth follows whether a route's upstreams answer. Failures are
@@ -134,6 +193,9 @@ func (p *Proxy) Update(plan *engine.Plan, ups RouteUpstreams) error {
 		}
 		if plan.Captive != nil {
 			byPort[plan.Captive.DNSPort] = plan.Captive
+		}
+		for _, r := range plan.FilterRoutes {
+			byPort[r.DNSPort] = r
 		}
 	}
 	p.mu.Lock()
@@ -264,6 +326,14 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 	}
 	if route.Kind == config.RouteBlock {
 		return fail(r, dns.RcodeNameError)
+	}
+	// The blocklists: not for the login browser (portals live on odd
+	// names), not for names you routed on purpose with a domain rule.
+	if rule == nil && !src.Captive && src.Filter != "" && src.Filter != config.FilterOff {
+		if list := p.filter.Load().Check(src.Filter, name); list != "" {
+			p.countBlocked(Blocked{Time: time.Now(), Name: name, Level: src.Filter, List: list, Route: src.String()})
+			return fail(r, dns.RcodeNameError)
+		}
 	}
 
 	q2 := r.Copy()

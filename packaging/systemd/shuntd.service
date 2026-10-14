@@ -16,6 +16,8 @@ Delegate=yes
 KillMode=process
 RuntimeDirectory=shunt
 RuntimeDirectoryMode=0755
+# DNS filter blocklists (downloaded only while a filter level uses them)
+CacheDirectory=shunt
 Restart=on-failure
 RestartSec=2
 

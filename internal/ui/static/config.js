@@ -9,15 +9,18 @@ let editIdx = -1; // rule being edited (-1 = new)
 const splitList = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const joinList = (a) => (a || []).join(", ");
 
+// "config" and "filter" share the config page (and its save bar): the
+// filter sections are marked .pf.
 function setTab(t) {
   $("#page-overview").hidden = t !== "overview";
-  $("#page-config").hidden = t !== "config";
-  $("#tab-overview").classList.toggle("active", t === "overview");
-  $("#tab-config").classList.toggle("active", t === "config");
-  if (t === "config" && !model) loadConfig();
+  $("#page-config").hidden = t === "overview";
+  for (const s of document.querySelectorAll("#page-config > section")) s.hidden = s.classList.contains("pf") !== (t === "filter");
+  for (const n of ["overview", "config", "filter"]) $("#tab-" + n).classList.toggle("active", t === n);
+  if (t !== "overview" && !model) loadConfig();
 }
 $("#tab-overview").addEventListener("click", () => setTab("overview"));
 $("#tab-config").addEventListener("click", () => setTab("config"));
+$("#tab-filter").addEventListener("click", () => setTab("filter"));
 
 function cmsg(text, cls) {
   const m = $("#c-msg");
@@ -47,6 +50,7 @@ async function loadConfig() {
   cmsg("Changes are checked before anything is written; the previous file is kept as shunt.toml.bak.");
   $("#raw").value = cfgView.raw;
   renderConfig();
+  renderFilter();
 }
 
 // link routes: out over one kind of connection only (blocked without it)
@@ -57,6 +61,15 @@ function fill(sel, options, value) {
   const s = $(sel);
   s.replaceChildren(...options.map((o) => (Array.isArray(o) ? el("option", { value: o[0] }, o[1]) : el("option", { value: o }, o))));
   s.value = value;
+}
+
+// DNS filter level select for a tunnel, network or rule object o
+const FILTER_OPTS = [["", "as everything else"], ["off", "off"], ["low", "low"], ["normal", "normal"], ["paranoid", "paranoid"]];
+function filterSel(o) {
+  const f = el("select", { onchange: (e) => { o.dns_filter = e.target.value || undefined; markDirty(); if (typeof renderFilter === "function") renderFilter(); } },
+    ...FILTER_OPTS.map(([v, l]) => el("option", { value: v }, l)));
+  f.value = o.dns_filter || "";
+  return f;
 }
 
 function upstreamUsers(name) {
@@ -112,7 +125,7 @@ function renderConfig() {
         el("input", { type: "checkbox", checked: t.allow_lan ? "" : null, onchange: (e) => { t.allow_lan = e.target.checked || undefined; markDirty(); } }), "local network direct"),
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
-      el("td", {}, dnsSel),
+      el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard or OpenVPN config below."))]));
 
@@ -125,11 +138,12 @@ function renderConfig() {
     if (r.group) sel.push("groups: " + joinList(r.group));
     if (r.network) sel.push("only on: " + joinList(r.network));
     if (r.override_explicit) sel.push("also for apps started in a route");
+    if (r.dns_filter) sel.push("DNS filter: " + r.dns_filter);
     const move = (d) => { const j = i + d; [model.rule[i], model.rule[j]] = [model.rule[j], model.rule[i]]; markDirty(); renderConfig(); };
     return el("tr", {},
       el("td", { class: "muted" }, i + 1 + "."),
       el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...sel.map((x) => el("span", { class: "chip" }, x)))),
-      el("td", {}, routeTag(r.route)),
+      el("td", {}, r.route ? routeTag(r.route) : el("span", { class: "muted" }, "route unchanged")),
       el("td", { style: "white-space:nowrap" },
         el("button", { class: "iconbtn", title: "up", onclick: () => i > 0 && move(-1) }, "↑"), " ",
         el("button", { class: "iconbtn", title: "down", onclick: () => i < model.rule.length - 1 && move(1) }, "↓"), " ",
@@ -165,7 +179,8 @@ function openRule(i) {
   editIdx = i;
   const r = i >= 0 ? model.rule[i] : { route: modelRoutes().find((x) => x.startsWith("tunnel:")) || "direct" };
   $("#r-name").value = r.name || "";
-  fill("#r-route", modelRoutes(), r.route);
+  fill("#r-route", [["", "unchanged – only set the DNS filter"], ...modelRoutes()], r.route || "");
+  fill("#r-filter", FILTER_OPTS, r.dns_filter || "");
   $("#r-app").value = joinList(r.app);
   $("#r-args").value = joinList(r.args);
   $("#r-domain").value = joinList(r.domain);
@@ -183,7 +198,9 @@ function openRule(i) {
 $("#r-new").addEventListener("click", () => openRule(-1));
 $("#r-cancel").addEventListener("click", () => { $("#r-editor").hidden = true; });
 $("#r-ok").addEventListener("click", () => {
-  const r = { name: $("#r-name").value.trim(), route: $("#r-route").value };
+  const r = { name: $("#r-name").value.trim() };
+  if ($("#r-route").value) r.route = $("#r-route").value;
+  if ($("#r-filter").value) r.dns_filter = $("#r-filter").value;
   for (const [k, id] of [["app", "#r-app"], ["args", "#r-args"], ["domain", "#r-domain"], ["cidr", "#r-cidr"], ["port", "#r-port"], ["group", "#r-group"]]) {
     const v = splitList($(id).value);
     if (v.length) r[k] = v;
@@ -193,6 +210,9 @@ $("#r-ok").addEventListener("click", () => {
   if ($("#r-override").checked) r.override_explicit = true;
   if (!r.app && !r.domain && !r.cidr && !r.port && !r.group) return toast("A rule needs at least one of apps, domains, IP ranges, ports or groups");
   if (r.args && !r.app) return toast("Arguments only work together with apps");
+  if (r.dns_filter && !r.app && !r.group) return toast("A DNS filter level needs apps or groups");
+  if (!r.route && !r.dns_filter) return toast("Choose a route or a DNS filter level");
+  if (!r.route && (r.domain || r.cidr || r.port)) return toast("Without a route the rule only sets the DNS filter: no domains, IPs or ports");
   for (const g of r.group || []) model.group[g] = model.group[g] || {};
   if (editIdx >= 0) model.rule[editIdx] = r;
   else model.rule.push(r);
@@ -360,7 +380,8 @@ function renderNetworks() {
             ...Object.keys((model.dns || {}).upstream || {}).sort().map((u) => el("option", { value: u }, u)));
           d.value = n.dns_direct || "";
           return d;
-        })())),
+        })()),
+        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n))),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
 }

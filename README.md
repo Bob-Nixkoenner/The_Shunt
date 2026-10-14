@@ -192,6 +192,42 @@ domain rules (app, IP and port rules still apply).
 On Pop!_OS/Ubuntu glibc asks systemd-resolved via varlink instead of port 53; the
 installer offers `shuntd fix-nsswitch` (reverted on uninstall).
 
+## DNS filter (blocklists)
+
+Blocked names get NXDOMAIN inside Shunt – the query never leaves the machine. Three levels
+with their own lists; which one applies depends on where a query comes from:
+
+```toml
+[dns_filter]
+default  = "normal"                     # everything without its own level
+low      = []
+normal   = ["easylist"]                 # RPiList file names or https:// URLs
+paranoid = ["easylist", "Phishing-Angriffe", "malware", "Win10Telemetry", "MS-Office-Telemetry", "crypto"]
+allow    = ["example.com"]              # never blocked (with subdomains)
+
+[tunnel.vps]
+config = "/etc/shunt/tunnels/vps.conf"
+dns_filter = "normal"                   # your own AdGuard filters behind it anyway
+
+[[network]]
+name = "work"
+ssid = ["Corp-WLAN"]
+default_route = "direct"
+dns_filter = "paranoid"                 # direct and Wi-Fi/cable routes on this network
+
+[[rule]]
+name = "Brave strict"
+app = ["brave"]
+dns_filter = "paranoid"                 # no route: only the filter level changes
+```
+
+Order: rule (app/group) → tunnel → network → default. Only lists of levels that are used
+somewhere are downloaded (daily refresh, through the default route). Names routed with a
+domain rule and the Wi-Fi login browser are never filtered.
+
+The lists come from **[RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten)** –
+many thanks to the RPiList project for building and maintaining them.
+
 ## Manual build
 
 ```sh
