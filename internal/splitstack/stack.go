@@ -40,7 +40,15 @@ func newStack(ep stack.LinkEndpoint, e *Engine) (*stack.Stack, error) {
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol, ipv6.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
 	})
-	if terr := s.CreateNIC(nicID, ep); terr != nil {
+	// handlers and options first, then packets: the NIC starts disabled,
+	// otherwise the link delivers into a half-configured stack (data race)
+	sack := tcpip.TCPSACKEnabled(true)
+	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
+	tf := tcp.NewForwarder(s, 0, 4096, e.handleTCP)
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tf.HandlePacket)
+	uf := udp.NewForwarder(s, e.handleUDP)
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, uf.HandlePacket)
+	if terr := s.CreateNICWithOptions(nicID, ep, stack.NICOptions{Disabled: true}); terr != nil {
 		return nil, fmt.Errorf("nic: %v", terr)
 	}
 	// accept packets for any destination and answer from any address
@@ -50,13 +58,9 @@ func newStack(ep stack.LinkEndpoint, e *Engine) (*stack.Stack, error) {
 		{Destination: header.IPv4EmptySubnet, NIC: nicID},
 		{Destination: header.IPv6EmptySubnet, NIC: nicID},
 	})
-	sack := tcpip.TCPSACKEnabled(true)
-	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
-
-	tf := tcp.NewForwarder(s, 0, 4096, e.handleTCP)
-	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tf.HandlePacket)
-	uf := udp.NewForwarder(s, e.handleUDP)
-	s.SetTransportProtocolHandler(udp.ProtocolNumber, uf.HandlePacket)
+	if terr := s.EnableNIC(nicID); terr != nil {
+		return nil, fmt.Errorf("nic: %v", terr)
+	}
 	return s, nil
 }
 
