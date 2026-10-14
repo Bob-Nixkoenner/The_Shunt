@@ -136,6 +136,18 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 
 ## 6. Fortschritt (neueste oben)
 
+- **14.10.2026, DNS-Filter (Branch `dns-filter`, lokale Sitzung):** Blocklisten im DNS-Proxy
+  (`internal/blocklist`: Parser für `||x^`/hosts/plain, `Manager` lädt nur Listen
+  benutzter Stufen, Cache `$CACHE_DIRECTORY/blocklists` bzw. `/etc/shunt/blocklists`,
+  täglich, If-Modified-Since, Download über Default-Route + eigenen Proxy-DNS).
+  Stufen off/low/normal/paranoid; Vorrang Regel (App/Gruppe) > Tunnel > Netzwerk (direct/link)
+  > `dns_filter.default`. Pro Regel mit eigener Stufe: Kopien der Routen-Listener ab
+  Port 54000 (`engine.DNSFilterPortBase + 4*Route + Stufe`), nft leitet per cgroup dorthin.
+  Regeln ohne `route` (nur `dns_filter`) erlaubt. Neuer UI-Reiter „DNS filter“ (teilt
+  Speicherleiste mit Configure), Auswahl in Tunnel/Netz/Regel. Unit: `CacheDirectory=shunt`.
+  Tests: Unit + Race grün, Integrationstest um 7 Filter-Checks erweitert – **lokal noch
+  nicht gelaufen (sudo)**. Messung: EasyList 11 MB RAM, malware 45 MB, ~0,4 µs/Abfrage.
+
 - **13.10.2026, Schritt 6 → v0.7.0-rc1:** Auftrag aus der lokalen Sitzung umgesetzt:
   (1) Regel-Reihenfolge block > override_explicit > via-Gruppen > übrige Regeln > Default,
   `override_explicit` pro Regel; (2) `network = [...]` pro Regel (nur im passenden Profil);

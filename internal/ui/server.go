@@ -94,6 +94,9 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/reload", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/reload", nil)
 	})
+	mux.HandleFunc("POST /api/dnsfilter/refresh", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "POST", "/v1/dnsfilter/refresh", nil)
+	})
 	mux.HandleFunc("POST /api/restart", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/restart", nil)
 	})

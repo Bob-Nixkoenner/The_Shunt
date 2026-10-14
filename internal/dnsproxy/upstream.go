@@ -270,3 +270,25 @@ func (p *PushedUpstream) String() string {
 	}
 	return p.label + " (" + strings.Join(names, ", ") + ")"
 }
+
+// RouteHTTPClient returns an HTTP client whose connections take the route
+// with the given mark and whose names are resolved by that route's proxy
+// listener (dnsPort): the daemon's own downloads (blocklists) go the same
+// way as your traffic, DNS included.
+func RouteHTTPClient(mark uint32, dnsPort int) *http.Client {
+	resolver := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", fmt.Sprint(dnsPort)))
+	}}
+	dialer := &net.Dialer{Timeout: 15 * time.Second, Control: markControl(mark), Resolver: resolver}
+	return &http.Client{
+		Timeout: 2 * time.Minute,
+		Transport: &http.Transport{
+			DialContext:         dialer.DialContext,
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSHandshakeTimeout: 15 * time.Second,
+			ForceAttemptHTTP2:   true,
+			IdleConnTimeout:     30 * time.Second,
+		},
+	}
+}

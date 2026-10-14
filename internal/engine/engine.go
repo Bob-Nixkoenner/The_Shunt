@@ -37,6 +37,9 @@ const (
 	DNSPortBase = 53530
 	// DNSPortCaptive is the DNS listener of the login browser.
 	DNSPortCaptive = DNSPortBase - 1
+	// DNSFilterPortBase: listeners for programs whose rule sets a DNS
+	// filter level other than their route's, at base + 4*route index + level.
+	DNSFilterPortBase = 54000
 	// RulePriority is the ip rule priority used for all Shunt rules
 	// (well before the main table at 32766).
 	RulePriority = 5300
@@ -74,6 +77,9 @@ type Route struct {
 	// Captive: the login browser's route (see MarkCaptive); it is not in
 	// Plan.Routes.
 	Captive bool
+	// Filter: the DNS filter level of queries arriving at DNSPort
+	// (config.FilterOff … FilterParanoid).
+	Filter string
 }
 
 // Group is a process group backed by a cgroup.
@@ -100,9 +106,16 @@ type Rule struct {
 	SetV6   string
 	// Apps: processes matching these are moved into Groups[0] when they
 	// start (the daemon's app watcher does that).
-	Apps  []config.AppSel
-	Args  []string // command line must contain one of these (if any)
+	Apps []config.AppSel
+	Args []string // command line must contain one of these (if any)
+	// Route is nil for a rule that only sets a DNS filter level.
 	Route *Route
+	// Filter: DNS filter level of the rule's groups ("" = their route's).
+	// FilterRoutes are copies of every route with that level and their
+	// own DNS listener: the rule's queries are redirected there, whichever
+	// route they take.
+	Filter       string
+	FilterRoutes []*Route
 }
 
 // Plan is everything a backend needs to enforce the config.
@@ -118,6 +131,8 @@ type Plan struct {
 	DNS      bool // per-route DNS proxy + redirection active
 	BlockDoT bool
 	BlockDoH bool
+	// FilterRoutes: all rules' FilterRoutes (one listener each).
+	FilterRoutes []*Route
 }
 
 // AppRules returns the rules with app selectors, in order.
@@ -162,6 +177,21 @@ func (p *Plan) Group(name string) (Group, bool) {
 	return Group{}, false
 }
 
+// filterRoute returns the copy of route r (index ri) with filter level
+// level and its own DNS listener, shared by all rules with that level.
+func (p *Plan) filterRoute(r *Route, ri int, level string) *Route {
+	port := DNSFilterPortBase + 4*ri + slices.Index(config.FilterLevels, level) + 1 // off = +0
+	for _, fr := range p.FilterRoutes {
+		if fr.DNSPort == port {
+			return fr
+		}
+	}
+	fr := *r
+	fr.DNSPort, fr.Filter = port, level
+	p.FilterRoutes = append(p.FilterRoutes, &fr)
+	return &fr
+}
+
 // CaptiveGroup is the group of the Wi-Fi login browser (shunt captive).
 const CaptiveGroup = "captive"
 
@@ -194,9 +224,16 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 	p.DNS = !c.DNS.Disabled
 	p.BlockDoT = p.DNS && !c.DNS.AllowDoT
 	p.BlockDoH = p.DNS && !c.DNS.AllowDoH
+	filter := c.Filter()
+	netFilter := filter.Default
+	for _, n := range c.Networks {
+		if n.Name == network && network != "" && n.DNSFilter != "" {
+			netFilter = n.DNSFilter
+		}
+	}
 	tIdx := 0
 	for i, cr := range c.Routes() {
-		r := &Route{Route: cr, DNSPort: DNSPortBase + i}
+		r := &Route{Route: cr, DNSPort: DNSPortBase + i, Filter: netFilter}
 		switch cr.Kind {
 		case config.RouteDirect:
 			r.Mark = MarkDirect
@@ -217,6 +254,10 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
 			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
+			r.Filter = filter.Default
+			if f := c.Tunnels[cr.Tunnel].DNSFilter; f != "" {
+				r.Filter = f
+			}
 		case config.RouteLink:
 			slot := LinkSlot + slices.Index(config.LinkKinds, cr.Link)
 			r.Mark = MarkBase | uint32(slot)
@@ -245,8 +286,11 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		if !cr.ActiveOn(network) {
 			continue // names below keep using i: stable across networks
 		}
-		route, _ := c.ParseRoute(cr.Route) // validated
-		rule := Rule{Name: cr.Name, Route: p.RouteByName(route.String()), AnyFamily: len(cr.CIDR)+len(cr.Domain) == 0}
+		rule := Rule{Name: cr.Name, AnyFamily: len(cr.CIDR)+len(cr.Domain) == 0, Filter: cr.DNSFilter}
+		if cr.Route != "" {
+			route, _ := c.ParseRoute(cr.Route) // validated
+			rule.Route = p.RouteByName(route.String())
+		}
 		if rule.Name == "" {
 			rule.Name = fmt.Sprintf("rule %d", i+1)
 		}
@@ -283,6 +327,15 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			ps, _ := config.ParsePort(s)
 			rule.Ports = append(rule.Ports, ps)
 		}
+		if rule.Filter != "" && p.DNS {
+			for ri, r := range p.Routes {
+				if r.Kind == config.RouteBlock || r.Filter == rule.Filter {
+					continue
+				}
+				fr := p.filterRoute(r, ri, rule.Filter)
+				rule.FilterRoutes = append(rule.FilterRoutes, fr)
+			}
+		}
 		if cr.OverrideExplicit {
 			override = append(override, rule)
 		} else {
@@ -297,7 +350,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		return Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: r}
 	}
 	// The login browser first: nothing may send it elsewhere.
-	p.Captive = &Route{Route: config.Route{Kind: config.RouteDirect}, Mark: MarkCaptive, DNSPort: DNSPortCaptive, Captive: true}
+	p.Captive = &Route{Route: config.Route{Kind: config.RouteDirect}, Mark: MarkCaptive, DNSPort: DNSPortCaptive, Captive: true, Filter: config.FilterOff}
 	cg := Group{Name: CaptiveGroup, Path: path.Join(cgroupRoot, "apps", "captive")}
 	p.Groups = append(p.Groups, cg)
 	p.Rules = append(p.Rules, Rule{Name: CaptiveGroup, Groups: []Group{cg}, AnyFamily: true, Route: p.Captive})

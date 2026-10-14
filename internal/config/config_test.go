@@ -180,3 +180,45 @@ func TestLinkRoutes(t *testing.T) {
 		t.Error("unknown connection kind accepted")
 	}
 }
+
+func TestDNSFilterConfig(t *testing.T) {
+	base := "[tunnel.vps]\nconfig = \"vps.conf\"\n"
+	for _, bad := range []string{
+		"[dns_filter]\ndefault = \"strict\"\n",
+		"[dns_filter]\nnormal = [\"../etc/passwd\"]\n",
+		"[dns_filter]\nnormal = [\"http://example.com/list\"]\n",
+		"[dns_filter]\nsource = \"http://example.com/\"\n",
+		"[dns_filter]\nallow = [\"a b\"]\n",
+		"[tunnel.x]\nconfig = \"x.conf\"\ndns_filter = \"max\"\n",
+		"[[rule]]\ncidr = [\"10.0.0.0/8\"]\nroute = \"direct\"\ndns_filter = \"low\"\n",
+		"[[rule]]\napp = [\"firefox\"]\n",
+		"[[rule]]\ngroup = [\"g\"]\nport = [\"tcp/443\"]\ndns_filter = \"low\"\n[group.g]\n",
+	} {
+		if _, err := Parse(base + bad); err == nil {
+			t.Errorf("accepted:\n%s", bad)
+		}
+	}
+	c, err := Parse(base + `
+[[network]]
+name = "work"
+ssid = ["corp"]
+default_route = "direct"
+dns_filter = "paranoid"
+[[rule]]
+app = ["firefox"]
+dns_filter = "low"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.UsedFilterLevels(); strings.Join(got, ",") != "low,normal,paranoid" {
+		t.Errorf("used levels %v", got)
+	}
+	f := c.Filter()
+	if f.Default != FilterNormal || len(f.Normal) != 1 || f.Normal[0] != "easylist" {
+		t.Errorf("defaults %+v", f)
+	}
+	if u := f.ListURL("easylist"); u != DefaultFilterSource+"easylist" {
+		t.Errorf("url %s", u)
+	}
+}

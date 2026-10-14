@@ -430,6 +430,16 @@ func status(c *api.Client, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\n", r, strings.Join(st.DNS[r], ", "))
 		}
 	}
+	if f := st.DNSFilter; f != nil {
+		fmt.Fprintf(w, "\nDNS FILTER\tdefault %s, %d blocked since start\n", f.Default, f.Stats.Blocked)
+		for _, l := range f.Lists {
+			state := fmt.Sprintf("%d names", l.Entries)
+			if l.Error != "" {
+				state += ", error: " + l.Error
+			}
+			fmt.Fprintf(w, "  %s\t%s (%s)\n", l.Name, state, strings.Join(l.Levels, ", "))
+		}
+	}
 	fmt.Fprintln(w, "\nGROUP\tROUTE\tPROCS\tAPPS")
 	for _, g := range st.Groups {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", g.Name, g.Route, g.Procs, strings.Join(g.Apps, ", "))

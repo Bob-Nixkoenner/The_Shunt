@@ -2,6 +2,7 @@ package nft
 
 import (
 	"flag"
+	"fmt"
 	"net/netip"
 	"os"
 	"strings"
@@ -175,3 +176,73 @@ func TestAskRules(t *testing.T) {
 		t.Errorf("got:\n%s", s)
 	}
 }
+
+// A rule's own DNS filter level: its programs' queries go to filtering
+// copies of every route's listener; a rule without route only does that.
+func TestRenderDNSFilterRules(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "tunnel:vps"
+[tunnel.vps]
+config = "vps.conf"
+dns_filter = "low"
+[[network]]
+name = "work"
+ssid = ["corp"]
+default_route = "direct"
+dns_filter = "paranoid"
+[[rule]]
+name = "brave"
+app = ["brave"]
+route = "tunnel:vps"
+dns_filter = "paranoid"
+[[rule]]
+name = "firefox"
+app = ["firefox"]
+dns_filter = "off"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+	p, err := engine.CompileOn(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}}, "work", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	levels := map[string]string{}
+	for _, r := range p.Routes {
+		levels[r.String()] = r.Filter
+	}
+	if levels["direct"] != "paranoid" || levels["tunnel:vps"] != "low" || p.Captive.Filter != "off" {
+		t.Errorf("route levels %v, captive %q", levels, p.Captive.Filter)
+	}
+	got, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := func(ri, lvl int) string { return ":" + strconvI(engine.DNSFilterPortBase+4*ri+lvl) }
+	for _, want := range []string{
+		// brave (paranoid): direct is paranoid already, vps (index 2) gets a copy
+		`socket cgroupv2 level 5 "s/shuntd.service/apps/app/r1" meta mark 0x530001 meta l4proto { tcp, udp } th dport 53 redirect to ` + dp(2, 3),
+		// firefox (off): both
+		`socket cgroupv2 level 5 "s/shuntd.service/apps/app/r2" meta mark 0x5300f0 meta l4proto { tcp, udp } th dport 53 redirect to ` + dp(0, 0),
+		`socket cgroupv2 level 5 "s/shuntd.service/apps/app/r2" meta mark and 0xffff00 != 0x530000 meta l4proto { tcp, udp } th dport 53 redirect to ` + dp(0, 0),
+		`socket cgroupv2 level 5 "s/shuntd.service/apps/app/r2" meta mark 0x530001 meta l4proto { tcp, udp } th dport 53 redirect to ` + dp(2, 0),
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing: %s", want)
+		}
+	}
+	if strings.Contains(got, `"s/shuntd.service/apps/app/r2" meta mark set`) || strings.Contains(got, `"s/shuntd.service/apps/app/r1" meta mark 0x5300f0 meta l4proto`) {
+		t.Errorf("unexpected classification:\n%s", got)
+	}
+	// filter-only rule keeps the default route for routing
+	if testing.Verbose() {
+		t.Log(got)
+	}
+	if len(p.FilterRoutes) != 6 { // links count as routes too
+		t.Errorf("%d filter listeners", len(p.FilterRoutes))
+	}
+}
+
+func strconvI(i int) string { return fmt.Sprint(i) }

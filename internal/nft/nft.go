@@ -111,6 +111,22 @@ func Render(p *engine.Plan) (string, error) {
 		w("\tchain dns_redirect {")
 		w("\t\ttype nat hook output priority dstnat; policy accept;")
 		w("\t\t%s return", dg)
+		// Rules with their own DNS filter level: their programs' queries go
+		// to a copy of the route's listener that filters at that level.
+		for _, r := range p.Rules {
+			for _, g := range r.Groups {
+				cg, err := cgroupMatch(g)
+				if err != nil {
+					return "", fmt.Errorf("rule %q: %w", r.Name, err)
+				}
+				for _, fr := range r.FilterRoutes {
+					w("\t\t%s meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, fr.Mark, fr.DNSPort)
+					if fr.Kind == config.RouteDirect {
+						w("\t\t%s meta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, engine.MarkMask, engine.MarkBase, fr.DNSPort)
+					}
+				}
+			}
+		}
 		var direct *engine.Route
 		for _, r := range p.Routes {
 			if r.Kind == config.RouteDirect {
@@ -197,6 +213,9 @@ func setMark(m uint32) string {
 }
 
 func ruleLines(r engine.Rule) ([]string, error) {
+	if r.Route == nil {
+		return nil, nil // only sets a DNS filter level (see dns_redirect)
+	}
 	groups := []string{""}
 	if len(r.Groups) > 0 {
 		groups = groups[:0]

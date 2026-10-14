@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+**DNS filter: blocklists inside The Shunt, like Pi-hole – per app, tunnel and network.**
+
+- **New tab „DNS filter“**: blocked names get NXDOMAIN right in Shunt's DNS proxy and never
+  reach any DNS server – handy when your own Pi-hole/AdGuard is out of reach and you have
+  to go through 1.1.1.1.
+- **Three levels** `low`, `normal`, `paranoid`, each with its own lists (tick boxes in the
+  UI). Default: everything on `normal` = EasyList; `paranoid` adds phishing, malware,
+  telemetry and crypto lists.
+- **Which level applies** (most specific first): a rule for the app or group
+  (`dns_filter` on a `[[rule]]`, also without route: Firefox `low`, Brave `paranoid`) →
+  the tunnel (`dns_filter` on `[tunnel.x]`) → the network you are in, for direct and
+  Wi-Fi/cable routes (`dns_filter` on `[[network]]`) → `dns_filter.default`.
+- **Lists only load when needed**: only lists of levels that are used somewhere are
+  downloaded (through the default route, resolved by Shunt itself), cached in
+  `/var/cache/shunt/blocklists` and refreshed daily. Not used = not downloaded, not in
+  memory. EasyList costs about 11 MB RAM, 0.4 µs per query.
+- Allowlist („Never block“), „Recently blocked“ with an Allow button, counters, “Update
+  lists now”; `shunt status` shows the lists.
+- Names routed on purpose with a domain rule and the Wi-Fi login browser are never filtered.
+- Lists: [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) –
+  thank you to the RPiList project. Own lists: any https URL (hosts, domain list or
+  `||name^`).
+- The systemd unit gets `CacheDirectory=shunt` (update with the installer); older units
+  keep the lists in `/etc/shunt/blocklists`.
+
 ## v0.7.0-rc2
 
 **Wi-Fi vs. cable, DNS per network, Firefox profiles everywhere, and security fixes from

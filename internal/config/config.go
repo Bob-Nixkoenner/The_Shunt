@@ -29,6 +29,8 @@ type Config struct {
 	Networks []Network `toml:"network,omitempty" json:"network,omitempty"`
 	// Firewall: what happens to programs without a rule.
 	Firewall *Firewall `toml:"firewall,omitempty" json:"firewall,omitempty"`
+	// DNSFilter: blocklists (nil = defaults, see DefaultDNSFilter).
+	DNSFilter *DNSFilter `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -89,6 +91,9 @@ type Network struct {
 	// DNSSystem for the resolvers the network hands out ("" = keep). Link
 	// routes follow it too.
 	DNSDirect string `toml:"dns_direct,omitempty" json:"dns_direct,omitempty"`
+	// DNSFilter: filter level for traffic leaving directly into this
+	// network (direct and link routes; "" = dns_filter.default).
+	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -189,6 +194,8 @@ type Tunnel struct {
 	// Disabled keeps the tunnel (files, rules) but does not start it: its
 	// route blocks, like a tunnel that is down.
 	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
+	// DNSFilter: filter level for this tunnel's route ("" = dns_filter.default).
+	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
@@ -222,6 +229,10 @@ type Rule struct {
 	// route on purpose (shunt run --via, menu entries, firewall answers).
 	// Default: they keep their route. Nothing overrides the block route.
 	OverrideExplicit bool `toml:"override_explicit,omitempty" json:"override_explicit,omitempty"`
+	// DNSFilter: filter level for the rule's apps/groups, whatever route
+	// they take. Needs app or group. With dns_filter, route may be empty:
+	// the apps keep the route other rules give them.
+	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
 }
 
 // ActiveOn reports whether the rule applies on network (a [[network]]
@@ -318,6 +329,9 @@ func (c *Config) Validate() error {
 		if len(t.Interface) > 15 {
 			return fmt.Errorf("tunnel %q: interface name too long", n)
 		}
+		if !validFilterLevel(t.DNSFilter, true) {
+			return fmt.Errorf("tunnel %q: dns_filter %q (off | low | normal | paranoid)", n, t.DNSFilter)
+		}
 		if t.DNS != "" {
 			if _, ok := c.DNS.Upstream[t.DNS]; !ok {
 				return fmt.Errorf("tunnel %q: unknown dns upstream %q", n, t.DNS)
@@ -345,6 +359,9 @@ func (c *Config) Validate() error {
 		if _, ok := c.DNS.Upstream[n.DNSDirect]; n.DNSDirect != "" && n.DNSDirect != DNSSystem && !ok {
 			return fmt.Errorf("%s: dns_direct: unknown upstream %q (a [dns.upstream] name or %q)", where, n.DNSDirect, DNSSystem)
 		}
+		if !validFilterLevel(n.DNSFilter, true) {
+			return fmt.Errorf("%s: dns_filter %q (off | low | normal | paranoid)", where, n.DNSFilter)
+		}
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
@@ -356,6 +373,9 @@ func (c *Config) Validate() error {
 		}
 	}
 	if err := c.checkHops(); err != nil {
+		return err
+	}
+	if err := c.validateFilter(); err != nil {
 		return err
 	}
 	if c.DNS.Direct != "" {
@@ -383,7 +403,17 @@ func (c *Config) Validate() error {
 	}
 	for i, r := range c.Rules {
 		where := fmt.Sprintf("rule %d (%s)", i+1, r.Name)
-		if _, err := c.ParseRoute(r.Route); err != nil {
+		if !validFilterLevel(r.DNSFilter, true) {
+			return fmt.Errorf("%s: dns_filter %q (off | low | normal | paranoid)", where, r.DNSFilter)
+		}
+		if r.DNSFilter != "" && len(r.App)+len(r.Group) == 0 {
+			return fmt.Errorf("%s: dns_filter needs app or group (the filter knows programs, not addresses)", where)
+		}
+		if r.Route == "" && r.DNSFilter != "" {
+			if len(r.CIDR)+len(r.Port)+len(r.Domain) > 0 {
+				return fmt.Errorf("%s: a rule without route only sets dns_filter: no cidr, port or domain", where)
+			}
+		} else if _, err := c.ParseRoute(r.Route); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
 		for _, n := range r.Network {

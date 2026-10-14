@@ -15,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -49,6 +51,19 @@ type Status struct {
 	// DNSFailing: routes whose DNS servers don't answer (route -> last error).
 	DNSFailing map[string]string `json:"dns_failing,omitempty"`
 	NetInfo    netdetect.Info    `json:"net_info"`
+	// DNSFilter: blocklist levels in effect, lists and counters.
+	DNSFilter *DNSFilterStatus `json:"dns_filter,omitempty"`
+}
+
+// DNSFilterStatus describes the DNS filter.
+type DNSFilterStatus struct {
+	Default string `json:"default"`
+	// Routes: the level per route right now ("direct" -> "paranoid"),
+	// Rules: the rules with their own level (rule name -> level).
+	Routes map[string]string    `json:"routes"`
+	Rules  map[string]string    `json:"rules,omitempty"`
+	Lists  []blocklist.Status   `json:"lists"`
+	Stats  dnsproxy.FilterStats `json:"stats"`
 }
 
 // TunnelStatus describes one tunnel.
@@ -94,6 +109,9 @@ type ConfigView struct {
 	Version string           `json:"version"`
 	Config  *config.Config   `json:"config"`
 	Tunnels []TunnelConfInfo `json:"tunnels"`
+	// DNSFilter: the filter settings in effect (defaults filled in, also
+	// when the file has no [dns_filter]).
+	DNSFilter config.DNSFilter `json:"dns_filter"`
 }
 
 // TunnelConfInfo is the public part of a tunnel's WireGuard or OpenVPN file.

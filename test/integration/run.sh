@@ -134,9 +134,15 @@ $direct
 [dns.upstream.lan]
 addr = "10.99.0.1"
 
+[dns_filter]
+normal = ["testlist"]
+paranoid = ["testlist", "evil"]
+allow = ["ok.ads.filter.test"]
+
 [tunnel.vps]
 config = "vps.conf"
 driver = "${SHUNT_DRIVER:-auto}"
+dns_filter = "paranoid"
 ${VPS_EXTRA:-}
 ${EXTRA_TUNNELS:-}
 
@@ -146,6 +152,12 @@ domain = ["site.test"]
 route = "tunnel:vps"
 
 [group.torrent]
+[group.nofilter]
+
+[[rule]]
+name = "no DNS filter for this group"
+group = ["nofilter"]
+dns_filter = "off"
 
 [[rule]]
 name = "profile sm through the tunnel"
@@ -172,6 +184,16 @@ route = "block"
 EOF
 }
 write_config direct
+
+# DNS filter lists, as if downloaded already (the namespaces have no
+# internet): cache file name = <list>-<first 6 bytes of sha256(url)>.txt
+seed_list() { # name, content
+	local url="https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/$1"
+	mkdir -p "$WORK/etc/blocklists"
+	printf '%s\n' "$2" >"$WORK/etc/blocklists/$1-$(printf %s "$url" | sha256sum | cut -c1-12).txt"
+}
+seed_list testlist '||ads.filter.test^'
+seed_list evil '0.0.0.0 evil.filter.test'
 
 # --- helpers ----------------------------------------------------------------
 # `ip netns exec` remounts /sys, so mount cgroup2 again for everything that
@@ -300,6 +322,16 @@ check "blocking answer (0.0.0.0) passed to the app" 0.0.0.0 "$(dnsq -server 10.9
 check "blocking answer kept out of routing sets" 0 "$(cli nft list table inet shunt | grep -c '0\.0\.0\.0')"
 check "Firefox DoH canary NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 use-application-dns.net)"
 check "public DoH host NXDOMAIN" NXDOMAIN "$(dnsq -server 10.99.0.1:53 dns.google)"
+
+echo "== DNS filter"
+for _ in $(seq 50); do [[ $(dnsq -server 10.99.0.1:53 -type TXT x.ads.filter.test) == NXDOMAIN ]] && break; sleep 0.1; done
+check "filter: listed name blocked (normal)" NXDOMAIN "$(dnsq -server 10.99.0.1:53 -type TXT x.ads.filter.test)"
+check "filter: allowlist wins" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT ok.ads.filter.test)"
+check "filter: paranoid-only list not used on normal" "direct 10.99.0.2" "$(dnsq -server 10.99.0.1:53 -type TXT evil.filter.test)"
+check "filter: tunnel's own level (paranoid)" NXDOMAIN "$(dnsq_via tunnel:vps -server 10.99.0.1:53 -type TXT evil.filter.test)"
+check "filter: rule level off for its group" "direct 10.99.0.2" "$(fetch "$BIN/shunt" -s "$SOCK" run --group nofilter -- "$BIN/fakedns" query -server 10.99.0.1:53 -type TXT x.ads.filter.test)"
+check "filter: rule without route keeps the default route" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --group nofilter -- curl -s $URL)"
+check "filter: no download attempt for a cached list" yes "$(grep -q 'list download failed' "$WORK/shuntd.log" && echo no || echo yes)"
 check "DoT port 853 blocked" "" "$(fetch curl -s http://10.99.0.1:853)"
 check "status shows DNS upstreams" yes "$(shunt status | gq 'tunnel:vps .*udp://10.66.0.1:53' && echo yes || echo no)"
 echo "== leak test"
