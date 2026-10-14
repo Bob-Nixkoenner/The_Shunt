@@ -95,6 +95,13 @@ func main() {
 			"filter_lists": []string{},
 		}, "", "  ")
 		os.WriteFile(filepath.Join(*out, "settings.json"), b, 0o600)
+		// the same for cmd/shunt-win-proto: curl.exe through "work", the
+		// rest (e.g. PowerShell, Edge) through "home"
+		w, _ := json.MarshalIndent(map[string]any{
+			"tunnels": tunnels, "default": "tunnel:home",
+			"apps": map[string]string{`c:\windows\system32\curl.exe`: "tunnel:work"},
+		}, "", "  ")
+		os.WriteFile(filepath.Join(*out, "windows.json"), w, 0o600)
 		log.Printf("wrote %s", *out)
 	}
 	select {}
