@@ -1,6 +1,6 @@
 # The Shunt für Android
 
-Stand: 14.10.2026, erster Wurf (Branch `android`, nur lokal).
+Stand: 14.10.2026 nachmittags (Branch `android`, Worktree `~/projects/The_Shunt-android`, nur lokal).
 
 ## Idee
 
@@ -30,8 +30,10 @@ App C ─┘   (10.111.0.2)   │      ├─ direct: normaler Socket (Shunt ist
 
 | Teil | Inhalt |
 |---|---|
-| `mobile/` (Go, `//go:build linux`) | Kern: gVisor-Stack am TUN-fd (`stack.go`), WireGuard-Tunnel mit eigenem Netstack (`wg.go`, nutzt `internal/wgconf`), API für gomobile (`mobile.go`) |
-| `mobile/mobile_test.go` | End-to-End ohne Android: echter WireGuard-Server im Test, App-Seite als zweiter gVisor-Stack über ein Socketpair. Prüft Tunnel, DNS-Umleitung, block, direct, kaputten Tunnel, Live-Regelwechsel und **zwei Tunnel gleichzeitig pro App** |
+| `internal/splitstack/` | plattformneutraler Kern (auch für Windows, siehe `WINDOWS.md`): gVisor-Stack, Routen pro App-ID, WireGuard-Tunnel mit eigenem Netstack (nutzt `internal/wgconf`), DNS pro Route + DNS-Filter (`internal/blocklist`), `NetworkChanged` |
+| `mobile/` (Go, `//go:build linux`) | dünne gomobile-Hülle: TUN-fd → fdbased-Endpoint, UID → App-ID |
+| `mobile/mobile_test.go` | End-to-End ohne Android: echter WireGuard-Server im Test, App-Seite als zweiter gVisor-Stack über ein Socketpair. Prüft Tunnel, DNS-Umleitung, block, direct, kaputten Tunnel, Live-Regelwechsel, Netzwechsel, DNS-Filter und **zwei Tunnel gleichzeitig pro App** |
+| `test/android/` | `wgserver` (zwei WireGuard-Server „home“/„work“ für den Emulator) und `emulator-test.sh`: Routen pro App, DNS, DNS-Filter, WLAN aus/an – **auf Android 15 (Emulator) alles grün** |
 | `android/` | Kotlin + Jetpack Compose: `ShuntVpnService` (VpnService, UID-Lookup), `Store` (Einstellungen als JSON), `MainActivity` (Status, Tunnels, Apps) |
 | `android/build-core.sh` | baut `mobile/` mit gomobile zu `android/app/libs/shunt-core.aar` |
 
@@ -55,14 +57,17 @@ cd android && gradle assembleDebug         # -> app/build/outputs/apk/debug/app-
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Go-Tests: `go test ./mobile/`.
+Go-Tests: `go test ./mobile/ ./internal/splitstack/`. Emulator-Test (Emulator läuft,
+`adb` verbunden): `GRADLE=~/Android/gradle-8.11.1/bin/gradle test/android/emulator-test.sh`.
 
 ## Offen / nächste Schritte
 
-- DNS-Filter (Blocklisten aus `internal/blocklist`) in den DNS-Pfad hängen.
+- Test auf einem echten Handy (eigene WireGuard-Peers nötig, nicht die des Laptops).
+- DNS-Filter-Stufen pro App wie auf dem Desktop (jetzt: an/aus pro App, Listen global).
+- DNS über TCP wird umgeleitet, aber nicht gefiltert.
+
 - Apps mit Route `direct` per `addDisallowedApplication` ganz am VPN vorbei (spart Akku);
   braucht dann einen VPN-Neustart bei Regeländerung.
-- Netzwechsel (WLAN ↔ Mobil): WireGuard-Endpoints neu binden (`ConnectivityManager`-Callback).
 - WLAN-Profile wie auf dem Desktop (SSID → Standard-Route).
 - ICMP (Ping) wird nicht weitergeleitet.
 - Export/Import der Einstellungen, Regeln vom Desktop übernehmen.
