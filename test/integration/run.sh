@@ -631,13 +631,16 @@ check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps'
 check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
-check "pending decision from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X POST -o /dev/null -w '%{http_code}' --data '{"route":"direct"}' http://shuntd/v1/pending/p99 | sed 's/403/denied/')"
+# started from the system-service cgroup: a caller without a terminal (CI
+# runner, ssh without -t) is held by the app firewall itself otherwise
+insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }
+check "pending decision from inside a route refused" denied "$(insvc "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X POST -o /dev/null -w '%{http_code}' --data '{"route":"direct"}' http://shuntd/v1/pending/p99 | sed 's/403/denied/')"
 # a held program (waiting group) asks the daemon to start it direct
 mkdir -p "$CGMNT/$CG/apps/ask/pesc"
 esc=$(fetch sh -c 'echo $$ > /sys/fs/cgroup/'"$CG"'/apps/ask/pesc/cgroup.procs; exec "$@" 2>&1' _ "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)
 check "held program cannot let itself out" yes "$(grep -q 'leaving route block' <<<"$esc" && ! grep -q 10.99.0.2 <<<"$esc" && echo yes || echo "no: $esc")"
 rmdir "$CGMNT/$CG/apps/ask/pesc" 2>/dev/null || true
-check "forget from inside a route refused" denied "$(cli "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X DELETE -o /dev/null -w '%{http_code}' "http://shuntd/v1/firewall/apps?key=$BIN/fwcurl" | sed 's/403/denied/')"
+check "forget from inside a route refused" denied "$(insvc "${MEMBER[@]}" "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- curl -s --unix-socket "$SOCK" -X DELETE -o /dev/null -w '%{http_code}' "http://shuntd/v1/firewall/apps?key=$BIN/fwcurl" | sed 's/403/denied/')"
 shunt firewall forget "$BIN/fwcurl" || true
 check "forget removes the decision" no "$(shunt firewall apps | gq fwcurl && echo yes || echo no)"
 EXTRA_TUNNELS=
