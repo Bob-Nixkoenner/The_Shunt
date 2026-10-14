@@ -48,14 +48,24 @@ $ADB shell appops set $PKG ACTIVATE_VPN allow
 # start: the switch on the status screen
 $ADB shell am start -W -n $PKG/.MainActivity >/dev/null
 sleep 2
-$ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null
-bounds=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'class="android.view.View"[^>]*checkable="true"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | head -1)
-read -r x1 y1 x2 y2 <<<"$(echo "$bounds" | tr -c '0-9' ' ')"
-$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
-for _ in $(seq 30); do
-	$ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\[' && break
-	sleep 1
-done
+vpn_up() { $ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\['; }
+toggle() { # tap the VPN switch on the status screen
+	$ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null
+	local bounds
+	bounds=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'class="android.view.View"[^>]*checkable="true"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | head -1 || true)
+	[[ -n $bounds ]] || { echo "VPN switch not found on screen (system dialog in front?)"; exit 1; }
+	read -r x1 y1 x2 y2 <<<"$(echo "$bounds" | tr -c '0-9' ' ')"
+	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
+}
+wait_vpn() { # wait_vpn up|down
+	for _ in $(seq 30); do
+		if vpn_up; then [[ $1 == up ]] && return 0; else [[ $1 == down ]] && return 0; fi
+		sleep 1
+	done
+	return 1
+}
+toggle
+wait_vpn up || true
 sleep 3
 $ADB logcat -d -s Shunt | grep -q 'E Shunt' && { $ADB logcat -d -s Shunt | tail -20; echo "VPN start failed"; exit 1; }
 $ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\[' || { echo "VPN is not up"; exit 1; }
@@ -85,6 +95,13 @@ check "tunnel still works on mobile data" "tunnel=work" "$(get)"
 $ADB shell svc wifi enable
 sleep 8
 check "and back on Wi-Fi" "tunnel=work" "$(get)"
+echo "== switch off and on again"
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 1
+toggle
+wait_vpn down && echo "  ok   VPN off" || { echo "  FAIL VPN still up"; fails=$((fails + 1)); }
+toggle
+wait_vpn up && sleep 3 && check "VPN on again, tunnel works" "tunnel=work" "$(get)" || { echo "  FAIL VPN did not come back"; fails=$((fails + 1)); }
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
