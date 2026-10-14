@@ -15,6 +15,7 @@
 package mobile
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -93,6 +94,15 @@ func (e *Engine) Pass(minutes int) int64 {
 		return 0
 	}
 	return until.Unix()
+}
+
+// LeakTest checks every route (public IP, DNS resolver; contacts
+// api.ipify.org and Google DNS through each route) and returns JSON.
+// Blocks for up to ~10 s: call it off the main thread.
+func (e *Engine) LeakTest() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return e.e.LeakTest(ctx)
 }
 
 // ResetStats deletes the traffic totals.

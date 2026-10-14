@@ -243,3 +243,12 @@ func (c *Client) Do(method, path string, in, out any) error {
 	}
 	return nil
 }
+
+// Probe lets shuntd start the leak-test probe right inside route (no
+// `shunt run`, so no password for leaving the caller's own route); it fits
+// probe.Runner.
+func (c *Client) Probe(_ context.Context, route string) ([]byte, error) {
+	var raw json.RawMessage
+	err := c.Do("POST", "/v1/probe", ProbeRequest{Route: route}, &raw)
+	return raw, err
+}
