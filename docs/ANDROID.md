@@ -39,9 +39,9 @@ App C ─┘   (10.111.0.2)   │      ├─ direct: normaler Socket (Shunt ist
 
 API zwischen Kotlin und Go (gomobile, Java-Paket `org.theshunt.mobile`):
 
-- `Mobile.start(tunFd, configJson, platform)` → `Engine` (`stop()`, `status()` JSON, `setRules(json)`)
+- `Mobile.start(tunFd, configJson, platform)` → `Engine` (`stop()`, `status()` JSON, `setRules(json)`, `networkChanged()`)
 - `Mobile.checkWireGuard(text)` → Kurzinfo JSON oder Fehler (Import-Prüfung)
-- `Platform`: `uid(proto, srcIP, srcPort, dstIP, dstPort)`, `log(msg)`
+- `Platform`: `ownerUid(proto, srcIP, srcPort, dstIP, dstPort)`, `log(msg)`
 
 Config-JSON: `{"tunnels":[{"name":"laptop","conf":"<wg-quick>"}], "default":"tunnel:laptop",
 "apps":{"10123":"direct"}, "direct_dns":"1.1.1.1"}` – die App speichert Paketnamen und setzt
@@ -65,7 +65,6 @@ Go-Tests: `go test ./mobile/ ./internal/splitstack/`. Emulator-Test (Emulator l�
 - Test auf einem echten Handy (eigene WireGuard-Peers nötig, nicht die des Laptops).
 - DNS-Filter-Stufen pro App wie auf dem Desktop (jetzt: an/aus pro App, Listen global).
 - DNS über TCP wird umgeleitet, aber nicht gefiltert.
-
 - Apps mit Route `direct` per `addDisallowedApplication` ganz am VPN vorbei (spart Akku);
   braucht dann einen VPN-Neustart bei Regeländerung.
 - WLAN-Profile wie auf dem Desktop (SSID → Standard-Route).
