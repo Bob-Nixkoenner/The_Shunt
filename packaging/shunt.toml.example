@@ -9,6 +9,16 @@ default_route = "direct"    # direct | block | tunnel:<name>
 config = "/etc/shunt/tunnels/vps.conf"
 # driver = "auto"           # auto | kernel | userspace
 
+# DNS filter: blocklists inside Shunt (lists: github.com/RPiList/specials – thanks!).
+# Without this section: everything "normal" = EasyList. Levels can also be set per
+# tunnel, per [[network]] and per [[rule]] (dns_filter = "off|low|normal|paranoid").
+# [dns_filter]
+# default  = "normal"
+# low      = []
+# normal   = ["easylist"]
+# paranoid = ["easylist", "Phishing-Angriffe", "malware", "Win10Telemetry", "MS-Office-Telemetry", "crypto"]
+# allow    = ["example.com"]
+
 [group.torrent]
 description = "start with: shunt run --group torrent -- qbittorrent"
 

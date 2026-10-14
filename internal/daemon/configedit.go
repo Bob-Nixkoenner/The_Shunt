@@ -34,7 +34,7 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	v := api.ConfigView{Raw: string(raw), Version: fileVersion(raw), Config: d.cfg}
+	v := api.ConfigView{Raw: string(raw), Version: fileVersion(raw), Config: d.cfg, DNSFilter: d.cfg.Filter()}
 	for name, wc := range d.prep.Confs {
 		ti := api.TunnelConfInfo{Name: name, Type: "wireguard", DNS: wc.DNS}
 		for _, a := range wc.Addresses {
