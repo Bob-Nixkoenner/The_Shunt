@@ -29,7 +29,7 @@ $ shunt import nl.ovpn --via tunnel:home     # OpenVPN inside WireGuard (multi-h
 $ shunt captive                              # hotel Wi-Fi login past the tunnels
 ```
 
-## Install (Debian, Ubuntu, Pop!_OS, Kali)
+## Install (Debian, Ubuntu, Pop!_OS, Kali, Arch, Fedora)
 
 ```sh
 curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
@@ -40,6 +40,10 @@ sudo bash install.sh
 The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
 verified release (or builds from source), imports your WireGuard config, writes
 `/etc/shunt/shunt.toml`, does a dry run and starts the service.
+`sudo bash install.sh --dry-run` only shows what it would do. Releases are only used if
+their `SHA256SUMS` carry the release signature (`ssh-keygen -Y verify`, key in
+`install.sh`); otherwise it builds from source. Everything is logged to
+`/var/log/shunt-install.log`.
 Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).
 
 ## What works
