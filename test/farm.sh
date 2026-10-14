@@ -2,14 +2,18 @@
 # The CI checks (gofmt, vet, unit tests, race detector, fuzzing, cross builds,
 # govulncheck) spread over helper machines over SSH, plus this machine.
 #
-#   test/farm.sh [--quick] [--only REGEX] [--hosts FILE] [--keep]
+#   test/farm.sh [--quick] [--full] [--only REGEX] [--hosts FILE] [--keep]
 #
-#   --quick   no race detector, no fuzzing, no govulncheck
+#   --quick   no race detector, no fuzzing, no govulncheck, no integration test
+#   --full    also the installer in Arch, Fedora and Debian containers (podman)
 #   --only    run only jobs whose name matches REGEX (e.g. --only 'race|splitstack')
 #   --hosts   host list (default ~/.config/shunt-farm/hosts), one per line:
 #               local 1                         this machine, 1 slot
 #               worker@192.168.222.130 2        2 jobs at a time
 #               worker@192.168.222.131 1 small  little RAM: no gvisor/race jobs
+#               worker@192.168.222.130 2 root   root@ works too: integration test
+#                                               (kernel + userspace) and podman jobs,
+#                                               one at a time (fixed netns names)
 #             Hosts that do not answer, or have no Go (PATH or ~/opt/go/bin),
 #             are skipped.
 #   --keep    keep the logs of passed jobs too
@@ -21,10 +25,11 @@ set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 HOSTS=${XDG_CONFIG_HOME:-$HOME/.config}/shunt-farm/hosts
-QUICK=0 ONLY= KEEP=0
+QUICK=0 FULL=0 ONLY= KEEP=0
 while (($#)); do
 	case $1 in
 	--quick) QUICK=1 ;;
+	--full) FULL=1 ;;
 	--only) ONLY=$2; shift ;;
 	--hosts) HOSTS=$2; shift ;;
 	--keep) KEEP=1 ;;
@@ -45,9 +50,20 @@ Q=$OUT/queue
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=15)
 REMOTE_ENV='export PATH=$HOME/opt/go/bin:$HOME/go/bin:$PATH; cd ~/jobs/shunt || exit 99'
 
-# ---- jobs: "tags|name|command"; tags: big (needs RAM), local (this machine only)
+# ---- jobs: "tags|name|command"; tags: big (needs RAM), local (this machine
+# only), root (as root on a "root" host, one at a time). Longest first.
 jobs() {
 	local gvisor='splitstack|mobile|winsplit'
+	if ((FULL)); then
+		local img
+		for img in docker.io/library/archlinux docker.io/library/fedora docker.io/library/debian:stable; do
+			echo "root|installer ${img##*/}|podman run --rm -v \"\$PWD:/src:ro\" $img bash /src/test/installer/packages.sh"
+		done
+	fi
+	if ((!QUICK)); then
+		echo "root|integration kernel|SHUNT_DRIVER=kernel ./test/integration/run.sh"
+		echo "root|integration userspace|SHUNT_DRIVER=userspace ./test/integration/run.sh"
+	fi
 	echo "|gofmt|test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }"
 	echo "big|vet|go vet \$(go list ./... | grep -v -e /internal/desktopapp -e /cmd/shunt-desktop)"
 	echo "local|vet-desktop|go vet ./internal/desktopapp ./cmd/shunt-desktop"
@@ -88,7 +104,8 @@ take() {
 			i=$((i + 1))
 			tags=${line%%|*}
 			[[ $tags == *local* && $1 != local ]] && continue
-			[[ $tags == *big* && $2 == small ]] && continue
+			[[ $tags == *big* && $2 == *small* ]] && continue
+			[[ $tags == *root* && $2 != *root* ]] && continue
 			sed -i "${i}d" "$Q"
 			printf '%s\n' "$line"
 			exit 0
@@ -109,6 +126,9 @@ run() {
 			echo "# $name on $host: $cmd"
 			if [[ $host == local ]]; then
 				(cd "$ROOT" && nice -n 10 bash -c "$cmd")
+			elif [[ ${line%%|*} == *root* ]]; then
+				# own copy of the helper's tree; one root job per host at a time
+				flock "$OUT/root-$host.lock" "${SSH[@]}" "root@${host#*@}" "export PATH=~${host%@*}/opt/go/bin:\$PATH; d=/root/shunt-farm-$slot; rm -rf \$d && cp -a ~${host%@*}/jobs/shunt \$d && cd \$d || exit 99; exec nice -n 10 bash -s" <<<"$cmd"
 			else
 				"${SSH[@]}" "$host" "$REMOTE_ENV; exec nice -n 10 bash -s" <<<"$cmd"
 			fi
@@ -127,7 +147,7 @@ run() {
 
 # ---- hosts
 declare -a WORKERS=()
-while read -r -u 3 host slots size _; do
+while read -r -u 3 host slots size; do
 	[[ -z $host || $host == \#* ]] && continue
 	slots=${slots:-1}
 	if [[ $host == local ]]; then
@@ -136,6 +156,10 @@ while read -r -u 3 host slots size _; do
 		if ! "${SSH[@]}" "$host" 'export PATH=$HOME/opt/go/bin:$PATH; command -v go >/dev/null' 2>/dev/null; then
 			echo "skip $host: not reachable or no go"
 			continue
+		fi
+		if [[ $size == *root* ]] && ! "${SSH[@]}" "root@${host#*@}" true 2>/dev/null; then
+			echo "$host: no root login, no integration/podman jobs"
+			size=${size//root/}
 		fi
 		"${SSH[@]}" "$host" 'mkdir -p ~/jobs/shunt' &&
 			rsync -az --delete -e "${SSH[*]}" --exclude .git --exclude /android/ --exclude '*.apk' "$ROOT/" "$host:jobs/shunt/" ||
