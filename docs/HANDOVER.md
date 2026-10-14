@@ -16,7 +16,7 @@ Captive-Portal-Erkennung, Desktop-App (Tray + Fenster), Web-UI. Apache-2.0, kein
 - Arbeits-Branch: `claude/wiresocket-windows-tool-cehc9y` (ist faktisch der Hauptstand; Releases
   werden von hier getaggt)
 - Releases: v0.5.0 (pre), **v0.6.0** (13.10.2026, mit Binaries), v0.7.0-rc1 (pre),
-  **v0.7.0-rc2** (pre, 14.10.2026). Release = Tag `vX.Y.Z[-rcN]` pushen: `release.yml` baut,
+  **v0.7.0-rc2** (pre, 14.10.2026), **v0.7.0-rc3** (pre, DNS-Filter + Update-Check-Fix, 14.10.2026). Release = Tag `vX.Y.Z[-rcN]` pushen: `release.yml` baut,
   markiert `-…`-Tags als Vorabversion und nimmt den CHANGELOG-Abschnitt als Text.
   Nach dem Desktop-Test: v0.7.0.
 
