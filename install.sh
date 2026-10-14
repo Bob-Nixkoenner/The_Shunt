@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# The Shunt installer for Debian-based systems (Pop!_OS, Ubuntu, Debian, Kali).
+# The Shunt installer for Debian-based systems (Pop!_OS, Ubuntu, Debian, Kali),
+# Arch Linux (and Manjaro, EndeavourOS) and Fedora.
 #
 #   curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/main/install.sh
 #   less install.sh          # read before you run things as root
 #   sudo bash install.sh
 #
 # Options / environment:
+#   --dry-run               check the system and show what would happen; changes nothing
 #   --uninstall [--purge]   remove Shunt (--purge also deletes /etc/shunt)
 #   --from-source           build from git even if a release exists
 #   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
 #   SHUNT_YES=1             answer every question with the default
+# Release downloads are only used if their SHA256SUMS carry the release
+# signature (key below); everything is logged to /var/log/shunt-install.log.
 set -euo pipefail
 
 REPO=Bob-Nixkoenner/The_Shunt
@@ -22,6 +26,10 @@ LOCKDOWN_UNIT=/etc/systemd/system/shunt-lockdown.service
 POLKIT_POLICY=/usr/share/polkit-1/actions/org.theshunt.policy
 DESKTOP_ENTRY=/usr/share/applications/the-shunt.desktop
 DESKTOP_ICON=/usr/share/icons/hicolor/scalable/apps/the-shunt.svg
+# Signs the SHA256SUMS of every release (ssh-keygen -Y, namespace below);
+# the private key is the SHUNT_RELEASE_KEY secret of the release workflow.
+RELEASE_SIGNER='release@the-shunt ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBKBIRHWh1Rv3SN7z8GTV6Kj6SfFkdK0GN3CNOI58HG5'
+RELEASE_NS=shunt-release
 GRAPHICAL=0
 [[ -d /usr/share/xsessions || -d /usr/share/wayland-sessions ]] && GRAPHICAL=1
 user_home() { getent passwd "$1" | cut -d: -f6; }
@@ -29,11 +37,17 @@ user_home() { getent passwd "$1" | cut -d: -f6; }
 # ---------------------------------------------------------------- helpers
 c_red=$'\e[31m' c_grn=$'\e[32m' c_yel=$'\e[33m' c_bld=$'\e[1m' c_off=$'\e[0m'
 [[ -t 1 ]] || { c_red='' c_grn='' c_yel='' c_bld='' c_off=''; }
-say() { printf '%s==>%s %s\n' "$c_bld" "$c_off" "$*"; }
-ok() { printf '  %s✔%s %s\n' "$c_grn" "$c_off" "$*"; }
-warn() { printf '  %s!%s %s\n' "$c_yel" "$c_off" "$*"; }
+# Everything shown is also written to the log (without colours), plus the
+# full output of every step; kept across runs, rotated at 1 MiB.
+LOG=/var/log/shunt-install.log LOG_ON=0
+log() { if ((LOG_ON)); then printf '%s\n' "$*" >>"$LOG"; fi; }
+say() { printf '%s==>%s %s\n' "$c_bld" "$c_off" "$*"; log "==> $*"; }
+ok() { printf '  %s✔%s %s\n' "$c_grn" "$c_off" "$*"; log "  ok: $*"; }
+warn() { printf '  %s!%s %s\n' "$c_yel" "$c_off" "$*"; log "  warning: $*"; }
 die() {
 	printf '%sERROR:%s %s\n' "$c_red" "$c_off" "$*" >&2
+	log "ERROR: $*"
+	if ((LOG_ON)); then echo "Details: $LOG" >&2; fi
 	exit 1
 }
 
@@ -46,23 +60,23 @@ ask() { # ask "question" default -> echoes answer
 		printf '  %s?%s %s [%s] ' "$c_bld" "$c_off" "$q" "$def" >"$TTY"
 		read -r a <"$TTY" || true
 	fi
+	log "  question: $q -> ${a:-$def}"
 	echo "${a:-$def}"
 }
 yes_no() { [[ $(ask "$1 (y/n)" "${2:-y}") =~ ^[yYjJ] ]]; }
 
 # Long steps run in the background with a spinner and elapsed time; their
-# output goes to a log that is shown when they fail.
-LOG=/var/log/shunt-install.log
+# output goes to the log and is shown when they fail.
 step() { # step "message" cmd...
 	local msg=$1 pid rc i=0 t0=$SECONDS spin='|/-\'
 	shift
-	echo "--- $msg: $*" >>"$LOG"
+	log "--- $msg: $*"
 	"$@" >>"$LOG" 2>&1 &
 	pid=$!
 	while kill -0 "$pid" 2>/dev/null; do
 		if [[ -t 1 ]]; then
 			local extra=''
-			if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! pgrep -P "$pid" -f 'apt|dpkg' >/dev/null && [[ $msg == *apt* || $msg == *packages* ]]; then
+			if [[ $PM == apt ]] && fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! pgrep -P "$pid" -f 'apt|dpkg' >/dev/null && [[ $msg == *"($PM)"* ]]; then
 				extra=' (waiting for another package manager to finish)'
 			fi
 			printf '\r  %s %s ... %ds%s ' "${spin:i++%4:1}" "$msg" $((SECONDS - t0)) "$extra"
@@ -74,29 +88,102 @@ step() { # step "message" cmd...
 	if ((rc)); then
 		printf '  %s✘%s %s failed (exit %d). Last lines of %s:\n' "$c_red" "$c_off" "$msg" "$rc" "$LOG"
 		tail -n 25 "$LOG" | sed 's/^/    /'
+		log "FAILED: $msg (exit $rc)"
 		exit "$rc"
 	fi
 	ok "$msg ($((SECONDS - t0))s)"
 }
-APT=(apt-get -o DPkg::Lock::Timeout=600 -y -q)
+
+# ---------------------------------------------------------------- packages
+# One name per need ("logical" package), mapped per package manager.
+PM=
+if command -v apt-get >/dev/null; then PM=apt
+elif command -v pacman >/dev/null; then PM=pacman
+elif command -v dnf >/dev/null; then PM=dnf
+fi
+pkg_names() { # logical name -> this distribution's package names
+	case $PM:$1 in
+	*:base) echo nftables wireguard-tools curl ca-certificates psmisc ;;
+	apt:polkit)
+		if apt-cache show polkitd >/dev/null 2>&1; then echo polkitd
+		elif apt-cache show policykit-1 >/dev/null 2>&1; then echo policykit-1; fi ;;
+	*:polkit) echo polkit ;;
+	*:openvpn) echo openvpn ;;
+	*:git) echo git ;;
+	apt:ssh) echo openssh-client ;;
+	pacman:ssh) echo openssh ;;
+	dnf:ssh) echo openssh-clients ;;
+	apt:desktop) echo libwebkit2gtk-4.1-0 libgtk-3-0 ;;
+	pacman:desktop) echo webkit2gtk-4.1 gtk3 ;;
+	dnf:desktop) echo webkit2gtk4.1 gtk3 ;;
+	apt:go) echo golang-go git ;;
+	pacman:go) echo go git ;;
+	dnf:go) echo golang git ;;
+	apt:desktop-build) echo gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev ;;
+	pacman:desktop-build) echo gcc pkgconf gtk3 webkit2gtk-4.1 ;;
+	dnf:desktop-build) echo gcc pkgconf-pkg-config gtk3-devel webkit2gtk4.1-devel ;;
+	esac
+}
+pacman_install() {
+	# pacman does not wait for another pacman; -Sy alone would be a
+	# partial upgrade, so the package database is used as it is.
+	local i=0
+	while [[ -e /var/lib/pacman/db.lck ]] && ((i++ < 600)); do sleep 1; done
+	pacman -S --needed --noconfirm "$@" || {
+		echo "Package database out of date? Run 'sudo pacman -Syu', then the installer again."
+		return 1
+	}
+}
+pkg_install() { # pkg_install "what" logical-name
+	local names
+	names=$(pkg_names "$2")
+	[[ -n $names ]] || return 1
+	# shellcheck disable=SC2086 # word splitting on purpose
+	case $PM in
+	apt) step "installing $1 ($PM)" apt-get -o DPkg::Lock::Timeout=600 -y -q install $names ;;
+	pacman) step "installing $1 ($PM)" pacman_install $names ;;
+	dnf) step "installing $1 ($PM)" dnf -y -q install $names ;;
+	esac
+}
 
 SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
-MODE=install FROM_SOURCE=0 PURGE=0
+MODE=install FROM_SOURCE=0 PURGE=0 DRY=0
 ARGS=("$@")
 for a in "$@"; do
 	case $a in
+	--dry-run) DRY=1 ;;
 	--uninstall) MODE=uninstall ;;
 	--purge) PURGE=1 ;;
 	--from-source) FROM_SOURCE=1 ;;
 	-h | --help)
-		sed -n '2,15p' "$0"
+		sed -n '2,17p' "$0"
 		exit 0
 		;;
 	*) die "unknown option $a" ;;
 	esac
 done
 
-[[ $EUID -eq 0 ]] || die "run as root: sudo bash $0"
+((DRY)) || [[ $EUID -eq 0 ]] || die "run as root: sudo bash $0"
+((DRY)) && [[ $MODE == uninstall ]] && die "--dry-run only works for installing"
+
+if [[ $EUID -eq 0 ]]; then
+	if [[ $(stat -c %s "$LOG" 2>/dev/null || echo 0) -gt 1048576 ]]; then mv -f "$LOG" "$LOG.1"; fi
+	touch "$LOG" && chmod 600 "$LOG" && LOG_ON=1
+	{
+		echo
+		echo "===== $(date '+%F %T') install.sh ${ARGS[*]:-} ($MODE$( ((DRY)) && echo ", dry run"))"
+		echo "system: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}"), kernel $(uname -r), package manager ${PM:-none}"
+	} >>"$LOG"
+else
+	LOG=/dev/null
+fi
+WORK= # created after the network check (which may exec the installer anew)
+on_exit() {
+	local rc=$?
+	if [[ -n $WORK ]]; then rm -rf "$WORK"; fi
+	log "===== $(date '+%F %T') finished (exit $rc)"
+}
+trap on_exit EXIT
 
 NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
 
@@ -130,7 +217,7 @@ fi
 say "Checking the system"
 [[ $(uname -s) == Linux ]] || die "Linux only"
 [[ -d /run/systemd/system ]] || die "systemd is required"
-command -v apt-get >/dev/null || die "only Debian-based systems (apt) are supported by this installer"
+[[ -n $PM ]] || die "no supported package manager (apt, pacman or dnf) found"
 [[ $(stat -fc %T /sys/fs/cgroup) == cgroup2fs ]] ||
 	die "cgroup v2 (unified hierarchy) is required; boot with systemd.unified_cgroup_hierarchy=1"
 IFS=. read -r kmaj kmin _ <<<"$(uname -r)"
@@ -140,7 +227,7 @@ x86_64) ARCH=amd64 ;;
 aarch64) ARCH=arm64 ;;
 *) die "unsupported CPU $(uname -m)" ;;
 esac
-ok "Linux $(uname -r), systemd, cgroup v2, $ARCH"
+ok "Linux $(uname -r), systemd, cgroup v2, $ARCH, $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown distribution}") ($PM)"
 if modprobe -n wireguard 2>/dev/null; then
 	ok "kernel WireGuard available"
 else
@@ -163,39 +250,117 @@ else
 	fi
 	die "no connection to github.com within 20 s – check the network (with The Shunt active: shunt status)"
 fi
+WORK=$(mktemp -d)
 
-say "Installing dependencies"
-: >"$LOG"
-export DEBIAN_FRONTEND=noninteractive
-step "updating package lists (apt)" "${APT[@]}" update
-step "installing nftables, wireguard-tools (apt)" "${APT[@]}" install nftables wireguard-tools curl ca-certificates psmisc
-# polkit: config changes from the CLI/UI ask for the admin password
-if apt-cache show polkitd >/dev/null 2>&1; then
-	step "installing polkit (apt)" "${APT[@]}" install polkitd
-elif apt-cache show policykit-1 >/dev/null 2>&1; then
-	step "installing polkit (apt)" "${APT[@]}" install policykit-1
-else
-	warn "polkit not available: config changes will need sudo"
+# ---------------------------------------------------------------- releases
+# The newest release (pre-releases included) whose build has finished - but
+# only if it is the current code (an older release would miss features this
+# installer expects) and if it is signed. Otherwise: build from source.
+find_release() { # -> sets tag (empty: build from source) and why
+	tag='' why=''
+	if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
+		why="running from the source checkout $SRC_DIR"
+		return
+	fi
+	if ((FROM_SOURCE)); then
+		why="--from-source"
+		return
+	fi
+	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
+	sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
+	local head_sha t
+	head_sha=$(sha "$REF") || true
+	why="no finished release yet"
+	for t in $(api "releases?per_page=5" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
+		if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
+			why="release $t is not the current code (or GitHub did not answer)"
+			return
+		fi
+		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS.sig" 2>/dev/null; then
+			tag=$t
+			return
+		fi
+		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
+			why="release $t is not signed"
+			return
+		fi
+	done
+}
+# fetch_sums: download and check the signed checksum list of release $tag
+fetch_sums() {
+	local base=https://github.com/$REPO/releases/download/$tag
+	curl -fsSLo "$WORK/SHA256SUMS" "$base/SHA256SUMS" && curl -fsSLo "$WORK/SHA256SUMS.sig" "$base/SHA256SUMS.sig" ||
+		die "could not download the checksums of release $tag"
+	printf '%s\n' "$RELEASE_SIGNER" >"$WORK/allowed_signers"
+	ssh-keygen -Y verify -f "$WORK/allowed_signers" -I "${RELEASE_SIGNER%% *}" -n "$RELEASE_NS" \
+		-s "$WORK/SHA256SUMS.sig" <"$WORK/SHA256SUMS" >>"$LOG" 2>&1 ||
+		die "release $tag: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)"
+}
+
+# ---------------------------------------------------------------- dry run
+if ((DRY)); then
+	say "Dry run - this is what the installer would do (nothing is changed)"
+	pk=$(pkg_names base)
+	[[ -n $(pkg_names polkit) ]] && pk+=" $(pkg_names polkit)" || pk+=" (no polkit package: config changes would need sudo)"
+	echo "  packages ($PM):   $pk"
+	echo "    asks for:        $(pkg_names openvpn) (OpenVPN)$( ((GRAPHICAL)) && echo ", $(pkg_names desktop) (desktop app)")"
+	find_release
+	if [[ -n $tag ]]; then
+		if command -v ssh-keygen >/dev/null; then
+			fetch_sums
+			echo "  programs:         release $tag for $ARCH, signature of SHA256SUMS verified"
+		else
+			echo "  programs:         release $tag for $ARCH (would install $(pkg_names ssh) to check its signature)"
+		fi
+	else
+		echo "  programs:         build from source ($why), needs $(pkg_names go)"
+	fi
+	if [[ -x $BIN_DIR/shuntd ]]; then
+		echo "                    replaces installed $("$BIN_DIR/shuntd" version 2>/dev/null || echo "unknown version") in $BIN_DIR"
+	else
+		echo "                    to $BIN_DIR (shuntd, shunt$( ((GRAPHICAL)) && echo ", shunt-desktop"))"
+	fi
+	if [[ -f $ETC/shunt.toml ]]; then
+		echo "  configuration:    keeps $ETC/shunt.toml"
+	else
+		found=${SHUNT_WG_CONF:-$(ls /etc/wireguard/*.conf 2>/dev/null | head -1 || true)}
+		echo "  configuration:    writes $ETC/shunt.toml (default route: direct)${found:+, offers to import $found}"
+	fi
+	if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
+		echo "  nsswitch.conf:    offers to drop 'resolve' (backup kept)"
+	fi
+	if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]]; then
+		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY)"
+	fi
+	echo "  service:          installs shuntd.service, shunt-lockdown.service (off), polkit policy; enables and (re)starts shuntd"
+	[[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && echo "  user:             adds $SUDO_USER to the group 'shunt'"
+	echo "  log:              $([[ $LOG == /dev/null ]] && echo "/var/log/shunt-install.log (not written in a dry run without root)" || echo "$LOG")"
+	exit 0
 fi
 
+say "Installing dependencies"
+export DEBIAN_FRONTEND=noninteractive
+[[ $PM == apt ]] && step "updating package lists (apt)" apt-get -o DPkg::Lock::Timeout=600 -y -q update
+pkg_install "nftables, wireguard-tools" base
+# polkit: config changes from the CLI/UI ask for the admin password
+pkg_install polkit polkit || warn "polkit not available: config changes will need sudo"
+
 if yes_no "Install OpenVPN support (for .ovpn configs)?" y; then
-	step "installing openvpn (apt)" "${APT[@]}" install openvpn
+	pkg_install openvpn openvpn
 fi
 
 # ---------------------------------------------------------------- desktop app?
 WANT_DESKTOP=0
 if ((GRAPHICAL)) && yes_no "Install the desktop app (tray icon, window, notifications)?" y; then
 	WANT_DESKTOP=1
-	step "installing desktop app libraries (apt)" "${APT[@]}" install libwebkit2gtk-4.1-0 libgtk-3-0
+	pkg_install "desktop app libraries" desktop
 fi
 
 # ---------------------------------------------------------------- binaries
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 
 build_from() { # source dir
 	if ! command -v go >/dev/null || ! command -v git >/dev/null; then
-		step "installing Go and git (apt)" "${APT[@]}" install golang-go git
+		pkg_install "Go and git" go
 	fi
 	local gov
 	gov=$(go env GOVERSION | sed 's/^go//')
@@ -208,63 +373,45 @@ build_from() { # source dir
 	step "compiling shuntd and shunt" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
 		go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt
 	if ((WANT_DESKTOP)); then
-		step "installing build tools for the desktop app (apt)" "${APT[@]}" install gcc pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+		pkg_install "build tools for the desktop app" desktop-build
 		step "compiling shunt-desktop" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=1 \
 			go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shunt-desktop
 	fi
 }
 
-if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
+find_release
+if [[ -n $tag ]]; then
+	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
+	say "Downloading release $tag"
+	fetch_sums
+	ok "signature of the checksums verified"
+	base=https://github.com/$REPO/releases/download/$tag
+	curl -fsSLo "$WORK/shunt.tar.gz" "$base/shunt_linux_$ARCH.tar.gz"
+	(cd "$WORK" && grep " shunt_linux_$ARCH.tar.gz\$" SHA256SUMS | sed "s/shunt_linux_$ARCH.tar.gz/shunt.tar.gz/" | sha256sum -c --quiet) ||
+		die "checksum mismatch - download corrupted or tampered with"
+	mkdir -p "$WORK/bin" && tar -xzf "$WORK/shunt.tar.gz" -C "$WORK/bin"
+	ok "checksum verified"
+	if ((WANT_DESKTOP)); then
+		if curl -fsSLo "$WORK/desktop.tar.gz" "$base/shunt-desktop_linux_$ARCH.tar.gz"; then
+			(cd "$WORK" && grep " shunt-desktop_linux_$ARCH.tar.gz\$" SHA256SUMS | sed "s/shunt-desktop_linux_$ARCH.tar.gz/desktop.tar.gz/" | sha256sum -c --quiet) ||
+				die "checksum mismatch (desktop app)"
+			tar -xzf "$WORK/desktop.tar.gz" -C "$WORK/bin"
+		else
+			warn "no prebuilt desktop app for $ARCH in this release - skipping it (build from source with --from-source)"
+			WANT_DESKTOP=0
+		fi
+	fi
+elif [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 	build_from "$SRC_DIR"
 else
-	tag=
-	if ((!FROM_SOURCE)); then
-		say "Looking for a release"
-		# The newest release (pre-releases included) whose build has
-		# finished - but only if it is the current code: an older release
-		# would miss features this installer expects. Otherwise build.
-		api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
-		sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
-		head_sha=$(sha "$REF") || true
-		for t in $(api "releases?per_page=5" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
-			if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
-				ok "release $t is not the current code (or GitHub did not answer) - building from source"
-				break
-			fi
-			if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
-				tag=$t
-				break
-			fi
-		done
-	fi
-	if [[ -n $tag ]]; then
-		say "Downloading release $tag"
-		base=https://github.com/$REPO/releases/download/$tag
-		curl -fsSLo "$WORK/shunt.tar.gz" "$base/shunt_linux_$ARCH.tar.gz"
-		curl -fsSLo "$WORK/SHA256SUMS" "$base/SHA256SUMS"
-		(cd "$WORK" && grep " shunt_linux_$ARCH.tar.gz\$" SHA256SUMS | sed "s/shunt_linux_$ARCH.tar.gz/shunt.tar.gz/" | sha256sum -c --quiet) ||
-			die "checksum mismatch - download corrupted or tampered with"
-		mkdir -p "$WORK/bin" && tar -xzf "$WORK/shunt.tar.gz" -C "$WORK/bin"
-		ok "checksum verified"
-		if ((WANT_DESKTOP)); then
-			if curl -fsSLo "$WORK/desktop.tar.gz" "$base/shunt-desktop_linux_$ARCH.tar.gz"; then
-				(cd "$WORK" && grep " shunt-desktop_linux_$ARCH.tar.gz\$" SHA256SUMS | sed "s/shunt-desktop_linux_$ARCH.tar.gz/desktop.tar.gz/" | sha256sum -c --quiet) ||
-					die "checksum mismatch (desktop app)"
-				tar -xzf "$WORK/desktop.tar.gz" -C "$WORK/bin"
-			else
-				warn "no prebuilt desktop app for $ARCH in this release - skipping it (build from source with --from-source)"
-				WANT_DESKTOP=0
-			fi
-		fi
-	else
-		command -v git >/dev/null || step "installing git (apt)" "${APT[@]}" install git
-		say "No release yet, building from source ($REF)"
-		branch_opt=()
-		[[ $REF == HEAD ]] || branch_opt=(--branch "$REF")
-		step "downloading source" git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
-		build_from "$WORK/src"
-		SRC_DIR=$WORK/src
-	fi
+	ok "$why - building from source"
+	command -v git >/dev/null || pkg_install git git
+	say "Building from source ($REF)"
+	branch_opt=()
+	[[ $REF == HEAD ]] || branch_opt=(--branch "$REF")
+	step "downloading source" git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
+	build_from "$WORK/src"
+	SRC_DIR=$WORK/src
 fi
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
 if ((WANT_DESKTOP)) && [[ -f $WORK/bin/shunt-desktop ]]; then
