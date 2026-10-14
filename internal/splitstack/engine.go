@@ -276,6 +276,26 @@ func (e *Engine) routeFor(app string) string {
 	return e.def
 }
 
+// NetworkChanged re-opens the WireGuard sockets after the physical network
+// changed (Wi-Fi <-> mobile data): sockets of the old network do not move
+// along, so tunnels would stall until the next restart.
+func (e *Engine) NetworkChanged() {
+	for _, t := range e.tunnels {
+		if t.dev == nil {
+			continue
+		}
+		if err := t.dev.BindUpdate(); err != nil {
+			e.logf("tunnel %s: rebind: %v", t.name, err)
+			continue
+		}
+		if e.o.BindUp != nil {
+			if err := e.o.BindUp(t.dev.Bind()); err != nil {
+				e.logf("tunnel %s: %v", t.name, err)
+			}
+		}
+	}
+}
+
 // Stop ends everything; the Engine cannot be started again.
 func (e *Engine) Stop() {
 	e.stop.Do(func() {

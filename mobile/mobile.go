@@ -77,6 +77,9 @@ func (e *Engine) SetRules(configJSON string) error { return e.e.SetRules(configJ
 // Status returns the state as JSON.
 func (e *Engine) Status() string { return e.e.Status() }
 
+// NetworkChanged is called by the app when the default network changes.
+func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
+
 // Stop ends everything; the Engine cannot be started again.
 func (e *Engine) Stop() { e.e.Stop() }
 

@@ -195,6 +195,11 @@ func TestRoutes(t *testing.T) {
 	if err := echoTCP(app, echo); err != nil {
 		t.Fatalf("tcp through tunnel: %v", err)
 	}
+	// Wi-Fi <-> mobile data: sockets re-opened, tunnel keeps working
+	e.NetworkChanged()
+	if err := echoTCP(app, echo); err != nil {
+		t.Fatalf("tcp after network change: %v", err)
+	}
 	// DNS to the VPN's DNS address goes to the tunnel's DNS server
 	if got, err := udpQuery(app, netip.MustParseAddrPort(DNSAddr+":53")); err != nil || got != "dns:q" {
 		t.Fatalf("dns through tunnel: %q %v", got, err)
