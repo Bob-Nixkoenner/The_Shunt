@@ -21,6 +21,9 @@ object VpnState {
     val running = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     @Volatile var engine: Engine? = null
+    /** Android's own kill switch: always-on VPN with "block connections without VPN". */
+    val alwaysOn = MutableStateFlow(false)
+    val lockdown = MutableStateFlow(false)
 
     val isRunning: StateFlow<Boolean> get() = running
 }
@@ -74,6 +77,8 @@ class ShuntVpnService : VpnService() {
             }.also { cm.registerDefaultNetworkCallback(it) }
             VpnState.error.value = null
             VpnState.running.value = true
+            VpnState.alwaysOn.value = isAlwaysOn
+            VpnState.lockdown.value = isLockdownEnabled
             // filter lists: start with what is on disk, then refresh (also
             // without network the VPN must come up at once)
             if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
