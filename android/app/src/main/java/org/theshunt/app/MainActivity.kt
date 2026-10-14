@@ -124,9 +124,30 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                 val ago = if (hs == 0L) "no handshake" else "handshake ${st.optLong("time") - hs}s ago"
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("tunnel:${t.getString("name")}", style = MaterialTheme.typography.titleSmall)
+                        val h = t.optJSONObject("health")
+                        val state = h?.optString("state") ?: "unknown"
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("tunnel:${t.getString("name")}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                when (state) {
+                                    "ok" -> "● ok"; "idle" -> "● idle"; "stale" -> "● no answers"; "down" -> "● down"; else -> "● …"
+                                },
+                                color = when (state) {
+                                    "ok" -> androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                                    "stale" -> androidx.compose.ui.graphics.Color(0xFFF9A825)
+                                    "down" -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
                         if (!t.optBoolean("up")) Text("down: ${t.optString("error")}", color = MaterialTheme.colorScheme.error)
-                        else Text("$ago · ↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+                        else {
+                            Text("$ago · ↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+                            val ms = h?.optLong("latency_ms") ?: 0
+                            val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
+                            if (ms > 0) Text("latency $ms ms" + if (loss > 0) " · $loss % lost" else "", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }

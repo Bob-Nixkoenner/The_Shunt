@@ -34,6 +34,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
@@ -85,6 +86,9 @@ type Daemon struct {
 	captive, captiveURL string
 	captiveAt           time.Time // last probe
 	probing             bool
+
+	health     map[string]*health.Monitor // per tunnel, see health.go
+	healthBusy bool
 }
 
 // ErrRestart: Run ended because a restart was requested through the API;
@@ -458,6 +462,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 		case <-tick.C:
 			d.watchdog()
+			go d.checkHealth()
 		case <-d.tunEvents:
 			d.tunnelChanged()
 		case <-netTick.C:
@@ -851,6 +856,10 @@ func (d *Daemon) ifaceUp(p *Prepared) map[string]bool {
 func (d *Daemon) watchdog() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.watchdogLocked()
+}
+
+func (d *Daemon) watchdogLocked() {
 	if len(d.tunErrors) > 0 || d.anyDead() {
 		if err := d.syncTunnels(); err != nil {
 			d.Log.Error("tunnel resync failed", "err", err)
@@ -1302,6 +1311,7 @@ func (d *Daemon) status() api.Status {
 		if t, ok := d.tunnels[n]; ok {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()
+			ts.Health = d.healthReport(n)
 			if e := t.Err(); e != "" && ts.Error == "" {
 				ts.Error = e
 			}
