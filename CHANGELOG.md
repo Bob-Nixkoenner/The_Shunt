@@ -1,6 +1,35 @@
 # Changelog
 
-## Unreleased
+## v0.7.0-rc4
+
+**Installer for Arch and Fedora, tunnel health, traffic statistics, panic button and
+timed pass – and the first Android app (preview).**
+
+Installing: run the steps one by one (see README); to test a branch use
+`sudo SHUNT_REF=<branch> bash install.sh --from-source`.
+
+- **Tunnel health**: every tunnel is judged from handshake age, byte counters and a DNS
+  probe through the tunnel (latency). `shunt status` shows e.g. `up/kernel ok 23ms`, the
+  web UI state, latency and loss per tunnel. A tunnel without answers is re-resolved
+  (DDNS) and re-created right away. Probes only run for tunnels in use.
+- **Traffic statistics** per tunnel and for all together: this month, last month, total.
+  Only sums, no connection records (`/var/lib/shunt/stats.json`, written at most every
+  5 minutes). `shunt status` prints a TRAFFIC table, the web UI shows it per tunnel.
+- **Panic button and a timed pass**: `shunt pass 1-60|off` lets everything go direct –
+  past tunnels, blocks and the DNS filter – for at most an hour and ends by itself; the
+  web UI shows a countdown and a red "PASS – unprotected" state. Needs the admin
+  password, like lifting panic. Panic always wins.
+- **Android app (preview, debug build, not in this release's files)**: one VPN, several
+  WireGuard tunnels at the same time, a route per app (direct, block or a tunnel), DNS
+  per route, DNS filter, tunnel health, traffic, panic tile, timed pass, leak test, and a
+  warning when Android's own kill switch (always-on + block without VPN) is off. The core
+  also does destination rules (domain, CIDR, port; names resolved over the rule's route)
+  and network profiles (Wi-Fi name or mobile data → default route); the app screens for
+  them follow. Details: `docs/ANDROID.md`.
+- **Windows prototype** `shunt-win-proto` (wintun, route per program): builds, never run
+  on Windows yet – `docs/WINDOWS.md`.
+- **Tests**: `test/farm.sh` runs every CI check spread over machines reachable by SSH;
+  the integration test no longer depends on being started from a terminal.
 
 **Installer: Arch and Fedora, signed releases, dry run, full log.**
 
