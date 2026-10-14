@@ -34,6 +34,17 @@
             tools:replace="screenOrientation" />
 
         <service
+            android:name=".PanicTile"
+            android:exported="true"
+            android:icon="@drawable/ic_shunt"
+            android:label="Shunt panic"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".ShuntVpnService"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE">

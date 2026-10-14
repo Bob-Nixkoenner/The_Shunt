@@ -91,6 +91,13 @@ func (s *Server) handler() http.Handler {
 		}
 		s.forward(w, "POST", "/v1/panic", req)
 	})
+	mux.HandleFunc("POST /api/pass", func(w http.ResponseWriter, r *http.Request) {
+		var req api.PassRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/pass", req)
+	})
 	mux.HandleFunc("POST /api/reload", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/reload", nil)
 	})

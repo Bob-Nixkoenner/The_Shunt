@@ -36,6 +36,10 @@ type Backend interface {
 	// plan; ifaceUp tells which tunnel interfaces exist right now.
 	SyncRoutes(p *engine.Plan, ifaceUp map[string]bool) error
 	Panic(on bool) error
+	// ForgetTCP drops the connection tracking of TCP flows carrying a
+	// route mark, so their next packets are classified again (TCP is
+	// sticky otherwise; used when a pass ends).
+	ForgetTCP(mark uint32) (int, error)
 	// LiftLockdown ends the boot lockdown once the plan is in place.
 	LiftLockdown() error
 	// Cleanup removes every trace (lifts all kill switches).

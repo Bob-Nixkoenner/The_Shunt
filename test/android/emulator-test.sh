@@ -102,6 +102,30 @@ toggle
 wait_vpn down && echo "  ok   VPN off" || { echo "  FAIL VPN still up"; fails=$((fails + 1)); }
 toggle
 wait_vpn up && sleep 3 && check "VPN on again, tunnel works" "tunnel=work" "$(get)" || { echo "  FAIL VPN did not come back"; fails=$((fails + 1)); }
+tap_text() { # tap the first view whose text starts with $1
+	$ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null
+	local b
+	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$1[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
+	[[ -n $b ]] || { echo "  FAIL no '$1' on screen"; fails=$((fails + 1)); return 1; }
+	read -r x1 y1 x2 y2 <<<"$(echo "$b" | tr -c '0-9' ' ')"
+	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
+}
+echo "== panic and pass"
+$ADB shell am start -n $PKG/.MainActivity >/dev/null
+sleep 2
+if tap_text "PANIC"; then
+	sleep 2
+	check "panic blocks the tunnel too (refused at once)" "refused" "$(get)"
+	tap_text "Release panic" && sleep 2
+	check "after panic: tunnel again" "tunnel=work" "$(get)"
+fi
+if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, then the dialog's confirm
+	sleep 2
+	r=$(get || true)
+	[[ $r != *tunnel=* ]] && echo "  ok   pass: the shell goes direct (tunnel-only address unreachable)" || { echo "  FAIL pass: still through the tunnel: $r"; fails=$((fails + 1)); }
+	tap_text "End pass" && sleep 2
+	check "after the pass: tunnel again" "tunnel=work" "$(get)"
+fi
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }

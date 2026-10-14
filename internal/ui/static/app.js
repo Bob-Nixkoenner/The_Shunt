@@ -92,6 +92,7 @@ function render() {
 
   const down = st.tunnels.filter((t) => !t.disabled).filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
+  else if (st.pass_left) { state.className = "pill bad"; state.textContent = "PASS – unprotected"; }
   else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
   else if (st.pending) { state.className = "pill warn"; state.textContent = st.pending + " app(s) waiting for a route"; }
   else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
@@ -99,12 +100,17 @@ function render() {
   else { state.className = "pill ok"; state.textContent = "protected"; }
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, " (network “" + st.network + "”)")] : []));
 
+  const pass = $("#pass");
+  pass.textContent = st.pass_left ? "End pass (" + Math.floor(st.pass_left / 60) + ":" + String(st.pass_left % 60).padStart(2, "0") + ")" : "Pass 5 min";
+  pass.classList.toggle("on", !!st.pass_left);
   const panic = $("#panic");
   panic.textContent = st.panic ? "Release panic" : "PANIC";
   panic.classList.toggle("on", st.panic);
 
   $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", w)),
-    ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []));
+    ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
+    ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, "Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another " +
+      Math.ceil(st.pass_left / 60) + " min. Connections opened meanwhile are cut when it ends.")] : []));
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
@@ -285,6 +291,13 @@ async function refresh() {
   checkPending(status);
   if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
 }
+
+$("#pass").addEventListener("click", async () => {
+  const on = !(status && status.pass_left);
+  if (on && !(await ask("Let everything through for 5 minutes – your real IP, no tunnels, no blocks, no DNS filter?", { ok: "Pass 5 min", danger: true }))) return;
+  try { await api("POST", "/api/pass", { minutes: on ? 5 : 0 }); toast(on ? "Pass for 5 minutes" : "Pass ended"); } catch (e) { toast(e.message); }
+  refresh();
+});
 
 $("#panic").addEventListener("click", async () => {
   const on = !(status && status.panic);

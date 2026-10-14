@@ -75,6 +75,7 @@ type flow struct {
 	src, dst netip.AddrPort
 	app      string // owner, "" = unknown
 	route    string
+	pass     bool // direct only because of a pass (override): cut when it ends
 }
 
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
@@ -82,9 +83,45 @@ func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 	if e.o.Owner != nil {
 		f.app = e.o.Owner(proto, f.src, f.dst)
 	}
-	f.route = e.routeFor(f.app)
+	normal := e.routeFor(f.app)
+	f.route = e.ov.Route(normal, time.Now())
+	f.pass = f.route == RouteDirect && normal != RouteDirect
 	e.flows.Add(1)
 	return f
+}
+
+// track registers a running flow so panic (and the end of a pass) can cut
+// it; the returned func unregisters it.
+func (e *Engine) track(f *flow, conns ...net.Conn) func() {
+	e.actMu.Lock()
+	if e.active == nil {
+		e.active = map[*flow][]net.Conn{}
+	}
+	e.active[f] = conns
+	e.actMu.Unlock()
+	return func() {
+		e.actMu.Lock()
+		delete(e.active, f)
+		e.actMu.Unlock()
+	}
+}
+
+// cut closes running flows that match.
+func (e *Engine) cut(match func(*flow) bool) int {
+	e.actMu.Lock()
+	var cs []net.Conn
+	n := 0
+	for f, conns := range e.active {
+		if match(f) {
+			cs = append(cs, conns...)
+			n++
+		}
+	}
+	e.actMu.Unlock()
+	for _, c := range cs {
+		c.Close()
+	}
+	return n
 }
 
 func (f *flow) isDNS(e *Engine) bool { return f.dst.Addr() == e.dns && f.dst.Port() == 53 }
@@ -139,6 +176,7 @@ func (e *Engine) handleTCP(r *tcp.ForwarderRequest) {
 	}
 	r.Complete(false)
 	in := gonet.NewTCPConn(&wq, ep)
+	defer e.track(f, in, out)()
 	relayTCP(in, out)
 }
 
@@ -185,6 +223,7 @@ func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
 			in.Close()
 			return
 		}
+		defer e.track(f, in, out)()
 		if f.isDNS(e) {
 			e.relayDNS(f, in, out)
 			return

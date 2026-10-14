@@ -29,6 +29,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"golang.zx2c4.com/wireguard/conn"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -158,6 +159,10 @@ type Engine struct {
 	blocked    atomic.Int64
 	dnsBlocked atomic.Int64
 	stop       sync.Once
+	ov         override.State
+	actMu      sync.Mutex
+	active     map[*flow][]net.Conn // running flows (see track)
+	passTimer  *time.Timer
 	stopHealth context.CancelFunc
 	healthDone chan struct{}
 	book       *stats.Book
@@ -307,7 +312,11 @@ func loadList(b blocklistConf) (*blocklist.List, error) {
 }
 
 // blockedName returns the list that blocks a DNS name for an app, or "".
+// A pass (override) lets everything through, the filter too.
 func (e *Engine) blockedName(app, name string) string {
+	if e.ov.Passing(time.Now()) {
+		return ""
+	}
 	e.mu.RLock()
 	f, skip := e.filter, e.unfiltered[app]
 	e.mu.RUnlock()
@@ -347,6 +356,48 @@ func (e *Engine) NetworkChanged() {
 	}
 }
 
+// SetPanic blocks everything at once, running connections included.
+func (e *Engine) SetPanic(on bool) {
+	e.ov.SetPanic(on)
+	if on {
+		n := e.cut(func(*flow) bool { return true })
+		e.logf("panic: everything blocked, %d connections cut", n)
+	} else {
+		e.logf("panic lifted")
+	}
+}
+
+// Pass lets everything through (direct, no tunnels, no blocks, no DNS
+// filter) for d, clamped to 1..60 minutes; d <= 0 ends it. When it ends,
+// connections opened because of it are cut, so nothing keeps running
+// unprotected. Returns the end (zero: ended).
+func (e *Engine) Pass(d time.Duration) time.Time {
+	now := time.Now()
+	until := e.ov.Pass(d, now)
+	e.actMu.Lock()
+	if e.passTimer != nil {
+		e.passTimer.Stop()
+	}
+	if !until.IsZero() {
+		e.passTimer = time.AfterFunc(until.Sub(now), e.endPass)
+	}
+	e.actMu.Unlock()
+	if until.IsZero() {
+		e.endPass()
+	} else {
+		e.logf("pass: everything direct until %s", until.Format("15:04:05"))
+	}
+	return until
+}
+
+func (e *Engine) endPass() {
+	if e.ov.Passing(time.Now()) {
+		return // extended meanwhile
+	}
+	n := e.cut(func(f *flow) bool { return f.pass })
+	e.logf("pass ended, %d direct connections cut", n)
+}
+
 // ResetStats deletes the traffic totals.
 func (e *Engine) ResetStats() error { return e.book.Reset() }
 
@@ -357,6 +408,11 @@ func (e *Engine) Stop() {
 			e.stopHealth()
 			<-e.healthDone
 		}
+		e.actMu.Lock()
+		if e.passTimer != nil {
+			e.passTimer.Stop()
+		}
+		e.actMu.Unlock()
 		if e.stack != nil {
 			e.stack.Close()
 			e.stack.Wait()
@@ -392,13 +448,14 @@ type status struct {
 	DNSBlocked int64          `json:"dns_blocked"` // names answered NXDOMAIN by the filter
 	Time       int64          `json:"time"`
 	// Traffic per tunnel and "total": this month, last month, all.
-	Traffic map[string]stats.Summary `json:"traffic"`
+	Traffic  map[string]stats.Summary `json:"traffic"`
+	Override override.Status          `json:"override"`
 }
 
 // Status returns the state as JSON.
 func (e *Engine) Status() string {
 	st := status{Flows: e.flows.Load(), Blocked: e.blocked.Load(), DNSBlocked: e.dnsBlocked.Load(), Time: time.Now().Unix(),
-		Traffic: e.book.Summaries(time.Now())}
+		Traffic: e.book.Summaries(time.Now()), Override: e.ov.Status(time.Now())}
 	for _, t := range e.tunnels {
 		st.Tunnels = append(st.Tunnels, t.status())
 	}
