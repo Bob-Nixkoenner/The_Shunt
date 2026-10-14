@@ -101,7 +101,7 @@ func TestOverrideAndNetwork(t *testing.T) {
 	c, err := config.Parse(`
 [[network]]
 name = "home"
-ssid = ["Weifi_5G"]
+ssid = ["Home WiFi"]
 default_route = "direct"
 
 [[rule]]

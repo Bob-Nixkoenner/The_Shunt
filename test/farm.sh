@@ -9,9 +9,9 @@
 #   --only    run only jobs whose name matches REGEX (e.g. --only 'race|splitstack')
 #   --hosts   host list (default ~/.config/shunt-farm/hosts), one per line:
 #               local 1                         this machine, 1 slot
-#               worker@192.168.222.130 2        2 jobs at a time
-#               worker@192.168.222.131 1 small  little RAM: no gvisor/race jobs
-#               worker@192.168.222.130 2 root   root@ works too: integration test
+#               user@helper1 2                  2 jobs at a time
+#               user@helper2 1 small            little RAM: no gvisor/race jobs
+#               user@helper1 2 root             root@ works too: integration test
 #                                               (kernel + userspace) and podman jobs,
 #                                               one at a time (fixed netns names)
 #             Hosts that do not answer, or have no Go (PATH or ~/opt/go/bin),
@@ -40,8 +40,8 @@ while (($#)); do
 done
 if [[ ! -f $HOSTS ]]; then
 	mkdir -p "$(dirname "$HOSTS")"
-	printf '%s\n' 'local 1' 'worker@192.168.222.130 2' 'worker@192.168.222.131 1 small' 'arnonym@10.7.0.20 3' >"$HOSTS"
-	echo "created $HOSTS"
+	printf '%s\n' '# one host per line: user@host [slots] [small] [root] - see test/farm.sh --help' 'local 1' >"$HOSTS"
+	echo "created $HOSTS (only this machine; add your helpers there)"
 fi
 
 OUT=${XDG_CACHE_HOME:-$HOME/.cache}/shunt-farm/$(date +%F-%H%M%S)
