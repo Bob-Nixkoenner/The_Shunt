@@ -2,7 +2,7 @@
 # The Shunt installer for Debian-based systems (Pop!_OS, Ubuntu, Debian, Kali),
 # Arch Linux (and Manjaro, EndeavourOS) and Fedora.
 #
-#   curl -fsSLo install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/main/install.sh
+#   curl -fL --connect-timeout 10 -o install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
 #   less install.sh          # read before you run things as root
 #   sudo bash install.sh
 #
