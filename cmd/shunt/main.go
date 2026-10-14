@@ -403,6 +403,12 @@ func status(c *api.Client, args []string) error {
 		}
 		if t.Up {
 			state = "up/" + t.Driver
+			if h := t.Health; h != nil && h.State != "unknown" {
+				state += " " + h.State
+				if h.LatencyMs > 0 {
+					state += fmt.Sprintf(" %dms", h.LatencyMs)
+				}
+			}
 		}
 		hs, rxtx := "-", "-"
 		for _, p := range t.Peers {

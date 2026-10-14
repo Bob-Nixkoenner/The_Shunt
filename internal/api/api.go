@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"io"
 	"net"
 	"net/http"
@@ -77,6 +78,7 @@ type TunnelStatus struct {
 	Error    string              `json:"error,omitempty"`
 	Via      string              `json:"via,omitempty"` // second hop through this route
 	Peers    []tunnel.PeerStatus `json:"peers,omitempty"`
+	Health   *health.Report      `json:"health,omitempty"` // nil until the first check
 }
 
 // GroupStatus describes one process group.

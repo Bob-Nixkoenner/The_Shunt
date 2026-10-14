@@ -118,6 +118,11 @@ function render() {
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, "through " + t.via)] : []),
         el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
         el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
+        ...(t.up && t.health && t.health.state !== "unknown" ? [el("span", {}, "health"), el("span", {},
+          el("span", { class: "pill verdict " + ({ ok: "ok", idle: "", stale: "warn", down: "bad" }[t.health.state] || "") },
+            { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
+          t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
+          t.health.loss > 0 ? " · " + Math.round(t.health.loss * 100) + " % lost" : "")] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]));
 
