@@ -68,7 +68,7 @@ jobs() {
 			IFS=: read -r pkg fn n <<<"$f"
 			echo "|fuzz $pkg $fn|go test ./internal/$pkg -run '^\$' -fuzz '^$fn\$' -fuzztime ${n}x"
 		done
-		echo "|govulncheck|go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
+		echo "local|govulncheck|go run golang.org/x/vuln/cmd/govulncheck@latest ./..."
 	fi
 	echo "big|build arm64|GOARCH=arm64 go build -o /dev/null \$(go list ./... | grep -v /cmd/shunt-desktop)"
 	echo "big|vet windows|GOOS=windows go vet \$(go list ./... | grep -v -e /internal/desktopapp -e /cmd/shunt-desktop)"
