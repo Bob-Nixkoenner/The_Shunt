@@ -261,7 +261,7 @@ sudo install -m755 bin/shuntd bin/shunt /usr/local/bin/
 sudo install -d -m700 /etc/shunt/tunnels
 sudo install -m600 my-vps.conf /etc/shunt/tunnels/vps.conf
 sudo install -m644 packaging/shunt.toml.example /etc/shunt/shunt.toml
-sudo groupadd --system shunt && sudo usermod -aG shunt "$USER"   # re-login afterwards
+sudo groupadd --system shunt && sudo usermod -aG shunt "$USER"   # restart afterwards (logging out is not always enough)
 
 sudo shuntd -c /etc/shunt/shunt.toml check  # dry run: validates and prints the nft ruleset
 
@@ -270,7 +270,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now shuntd
 ```
 
 Uninstall / emergency exit: `sudo systemctl disable --now shuntd && sudo shuntd cleanup`
-(stopping the daemon alone keeps the kill switch active – on purpose).
+(stopping the daemon alone keeps the kill switch for tunnels active – on purpose; direct
+traffic, DNS included, goes on).
 
 ## Testing
 

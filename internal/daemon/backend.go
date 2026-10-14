@@ -40,6 +40,9 @@ type Backend interface {
 	// route mark, so their next packets are classified again (TCP is
 	// sticky otherwise; used when a pass ends).
 	ForgetTCP(mark uint32) (int, error)
+	// Stopped adapts the ruleset for the time shuntd is down: tunnels stay
+	// blocked, direct traffic (DNS included) goes on.
+	Stopped(p *engine.Plan) error
 	// LiftLockdown ends the boot lockdown once the plan is in place.
 	LiftLockdown() error
 	// Cleanup removes every trace (lifts all kill switches).

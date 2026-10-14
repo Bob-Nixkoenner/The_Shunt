@@ -110,37 +110,13 @@ func Render(p *engine.Plan) (string, error) {
 		// proxy decides the upstream. Nothing on port 53 leaves directly.
 		w("\tchain dns_redirect {")
 		w("\t\ttype nat hook output priority dstnat; policy accept;")
-		w("\t\t%s return", dg)
-		// Rules with their own DNS filter level: their programs' queries go
-		// to a copy of the route's listener that filters at that level.
-		for _, r := range p.Rules {
-			for _, g := range r.Groups {
-				cg, err := cgroupMatch(g)
-				if err != nil {
-					return "", fmt.Errorf("rule %q: %w", r.Name, err)
-				}
-				for _, fr := range r.FilterRoutes {
-					w("\t\t%s meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, fr.Mark, fr.DNSPort)
-					if fr.Kind == config.RouteDirect {
-						w("\t\t%s meta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, engine.MarkMask, engine.MarkBase, fr.DNSPort)
-					}
-				}
-			}
+		lines, err := dnsRedirectLines(p, true)
+		if err != nil {
+			return "", err
 		}
-		var direct *engine.Route
-		for _, r := range p.Routes {
-			if r.Kind == config.RouteDirect {
-				direct = r
-			}
-			if r.Kind == config.RouteBlock {
-				continue // rejected in filter_out anyway
-			}
-			w("\t\tmeta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", r.Mark, r.DNSPort)
+		for _, l := range lines {
+			w("\t\t%s", l)
 		}
-		if p.Captive != nil {
-			w("\t\tmeta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", p.Captive.Mark, p.Captive.DNSPort)
-		}
-		w("\t\tmeta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", engine.MarkMask, engine.MarkBase, direct.DNSPort)
 		w("\t}")
 	}
 
@@ -338,6 +314,78 @@ func RenderLockdown() string {
 }
 `, LockdownTable)
 	return b.String()
+}
+
+// dnsRedirectLines are the rules of the dns_redirect chain. Without direct
+// (shuntd stopped) the queries of direct traffic are left alone and reach
+// the system resolver, while those of tunnels, links and the login browser
+// still go to their (now closed) proxy port: DNS fails closed only there.
+func dnsRedirectLines(p *engine.Plan, direct bool) ([]string, error) {
+	dg, err := cgroupMatch(p.DaemonGroup)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{dg + " return"}
+	add := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
+	// Rules with their own DNS filter level: their programs' queries go
+	// to a copy of the route's listener that filters at that level.
+	for _, r := range p.Rules {
+		for _, g := range r.Groups {
+			cg, err := cgroupMatch(g)
+			if err != nil {
+				return nil, fmt.Errorf("rule %q: %w", r.Name, err)
+			}
+			for _, fr := range r.FilterRoutes {
+				if fr.Kind == config.RouteDirect && !direct {
+					continue
+				}
+				add("%s meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, fr.Mark, fr.DNSPort)
+				if fr.Kind == config.RouteDirect {
+					add("%s meta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", cg, engine.MarkMask, engine.MarkBase, fr.DNSPort)
+				}
+			}
+		}
+	}
+	var dr *engine.Route
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteDirect {
+			dr = r
+			if !direct {
+				continue
+			}
+		}
+		if r.Kind == config.RouteBlock {
+			continue // rejected in filter_out anyway
+		}
+		add("meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", r.Mark, r.DNSPort)
+	}
+	if p.Captive != nil {
+		add("meta mark %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", p.Captive.Mark, p.Captive.DNSPort)
+	}
+	if direct && dr != nil {
+		add("meta mark and %#x != %#x meta l4proto { tcp, udp } th dport 53 redirect to :%d", engine.MarkMask, engine.MarkBase, dr.DNSPort)
+	}
+	return out, nil
+}
+
+// StoppedDNS replaces the dns_redirect chain for the time shuntd is down:
+// the kill switch stays for tunnels, but direct traffic keeps working
+// including name resolution (see dnsRedirectLines). Empty if the plan
+// has no DNS proxy.
+func StoppedDNS(p *engine.Plan) (string, error) {
+	if !p.DNS {
+		return "", nil
+	}
+	lines, err := dnsRedirectLines(p, false)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "flush chain inet %s dns_redirect\n", Table)
+	for _, l := range lines {
+		fmt.Fprintf(&b, "add rule inet %s dns_redirect %s\n", Table, l)
+	}
+	return b.String(), nil
 }
 
 // DeleteScript removes a table if it exists.

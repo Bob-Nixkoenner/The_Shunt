@@ -88,6 +88,14 @@ func (b *linuxBackend) ForgetTCP(mark uint32) (int, error) {
 	return n, errors.Join(errs...)
 }
 
+func (b *linuxBackend) Stopped(p *engine.Plan) error {
+	s, err := nft.StoppedDNS(p)
+	if err != nil || s == "" {
+		return err
+	}
+	return nft.Apply(s)
+}
+
 func (b *linuxBackend) LiftLockdown() error {
 	return nft.Apply(nft.DeleteScript(nft.LockdownTable))
 }
