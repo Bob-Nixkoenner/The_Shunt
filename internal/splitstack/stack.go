@@ -76,6 +76,9 @@ type flow struct {
 	app      string // owner, "" = unknown
 	route    string
 	pass     bool // direct only because of a pass (override): cut when it ends
+	// byDefault: on the default route (no app or destination rule); cut
+	// when a network profile changes that route
+	byDefault bool
 }
 
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
@@ -83,7 +86,8 @@ func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 	if e.o.Owner != nil {
 		f.app = e.o.Owner(proto, f.src, f.dst)
 	}
-	normal := e.routeFor(f.app, proto, f.dst, f.isDNS(e))
+	normal, byDefault := e.routeFor(f.app, proto, f.dst, f.isDNS(e))
+	f.byDefault = byDefault
 	f.route = e.ov.Route(normal, time.Now())
 	f.pass = f.route == RouteDirect && normal != RouteDirect
 	e.flows.Add(1)

@@ -373,18 +373,19 @@ func (e *Engine) blockedName(app, name string) string {
 
 // routeFor picks the route of a connection: destination rules, then the
 // app's rule, then the default (of the network profile).
-func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool) string {
+// byDefault: the route is the default, so it changes with the network.
+func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool) (route string, byDefault bool) {
 	if !isDNS {
 		if r, _ := e.ruleRoute(app, proto, dst); r != "" {
-			return r
+			return r, false
 		}
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	if r, ok := e.apps[app]; ok && app != "" {
-		return r
+		return r, false
 	}
-	return e.def
+	return e.def, true
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network

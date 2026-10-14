@@ -534,6 +534,25 @@ func TestNetworkProfiles(t *testing.T) {
 	want("wifi", "", "", "home") // SSID unknown (no location permission)
 	want("mobile", "", "Mobil", "block")
 	want("ethernet", "", "", "home")
+	// a flow opened in the café does not keep going once the profile blocks
+	e.SetNetwork("wifi", "Cafe Lumen")
+	c, err := gonet.DialUDP(app, nil, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(serverIP.As4()), Port: 53}, ipv4.ProtocolNumber)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	buf := make([]byte, 100)
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	c.Write([]byte("q"))
+	if n, err := c.Read(buf); err != nil || string(buf[:n]) != "work:q" {
+		t.Fatalf("open flow in the café: %q %v", buf[:n], err)
+	}
+	e.SetNetwork("mobile", "")
+	c.SetDeadline(time.Now().Add(2 * time.Second))
+	c.Write([]byte("q"))
+	if n, err := c.Read(buf); err == nil {
+		t.Errorf("open flow kept its route after the switch to a blocking profile: %q", buf[:n])
+	}
 	e.SetNetwork("wifi", "Cafe Lumen")
 	var st status
 	json.Unmarshal([]byte(e.Status()), &st)
