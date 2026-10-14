@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**Installer: Arch and Fedora, signed releases, dry run, full log.**
+
+- **Arch Linux** (Manjaro, EndeavourOS) **and Fedora**: the installer uses pacman or dnf
+  instead of apt (same packages, distribution names). pacman runs without `-Sy` (no
+  partial upgrade); if the package database is too old it says to run `pacman -Syu`.
+- **Signed releases**: the release workflow signs `SHA256SUMS` (`ssh-keygen -Y sign`,
+  secret `SHUNT_RELEASE_KEY`, checked against the installer's key before publishing).
+  The installer only installs a release whose signature is valid; unsigned releases
+  (all up to v0.7.0-rc3) are built from source instead. A wrong signature stops the
+  installation.
+- **`--dry-run`**: checks the system and network and lists what would be installed
+  (packages, release or source build, config, nsswitch, NetworkManager, service) –
+  changes nothing, works without root.
+- **CI checks the package names** of all three package managers (`installer-packages`:
+  Arch, Fedora, Debian containers, `test/installer/packages.sh`).
+- **Full log** `/var/log/shunt-install.log`: every message, question and answer, plus the
+  output of every step; kept across runs (rotated at 1 MiB), ends with the exit code.
+
 ## v0.7.0-rc3
 
 **DNS filter: blocklists inside The Shunt, like Pi-hole – per app, tunnel and network.**
