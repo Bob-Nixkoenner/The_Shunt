@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strconv"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 	"golang.org/x/sys/unix"
@@ -79,6 +80,20 @@ func (e *Engine) Status() string { return e.e.Status() }
 
 // NetworkChanged is called by the app when the default network changes.
 func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
+
+// SetPanic blocks everything at once, running connections included.
+func (e *Engine) SetPanic(on bool) { e.e.SetPanic(on) }
+
+// Pass lets everything through for minutes (1..60; 0 ends it) and returns
+// the end as unix seconds (0: ended). Connections opened because of it are
+// cut when it ends.
+func (e *Engine) Pass(minutes int) int64 {
+	until := e.e.Pass(time.Duration(minutes) * time.Minute)
+	if until.IsZero() {
+		return 0
+	}
+	return until.Unix()
+}
 
 // ResetStats deletes the traffic totals.
 func (e *Engine) ResetStats() error { return e.e.ResetStats() }

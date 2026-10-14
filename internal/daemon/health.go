@@ -114,3 +114,24 @@ func (d *Daemon) healthReport(name string) *health.Report {
 	}
 	return nil
 }
+
+// selfCgroup is the group root for a reload from the API (reload keeps the
+// plan's root once there is a plan).
+func (d *Daemon) selfCgroup() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.plan.CgroupRoot
+}
+
+// endPassIfDue rebuilds the normal plan once a pass has run out.
+func (d *Daemon) endPassIfDue(self string) {
+	d.mu.Lock()
+	due := d.passing && !d.ov.Passing(time.Now())
+	d.mu.Unlock()
+	if !due {
+		return
+	}
+	if err := d.reload(self); err != nil {
+		d.Log.Error("ending the pass failed, retrying", "err", err)
+	}
+}

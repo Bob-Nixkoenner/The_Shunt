@@ -15,6 +15,8 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 // DefaultBackend is the platform's backend.
@@ -66,6 +68,24 @@ func (b *linuxBackend) Panic(on bool) error {
 		return nft.Apply(nft.RenderPanic())
 	}
 	return nft.Apply(nft.DeleteScript(nft.PanicTable))
+}
+
+// tcpMark matches conntrack entries of TCP flows with one ct mark.
+type tcpMark uint32
+
+func (m tcpMark) MatchConntrackFlow(f *netlink.ConntrackFlow) bool {
+	return f.Forward.Protocol == unix.IPPROTO_TCP && f.Mark == uint32(m)
+}
+
+func (b *linuxBackend) ForgetTCP(mark uint32) (int, error) {
+	n := 0
+	var errs []error
+	for _, fam := range []netlink.InetFamily{unix.AF_INET, unix.AF_INET6} {
+		k, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, fam, tcpMark(mark))
+		n += int(k)
+		errs = append(errs, err)
+	}
+	return n, errors.Join(errs...)
 }
 
 func (b *linuxBackend) LiftLockdown() error {

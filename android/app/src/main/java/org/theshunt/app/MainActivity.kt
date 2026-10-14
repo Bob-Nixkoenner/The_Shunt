@@ -91,13 +91,14 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
     val error by VpnState.error.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf<JSONObject?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    var confirmPass by remember { mutableStateOf(false) }
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
     LaunchedEffect(running) {
         while (running) {
             status = VpnState.engine?.status()?.let { JSONObject(it) }
-            delay(2000)
+            delay(1000)
         }
         status = null
     }
@@ -114,6 +115,26 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
             })
         }
         error?.let { Text("Error: $it", color = MaterialTheme.colorScheme.error) }
+        if (running) {
+            val ov = status?.optJSONObject("override")
+            val panic = ov?.optBoolean("panic") ?: false
+            val passLeft = ov?.optLong("pass_left") ?: 0L
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    { VpnState.engine?.setPanic(!panic); status = VpnState.engine?.status()?.let { JSONObject(it) } },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text(if (panic) "Release panic" else "PANIC") }
+                OutlinedButton({
+                    if (passLeft > 0) VpnState.engine?.pass(0) else confirmPass = true
+                    status = VpnState.engine?.status()?.let { JSONObject(it) }
+                }) { Text(if (passLeft > 0) "End pass (%d:%02d)".format(passLeft / 60, passLeft % 60) else "Pass 5 min") }
+            }
+            if (panic) Text("Panic: everything is blocked, running connections were cut.", color = MaterialTheme.colorScheme.error)
+            else if (passLeft > 0) Text(
+                "Pass: everything goes direct – your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Text("Default route: ${settings.defaultRoute}", style = MaterialTheme.typography.bodyMedium)
         if (settings.tunnels.isEmpty()) Text("No tunnel yet – import one under Tunnels.")
         status?.let { st ->
@@ -177,6 +198,15 @@ private fun StatusScreen(settings: Settings, update: (Settings) -> Unit) {
                 Text("$what ($name)")
             }
         }
+    }
+    if (confirmPass) {
+        AlertDialog(
+            onDismissRequest = { confirmPass = false },
+            title = { Text("Let everything through for 5 minutes?") },
+            text = { Text("Your real IP, no tunnels, no blocks, no DNS filter. It ends by itself; connections opened meanwhile are cut then.") },
+            confirmButton = { TextButton({ VpnState.engine?.pass(5); confirmPass = false }) { Text("Pass 5 min") } },
+            dismissButton = { TextButton({ confirmPass = false }) { Text("Cancel") } },
+        )
     }
     if (confirmReset) {
         AlertDialog(

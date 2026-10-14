@@ -57,6 +57,9 @@ commands:
   restart    restart shuntd (tunnels reconnect; tunnelled apps are blocked meanwhile)
   panic on|off
              drop all traffic except loopback / undo
+  pass MINUTES|off
+             let everything through (direct, past tunnels and blocks) for
+             1-60 minutes, then back by itself; asks for the admin password
   ui [--port N] [--no-browser] [--no-update-check]
              open the web interface (local only)
   leaktest   check public IP and DNS resolver of every route
@@ -121,6 +124,21 @@ func main() {
 			os.Exit(2)
 		}
 		err = c.Do("POST", "/v1/panic", api.PanicRequest{On: args[1] == "on"}, nil)
+	case "pass":
+		if len(args) != 2 {
+			flag.Usage()
+			os.Exit(2)
+		}
+		m := 0
+		if args[1] != "off" {
+			if m, err = strconv.Atoi(args[1]); err != nil || m < 1 || m > 60 {
+				fmt.Fprintln(os.Stderr, "shunt: pass takes 1-60 minutes or off")
+				os.Exit(2)
+			}
+		}
+		if err = c.Do("POST", "/v1/pass", api.PassRequest{Minutes: m}, nil); err == nil && m > 0 {
+			fmt.Printf("everything goes direct for %d minutes (shunt pass off ends it)\n", m)
+		}
 	default:
 		flag.Usage()
 		os.Exit(2)
@@ -394,6 +412,9 @@ func status(c *api.Client, args []string) error {
 	}
 	if st.Panic {
 		fmt.Fprintln(w, "PANIC MODE:\tall traffic blocked")
+	}
+	if st.PassLeft > 0 {
+		fmt.Fprintf(w, "PASS:\teverything goes direct for %s more (shunt pass off)\n", (time.Duration(st.PassLeft) * time.Second).String())
 	}
 	fmt.Fprintln(w, "\nTUNNEL\tIFACE\tSTATE\tHANDSHAKE\tRX/TX")
 	for _, t := range st.Tunnels {

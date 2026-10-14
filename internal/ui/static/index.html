@@ -135,6 +135,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-config">Configure</button><button id="tab-filter">DNS filter</button></nav>
   <div class="spacer"></div>
   <button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button>
+  <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
   <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
 </header>
 

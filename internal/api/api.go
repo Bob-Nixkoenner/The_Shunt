@@ -30,6 +30,7 @@ type Status struct {
 	Traffic      map[string]stats.Summary `json:"traffic,omitempty"`
 	DefaultRoute string                   `json:"default_route"`
 	Panic        bool                     `json:"panic"`
+	PassLeft     int64                    `json:"pass_left,omitempty"` // seconds of a running pass
 	Tunnels      []TunnelStatus           `json:"tunnels"`
 	Groups       []GroupStatus            `json:"groups"`
 	Rules        []string                 `json:"rules"`
@@ -175,6 +176,12 @@ type FirewallDecision struct {
 // PanicRequest switches the panic mode.
 type PanicRequest struct {
 	On bool `json:"on"`
+}
+
+// PassRequest lets everything through (direct) for Minutes (1..60, see
+// internal/override); 0 ends a pass.
+type PassRequest struct {
+	Minutes int `json:"minutes"`
 }
 
 // Error is the body of every non-2xx response.

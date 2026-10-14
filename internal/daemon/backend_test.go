@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -50,6 +51,7 @@ func (f *fakeBackend) SyncRoutes(*engine.Plan, map[string]bool) error {
 	return f.syncErr
 }
 func (f *fakeBackend) Panic(bool) error               { return nil }
+func (f *fakeBackend) ForgetTCP(uint32) (int, error)  { return 0, nil }
 func (f *fakeBackend) LiftLockdown() error            { return nil }
 func (f *fakeBackend) Cleanup() error                 { return nil }
 func (f *fakeBackend) DomainSets() dnsproxy.SetWriter { return nil }
@@ -205,5 +207,47 @@ func TestSoftRouteErrorsDontFailReload(t *testing.T) {
 	f.syncErr = errors.New("table 5301: no unreachable route")
 	if err := d.reload("shunt"); err == nil {
 		t.Error("hard routing error accepted")
+	}
+}
+
+// During a pass every route is direct: default, network profile and rules
+// (block too); without it the config applies as written.
+func TestPassPlan(t *testing.T) {
+	conf := `[daemon]
+socket = "/nonexistent/s.sock"
+default_route = "block"
+[[rule]]
+name = "ssh blocked"
+port = ["tcp/22"]
+route = "block"
+[[network]]
+name = "cafe"
+ssid = ["cafe"]
+default_route = "block"
+`
+	path := filepath.Join(t.TempDir(), "shunt.toml")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, pass := range []bool{false, true} {
+		p, err := PrepareOn(path, "shunt", Env{Net: &netdetect.Info{SSID: "cafe"}, Backend: newFake(), Pass: pass})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "block"
+		if pass {
+			want = "direct"
+		}
+		if got := p.Plan.DefaultRoute.String(); got != want {
+			t.Errorf("pass=%v: default route %s, want %s", pass, got, want)
+		}
+		for _, r := range p.Plan.Rules {
+			if r.Name == "ssh blocked" && r.Route.String() != want {
+				t.Errorf("pass=%v: rule route %s, want %s", pass, r.Route, want)
+			}
+		}
+		if pass && (len(p.Warnings) == 0 || !strings.Contains(strings.Join(p.Warnings, " "), "pass")) {
+			t.Error("no warning during a pass")
+		}
 	}
 }

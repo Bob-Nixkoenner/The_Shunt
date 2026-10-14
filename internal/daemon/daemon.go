@@ -37,6 +37,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
@@ -88,6 +89,9 @@ type Daemon struct {
 	captiveAt           time.Time // last probe
 	probing             bool
 
+	ov      override.State // timed pass (panic stays in the backend)
+	passing bool           // the plan in place was built for a pass
+
 	health     map[string]*health.Monitor // per tunnel, see health.go
 	healthBusy bool
 	book       *stats.Book // traffic totals, opened by checkHealth
@@ -131,6 +135,8 @@ type Env struct {
 	Links links.State
 	// Backend renders the plan into the platform's ruleset.
 	Backend Backend
+	// Pass: a timed pass runs (internal/override): every route is direct.
+	Pass bool
 }
 
 // PrepareOn is Prepare for the environment env.
@@ -219,6 +225,20 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 			}
 			eff, p.Network = &cc, n.Name
 		}
+	}
+	if env.Pass {
+		// everything direct: default, network profile and every rule (block
+		// too) - for a few minutes only, see Daemon.pass
+		cc := *eff
+		cc.Daemon.DefaultRoute = "direct"
+		cc.Rules = append([]config.Rule(nil), eff.Rules...)
+		for i := range cc.Rules {
+			if cc.Rules[i].Route != "" {
+				cc.Rules[i].Route = "direct"
+			}
+		}
+		eff = &cc
+		p.Warnings = append(p.Warnings, "pass: everything goes direct, past tunnels and blocks, until it ends")
 	}
 	ifaces := map[string]string{}
 	for k, l := range ls {
@@ -468,6 +488,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-d.tunEvents:
 			d.tunnelChanged()
 		case <-netTick.C:
+			d.endPassIfDue(self)
 			d.checkNetwork()
 			d.mu.Lock()
 			if d.routeSoft != "" && d.prep != nil {
@@ -495,7 +516,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend})
+	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now())})
 	if err != nil {
 		return err
 	}
@@ -540,6 +561,16 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(w)
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	wasPassing := d.passing
+	d.passing = d.ov.Passing(time.Now())
+	if wasPassing && !d.passing {
+		// TCP keeps its route (sticky): flows opened direct during the pass
+		// are classified again by their app, so nothing stays unprotected
+		if dr := p.Plan.RouteByName("direct"); dr != nil {
+			n, err := d.Backend.ForgetTCP(dr.Mark)
+			d.Log.Info("pass ended: direct TCP connections re-classified", "count", n, "err", err)
+		}
+	}
 	if d.fw == nil {
 		d.fw = &firewall.Manager{Log: d.Log, CG: d.cg, Hold: d.Backend.Hold, Store: filepath.Join(filepath.Dir(d.ConfigPath), "apps.json")}
 	}
@@ -1199,6 +1230,28 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	})
+	mux.HandleFunc("POST /v1/pass", func(w http.ResponseWriter, r *http.Request) {
+		var req api.PassRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		// letting everything through loosens protection: password
+		if req.Minutes > 0 {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		until := d.ov.Pass(time.Duration(req.Minutes)*time.Minute, time.Now())
+		if err := d.reload(d.selfCgroup()); err != nil {
+			d.ov.Pass(0, time.Now())
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		d.Log.Warn("pass", "minutes", req.Minutes, "until", until)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -1266,7 +1319,8 @@ func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
 func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, DNS: map[string][]string{},
+	ovs := d.ov.Status(time.Now())
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
