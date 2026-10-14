@@ -258,12 +258,24 @@ func contains(l []string, s string) bool {
 // mobile, ethernet or ""; ssid: Wi-Fi name, "" if unknown) and returns the
 // name of the matching profile ("" = none). New connections follow the
 // profile's default route and direct DNS.
+//
+// Running connections on the old default route are cut when the default
+// changes (and direct DNS flows when the direct DNS server changes): on a
+// profile that blocks, nothing may keep going the old way.
 func (e *Engine) SetNetwork(link, ssid string) string {
 	e.mu.Lock()
+	oldDef, oldDirect := e.def, e.direct
 	e.link, e.ssid = link, ssid
 	name := e.applyNetwork()
+	newDef, newDirect := e.def, e.direct
 	e.mu.Unlock()
-	e.logf("network %s %q: profile %q", link, ssid, name)
+	n := 0
+	if newDef != oldDef || newDirect != oldDirect {
+		n = e.cut(func(f *flow) bool {
+			return (f.byDefault && newDef != oldDef) || (f.isDNS(e) && f.route == RouteDirect && newDirect != oldDirect)
+		})
+	}
+	e.logf("network %s %q: profile %q, %d connection(s) cut", link, ssid, name, n)
 	return name
 }
 
