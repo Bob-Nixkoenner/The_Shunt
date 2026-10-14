@@ -43,6 +43,21 @@ jobs:
           CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o build/desktop/ ./cmd/shunt-desktop
           tar -czf dist/shunt-desktop_linux_amd64.tar.gz -C build/desktop shunt-desktop
           (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+      - name: sign checksums
+        # install.sh only uses releases whose SHA256SUMS carry this signature
+        # (public key: RELEASE_SIGNER in install.sh)
+        env:
+          SHUNT_RELEASE_KEY: ${{ secrets.SHUNT_RELEASE_KEY }}
+        run: |
+          [[ -n $SHUNT_RELEASE_KEY ]] || { echo "::error::secret SHUNT_RELEASE_KEY is missing"; exit 1; }
+          umask 077
+          printf '%s\n' "$SHUNT_RELEASE_KEY" > "$RUNNER_TEMP/release_key"
+          ssh-keygen -Y sign -q -f "$RUNNER_TEMP/release_key" -n shunt-release dist/SHA256SUMS
+          rm -f "$RUNNER_TEMP/release_key"
+          # check against the key install.sh trusts (catches a wrong secret)
+          sed -n "s/^RELEASE_SIGNER='\(.*\)'$/\1/p" install.sh > "$RUNNER_TEMP/allowed_signers"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed_signers" -I release@the-shunt -n shunt-release \
+            -s dist/SHA256SUMS.sig < dist/SHA256SUMS
       - name: attest build provenance
         uses: actions/attest-build-provenance@v2
         with:

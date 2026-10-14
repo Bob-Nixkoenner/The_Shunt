@@ -53,6 +53,18 @@ jobs:
       - name: end-to-end in network namespaces
         run: sudo env "PATH=$PATH" "HOME=$HOME" "GOPATH=$(go env GOPATH)" "GOMODCACHE=$(go env GOMODCACHE)" "GOCACHE=$(go env GOCACHE)" SHUNT_DRIVER=${{ matrix.driver }} ./test/integration/run.sh
 
+  # install.sh package names on the other supported distributions
+  installer-packages:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [archlinux:latest, fedora:latest, debian:stable]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash test/installer/packages.sh
+
   # Real install on a systemd host: installer, hardened unit, DNS, uninstall.
   install:
     runs-on: ubuntu-latest
