@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"golang.zx2c4.com/wireguard/conn"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -127,6 +128,9 @@ type Options struct {
 	DialDirect func(ctx context.Context, network, addr string) (net.Conn, error)
 	// NewBind makes the UDP socket of a WireGuard tunnel. nil: conn.NewDefaultBind.
 	NewBind func() conn.Bind
+	// HealthEvery is how often tunnels in use are checked (internal/health).
+	// 0: 30 s.
+	HealthEvery time.Duration
 	// BindUp is called with a tunnel's Bind once its sockets are open
 	// (Windows: conn.BindSocketToInterface to leave through the physical
 	// interface). nil: nothing.
@@ -150,6 +154,8 @@ type Engine struct {
 	blocked    atomic.Int64
 	dnsBlocked atomic.Int64
 	stop       sync.Once
+	stopHealth context.CancelFunc
+	healthDone chan struct{}
 }
 
 // New starts the tunnels and takes over the TUN (o.Link; the platform
@@ -186,6 +192,12 @@ func New(o Options, configJSON string) (*Engine, error) {
 		return nil, err
 	}
 	e.stack = s
+	if o.HealthEvery == 0 {
+		o.HealthEvery = 30 * time.Second
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	e.stopHealth, e.healthDone = cancel, make(chan struct{})
+	go e.healthLoop(ctx, o.HealthEvery)
 	e.logf("started: %d tunnel(s), default %s", len(c.Tunnels), c.Default)
 	return e, nil
 }
@@ -325,6 +337,10 @@ func (e *Engine) NetworkChanged() {
 // Stop ends everything; the Engine cannot be started again.
 func (e *Engine) Stop() {
 	e.stop.Do(func() {
+		if e.stopHealth != nil {
+			e.stopHealth()
+			<-e.healthDone
+		}
 		if e.stack != nil {
 			e.stack.Close()
 			e.stack.Wait()
@@ -341,12 +357,13 @@ func (e *Engine) closeTunnels() {
 }
 
 type tunnelStatus struct {
-	Name      string `json:"name"`
-	Up        bool   `json:"up"`
-	Error     string `json:"error,omitempty"`
-	Handshake int64  `json:"handshake"` // unix seconds, 0 = never
-	RX        int64  `json:"rx"`
-	TX        int64  `json:"tx"`
+	Name      string        `json:"name"`
+	Up        bool          `json:"up"`
+	Error     string        `json:"error,omitempty"`
+	Handshake int64         `json:"handshake"` // unix seconds, 0 = never
+	RX        int64         `json:"rx"`
+	TX        int64         `json:"tx"`
+	Health    health.Report `json:"health"`
 }
 
 type status struct {

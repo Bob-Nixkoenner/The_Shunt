@@ -39,6 +39,10 @@ type tunnelStatus struct {
 	Error     string `json:"error"`
 	Handshake int64  `json:"handshake"`
 	RX        int64  `json:"rx"`
+	Health    struct {
+		State     string `json:"state"`
+		LatencyMs int64  `json:"latency_ms"`
+	} `json:"health"`
 }
 
 type status struct {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
@@ -27,6 +28,8 @@ type wgTunnel struct {
 	dns  netip.Addr // DNS server reached through this tunnel
 	v4   bool
 	v6   bool
+	conf *wgconf.Config // for re-resolving endpoints
+	mon  health.Monitor
 }
 
 func parseWG(conf string) (*wgconf.Config, error) {
@@ -89,7 +92,7 @@ func newWGTunnel(name, conf string, r *net.Resolver, bind conn.Bind, bindUp func
 			return nil, err
 		}
 	}
-	t.dev, t.net = dev, tnet
+	t.dev, t.net, t.conf = dev, tnet, c
 	return t, nil
 }
 
@@ -157,11 +160,13 @@ func (t *wgTunnel) close() {
 	}
 }
 
-func (t *wgTunnel) status() tunnelStatus {
-	st := tunnelStatus{Name: t.name, Up: t.dev != nil, Error: t.err}
+func (t *wgTunnel) status() (st tunnelStatus) {
+	st = tunnelStatus{Name: t.name, Up: t.dev != nil, Error: t.err}
 	if t.dev == nil {
+		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 		return st
 	}
+	defer func() { st.Health = t.mon.Report(time.Now()) }()
 	s, err := t.dev.IpcGet()
 	if err != nil {
 		return st
@@ -180,4 +185,78 @@ func (t *wgTunnel) status() tunnelStatus {
 		}
 	}
 	return st
+}
+
+// healthLoop watches the tunnels (internal/health): counters every round,
+// a DNS probe through tunnels in use, and a reconnect (endpoint names
+// resolved again, socket re-opened) when one is down.
+func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
+	defer close(e.healthDone)
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		for _, t := range e.tunnels {
+			if t.dev == nil {
+				continue
+			}
+			now := time.Now()
+			st := t.status()
+			var hs time.Time
+			if st.Handshake > 0 {
+				hs = time.Unix(st.Handshake, 0)
+			}
+			t.mon.Observe(hs, st.RX, st.TX, now)
+			if t.mon.Active(now) {
+				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
+				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dns))
+				cancel()
+			}
+			if t.mon.ShouldReconnect(time.Now()) {
+				e.logf("tunnel %s: no answers, reconnecting", t.name)
+				if err := e.reconnect(t); err != nil {
+					e.logf("tunnel %s: reconnect: %v", t.name, err)
+				}
+			}
+		}
+	}
+}
+
+func (t *wgTunnel) dialUDP(_ context.Context, _, addr string) (net.Conn, error) {
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	return t.net.DialUDPAddrPort(netip.AddrPort{}, ap)
+}
+
+// reconnect resolves the endpoints again (DDNS) and re-opens the socket.
+func (e *Engine) reconnect(t *wgTunnel) error {
+	var b strings.Builder
+	for _, p := range t.conf.Peers {
+		if p.Endpoint == "" {
+			continue
+		}
+		ep, err := resolveEndpoint(p.Endpoint, e.resolver())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&b, "public_key=%s\nendpoint=%s\n", hex.EncodeToString(p.PublicKey[:]), ep)
+	}
+	if b.Len() > 0 {
+		if err := t.dev.IpcSet(b.String()); err != nil {
+			return err
+		}
+	}
+	if err := t.dev.BindUpdate(); err != nil {
+		return err
+	}
+	if e.o.BindUp != nil {
+		return e.o.BindUp(t.dev.Bind())
+	}
+	return nil
 }
