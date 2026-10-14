@@ -33,8 +33,15 @@ for _ in $(seq 50); do [[ -f $W/settings.json ]] && break; sleep 0.2; done
 # settings straight into the app's files (debug build: run-as), VPN
 # permission without the dialog
 $ADB shell am force-stop $PKG
+# DNS filter: a tiny list in place of easylist (fresh, so nothing is downloaded)
+python3 - "$W/settings.json" <<'PY2'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p)); c["filter_lists"] = ["easylist"]; json.dump(c, open(p, "w"))
+PY2
+printf '||blocked.test^\n' >"$W/easylist"
 $ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
-$ADB shell "run-as $PKG sh -c 'mkdir -p files && cp /data/local/tmp/shunt-settings.json files/settings.json'"
+$ADB push "$W/easylist" /data/local/tmp/shunt-easylist >/dev/null
+$ADB shell "run-as $PKG sh -c 'mkdir -p files/blocklists && cp /data/local/tmp/shunt-settings.json files/settings.json && cp /data/local/tmp/shunt-easylist files/blocklists/easylist && touch files/blocklists/easylist'"
 $ADB shell appops set $PKG ACTIVATE_VPN allow
 
 # start: the switch on the status screen
@@ -65,6 +72,9 @@ echo "== DNS through the tunnel's DNS server"
 check "name resolves via the tunnel DNS (10.9.0.1)" "10.9.0.1" "$($ADB shell ping -c1 -W2 anything.test 2>&1 | head -1)"
 grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived at the work tunnel's DNS" ||
 	{ echo "  FAIL query did not arrive at the work tunnel's DNS"; fails=$((fails + 1)); }
+echo "== DNS filter"
+check "listed name is blocked (NXDOMAIN)" "unknown host" "$($ADB shell ping -c1 -W2 blocked.test 2>&1 | head -1)"
+grep -q 'DNS blocked.test' "$W/server.log" && { echo "  FAIL blocked name reached the upstream"; fails=$((fails + 1)); } || echo "  ok   blocked name never reached the upstream"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
