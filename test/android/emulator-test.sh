@@ -33,6 +33,7 @@ for _ in $(seq 50); do [[ -f $W/settings.json ]] && break; sleep 0.2; done
 # settings straight into the app's files (debug build: run-as), VPN
 # permission without the dialog
 $ADB shell am force-stop $PKG
+$ADB logcat -c
 # DNS filter: a tiny list in place of easylist (fresh, so nothing is downloaded)
 python3 - "$W/settings.json" <<'PY2'
 import json, sys
@@ -56,6 +57,8 @@ for _ in $(seq 30); do
 	sleep 1
 done
 sleep 3
+$ADB logcat -d -s Shunt | grep -q 'E Shunt' && { $ADB logcat -d -s Shunt | tail -20; echo "VPN start failed"; exit 1; }
+$ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\[' || { echo "VPN is not up"; exit 1; }
 
 get() { # get [root] -> HTTP body from 10.9.0.1 inside the tunnel
 	$ADB shell "printf 'GET / HTTP/1.0\r\n\r\n' | nc -w 5 10.9.0.1 80" 2>&1 | tail -1 | tr -d '\r'
@@ -75,6 +78,13 @@ grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived 
 echo "== DNS filter"
 check "listed name is blocked (NXDOMAIN)" "unknown host" "$($ADB shell ping -c1 -W2 blocked.test 2>&1 | head -1)"
 grep -q 'DNS blocked.test' "$W/server.log" && { echo "  FAIL blocked name reached the upstream"; fails=$((fails + 1)); } || echo "  ok   blocked name never reached the upstream"
+echo "== network change (Wi-Fi off -> mobile data)"
+$ADB shell svc wifi disable
+sleep 8
+check "tunnel still works on mobile data" "tunnel=work" "$(get)"
+$ADB shell svc wifi enable
+sleep 8
+check "and back on Wi-Fi" "tunnel=work" "$(get)"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }

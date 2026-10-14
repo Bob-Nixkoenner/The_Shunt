@@ -3,6 +3,7 @@ package org.theshunt.app
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -31,6 +32,7 @@ object VpnState {
  */
 class ShuntVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -63,6 +65,14 @@ class ShuntVpnService : VpnService() {
             tun = pfd
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             VpnState.engine = Mobile.start(pfd.fd.toLong(), settings.coreJson(this), CorePlatform(cm))
+            // Wi-Fi <-> mobile data: WireGuard needs new sockets on the new network
+            netCallback = object : ConnectivityManager.NetworkCallback() {
+                private var current: Network? = null
+                override fun onAvailable(network: Network) {
+                    if (current != null && current != network) VpnState.engine?.networkChanged()
+                    current = network
+                }
+            }.also { cm.registerDefaultNetworkCallback(it) }
             VpnState.error.value = null
             VpnState.running.value = true
         } catch (e: Exception) {
@@ -73,6 +83,10 @@ class ShuntVpnService : VpnService() {
     }
 
     private fun stopEngine() {
+        netCallback?.let {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
+        }
+        netCallback = null
         VpnState.engine?.stop()
         VpnState.engine = null
         tun?.close()
