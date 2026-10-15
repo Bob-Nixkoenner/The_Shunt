@@ -384,23 +384,38 @@ private fun LeakRow(r: JSONObject) {
 @Composable
 private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (String) -> Unit) {
     val ctx = LocalContext.current
+    // OpenVPN tunnel that still needs username/password (auth-user-pass)
+    var askAuth by remember { mutableStateOf<Tunnel?>(null) }
+    val save: (Tunnel, String) -> Unit = { t, note ->
+        // first tunnel on a fresh install: "block" as default would leave
+        // every app without internet, so the new tunnel becomes the default
+        val first = settings.tunnels.isEmpty() && settings.defaultRoute == "block"
+        update(settings.copy(
+            tunnels = settings.tunnels + t,
+            defaultRoute = if (first) "tunnel:${t.name}" else settings.defaultRoute,
+        ))
+        say(
+            (if (first) "Imported as tunnel:${t.name}, now the route of all apps (change it under Apps). Restart the VPN to use it."
+            else "Imported as tunnel:${t.name}. Restart the VPN to use it.") + note
+        )
+    }
     val add: (String, String) -> Unit = { rawName, text ->
+        val name = Store.tunnelName(rawName, settings.tunnels.map { it.name })
+        // a wg-quick file always has [Interface]; everything else is tried as .ovpn
+        val wg = Regex("""^\s*\[Interface]""", setOf(RegexOption.MULTILINE, RegexOption.IGNORE_CASE)).containsMatchIn(text)
         try {
-            Mobile.checkWireGuard(text)
-            val name = Store.tunnelName(rawName, settings.tunnels.map { it.name })
-            // first tunnel on a fresh install: "block" as default would leave
-            // every app without internet, so the new tunnel becomes the default
-            val first = settings.tunnels.isEmpty() && settings.defaultRoute == "block"
-            update(settings.copy(
-                tunnels = settings.tunnels + Tunnel(name, text),
-                defaultRoute = if (first) "tunnel:$name" else settings.defaultRoute,
-            ))
-            say(
-                if (first) "Imported as tunnel:$name, now the route of all apps (change it under Apps). Restart the VPN to use it."
-                else "Imported as tunnel:$name. Restart the VPN to use it."
-            )
+            if (wg) {
+                Mobile.checkWireGuard(text)
+                save(Tunnel(name, text), "")
+            } else {
+                val sum = JSONObject(Mobile.checkOpenVPN(text))
+                val removed = sum.optJSONArray("removed")?.length() ?: 0
+                val t = Tunnel(name, sum.getString("clean"), Tunnel.OPENVPN)
+                if (sum.optBoolean("needs_auth")) askAuth = t
+                else save(t, if (removed > 0) " $removed unsafe lines (scripts etc.) were removed." else "")
+            }
         } catch (e: Exception) {
-            say("Not a usable WireGuard config: ${e.message}")
+            say("Not a usable ${if (wg) "WireGuard" else "OpenVPN"} config: ${e.message}")
         }
     }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -420,26 +435,56 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
                 ShuntButton("Scan QR", {
-                    scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard QR code").setBeepEnabled(false))
+                    scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard or OpenVPN QR code").setBeepEnabled(false))
                 })
             }
-            if (settings.tunnels.isEmpty()) Hint("A WireGuard file (.conf) or the QR code your VPN server shows.")
+            if (settings.tunnels.isEmpty()) Hint("A WireGuard file (.conf), an OpenVPN file (.ovpn) or the QR code your VPN server shows.")
             settings.tunnels.forEach { t ->
-                val sum = remember(t.conf) { runCatching { JSONObject(Mobile.checkWireGuard(t.conf)) }.getOrNull() }
+                val sum = remember(t.conf) {
+                    runCatching { JSONObject(if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf)) }.getOrNull()
+                }
                 EdgeCard(Tone.Ok) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
+                        Pill(if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
                         TextButton({ confirmDelete = t }) { Text("Delete", color = LocalShunt.current.bad) }
                     }
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
-                        KV("address", list("addresses"), mono = true)
-                        KV("endpoint", list("endpoints"), mono = true)
-                        list("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
+                        if (t.isOpenVPN) {
+                            KV("server", list("remotes"), mono = true)
+                            if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
+                        } else {
+                            KV("address", list("addresses"), mono = true)
+                            KV("endpoint", list("endpoints"), mono = true)
+                            list("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
+                        }
                     }
                 }
             }
         }
+    }
+    askAuth?.let { t ->
+        var user by remember { mutableStateOf("") }
+        var pass by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { askAuth = null },
+            title = { Text("Login for tunnel:${t.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("This OpenVPN server asks for a username and password.")
+                    OutlinedTextField(user, { user = it }, label = { Text("Username") }, singleLine = true)
+                    OutlinedTextField(
+                        pass, { pass = it }, label = { Text("Password") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton({ save(t.copy(user = user, pass = pass), ""); askAuth = null }, enabled = user.isNotEmpty()) { Text("Import") }
+            },
+            dismissButton = { TextButton({ askAuth = null }) { Text("Cancel") } },
+        )
     }
     confirmDelete?.let { t ->
         AlertDialog(

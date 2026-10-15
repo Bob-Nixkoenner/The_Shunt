@@ -7,8 +7,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** One imported WireGuard tunnel (the wg-quick file as text). */
-data class Tunnel(val name: String, val conf: String)
+/**
+ * One imported tunnel: a WireGuard wg-quick file or a cleaned .ovpn file
+ * (type "openvpn", with user/pass for auth-user-pass), as text.
+ */
+data class Tunnel(val name: String, val conf: String, val type: String = WIREGUARD, val user: String = "", val pass: String = "") {
+    val isOpenVPN get() = type == OPENVPN
+
+    fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).apply {
+        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
+    }
+
+    companion object {
+        const val WIREGUARD = "wireguard"
+        const val OPENVPN = "openvpn"
+    }
+}
 
 /**
  * The app's configuration: tunnels, default route and one route per app
@@ -28,7 +42,7 @@ data class Settings(
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" }
 
     fun toJson(): JSONObject = JSONObject().apply {
-        put("tunnels", JSONArray(tunnels.map { JSONObject().put("name", it.name).put("conf", it.conf) }))
+        put("tunnels", JSONArray(tunnels.map { it.toJson() }))
         put("default", defaultRoute)
         put("apps", JSONObject(apps))
         put("direct_dns", directDns)
@@ -56,6 +70,11 @@ data class Settings(
             .put("blocklists", lists)
             .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
             .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
+            .apply {
+                // openvpn ships as lib/<abi>/libopenvpn.so (Android runs programs only from there)
+                val exe = File(ctx.applicationInfo.nativeLibraryDir, "libopenvpn.so")
+                if (exe.exists()) put("openvpn", exe.path).put("work_dir", ctx.filesDir.path)
+            }
             .toString()
     }
 
@@ -67,7 +86,7 @@ data class Settings(
             return Settings(
                 tunnels = (0 until ts.length()).map {
                     val t = ts.getJSONObject(it)
-                    Tunnel(t.getString("name"), t.getString("conf"))
+                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"))
                 },
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },
@@ -107,7 +126,7 @@ object Store {
 
     /** Turns a file name or QR import into a tunnel name like on the desktop: a-z 0-9 -, max. 10. */
     fun tunnelName(raw: String, taken: Collection<String>): String {
-        var base = raw.substringBeforeLast(".conf").lowercase().replace('_', '-')
+        var base = raw.substringBeforeLast(".conf").substringBeforeLast(".ovpn").lowercase().replace('_', '-')
             .filter { it in 'a'..'z' || it in '0'..'9' || it == '-' }.trimStart('-').take(10)
         if (base.isEmpty()) base = "vpn"
         var name = base
