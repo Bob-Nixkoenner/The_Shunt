@@ -60,6 +60,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Go-Tests: `go test ./mobile/ ./internal/splitstack/`. Emulator-Test (Emulator läuft,
 `adb` verbunden): `test/android/emulator-test.sh`. `android/build-core.sh` findet `javac` auch unter `$JAVA_HOME` oder `~/Android/jdk`.
 
+## Betrieb: gut zu wissen
+
+- **Absturz:** Android startet ein Always-on-VPN nur nach Neustart und App-Update neu, nicht nach einem Absturz. Darum ein Watchdog (`Watchdog.kt`): Solange das VPN läuft, schiebt der Dienst alle 10 s einen System-Job 30 s in die Zukunft. Stirbt der Prozess, feuert der Job und startet das VPN neu (im Emulator nach ~37 s). Mit Lockdown bleibt bis dahin alles gesperrt (kein Leck).
+- **Arbeitsprofil:** Die App läuft im privaten und im Arbeitsprofil getrennt, mit eigenen Daten und eigenem VPN. **Nicht dieselbe Tunnel-Konfig (gleicher privater Schlüssel) in beiden Profilen benutzen:** Zwei Geräte mit einem Schlüssel stören sich (Emulator: 28–50 % Verlust). Pro Profil einen eigenen Peer am Server anlegen.
+- **Regel geändert:** Wird die Regel einer App geändert, werden ihre offenen Verbindungen gekappt (sie liefen über den alten Weg). Ein Browser zeigt dann einmal `ERR_NETWORK_CHANGED`, Neuladen geht.
+- **Erster Tunnel:** Bei einer frischen Installation ist der Standardweg `block`. Der erste importierte Tunnel wird automatisch Standardweg, sonst hätte keine App Internet.
+
 ## Offen / nächste Schritte
 
 - Test auf einem echten Handy (eigene WireGuard-Peers nötig, nicht die des Laptops).
