@@ -16,6 +16,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -41,6 +42,8 @@ type Server struct {
 	// Cfg serves the config endpoints (GET/PUT /v1/config, tunnels); nil
 	// leaves them out.
 	Cfg *Manager
+	// NetInfo describes the network the machine is connected to (may be nil).
+	NetInfo func() netdetect.Info
 	// Config returns the default route and the app rules of the config file
 	// in effect, for the status.
 	Config func() (def string, apps map[string]string)
@@ -91,6 +94,9 @@ func (s *Server) Status() (api.Status, error) {
 		Groups:       []api.GroupStatus{},
 		Rules:        []string{},
 		Routes:       []string{"direct", "block"},
+	}
+	if s.NetInfo != nil {
+		st.NetInfo = s.NetInfo()
 	}
 	for _, t := range es.Tunnels {
 		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
