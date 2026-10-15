@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsvc"
@@ -177,13 +179,20 @@ func runCore(ctx context.Context, ready func()) error {
 	for _, w := range warns {
 		log.Print("config: ", w)
 	}
+	// the real network first: direct traffic and the tunnels' sockets leave
+	// through it (at boot the service may start before the network is up)
+	up, err := waitUplink(ctx, 2*time.Minute)
+	if err != nil {
+		return err
+	}
+	var phys atomic.Uint32
+	phys.Store(up.Index)
 	ad, err := winsplit.OpenAdapter(splitstack.DNSAddr)
 	if err != nil {
 		return err
 	}
 	defer ad.Close()
-	phys := ad.Phys
-	log.Printf("shuntd-win %s: adapter %q up, physical interface %d", version, winsplit.AdapterName, phys)
+	log.Printf("shuntd-win %s: adapter %q up, uplink %s (%s, index %d)", version, winsplit.AdapterName, up.Name, up.Link, up.Index)
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
@@ -191,22 +200,27 @@ func runCore(ctx context.Context, ready func()) error {
 		Link:       link,
 		Owner:      winsplit.NewOwners().Owner,
 		Log:        func(s string) { log.Print(s) },
-		DialDirect: winsplit.DialDirect(func() uint32 { return phys }),
+		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {
 			s, ok := b.(conn.BindSocketToInterface)
 			if !ok {
 				return errors.New("WireGuard bind cannot be pinned to an interface")
 			}
-			if err := s.BindSocketToInterface4(phys, false); err != nil {
+			if err := s.BindSocketToInterface4(phys.Load(), false); err != nil {
 				return err
 			}
-			return s.BindSocketToInterface6(phys, false)
+			return s.BindSocketToInterface6(phys.Load(), false)
 		},
 	}, cfg)
 	if err != nil {
 		return err
 	}
 	defer e.Stop()
+	var netInfo atomic.Value // netdetect.Info
+	netInfo.Store(netdetect.Info{})
+	watchStop := make(chan struct{})
+	defer close(watchStop)
+	go watchUplink(e, up, &phys, &netInfo, watchStop)
 
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
@@ -216,7 +230,8 @@ func runCore(ctx context.Context, ready func()) error {
 		default:
 		}
 	}
-	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart}
+	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
+		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) }}
 	l, err := winsvc.Listen(sockPath())
 	if err != nil {
 		return err
@@ -250,6 +265,63 @@ func runCore(ctx context.Context, ready func()) error {
 func grantUsers(path string) {
 	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(M)").CombinedOutput(); err != nil {
 		log.Printf("icacls %s: %v: %s", path, err, out)
+	}
+}
+
+// waitUplink waits until the machine has a network connection.
+func waitUplink(ctx context.Context, max time.Duration) (winsplit.Uplink, error) {
+	deadline := time.Now().Add(max)
+	for {
+		up, err := winsplit.FindUplink()
+		if err == nil {
+			return up, nil
+		}
+		if time.Now().After(deadline) {
+			return up, fmt.Errorf("no network connection after %s: %w", max, err)
+		}
+		select {
+		case <-ctx.Done():
+			return up, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// watchUplink follows the network: when the real interface changes (Wi-Fi
+// to cable, new Wi-Fi) direct sockets and the tunnels move to it, and the
+// network profile (by Wi-Fi name) is chosen again.
+func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}) {
+	publish := func(u winsplit.Uplink) {
+		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
+	}
+	publish(up)
+	if name := e.SetNetwork(up.Link, up.SSID); name != "" {
+		log.Printf("network profile %q", name)
+	}
+	t := time.NewTicker(3 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+		}
+		cur, err := winsplit.FindUplink()
+		if err != nil {
+			continue // offline: keep what we have; sockets come back with the network
+		}
+		if cur.Index != up.Index {
+			phys.Store(cur.Index)
+			log.Printf("network changed: %s (%s) -> %s (%s)", up.Name, up.Link, cur.Name, cur.Link)
+			e.NetworkChanged()
+		}
+		if cur.Key() != up.Key() || cur.Link != up.Link {
+			publish(cur)
+			if name := e.SetNetwork(cur.Link, cur.SSID); name != "" {
+				log.Printf("network profile %q", name)
+			}
+		}
+		up = cur
 	}
 }
 
