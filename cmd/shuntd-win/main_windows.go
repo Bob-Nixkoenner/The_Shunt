@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -89,8 +88,18 @@ func setupLog() {
 	_ = os.MkdirAll(dataDir, 0o755)
 	f, err := os.OpenFile(filepath.Join(dataDir, "shuntd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
-		log.SetOutput(io.MultiWriter(os.Stderr, f))
+		log.SetOutput(logWriter{f})
 	}
+}
+
+// logWriter writes to the log file and, best effort, to the console. A
+// service has no valid stderr; io.MultiWriter would stop at that error and
+// the file would stay empty.
+type logWriter struct{ f *os.File }
+
+func (w logWriter) Write(p []byte) (int, error) {
+	_, _ = os.Stderr.Write(p)
+	return w.f.Write(p)
 }
 
 // handler is the Service Control Manager side.
