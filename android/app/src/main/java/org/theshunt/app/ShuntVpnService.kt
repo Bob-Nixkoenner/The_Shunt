@@ -31,6 +31,8 @@ object VpnState {
     val running = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     @Volatile var engine: Engine? = null
+    /** A start reached the service in this process (it may still be connecting). */
+    @Volatile var startRequested = false
     /** Android's own kill switch: always-on VPN with "block connections without VPN". */
     val alwaysOn = MutableStateFlow(false)
     val lockdown = MutableStateFlow(false)
@@ -64,6 +66,8 @@ class ShuntVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            Watchdog.setWanted(this, false)
+            VpnState.startRequested = false
             worker.execute { stopEngine() }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId) // not if a newer start came in meanwhile
@@ -79,6 +83,7 @@ class ShuntVpnService : VpnService() {
         }
         // a foreground service with a status notification: Android does not
         // stop it to save memory, and the user sees that the VPN runs
+        VpnState.startRequested = true
         goForeground("Starting…")
         // null intent: restarted by the system or always-on VPN. On the
         // worker: endpoint lookups and list downloads take a moment, and
@@ -116,12 +121,15 @@ class ShuntVpnService : VpnService() {
             VpnState.service = this
             VpnState.refreshKillSwitch()
             notifyStatus()
+            Watchdog.setWanted(this, true)
+            watchdog.post(pushWatchdog)
             // filter lists: start with what is on disk, then refresh (also
             // without network the VPN must come up at once)
             if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
             VpnState.error.value = e.message ?: e.toString()
+            VpnState.startRequested = false
             stopEngine()
             notifyStatus() // shows the error; the service may end now
             stopForeground(STOP_FOREGROUND_DETACH)
@@ -219,7 +227,17 @@ class ShuntVpnService : VpnService() {
             .build()
     }
 
+    /** Keeps the watchdog job in the future while the VPN runs. */
+    private val watchdog = Handler(Looper.getMainLooper())
+    private val pushWatchdog = object : Runnable {
+        override fun run() {
+            Watchdog.push(this@ShuntVpnService)
+            watchdog.postDelayed(this, Watchdog.PUSH_MS)
+        }
+    }
+
     private fun stopEngine() {
+        watchdog.removeCallbacks(pushWatchdog)
         (netCallback as? NetWatch)?.stop()
         netCallback?.let {
             (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
@@ -234,6 +252,8 @@ class ShuntVpnService : VpnService() {
     }
 
     override fun onRevoke() { // another VPN took over, or the user switched it off
+        Watchdog.setWanted(this, false)
+        VpnState.startRequested = false
         worker.execute { stopEngine() }
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onRevoke()
@@ -273,7 +293,7 @@ class ShuntVpnService : VpnService() {
         const val ACTION_STOP = "org.theshunt.app.STOP"
         const val ACTION_PANIC = "org.theshunt.app.PANIC"
         private const val CHANNEL = "status"
-        private const val NOTIFY_ID = 1
+        const val NOTIFY_ID = 1
 
         fun start(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java))
         fun stop(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java).setAction(ACTION_STOP))

@@ -189,16 +189,20 @@ func (t *wgTunnel) status() (st tunnelStatus) {
 
 // healthLoop watches the tunnels (internal/health): counters every round,
 // a DNS probe through tunnels in use, and a reconnect (endpoint names
-// resolved again, socket re-opened) when one is down.
+// resolved again, socket re-opened) when one is down. The first round runs
+// at once and probes every tunnel, so the UI shows state and latency right
+// after the start instead of one interval later.
 func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 	defer close(e.healthDone)
 	tick := time.NewTicker(every)
 	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
+	for first := true; ; first = false {
+		if !first {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
 		}
 		for _, t := range e.tunnels {
 			if t.dev == nil {
@@ -212,10 +216,16 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			}
 			t.mon.Observe(hs, st.RX, st.TX, now)
 			e.book.Observe(t.name, st.RX, st.TX, now)
-			if t.mon.Active(now) {
+			if first || t.mon.Active(now) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
 				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dns))
 				cancel()
+				if first && st.Handshake == 0 { // the probe made the first handshake: count it now
+					if st2 := t.status(); st2.Handshake > 0 {
+						t.mon.Observe(time.Unix(st2.Handshake, 0), st2.RX, st2.TX, time.Now())
+						e.book.Observe(t.name, st2.RX, st2.TX, time.Now())
+					}
+				}
 			}
 			if t.mon.ShouldReconnect(time.Now()) {
 				e.logf("tunnel %s: no answers, reconnecting", t.name)

@@ -129,6 +129,16 @@ if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, the
 	tap_text "End pass" && sleep 2
 	check "after the pass: tunnel again" "tunnel=work" "$(get)"
 fi
+echo "== crash: the VPN comes back by itself (watchdog job, Watchdog.kt)"
+$ADB shell am crash $PKG >/dev/null 2>&1 || $ADB shell am force-stop $PKG
+t0=$SECONDS
+sleep 3
+back=
+for _ in $(seq 60); do
+	if vpn_up && [[ $(get) == tunnel=work ]]; then back=1; break; fi
+	sleep 2
+done
+[[ -n $back ]] && echo "  ok   VPN back after the crash ($((SECONDS - t0)) s)" || { echo "  FAIL VPN did not come back after the crash"; fails=$((fails + 1)); }
 echo "== status notification"
 n=$($ADB shell dumpsys notification --noredact | grep -A30 "pkg=$PKG" | grep -o 'android.text=[^,]*' | head -1)
 check "notification shows the state" "android.text=" "$n"

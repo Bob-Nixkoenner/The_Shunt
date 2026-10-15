@@ -45,6 +45,8 @@ val DarkShunt = ShuntColors(
 val LightShunt = ShuntColors(
     bg = Color(0xFFF5F7FA), panel = Color(0xFFFFFFFF), panel2 = Color(0xFFEEF2F6), line = Color(0xFFD8DEE6),
     text = Color(0xFF17202B), muted = Color(0xFF5D6B7B), accent = Color(0xFF059669), accentInk = Color(0xFFFFFFFF),
+    // darker than the dark theme's: yellow text on a pale yellow pill was hard to read
+    warn = Color(0xFFA15C07), bad = Color(0xFFC9262C), info = Color(0xFF2563EB),
 )
 
 val LocalShunt = staticCompositionLocalOf { DarkShunt }

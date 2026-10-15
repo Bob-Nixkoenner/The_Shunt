@@ -5,9 +5,9 @@ plugins {
 }
 
 // Version from the git tag (v0.7.0-rc4 -> "0.7.0-rc4", 2 commits later
-// "0.7.0-rc4-2-gabc1234"); versionCode = major*10000 + minor*100 + patch.
+// "0.7.0-rc4-2-gabc1234", uncommitted changes "…-dirty"); versionCode = major*10000 + minor*100 + patch.
 val gitVersion: String = runCatching {
-    providers.exec { commandLine("git", "describe", "--tags", "--match", "v[0-9]*") }
+    providers.exec { commandLine("git", "describe", "--tags", "--dirty", "--match", "v[0-9]*") }
         .standardOutput.asText.get().trim().removePrefix("v")
 }.getOrDefault("").ifEmpty { "0.0.0-dev" }
 val gitVersionCode: Int = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(gitVersion)

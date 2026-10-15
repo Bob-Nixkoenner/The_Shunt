@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- app icon background: the dark panel of the web UI -->
+    <color name="ic_launcher_bg">#0D1117</color>
+</resources>

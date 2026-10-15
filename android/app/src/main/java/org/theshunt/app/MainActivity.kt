@@ -1,5 +1,7 @@
 package org.theshunt.app
 
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import android.Manifest
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -103,9 +105,10 @@ private fun App() {
         topBar = { Header(status) },
         bottomBar = {
             NavigationBar(containerColor = c.panel) {
+                val filterIcon = painterResource(R.drawable.ic_tab_filter)
                 listOf(
-                    "Status" to Icons.Filled.Home, "Tunnels" to Icons.Filled.Lock,
-                    "Apps" to Icons.AutoMirrored.Filled.List, "Filter" to Icons.Filled.Close,
+                    "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
+                    "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
                 ).forEachIndexed { i, (label, icon) ->
                     NavigationBarItem(
                         selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
@@ -213,6 +216,12 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
                 "While the VPN starts, restarts or crashes, apps can get out unprotected. " +
                     "Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
             ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") } }
+        }
+        if (running && settings.defaultRoute == "block" && !panic) {
+            Banner(
+                "All other apps are blocked",
+                "The default route is \"block\": only apps with their own rule get out. Change \"All other apps\" under Apps.",
+            )
         }
         if (running && privateDns) {
             Banner(
@@ -379,8 +388,17 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         try {
             Mobile.checkWireGuard(text)
             val name = Store.tunnelName(rawName, settings.tunnels.map { it.name })
-            update(settings.copy(tunnels = settings.tunnels + Tunnel(name, text)))
-            say("Imported as tunnel:$name. Restart the VPN to use it.")
+            // first tunnel on a fresh install: "block" as default would leave
+            // every app without internet, so the new tunnel becomes the default
+            val first = settings.tunnels.isEmpty() && settings.defaultRoute == "block"
+            update(settings.copy(
+                tunnels = settings.tunnels + Tunnel(name, text),
+                defaultRoute = if (first) "tunnel:$name" else settings.defaultRoute,
+            ))
+            say(
+                if (first) "Imported as tunnel:$name, now the route of all apps (change it under Apps). Restart the VPN to use it."
+                else "Imported as tunnel:$name. Restart the VPN to use it."
+            )
         } catch (e: Exception) {
             say("Not a usable WireGuard config: ${e.message}")
         }
