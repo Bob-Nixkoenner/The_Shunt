@@ -11,11 +11,19 @@ import java.io.File
  * One imported tunnel: a WireGuard wg-quick file or a cleaned .ovpn file
  * (type "openvpn", with user/pass for auth-user-pass), as text.
  */
-data class Tunnel(val name: String, val conf: String, val type: String = WIREGUARD, val user: String = "", val pass: String = "") {
+data class Tunnel(
+    val name: String,
+    val conf: String,
+    val type: String = WIREGUARD,
+    val user: String = "",
+    val pass: String = "",
+    /** OpenVPN only: name of the WireGuard tunnel that carries it (multi-hop), "" = direct. */
+    val via: String = "",
+) {
     val isOpenVPN get() = type == OPENVPN
 
     fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).apply {
-        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
+        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass).put("via", via)
     }
 
     companion object {
@@ -86,7 +94,7 @@ data class Settings(
             return Settings(
                 tunnels = (0 until ts.length()).map {
                     val t = ts.getJSONObject(it)
-                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"))
+                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"), t.optString("via"))
                 },
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },

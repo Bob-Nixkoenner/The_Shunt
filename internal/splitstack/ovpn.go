@@ -55,6 +55,18 @@ func (e *Engine) newOVPNTunnel(tc tunnelConf, mtu int) (*wgTunnel, error) {
 		return nil, errors.New("needs a username and password")
 	}
 	t := &wgTunnel{name: tc.Name, ovpnConf: tc, ovpnClean: clean, mtu: mtu}
+	if tc.Via != "" {
+		outer := e.tunnels[tc.Via]
+		if outer == nil || outer.isOVPN() {
+			return nil, errors.New("via: " + tc.Via + " is not a WireGuard tunnel here")
+		}
+		if outer.net == nil {
+			return nil, errors.New("via: tunnel " + tc.Via + " is not up")
+		}
+		if t.ovpnClean, t.via, err = viaRewrite(clean, outer.net.DialContext); err != nil {
+			return nil, err
+		}
+	}
 	return t, e.startOVPN(t)
 }
 
@@ -104,7 +116,7 @@ func (e *Engine) ovpnRestart(t *wgTunnel, now time.Time) {
 
 func (t *wgTunnel) ovpnStatus() (st tunnelStatus) {
 	ot := t.ovpnTunnel()
-	st = tunnelStatus{Name: t.name, Type: typeOpenVPN, Error: t.err}
+	st = tunnelStatus{Name: t.name, Type: typeOpenVPN, Via: t.ovpnConf.Via, Error: t.err}
 	if ot == nil {
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 		return st

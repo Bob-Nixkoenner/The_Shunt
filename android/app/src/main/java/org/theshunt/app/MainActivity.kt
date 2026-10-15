@@ -286,6 +286,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
                     ?: Hint("Asks api.ipify.org (public IP) and Google DNS (which resolver) through every route.")
             }
         }
+
+        DisguiseSection()
     }
     if (confirmPass) {
         AlertDialog(
@@ -454,6 +456,16 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
+                            // multi-hop: openvpn reaches its server through a WireGuard tunnel
+                            val carriers = settings.tunnels.filter { !it.isOpenVPN }.map { "tunnel:${it.name}" }
+                            if (carriers.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("through", Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
+                                RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
+                                    val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
+                                    update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
+                                    say("tunnel:${t.name} now goes ${if (via.isEmpty()) "directly" else "through tunnel:$via"}. Restart the VPN to use it.")
+                                }
+                            }
                         } else {
                             KV("address", list("addresses"), mono = true)
                             KV("endpoint", list("endpoints"), mono = true)
@@ -495,7 +507,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 TextButton({
                     val route = "tunnel:${t.name}"
                     update(settings.copy(
-                        tunnels = settings.tunnels - t,
+                        tunnels = settings.tunnels - t, // OpenVPN tunnels via t stay down (no silent fallback to direct)
                         defaultRoute = if (settings.defaultRoute == route) "block" else settings.defaultRoute,
                         apps = settings.apps.mapValues { (_, r) -> if (r == route) "block" else r },
                     ))

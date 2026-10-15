@@ -145,6 +145,7 @@ class ShuntVpnService : VpnService() {
     private inner class NetWatch(private val cm: ConnectivityManager) : ConnectivityManager.NetworkCallback() {
         private val main = Handler(Looper.getMainLooper())
         private var current: Network? = null
+        private var wifi: Network? = null // for Disguise: name rolls when it is lost
         private var applied: Network? = null
         private var addrs: Set<String> = emptySet()
         private var appliedAddrs: Set<String> = emptySet()
@@ -169,6 +170,7 @@ class ShuntVpnService : VpnService() {
 
         override fun onLost(network: Network) {
             if (network == current) { current = null; later() }
+            if (network == wifi) { wifi = null; Disguise.wifiLost(this@ShuntVpnService) }
         }
 
         override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
@@ -180,6 +182,7 @@ class ShuntVpnService : VpnService() {
         }
 
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) wifi = network
             if (network == current) later() // e.g. metered changed: underlying networks again
         }
 
