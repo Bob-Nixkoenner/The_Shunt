@@ -11,9 +11,9 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -31,7 +31,7 @@ func init() { runtime.LockOSThread() } // GTK must own the main thread
 const maxTunnelItems = 8
 
 func main() {
-	sock := flag.String("s", "/run/shunt/shuntd.sock", "shuntd socket")
+	sock := flag.String("s", defaultSocket, "shuntd socket")
 	hidden := flag.Bool("hidden", false, "start in the tray without opening the window")
 	showVersion := flag.Bool("version", false, "print the version")
 	flag.Parse()
@@ -95,8 +95,8 @@ func main() {
 }
 
 func sibling(self, name string) string {
-	p := self[:len(self)-len("shunt-desktop")] + name
-	if fi, err := os.Stat(p); err == nil && !fi.IsDir() && len(self) > len("shunt-desktop") {
+	p := filepath.Join(filepath.Dir(self), name+exeSuffix)
+	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 		return p
 	}
 	return ""
@@ -120,7 +120,7 @@ type trayApp struct {
 }
 
 func (a *trayApp) onReady() {
-	systray.SetIcon(desktopapp.Icon(desktopapp.Bad))
+	systray.SetIcon(trayIcon(desktopapp.Icon(desktopapp.Bad)))
 	systray.SetTitle("The Shunt")
 	systray.SetTooltip("The Shunt")
 	a.title = systray.AddMenuItem("…", "")
@@ -135,6 +135,9 @@ func (a *trayApp) onReady() {
 	open := systray.AddMenuItem("Open The Shunt", "Show the window")
 	a.panic = systray.AddMenuItem("PANIC – block all traffic", "Drop everything except loopback, now")
 	captive := systray.AddMenuItem("Wi-Fi login page…", "Hotel/train Wi-Fi: open a throwaway browser that goes past the tunnels")
+	if runtime.GOOS == "windows" {
+		captive.Hide() // needs the Linux CLI
+	}
 	systray.AddSeparator()
 	restart := systray.AddMenuItem("Restart service", "Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment")
 	restartAll := systray.AddMenuItem("Restart service and app", "Restart shuntd, then this tray app and window")
@@ -239,7 +242,7 @@ func (a *trayApp) restartService(app bool) {
 			args = append(args, "--hidden")
 		}
 		systray.Quit()
-		if err := syscall.Exec(a.exe, args, os.Environ()); err != nil {
+		if err := execSelf(a.exe, args); err != nil {
 			a.notifier.Notify(desktopapp.Notification{Summary: "App not restarted", Body: err.Error()})
 		}
 	}
@@ -279,7 +282,7 @@ func (a *trayApp) poll() {
 }
 
 func (a *trayApp) render(v desktopapp.View) {
-	systray.SetIcon(desktopapp.Icon(v.Level))
+	systray.SetIcon(trayIcon(desktopapp.Icon(v.Level)))
 	systray.SetTooltip("The Shunt – " + v.Title)
 	a.title.SetTitle(v.Title)
 	lastPanic = v.Panic
