@@ -50,6 +50,9 @@ type Status struct {
 	// Firewall is the app firewall mode in effect (off | ask | block),
 	// Pending the number of programs waiting for a decision.
 	Firewall string `json:"firewall,omitempty"`
+	// Platform of the daemon ("" = Linux); the web UI hides what only
+	// exists there.
+	Platform string `json:"platform,omitempty"`
 	// Version of the running shuntd (the installed one after an update).
 	Version string `json:"version,omitempty"`
 	Pending int    `json:"pending,omitempty"`

@@ -77,13 +77,16 @@ func (e *Engine) LeakTest(ctx context.Context) string {
 			routes = append(routes, tunnelPref+name)
 		}
 	}
-	run := func(ctx context.Context, route string) ([]byte, error) {
-		dial, res, err := e.routeNet(route)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(probe.RunWith(ctx, dial, res))
-	}
-	b, _ := json.Marshal(probe.LeakTest(ctx, run, routes))
+	b, _ := json.Marshal(probe.LeakTest(ctx, e.ProbeRoute, routes))
 	return string(b)
+}
+
+// ProbeRoute runs the leak-test probe through one route; the JSON is a
+// probe.Result (it fits probe.Runner).
+func (e *Engine) ProbeRoute(ctx context.Context, route string) ([]byte, error) {
+	dial, res, err := e.routeNet(route)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(probe.RunWith(ctx, dial, res))
 }

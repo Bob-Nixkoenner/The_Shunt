@@ -1,11 +1,14 @@
 package winsvc
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 )
 
 type fakeCore struct {
@@ -17,6 +20,12 @@ func (f *fakeCore) Status() string {
 	return `{"tunnels":[{"name":"home","type":"wireguard","up":true,"handshake":1700000000,"rx":10,"tx":20,"health":{"state":"ok","handshake_age":5}},{"name":"work","type":"openvpn","via":"home","up":false,"error":"no route","handshake":0,"rx":0,"tx":0,"health":{"state":"down","handshake_age":-1}}],"override":{"panic":true,"pass_left":90},"network":"Büro"}`
 }
 func (f *fakeCore) SetPanic(on bool) { f.panic = on }
+func (f *fakeCore) ProbeRoute(_ context.Context, route string) ([]byte, error) {
+	if route == "nope" {
+		return nil, errors.New("unknown route")
+	}
+	return []byte(`{"ip":"192.0.2.7","resolver":"192.0.2.8"}`), nil
+}
 func (f *fakeCore) Pass(d time.Duration) time.Time {
 	f.pass = d
 	return time.Unix(1700000600, 0)
@@ -67,6 +76,16 @@ func TestAPIOverSocket(t *testing.T) {
 	}
 	if err := c.Do("POST", "/v1/reload", nil, nil); err != nil || reloaded != 1 {
 		t.Fatalf("reload: %v %d", err, reloaded)
+	}
+	var pr probe.Result
+	if err := c.Do("POST", "/v1/probe", api.ProbeRequest{Route: "direct"}, &pr); err != nil || pr.IP != "192.0.2.7" {
+		t.Fatalf("probe: %v %+v", err, pr)
+	}
+	if err := c.Do("POST", "/v1/probe", api.ProbeRequest{Route: "nope"}, nil); err == nil {
+		t.Fatal("unknown route probed")
+	}
+	if st.Platform != "windows" {
+		t.Fatalf("platform %q", st.Platform)
 	}
 	if err := c.Do("POST", "/v1/restart", nil, nil); err == nil {
 		t.Fatal("restart without handler should fail")

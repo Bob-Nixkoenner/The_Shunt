@@ -44,8 +44,19 @@ type Server struct {
 	// Update, if set, reports whether a newer version is on GitHub.
 	Update *update.Checker
 
+	// Apps replaces the Linux menu (.desktop files) with another
+	// platform's list of programs; nil: the Linux menu.
+	Apps AppSource
+
 	token string
 	host  string
+}
+
+// AppSource lists programs and sets the route of one by its ID ("" route =
+// back to the default). Windows: programs are rules in shunt.toml.
+type AppSource interface {
+	List() ([]desktop.Entry, error)
+	SetRoute(id, route string) error
 }
 
 // Listen binds 127.0.0.1:port (0 = random) and returns the URL to open.
@@ -124,7 +135,13 @@ func (s *Server) handler() http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/apps", func(w http.ResponseWriter, r *http.Request) {
-		list, err := desktop.List()
+		var list []desktop.Entry
+		var err error
+		if s.Apps != nil {
+			list, err = s.Apps.List()
+		} else {
+			list, err = desktop.List()
+		}
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -202,7 +219,9 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		var err error
-		if req.Route == "" {
+		if s.Apps != nil {
+			err = s.Apps.SetRoute(req.ID, req.Route)
+		} else if req.Route == "" {
 			err = desktop.Unset(req.ID)
 		} else {
 			err = desktop.SetRoute(req.ID, req.Route, s.Self)

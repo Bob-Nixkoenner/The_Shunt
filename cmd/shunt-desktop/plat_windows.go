@@ -7,6 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/winapps"
 )
 
 var (
@@ -47,3 +51,6 @@ func trayIcon(p []byte) []byte {
 	b.Write(p)
 	return b.Bytes()
 }
+
+// appSource: programs with rules instead of the Linux menu.
+func appSource(c *api.Client) ui.AppSource { return &winapps.Source{Client: c} }

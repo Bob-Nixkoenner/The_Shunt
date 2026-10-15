@@ -5,6 +5,7 @@
 package winsvc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -24,6 +25,8 @@ type Core interface {
 	Status() string
 	SetPanic(on bool)
 	Pass(d time.Duration) time.Time
+	// ProbeRoute runs the leak-test probe through one route (probe.Result JSON).
+	ProbeRoute(ctx context.Context, route string) ([]byte, error)
 }
 
 // Server answers /v1 requests.
@@ -83,6 +86,7 @@ func (s *Server) Status() (api.Status, error) {
 		PassLeft:     es.Override.PassLeft,
 		Network:      es.Network,
 		Version:      s.Version,
+		Platform:     "windows",
 		Tunnels:      []api.TunnelStatus{},
 		Groups:       []api.GroupStatus{},
 		Rules:        []string{},
@@ -139,6 +143,21 @@ func (s *Server) Handler() http.Handler {
 		}
 		until := s.Core.Pass(time.Duration(req.Minutes) * time.Minute)
 		ok(w, map[string]int64{"until": until.Unix()})
+	})
+	mux.HandleFunc("POST /v1/probe", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ProbeRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		out, err := s.Core.ProbeRoute(ctx, req.Route)
+		if err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
 	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
 		if s.Reload == nil {
