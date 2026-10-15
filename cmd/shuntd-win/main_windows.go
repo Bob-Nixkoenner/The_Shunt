@@ -7,13 +7,13 @@
 //	shuntd-win start|stop
 //	shuntd-win run         run in this console (Ctrl+C stops), as Administrator
 //
-// Files live in C:\ProgramData\Shunt: windows.json (config, format of
-// internal/splitstack), shuntd.sock (API), stats.json, shuntd.log.
+// Files live in C:\ProgramData\Shunt: shunt.toml (the config of the Linux
+// daemon and its web UI), tunnels\ (WireGuard/OpenVPN files, readable by
+// Administrators and SYSTEM only), shuntd.sock (API), stats.json, shuntd.log.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -40,7 +40,6 @@ var version = "dev"
 
 var dataDir = filepath.Join(os.Getenv("ProgramData"), "Shunt")
 
-func cfgPath() string  { return filepath.Join(dataDir, "windows.json") }
 func sockPath() string { return filepath.Join(dataDir, "shuntd.sock") }
 
 func main() {
@@ -142,38 +141,19 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 	}
 }
 
-// readConfig returns the config file, creating a safe default (nothing
-// routed through tunnels, everything direct) on first start.
-func readConfig() (string, error) {
-	b, err := os.ReadFile(cfgPath())
-	if errors.Is(err, os.ErrNotExist) {
-		b = []byte("{\"default\":\"direct\",\"tunnels\":[],\"apps\":{}}\n")
-		err = os.WriteFile(cfgPath(), b, 0o644)
-	}
-	if err != nil {
-		return "", err
-	}
-	// the stats file belongs to the machine, not to the user's config
-	m := map[string]any{}
-	if err := json.Unmarshal(b, &m); err != nil {
-		return "", fmt.Errorf("%s: %w", cfgPath(), err)
-	}
-	if _, ok := m["stats_path"]; !ok {
-		m["stats_path"] = filepath.Join(dataDir, "stats.json")
-	}
-	out, err := json.Marshal(m)
-	return string(out), err
-}
-
 // runCore brings everything up and blocks until ctx ends or the API asks for
 // a restart. ready (may be nil) is called once the API answers.
 func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
-	cfg, err := readConfig()
+	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown}
+	cfg, warns, err := m.Load()
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", filepath.Join(dataDir, "shunt.toml"), err)
+	}
+	for _, w := range warns {
+		log.Print("config: ", w)
 	}
 	ad, err := winsplit.OpenAdapter(splitstack.DNSAddr)
 	if err != nil {
@@ -207,18 +187,14 @@ func runCore(ctx context.Context, ready func()) error {
 	defer e.Stop()
 
 	restart := make(chan struct{}, 1)
-	s := &winsvc.Server{
-		Core: e, Version: version,
-		Reload: func() error {
-			c, err := readConfig()
-			if err != nil {
-				return err
-			}
-			return e.SetRules(c)
-		},
-		Restart: func() { restart <- struct{}{} },
-		Config:  configSummary,
+	m.SetRules = e.SetRules
+	m.Restart = func() {
+		select {
+		case restart <- struct{}{}:
+		default:
+		}
 	}
+	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart}
 	l, err := winsvc.Listen(sockPath())
 	if err != nil {
 		return err
@@ -242,28 +218,20 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 }
 
-// configSummary gives the status the default route and the app rules.
-func configSummary() (string, map[string]string) {
-	b, err := os.ReadFile(cfgPath())
-	if err != nil {
-		return "block", nil
-	}
-	var c struct {
-		Default string            `json:"default"`
-		Apps    map[string]string `json:"apps"`
-	}
-	if json.Unmarshal(b, &c) != nil || c.Default == "" {
-		return "block", nil
-	}
-	return c.Default, c.Apps
-}
-
 // grantUsers lets every local user talk to the API (reading status, panic).
 // Changing the config needs write access to windows.json, which stays with
 // Administrators.
 func grantUsers(path string) {
 	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(M)").CombinedOutput(); err != nil {
 		log.Printf("icacls %s: %v: %s", path, err, out)
+	}
+}
+
+// lockDown makes dir readable for SYSTEM and Administrators only: it holds
+// private keys.
+func lockDown(dir string) {
+	if out, err := exec.Command("icacls", dir, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
+		log.Printf("icacls %s: %v: %s", dir, err, out)
 	}
 }
 
@@ -296,10 +264,7 @@ func install() error {
 	// start again 5 s after a crash, forever (the kill switch matters)
 	_ = s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: 5 * time.Second}}, 86400)
 	_ = s.SetRecoveryActionsOnNonCrashFailures(true) // also for "stopped with exit code 1" (/v1/restart)
-	if _, err := readConfig(); err != nil {
-		return err
-	}
-	fmt.Printf("installed. Config: %s\nstart with: shuntd-win start\n", cfgPath())
+	fmt.Printf("installed. Config: %s (created at the first start)\nstart with: shuntd-win start\n", filepath.Join(dataDir, "shunt.toml"))
 	return nil
 }
 
