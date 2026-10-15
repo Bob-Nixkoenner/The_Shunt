@@ -54,6 +54,9 @@ type tunnelConf struct {
 	Conf string `json:"conf"`           // wg-quick file or .ovpn text
 	User string `json:"user,omitempty"` // OpenVPN auth-user-pass
 	Pass string `json:"pass,omitempty"`
+	// Via: OpenVPN only, the WireGuard tunnel that carries it (multi-hop,
+	// see via.go); "" = straight over the network.
+	Via string `json:"via,omitempty"`
 }
 
 type blocklistConf struct {
@@ -244,7 +247,19 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if err := e.setRules(c); err != nil {
 		return nil, err
 	}
+	// tunnels with "via" after the ones that carry them
+	ordered := make([]tunnelConf, 0, len(c.Tunnels))
 	for _, t := range c.Tunnels {
+		if t.Via == "" {
+			ordered = append(ordered, t)
+		}
+	}
+	for _, t := range c.Tunnels {
+		if t.Via != "" {
+			ordered = append(ordered, t)
+		}
+	}
+	for _, t := range ordered {
 		var wt *wgTunnel
 		if t.Type == typeOpenVPN {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
@@ -519,6 +534,7 @@ func (e *Engine) closeTunnels() {
 type tunnelStatus struct {
 	Name      string        `json:"name"`
 	Type      string        `json:"type"` // wireguard | openvpn
+	Via       string        `json:"via,omitempty"`
 	Up        bool          `json:"up"`
 	Error     string        `json:"error,omitempty"`
 	Handshake int64         `json:"handshake"` // unix seconds, 0 = never

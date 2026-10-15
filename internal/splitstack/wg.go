@@ -42,6 +42,7 @@ type wgTunnel struct {
 	ovpnClean   string // the checked .ovpn text
 	ovpnStarted time.Time
 	mtu         int
+	via         *viaRelay // multi-hop relays (tunnelConf.Via), nil = direct
 }
 
 func (t *wgTunnel) isOVPN() bool { return t.ovpnConf.Type == typeOpenVPN }
@@ -216,6 +217,9 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 func (t *wgTunnel) close() {
 	if ot := t.ovpnTunnel(); ot != nil {
 		ot.Close()
+	}
+	if t.via != nil {
+		t.via.Close()
 	}
 	if t.dev != nil {
 		t.dev.Close()
