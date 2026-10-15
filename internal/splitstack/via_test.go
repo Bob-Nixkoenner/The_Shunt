@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,9 +53,12 @@ func TestViaRewrite(t *testing.T) {
 	_, tport, _ := net.SplitHostPort(ts.Addr().String())
 
 	dialed := map[string]int{}
+	var dmu sync.Mutex // the UDP and TCP relays dial from their own goroutines
 	var d net.Dialer
 	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dmu.Lock()
 		dialed[network+" "+addr]++
+		dmu.Unlock()
 		return d.DialContext(ctx, network, addr)
 	}
 	conf := "client\nproto udp\nport " + uport + "\nremote 127.0.0.1\nremote 127.0.0.1 " + tport + " tcp\n<ca>\nremote inside block\n</ca>\n"
@@ -93,8 +97,11 @@ func TestViaRewrite(t *testing.T) {
 			t.Fatalf("udp relay: %q %v", buf[:n], err)
 		}
 	}
-	if dialed["udp 127.0.0.1:"+uport] != 1 {
-		t.Errorf("udp dials: %v", dialed)
+	dmu.Lock()
+	udpDials := dialed["udp 127.0.0.1:"+uport]
+	dmu.Unlock()
+	if udpDials != 1 {
+		t.Errorf("udp dials: %d", udpDials)
 	}
 
 	tc, err := net.Dial("tcp4", tcpLocal)
