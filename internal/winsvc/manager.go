@@ -45,7 +45,8 @@ type Manager struct {
 	mu      sync.Mutex
 	saveMu  sync.Mutex
 	cfg     *config.Config
-	running string // fingerprint of the tunnels the engine runs with
+	eps     map[string]string // tunnel -> first endpoint, for the status
+	running string            // fingerprint of the tunnels the engine runs with
 }
 
 const defaultConfig = "# The Shunt for Windows\n[daemon]\ndefault_route = \"direct\"\n"
@@ -87,7 +88,35 @@ func (m *Manager) Load() (js string, warnings []string, err error) {
 	return js, warnings, nil
 }
 
+// Endpoint returns the first peer endpoint of a tunnel (host:port), "" if unknown.
+func (m *Manager) Endpoint(tunnel string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.eps[tunnel]
+}
+
+func (m *Manager) refreshEndpoints(c *config.Config) {
+	eps := map[string]string{}
+	for name, t := range c.Tunnels {
+		b, err := m.readFile(t.Config)
+		if err != nil {
+			continue
+		}
+		if t.IsOpenVPN() {
+			if oc, err := ovpnconf.Parse(string(b), ""); err == nil && len(oc.Remotes) > 0 {
+				eps[name] = oc.Remotes[0]
+			}
+		} else if wc, err := wgconf.Parse(strings.NewReader(string(b))); err == nil && len(wc.Peers) > 0 {
+			eps[name] = wc.Peers[0].Endpoint
+		}
+	}
+	m.mu.Lock()
+	m.eps = eps
+	m.mu.Unlock()
+}
+
 func (m *Manager) changed(c *config.Config) {
+	m.refreshEndpoints(c)
 	if m.OnConfig != nil {
 		m.OnConfig(c)
 	}

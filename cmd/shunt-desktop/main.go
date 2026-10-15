@@ -87,6 +87,7 @@ func main() {
 	go single.Requests(show)
 
 	app.show = show
+	go desktopapp.PromoteTrayIcon(self)
 	start, end := systray.RunWithExternalLoop(app.onReady, func() {})
 	start()
 	defer end()
