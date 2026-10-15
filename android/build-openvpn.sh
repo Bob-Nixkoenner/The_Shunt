@@ -4,6 +4,8 @@
 # (TARGET_ANDROID: no tun of its own, it asks over the management socket),
 # for arm64 and x86_64. Output: android/app/src/main/jniLibs/<abi>/libopenvpn.so
 # (the "lib…so" name: Android only runs programs from the app's library folder).
+# ABIS=host builds the same Android mode for this Linux machine, for the Go
+# tests (internal/splitstack/ovpn_test.go): ~/.cache/shunt-openvpn/host/openvpn
 #
 # OpenVPN is GPL-2.0 (with OpenSSL exception) and runs as a separate program,
 # controlled over a socket; its exact source is the release below.
@@ -33,24 +35,30 @@ fetch() { # url sha256
 fetch "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" $OPENSSL_SHA
 fetch "https://github.com/OpenVPN/openvpn/releases/download/v$OPENVPN_VER/openvpn-$OPENVPN_VER.tar.gz" $OPENVPN_SHA
 
-build() { # abi openssl-target clang-triple
+build() { # abi openssl-target clang-triple ("" = this machine)
 	local abi=$1 ossl=$2 triple=$3
 	local W=$CACHE/build-$abi
 	rm -rf "$W" && mkdir -p "$W/prefix"
-	export PATH=$TC/bin:$PATH ANDROID_NDK_ROOT=$NDK
-	export CC="$TC/bin/$triple$API-clang" AR=$TC/bin/llvm-ar RANLIB=$TC/bin/llvm-ranlib STRIP=$TC/bin/llvm-strip
+	local host=() osslapi=()
+	if [[ -n $triple ]]; then
+		export PATH=$TC/bin:$PATH ANDROID_NDK_ROOT=$NDK
+		export CC="$TC/bin/$triple$API-clang" AR=$TC/bin/llvm-ar RANLIB=$TC/bin/llvm-ranlib STRIP=$TC/bin/llvm-strip
+		host=(--host="$triple") osslapi=(-D__ANDROID_API__=$API)
+	else
+		export CC=cc AR=ar RANLIB=ranlib STRIP=strip
+	fi
 
 	echo "== OpenSSL $OPENSSL_VER ($abi)"
 	tar xzf "$CACHE/openssl-$OPENSSL_VER.tar.gz" -C "$W"
 	(cd "$W/openssl-$OPENSSL_VER" &&
-		./Configure "$ossl" -D__ANDROID_API__=$API no-shared no-tests no-apps no-docs no-engine no-legacy \
+		./Configure "$ossl" "${osslapi[@]}" no-shared no-tests no-apps no-docs no-engine no-legacy \
 			--prefix="$W/prefix" --libdir=lib >/dev/null &&
 		make -s -j"$JOBS" build_libs >/dev/null && make -s install_dev >/dev/null)
 
 	echo "== OpenVPN $OPENVPN_VER ($abi)"
 	tar xzf "$CACHE/openvpn-$OPENVPN_VER.tar.gz" -C "$W"
 	(cd "$W/openvpn-$OPENVPN_VER" &&
-		./configure --host="$triple" --disable-lzo --disable-lz4 --enable-comp-stub \
+		./configure "${host[@]}" --disable-lzo --disable-lz4 --enable-comp-stub \
 			--disable-plugins --disable-dco --disable-unit-tests --disable-debug \
 			OPENSSL_CFLAGS="-I$W/prefix/include" OPENSSL_LIBS="-L$W/prefix/lib -lssl -lcrypto" \
 			LIBCAPNG_CFLAGS=" " LIBCAPNG_LIBS=" " CFLAGS="-O2 -fPIE" LDFLAGS="-pie" >/dev/null &&
@@ -60,9 +68,11 @@ build() { # abi openssl-target clang-triple
 		sed -i -e 's|^#define TARGET_LINUX 1|#define TARGET_ANDROID 1|' -e 's|^#define HAVE_LIBCAPNG 1|/* no libcap-ng */|' config.h &&
 		grep -q '^#define TARGET_ANDROID 1' config.h &&
 		make -s -j"$JOBS" >/dev/null)
-	mkdir -p "$OUT/$abi"
-	"$STRIP" -o "$OUT/$abi/libopenvpn.so" "$W/openvpn-$OPENVPN_VER/src/openvpn/openvpn"
-	echo "built $OUT/$abi/libopenvpn.so ($(du -h "$OUT/$abi/libopenvpn.so" | cut -f1))"
+	local dst=$OUT/$abi/libopenvpn.so
+	[[ -n $triple ]] || dst=$CACHE/host/openvpn
+	mkdir -p "$(dirname "$dst")"
+	"$STRIP" -o "$dst" "$W/openvpn-$OPENVPN_VER/src/openvpn/openvpn"
+	echo "built $dst ($(du -h "$dst" | cut -f1))"
 }
 
 abis=${ABIS:-arm64-v8a x86_64}
@@ -70,6 +80,7 @@ for abi in $abis; do
 	case $abi in
 	arm64-v8a) build arm64-v8a android-arm64 aarch64-linux-android ;;
 	x86_64) build x86_64 android-x86_64 x86_64-linux-android ;;
+	host) build host linux-x86_64 "" ;;
 	*) echo "unknown ABI $abi" >&2; exit 1 ;;
 	esac
 done

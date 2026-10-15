@@ -50,7 +50,10 @@ const DNSAddr = "10.111.0.53"
 
 type tunnelConf struct {
 	Name string `json:"name"`
-	Conf string `json:"conf"` // wg-quick file
+	Type string `json:"type,omitempty"` // "wireguard" (default) or "openvpn"
+	Conf string `json:"conf"`           // wg-quick file or .ovpn text
+	User string `json:"user,omitempty"` // OpenVPN auth-user-pass
+	Pass string `json:"pass,omitempty"`
 }
 
 type blocklistConf struct {
@@ -76,6 +79,11 @@ type config struct {
 	// destination (domain, CIDR, port), before the app rules. See rules.go.
 	Networks []networkConf `json:"networks"`
 	Rules    []ruleConf    `json:"rules"`
+
+	// OpenVPN: the openvpn program (Android build, android/build-openvpn.sh)
+	// and a private folder for its files. Empty: no OpenVPN tunnels.
+	OpenVPN string `json:"openvpn"`
+	WorkDir string `json:"work_dir"`
 }
 
 func parseConfig(js string) (*config, error) {
@@ -96,9 +104,16 @@ func parseConfig(js string) (*config, error) {
 		c.MTU = 1280
 	}
 	names := map[string]bool{}
-	for _, t := range c.Tunnels {
+	for i, t := range c.Tunnels {
 		if t.Name == "" || names[t.Name] {
 			return nil, fmt.Errorf("tunnel name %q empty or twice", t.Name)
+		}
+		switch t.Type {
+		case "":
+			c.Tunnels[i].Type = typeWireGuard
+		case typeWireGuard, typeOpenVPN:
+		default:
+			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn)", t.Name, t.Type)
 		}
 		names[t.Name] = true
 	}
@@ -174,6 +189,8 @@ type Engine struct {
 	stack   *stack.Stack
 	tunnels map[string]*wgTunnel
 	dns     netip.Addr
+	ovpnExe string // openvpn program, "" = none
+	workDir string
 
 	mu         sync.RWMutex
 	apps       map[string]string
@@ -217,7 +234,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if o.NewBind == nil {
 		o.NewBind = conn.NewDefaultBind
 	}
-	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr)}
+	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir}
 	book, err := stats.Open(c.StatsPath)
 	if err != nil {
 		e.logf("traffic statistics in memory only: %v", err)
@@ -228,10 +245,19 @@ func New(o Options, configJSON string) (*Engine, error) {
 		return nil, err
 	}
 	for _, t := range c.Tunnels {
-		wt, err := newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
+		var wt *wgTunnel
+		if t.Type == typeOpenVPN {
+			wt, err = e.newOVPNTunnel(t, c.MTU)
+		} else {
+			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
+		}
 		if err != nil {
 			e.logf("tunnel %s: %v", t.Name, err)
-			wt = &wgTunnel{name: t.Name, err: err.Error()}
+			if wt == nil {
+				wt = &wgTunnel{name: t.Name}
+			}
+			wt.ovpnConf.Type = t.Type
+			wt.err = err.Error()
 		}
 		e.tunnels[t.Name] = wt
 		// a new userspace tunnel starts at zero: count from the first byte
@@ -394,6 +420,12 @@ func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool)
 // along, so tunnels would stall until the next restart.
 func (e *Engine) NetworkChanged() {
 	for _, t := range e.tunnels {
+		if t.isOVPN() {
+			if ot := t.ovpnTunnel(); ot != nil {
+				ot.NetworkChanged()
+			}
+			continue
+		}
 		if t.dev == nil {
 			continue
 		}
@@ -486,6 +518,7 @@ func (e *Engine) closeTunnels() {
 
 type tunnelStatus struct {
 	Name      string        `json:"name"`
+	Type      string        `json:"type"` // wireguard | openvpn
 	Up        bool          `json:"up"`
 	Error     string        `json:"error,omitempty"`
 	Handshake int64         `json:"handshake"` // unix seconds, 0 = never

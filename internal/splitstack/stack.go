@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	"golang.zx2c4.com/wireguard/tun/netstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -144,19 +145,23 @@ func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
 		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
 	}
 	t := e.tunnels[strings.TrimPrefix(f.route, tunnelPref)]
-	if t == nil || t.net == nil {
+	var tn *netstack.Net
+	if t != nil {
+		tn = t.netw()
+	}
+	if tn == nil {
 		return nil, fmt.Errorf("tunnel %s is not up", f.route)
 	}
 	if f.isDNS(e) {
-		dst = netip.AddrPortFrom(t.dns, 53)
+		dst = netip.AddrPortFrom(t.dnsAddr(), 53)
 	}
-	if (dst.Addr().Is4() && !t.v4) || (dst.Addr().Is6() && !t.v6) {
+	if v4, v6 := t.families(); (dst.Addr().Is4() && !v4) || (dst.Addr().Is6() && !v6) {
 		return nil, fmt.Errorf("%s has no address of this IP family", f.route)
 	}
 	if f.proto == 6 {
-		return t.net.DialContextTCPAddrPort(ctx, dst)
+		return tn.DialContextTCPAddrPort(ctx, dst)
 	}
-	return t.net.DialUDPAddrPort(netip.AddrPort{}, dst)
+	return tn.DialUDPAddrPort(netip.AddrPort{}, dst)
 }
 
 func (e *Engine) handleTCP(r *tcp.ForwarderRequest) {
