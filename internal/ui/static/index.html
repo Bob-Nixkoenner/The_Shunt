@@ -225,6 +225,9 @@ body.windows .win-only { display: block !important; }
       <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
         <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
+      <label class="win-only">Kill switch</label>
+      <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
+        <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. Lifted when you stop the service on purpose. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
       <label>Updates</label>
       <div><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
         <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>

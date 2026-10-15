@@ -82,6 +82,7 @@ function upstreamUsers(name) {
 function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
+  $("#c-killswitch").checked = !!model.daemon.kill_switch;
   defaultHint();
   fillVia();
   renderNetworks();
@@ -152,6 +153,7 @@ function renderConfig() {
   }) : [el("tr", {}, el("td", { class: "muted" }, "No rules – apps follow the route they were started with, everything else the default."))]));
 }
 
+$("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
   const d = model.daemon.default_route || "direct";
