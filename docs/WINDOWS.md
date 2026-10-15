@@ -1,76 +1,55 @@
-# The Shunt für Windows – Plan
+# The Shunt for Windows
 
-Stand: 14.10.2026, Vorbereitung (Branch `android`, nur lokal). Getestet werden soll auf dem
-Desktop (Windows-Host), siehe unten.
+Status 15.10.2026: service, window, installer and kill switch work (tested in a
+Windows 11 VM; not yet on a real laptop with Wi-Fi). Branch `windows-service`.
 
-## Ansatz: derselbe Kern wie Android
+## How it works
 
-Der Linux-Weg (cgroups + nftables-Marks + Kernel-WireGuard) existiert auf Windows nicht.
-Die Alternativen:
-
-| Weg | Pro | Contra |
-|---|---|---|
-| **WFP-Callout-Treiber** (wie WireSock) | schnell, alles im Kernel | eigener signierter Kernel-Treiber (EV-Zertifikat, Microsoft-Signatur) – für ein Hobbyprojekt unrealistisch |
-| **WFP ohne Callout + Routing-Tabelle** | kein eigener Treiber | WFP kann nur erlauben/sperren, nicht pro App *umleiten* – App-Split damit nicht machbar |
-| **wintun + Userspace-Stack** (wie Clash/sing-box, Rethink auf Android) | kein eigener Treiber (wintun ist von WireGuard signiert), **Kern schon fertig** (`internal/splitstack`) | Userspace kostet etwas CPU; braucht Prozess-Zuordnung pro Verbindung |
-
-→ **wintun + `internal/splitstack`.** Das ist exakt das Android-Modell:
+The Linux way (cgroups, nftables marks, kernel WireGuard) does not exist on Windows. The
+Windows build uses the same userspace core as Android (`internal/splitstack`):
 
 ```
-Apps ─► wintun "Shunt" (Default-Route 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000::/1)
-          └─► gVisor-Stack (splitstack)
-                ├─ App-ID = Pfad der .exe (GetExtendedTcpTable/GetExtendedUdpTable → PID → QueryFullProcessImageName)
-                ├─ tunnel:<name> → WireGuard (wireguard-go, eigener Netstack pro Tunnel)
-                ├─ direct        → Socket gebunden ans physische Interface (IP_UNICAST_IF)
-                └─ block         → RST
+Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000::/1)
+          └─► gVisor stack (splitstack)
+                ├─ program of the connection = exe path (GetExtendedTcpTable/UdpTable → PID → path)
+                ├─ tunnel:<name> → WireGuard (wireguard-go, own netstack per tunnel)
+                ├─ direct        → socket pinned to the real interface (IP_UNICAST_IF)
+                └─ block         → reset
 ```
 
-## Was dafür noch fehlt
+- `shuntd-win.exe` (`cmd/shuntd-win`): Windows service. Config `C:\ProgramData\Shunt\shunt.toml`
+  – the same file format as Linux (`internal/winsvc.Translate` turns it into the core's JSON
+  and reports what Windows cannot do yet). API: the `/v1` API of shuntd over a Unix socket
+  (`C:\ProgramData\Shunt\shuntd.sock`, Windows 10+), served by `internal/winsvc`.
+- `shunt-desktop.exe` (`cmd/shunt-desktop`): tray icon, toast notifications, autostart
+  (Run key), single instance, window = Microsoft Edge in app mode showing the web UI
+  (`internal/ui`, unchanged apart from a `platform` flag that hides Linux-only parts).
+  The "Programs" list (`internal/winapps`) shows running programs and their rules.
+- Programs are matched by file name (`app = ["firefox"]` → `firefox.exe` anywhere) or by path
+  (`exe:C:\Tools\x.exe`). Rules by address, port and domain work as on Linux.
+- Network changes (Wi-Fi ↔ cable, new Wi-Fi) are followed every 3 s; the Wi-Fi name picks the
+  `[[network]]` profile.
+- Kill switch (`[daemon] kill_switch = true`, off by default): Windows Firewall blocks all
+  outgoing traffic except the service, the adapter's address (= apps whose packets entered
+  the split), the local network and DHCP. Stays after a crash, lifted when the service is
+  stopped on purpose. Emergency: `shuntd-win killswitch-off` as Administrator.
 
-1. **Link-Endpoint für wintun:** `golang.zx2c4.com/wireguard/tun.CreateTUN` (nutzt wintun)
-   + gVisor `link/channel`-Endpoint, zwei Goroutinen pumpen Pakete hin und her
-   (`splitstack.Options.Link`).
-2. **Owner (Prozess):** pro neuer Verbindung `GetExtendedTcpTable` / `GetExtendedUdpTable`
-   (iphlpapi, `TCP_TABLE_OWNER_PID_ALL`) nach Quell-IP:Port durchsuchen → PID → Pfad;
-   Cache, weil die Tabellen groß sind. App-ID = Pfad in Kleinbuchstaben
-   (`c:\program files\mozilla firefox\firefox.exe`). In `shunt.toml` gibt es schon
-   `app = [...]`-Regeln – dort Windows-Pfade bzw. Programmnamen erlauben.
-3. **Ausbruch aus dem eigenen TUN:** `Options.DialDirect` setzt per `Control`-Hook
-   `IP_UNICAST_IF` / `IPV6_UNICAST_IF` auf das physische Interface; WireGuards UDP-Socket
-   ebenso – die Windows-`conn.Bind` von wireguard-go hat dafür
-   `BindSocketToInterface` (`Options.NewBind`).
-4. **DNS:** wintun-Interface bekommt `10.111.0.53` als DNS (per `netsh`/`SetInterfaceDnsSettings`),
-   Interface-Metrik niedrig; DNS-Leaks über andere Interfaces mit **WFP-Sperrregeln**
-   (das kann WFP ohne Treiber: Port 53 nur zum wintun erlauben) – das ist auch der
-   Kill-Switch: alles außer wintun + eigener Prozess sperren.
-5. **Dienst:** `shuntd.exe` als Windows-Dienst (`golang.org/x/sys/windows/svc`), Steuerung
-   wie unter Linux über die vorhandene API (`internal/api`) – statt Unix-Socket ein Named
-   Pipe mit ACL (nur Administratoren + Benutzer der Gruppe „Shunt“).
-6. **UI:** Die Web-UI (`internal/ui`) läuft unverändert; Tray später (systray kann Windows).
-7. **Installer:** zunächst ZIP + `shuntd.exe install` (registriert den Dienst, legt
-   `C:\ProgramData\Shunt\shunt.toml` an); MSI später.
+## Install
 
-## Stand 14.10.2026
+`packaging/windows/build.sh` builds `dist/the-shunt-windows-amd64.zip` (wintun.dll pinned by
+checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows/README.txt`.
 
-Schon gebaut (Branch `android`, nur lokal, **auf Windows noch nicht ausgeführt**):
+## Not yet
 
-- `internal/splitstack`: der gemeinsame Kern (aus `mobile/` herausgelöst), baut für
-  Linux/Android/Windows/macOS. `TunLink` hängt ein beliebiges wireguard-go-`tun.Device`
-  (wintun) an – getestet unter Linux mit einem simulierten TUN (`tunlink_test.go`).
-- `internal/winsplit`: Prozess-Zuordnung (`GetExtendedTcpTable`/`-UdpTable` → PID →
-  exe-Pfad, Tabellen-Parser mit Test) und `DialDirect` mit `IP_UNICAST_IF`.
-- `cmd/shunt-win-proto`: Prototyp (Punkte 1–3), `GOOS=windows go build ./cmd/shunt-win-proto`.
+OpenVPN (the Android trick needs fd passing; Windows needs another way), `link:` routes,
+groups, `shunt run`-style "start an app in a route", DNS filter, app firewall, restricting
+the API to certain users (today every local user may use it; config files stay admin-only),
+code signing (SmartScreen warns), WireGuard `allow_lan`, `via` hops are untested on Windows.
 
-## Reihenfolge (Vorschlag)
+## Testing
 
-1. `cmd/shunt-win-proto` auf dem Desktop ausprobieren (gebaut, siehe oben): Firefox über
-   Tunnel A, Rest über Tunnel B bzw. direkt. **Braucht Administratorrechte** und
-   `wintun.dll` neben der exe.
-2. Danach Dienst, DNS/WFP-Kill-Switch, API über Named Pipe, `shunt.toml`-Anbindung.
-
-## Testen auf dem Desktop
-
-Windows läuft dort laut Nutzer ggf. als Host. Ohne Windows-VM hier keine automatischen Tests
-möglich; CI vettet `GOOS=windows` schon (inkl. `internal/splitstack`). Ein Windows-Runner in
-GitHub Actions (`windows-latest`) kann wintun mit Adminrechten starten – damit ließe sich
-der Prototyp auch in CI testen.
+- Unit tests run on Linux (`go test ./internal/...`).
+- VM: VirtualBox, Windows 11 (Home is enough), NAT with `--nat-localhostreachable1 on` so the
+  guest reaches the host's loopback as 10.0.2.2. Test tunnels: `go run ./test/android/wgserver
+  -listen 127.0.0.1 -host 10.0.2.2 -out DIR` (then import `DIR/home.conf`, `work.conf`).
+- An interactive window cannot be started from SSH; use `schtasks /create … /ru USER /it` + `/run`.

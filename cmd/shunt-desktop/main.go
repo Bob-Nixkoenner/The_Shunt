@@ -232,7 +232,7 @@ func (a *trayApp) restartService(app bool) {
 		}
 	}
 	if !back {
-		a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service did not come back", Body: "Check: journalctl -u shuntd -e", Urgent: true})
+		a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service did not come back", Body: restartHint, Urgent: true})
 		return
 	}
 	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service restarted"})
