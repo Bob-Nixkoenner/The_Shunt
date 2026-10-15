@@ -1,0 +1,194 @@
+// Package winsvc is the control API of the Windows service: the same
+// /v1 JSON API as shuntd on Linux (internal/api types), served from the
+// splitstack engine, so the CLI and the web UI work unchanged. It has no
+// Windows-only code and is tested on Linux.
+package winsvc
+
+import (
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"os"
+	"sort"
+	"time"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
+)
+
+// Core is what the API needs from the running engine (*splitstack.Engine).
+type Core interface {
+	Status() string
+	SetPanic(on bool)
+	Pass(d time.Duration) time.Time
+}
+
+// Server answers /v1 requests.
+type Server struct {
+	Core    Core
+	Version string
+	// Reload re-reads the config file and applies it (POST /v1/reload).
+	Reload func() error
+	// Restart asks the service to stop so the service manager starts it
+	// again (POST /v1/restart); nil = not supported.
+	Restart func()
+	// Config returns the default route and the app rules of the config file
+	// in effect, for the status.
+	Config func() (def string, apps map[string]string)
+}
+
+// engineStatus is the part of splitstack's Status JSON we map.
+type engineStatus struct {
+	Tunnels []struct {
+		Name      string        `json:"name"`
+		Type      string        `json:"type"`
+		Via       string        `json:"via"`
+		Up        bool          `json:"up"`
+		Error     string        `json:"error"`
+		Handshake int64         `json:"handshake"`
+		RX        int64         `json:"rx"`
+		TX        int64         `json:"tx"`
+		Health    health.Report `json:"health"`
+	} `json:"tunnels"`
+	Traffic  map[string]stats.Summary `json:"traffic"`
+	Override struct {
+		Panic    bool  `json:"panic"`
+		PassLeft int64 `json:"pass_left"`
+	} `json:"override"`
+	Network string `json:"network"`
+}
+
+// Status maps the engine's state to the API's Status.
+func (s *Server) Status() (api.Status, error) {
+	var es engineStatus
+	if err := json.Unmarshal([]byte(s.Core.Status()), &es); err != nil {
+		return api.Status{}, err
+	}
+	def, apps := "block", map[string]string(nil)
+	if s.Config != nil {
+		def, apps = s.Config()
+	}
+	st := api.Status{
+		Traffic:      es.Traffic,
+		DefaultRoute: def,
+		Panic:        es.Override.Panic,
+		PassLeft:     es.Override.PassLeft,
+		Network:      es.Network,
+		Version:      s.Version,
+		Tunnels:      []api.TunnelStatus{},
+		Groups:       []api.GroupStatus{},
+		Rules:        []string{},
+		Routes:       []string{"direct", "block"},
+	}
+	for _, t := range es.Tunnels {
+		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
+		h := t.Health
+		ts.Health = &h
+		if t.Handshake > 0 || t.RX > 0 || t.TX > 0 {
+			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
+			if t.Handshake > 0 {
+				ts.Peers[0].LastHandshake = time.Unix(t.Handshake, 0)
+			}
+		}
+		st.Tunnels = append(st.Tunnels, ts)
+		st.Routes = append(st.Routes, "tunnel:"+t.Name)
+	}
+	// one line per app rule, sorted so the list doesn't jump
+	for app, route := range apps {
+		st.Rules = append(st.Rules, app+" -> "+route)
+	}
+	sort.Strings(st.Rules)
+	return st, nil
+}
+
+// Handler returns the /v1 routes.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
+		st, err := s.Status()
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		ok(w, st)
+	})
+	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
+		var req api.PanicRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		s.Core.SetPanic(req.On)
+		ok(w, map[string]bool{"panic": req.On})
+	})
+	mux.HandleFunc("POST /v1/pass", func(w http.ResponseWriter, r *http.Request) {
+		var req api.PassRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		if req.Minutes < 0 || req.Minutes > 60 {
+			fail(w, http.StatusBadRequest, errors.New("minutes must be 0..60"))
+			return
+		}
+		until := s.Core.Pass(time.Duration(req.Minutes) * time.Minute)
+		ok(w, map[string]int64{"until": until.Unix()})
+	})
+	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
+		if s.Reload == nil {
+			fail(w, http.StatusNotImplemented, errors.New("reload not supported"))
+			return
+		}
+		if err := s.Reload(); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		ok(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /v1/restart", func(w http.ResponseWriter, r *http.Request) {
+		if s.Restart == nil {
+			fail(w, http.StatusNotImplemented, errors.New("restart not supported"))
+			return
+		}
+		ok(w, map[string]bool{"ok": true})
+		go func() { time.Sleep(200 * time.Millisecond); s.Restart() }()
+	})
+	return mux
+}
+
+// Listen opens the API socket at path (a Unix socket: Windows 10+ has them;
+// access is decided by the file's ACL, set by the installer).
+func Listen(path string) (net.Listener, error) {
+	_ = os.Remove(path) // left over from a crash
+	return net.Listen("unix", path)
+}
+
+// Serve answers on l until it is closed.
+func (s *Server) Serve(l net.Listener) error {
+	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	err := srv.Serve(l)
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+func ok(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func fail(w http.ResponseWriter, code int, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(api.Error{Error: err.Error()})
+}
+
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return false
+	}
+	return true
+}
