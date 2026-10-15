@@ -35,6 +35,9 @@ type Server struct {
 	// Restart asks the service to stop so the service manager starts it
 	// again (POST /v1/restart); nil = not supported.
 	Restart func()
+	// Cfg serves the config endpoints (GET/PUT /v1/config, tunnels); nil
+	// leaves them out.
+	Cfg *Manager
 	// Config returns the default route and the app rules of the config file
 	// in effect, for the status.
 	Config func() (def string, apps map[string]string)
@@ -68,7 +71,9 @@ func (s *Server) Status() (api.Status, error) {
 		return api.Status{}, err
 	}
 	def, apps := "block", map[string]string(nil)
-	if s.Config != nil {
+	if s.Cfg != nil {
+		def, apps = s.Cfg.Summary()
+	} else if s.Config != nil {
 		def, apps = s.Config()
 	}
 	st := api.Status{
@@ -154,7 +159,81 @@ func (s *Server) Handler() http.Handler {
 		ok(w, map[string]bool{"ok": true})
 		go func() { time.Sleep(200 * time.Millisecond); s.Restart() }()
 	})
+	// Windows has no app firewall or process groups yet; the UI still asks.
+	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) { ok(w, []string{}) })
+	mux.HandleFunc("GET /v1/firewall/apps", func(w http.ResponseWriter, r *http.Request) { ok(w, []string{}) })
+	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) { ok(w, []api.ProcRoute{}) })
+	if s.Cfg != nil {
+		s.configRoutes(mux)
+	}
 	return mux
+}
+
+func (s *Server) configRoutes(mux *http.ServeMux) {
+	m := s.Cfg
+	mux.HandleFunc("GET /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		v, err := m.View()
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		ok(w, v)
+	})
+	mux.HandleFunc("POST /v1/config/check", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ConfigSave
+		if !decode(w, r, &req) {
+			return
+		}
+		raw, err := m.RawOf(req)
+		var warn []string
+		if err == nil {
+			warn, err = m.Check(raw)
+		}
+		if err != nil {
+			ok(w, api.CheckResult{Error: err.Error()})
+			return
+		}
+		ok(w, api.CheckResult{OK: true, Warnings: warn})
+	})
+	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ConfigSave
+		if !decode(w, r, &req) {
+			return
+		}
+		raw, err := m.RawOf(req)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		warn, err := m.Save(raw, req.Version)
+		switch {
+		case errors.Is(err, ErrConflict):
+			fail(w, http.StatusConflict, err)
+		case err != nil:
+			fail(w, http.StatusUnprocessableEntity, err)
+		default:
+			ok(w, api.CheckResult{OK: true, Warnings: warn})
+		}
+	})
+	mux.HandleFunc("POST /v1/tunnels", func(w http.ResponseWriter, r *http.Request) {
+		var req api.TunnelImport
+		if !decode(w, r, &req) {
+			return
+		}
+		warn, err := m.ImportTunnel(req)
+		if err != nil {
+			fail(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		ok(w, api.CheckResult{OK: true, Warnings: warn})
+	})
+	mux.HandleFunc("DELETE /v1/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if err := m.DeleteTunnel(r.PathValue("name")); err != nil {
+			fail(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 }
 
 // Listen opens the API socket at path (a Unix socket: Windows 10+ has them;

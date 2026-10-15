@@ -670,6 +670,9 @@ func (a AppSel) String() string {
 	return a.Kind + ":" + a.Value
 }
 
+// winPathRe: an absolute Windows path (drive letter, e.g. exe:C:\Tools\x.exe).
+var winPathRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
 var flatpakIDRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // ParseAppSel parses "firefox", "exe:/usr/bin/foo" or "flatpak:org.x.Y".
@@ -677,7 +680,7 @@ func ParseAppSel(s string) (AppSel, error) {
 	switch {
 	case strings.HasPrefix(s, "exe:"):
 		v := strings.TrimPrefix(s, "exe:")
-		if !strings.HasPrefix(v, "/") {
+		if !strings.HasPrefix(v, "/") && !winPathRe.MatchString(v) {
 			return AppSel{}, fmt.Errorf("app %q: exe path must be absolute", s)
 		}
 		return AppSel{Kind: "exe", Value: v}, nil

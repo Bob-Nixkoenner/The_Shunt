@@ -108,7 +108,7 @@ func matchDomain(name string, domains []string) bool {
 // matches reports whether r applies to a connection of app to dst.
 // byDomain says whether dst was answered for one of r's domains.
 func (r *rule) matches(app string, proto int, dst netip.AddrPort, byDomain bool) bool {
-	if r.apps != nil && !r.apps[app] {
+	if r.apps != nil && !appInSet(r.apps, app) {
 		return false
 	}
 	if len(r.domains) > 0 && !byDomain {

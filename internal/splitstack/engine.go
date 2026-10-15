@@ -405,7 +405,7 @@ func (e *Engine) blockedName(app, name string) string {
 		return ""
 	}
 	e.mu.RLock()
-	f, skip := e.filter, e.unfiltered[app]
+	f, skip := e.filter, appInSet(e.unfiltered, app)
 	e.mu.RUnlock()
 	if f == nil || skip {
 		return ""
@@ -424,7 +424,7 @@ func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool)
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	if r, ok := e.apps[app]; ok && app != "" {
+	if r, ok := appRoute(e.apps, app); ok && app != "" {
 		return r, false
 	}
 	return e.def, true
