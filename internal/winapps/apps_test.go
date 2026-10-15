@@ -25,11 +25,14 @@ func (f *fakeAPI) Do(method, path string, in, out any) error {
 
 func TestListAndSet(t *testing.T) {
 	f := &fakeAPI{cfg: &config.Config{Tunnels: map[string]config.Tunnel{"home": {}}}}
-	s := &Source{Client: f, Procs: func() []string {
+	s := &Source{Client: f, Installed: func() []StartMenuProgram {
+		return []StartMenuProgram{{"Mozilla Firefox", `C:\Program Files\Mozilla Firefox\firefox.exe`}, {"Uninstall Foo", `C:\Foo\unins000.exe`},
+			{"Notepad++", `C:\Program Files\Notepad++\notepad++.exe`}}
+	}, Procs: func() []string {
 		return []string{`C:\Program Files\Mozilla Firefox\firefox.exe`, `C:\Windows\System32\svchost.exe`, `C:\Windows\explorer.exe`, `C:\Tools\Curl.exe`, `C:\Tools\curl.exe`}
 	}}
 	l, err := s.List()
-	if err != nil || len(l) != 3 || l[0].ID != "curl.exe" || l[2].ID != "firefox.exe" || l[2].Name != "Firefox" || l[2].Route != "" {
+	if err != nil || len(l) != 4 || l[0].ID != "curl.exe" || l[2].ID != "firefox.exe" || l[2].Name != "Mozilla Firefox" || l[2].Route != "" || l[3].ID != "notepad++.exe" {
 		t.Fatalf("list: %+v %v", l, err)
 	}
 	if err := s.SetRoute("Firefox.exe", "tunnel:home"); err != nil {
@@ -51,7 +54,7 @@ func TestListAndSet(t *testing.T) {
 	_ = s.SetRoute("gone.exe", "direct")
 	s.cached = nil
 	l, _ = s.List()
-	if len(l) != 4 {
+	if len(l) != 5 {
 		t.Fatalf("ruled program missing: %+v", l)
 	}
 	if err := s.SetRoute("firefox.exe", ""); err != nil || len(f.cfg.Rules) != 1 {
