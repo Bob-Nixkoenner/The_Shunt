@@ -7,7 +7,9 @@ cd "$(dirname "$0")/../.."
 VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 DIST=${DIST:-dist}; mkdir -p "$DIST"; DIST=$(cd "$DIST" && pwd)
 OUT=$(mktemp -d); tmp=$(mktemp -d); trap 'rm -rf "$OUT" "$tmp"' EXIT
-export GOOS=windows GOARCH=amd64 CGO_ENABLED=0
+export CGO_ENABLED=0
+GOOS=windows GOARCH=amd64
+export GOOS GOARCH
 go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$VERSION" -o "$OUT/shunt-desktop.exe" ./cmd/shunt-desktop
 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/shuntd-win.exe" ./cmd/shuntd-win
 
@@ -18,6 +20,7 @@ curl -fsSL -o "$tmp/wintun.zip" "https://www.wintun.net/builds/wintun-$WINTUN_VE
 echo "$WINTUN_SHA  $tmp/wintun.zip" | sha256sum -c -
 unzip -oq "$tmp/wintun.zip" -d "$tmp" && cp "$tmp/wintun/bin/amd64/wintun.dll" "$OUT/"
 
+GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkico "$OUT/the-shunt.ico"
 cp packaging/windows/install.ps1 packaging/windows/uninstall.ps1 packaging/windows/README.txt "$OUT/"
 rm -f "$DIST/the-shunt-windows-amd64.zip"; (cd "$OUT" && zip -qr "$DIST/the-shunt-windows-amd64.zip" .)
 echo "$DIST/the-shunt-windows-amd64.zip ($VERSION)"
