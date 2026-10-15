@@ -87,6 +87,7 @@ function ago(ts) {
 
 function render() {
   const st = status;
+  document.body.classList.toggle("windows", !!st && st.platform === "windows");
   const state = $("#state");
   if (!st) { state.className = "pill bad"; state.textContent = "shuntd not reachable"; return; }
 

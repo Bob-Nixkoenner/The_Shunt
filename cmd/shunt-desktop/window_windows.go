@@ -55,7 +55,8 @@ func windowShow(uri string) {
 	}
 	profile := filepath.Join(os.Getenv("LOCALAPPDATA"), "Shunt", "window")
 	cmd := exec.Command(exe, "--app="+uri, "--user-data-dir="+profile, "--window-size=1240,860",
-		"--no-first-run", "--no-default-browser-check", "--disable-extensions")
+		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
+		"--disable-features=Translate,TranslateUI,msEdgeTranslate,msEdgeFollow")
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	if err := cmd.Start(); err != nil {
 		return

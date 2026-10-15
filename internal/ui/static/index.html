@@ -122,6 +122,8 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 #fw-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
 #fw-key { font-size: 12px; overflow-wrap: anywhere; margin-bottom: 12px; }
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+body.windows .linux-only, .win-only { display: none !important; }
+body.windows .win-only { display: block !important; }
 </style>
 </head>
 <body>
@@ -153,7 +155,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <div id="tunnels" class="cards"></div>
   </section>
 
-  <section class="half">
+  <section class="linux-only half">
     <h2>Start an app</h2>
     <div class="row">
       <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
@@ -188,7 +190,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
   </section>
 
-  <section>
+  <section class="linux-only">
     <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0">extra menu entries, e.g. one per browser profile</span></h2>
     <div id="ffprofiles"></div>
     <table><tbody id="launchers"></tbody></table>
@@ -203,12 +205,13 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   </section>
 
   <section>
-    <h2>Menu apps <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
+    <h2><span class="linux-only">Menu apps</span><span class="win-only" style="display:none">Programs</span> <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
     <div class="apps"><table>
       <thead><tr><th>App</th><th>Starts via</th></tr></thead>
       <tbody id="apps"></tbody>
     </table></div>
-    <div class="hint">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
+    <div class="hint win-only">Programs that run or have a rule. A rule applies by the program’s file name to every new connection – no restart of the program needed. “system default” removes the rule (the default route applies).</div>
+    <div class="hint linux-only">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
   </section>
 </main>
 
@@ -270,7 +273,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <table><tbody id="c-networks"></tbody></table>
   </section>
 
-  <section>
+  <section class="linux-only">
     <h2>App firewall <span class="muted" style="text-transform:none;letter-spacing:0">programs without a rule</span><span class="spacer"></span>
       <span class="row" style="text-transform:none;letter-spacing:0"><span class="muted" style="font-size:12px">presets:</span>
         <button id="fw-p-paranoid" title="Unknown programs blocked until you decide; everything else through the first tunnel">Paranoid</button>

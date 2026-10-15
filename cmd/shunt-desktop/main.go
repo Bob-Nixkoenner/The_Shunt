@@ -54,7 +54,7 @@ func main() {
 		shunt = p
 	}
 	client := api.NewClient(*sock)
-	srv := &ui.Server{Socket: *sock, Self: shunt, Client: client}
+	srv := &ui.Server{Socket: *sock, Self: shunt, Client: client, Apps: appSource(client)}
 	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), exe: self, shunt: shunt, sock: *sock}
 	srv.Update = &update.Checker{Current: version, OnAvailable: app.updateAvailable, Installed: func() string {
 		var st api.Status
