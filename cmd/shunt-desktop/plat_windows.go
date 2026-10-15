@@ -56,3 +56,5 @@ func trayIcon(p []byte) []byte {
 func appSource(c *api.Client) ui.AppSource { return &winapps.Source{Client: c} }
 
 var restartHint = "Check: " + filepath.Join(os.Getenv("ProgramData"), "Shunt", "shuntd.log")
+
+const updatesSupported = false
