@@ -41,6 +41,7 @@ const (
 	RouteDirect = "direct"
 	RouteBlock  = "block"
 	tunnelPref  = "tunnel:"
+	linkPref    = "link:" // link:wifi | link:ethernet | link:mobile
 )
 
 // DNSAddr is the DNS server the TUN announces (Android: VpnService.Builder
@@ -123,6 +124,8 @@ func parseConfig(js string) (*config, error) {
 	check := func(r string) error {
 		switch {
 		case r == RouteDirect, r == RouteBlock:
+			return nil
+		case r == linkPref+"wifi", r == linkPref+"ethernet", r == linkPref+"mobile":
 			return nil
 		case strings.HasPrefix(r, tunnelPref) && names[strings.TrimPrefix(r, tunnelPref)]:
 			return nil

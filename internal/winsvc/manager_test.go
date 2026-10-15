@@ -166,8 +166,8 @@ route = "link:wifi"
 	if err == nil {
 		_, _, err = Translate(c, func(string) ([]byte, error) { return []byte("x"), nil })
 	}
-	if err == nil || !strings.Contains(err.Error(), "link routes") {
-		t.Fatalf("link route should be refused: %v", err)
+	if err != nil {
+		t.Fatalf("link route: %v", err)
 	}
 	c.Rules = c.Rules[:1]
 	js, warn, err := Translate(c, func(string) ([]byte, error) { return []byte("x"), nil })
