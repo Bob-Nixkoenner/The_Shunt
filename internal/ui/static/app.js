@@ -87,7 +87,13 @@ function ago(ts) {
 
 function render() {
   const st = status;
-  document.body.classList.toggle("windows", !!st && st.platform === "windows");
+  const win = !!st && st.platform === "windows";
+  document.body.classList.toggle("windows", win);
+  if (win && !document.body.dataset.winText) { // Linux paths in the static text
+    document.body.dataset.winText = "1";
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n; (n = w.nextNode());) n.nodeValue = n.nodeValue.replace("/etc/shunt/shunt.toml", "C:\\ProgramData\\Shunt\\shunt.toml");
+  }
   const state = $("#state");
   if (!st) { state.className = "pill bad"; state.textContent = "shuntd not reachable"; return; }
 

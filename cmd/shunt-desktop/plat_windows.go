@@ -54,3 +54,5 @@ func trayIcon(p []byte) []byte {
 
 // appSource: programs with rules instead of the Linux menu.
 func appSource(c *api.Client) ui.AppSource { return &winapps.Source{Client: c} }
+
+var restartHint = "Check: " + filepath.Join(os.Getenv("ProgramData"), "Shunt", "shuntd.log")

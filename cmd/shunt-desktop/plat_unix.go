@@ -22,3 +22,5 @@ func trayIcon(png []byte) []byte { return png }
 
 // appSource: nil = the menu of the desktop (.desktop files).
 func appSource(*api.Client) ui.AppSource { return nil }
+
+const restartHint = "Check: journalctl -u shuntd -e"
