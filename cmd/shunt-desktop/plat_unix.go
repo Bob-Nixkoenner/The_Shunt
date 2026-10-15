@@ -24,3 +24,5 @@ func trayIcon(png []byte) []byte { return png }
 func appSource(*api.Client) ui.AppSource { return nil }
 
 const restartHint = "Check: journalctl -u shuntd -e"
+
+const updatesSupported = true

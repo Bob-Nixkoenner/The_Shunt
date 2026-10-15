@@ -228,8 +228,8 @@ body.windows .win-only { display: block !important; }
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
         <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. Lifted when you stop the service on purpose. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
-      <label>Updates</label>
-      <div><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
+      <label class="linux-only">Updates</label>
+      <div class="linux-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
         <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
     </div>
   </section>

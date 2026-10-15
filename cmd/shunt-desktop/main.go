@@ -64,6 +64,9 @@ func main() {
 		return st.Version
 	}}
 	app.checker = srv.Update
+	if !updatesSupported {
+		srv.Update = nil
+	}
 	ln, url, err := srv.Listen(0)
 	if err != nil {
 		log.Fatal(err)
@@ -145,6 +148,9 @@ func (a *trayApp) onReady() {
 	a.update.Hide()
 	systray.AddSeparator()
 	a.updOn = systray.AddMenuItemCheckbox("Check for updates", "Ask GitHub every 3 hours whether a newer version exists", update.Enabled())
+	if !updatesSupported {
+		a.updOn.Hide() // the update command is for Linux; Windows: install the new ZIP
+	}
 	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
 	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
 	systray.SetOnTapped(a.show) // left click on the icon
@@ -204,7 +210,9 @@ func (a *trayApp) onReady() {
 		}
 	}()
 	go a.poll()
-	go a.checker.Run(context.Background())
+	if updatesSupported {
+		go a.checker.Run(context.Background())
+	}
 }
 
 // updateAvailable is called once per found update.
