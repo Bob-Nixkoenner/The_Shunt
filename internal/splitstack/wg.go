@@ -10,16 +10,20 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpndroid"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
-// wgTunnel is one WireGuard tunnel with its own userspace netstack.
+// wgTunnel is one tunnel with its own userspace netstack: WireGuard
+// (wireguard-go) or OpenVPN (ovpn* fields, see ovpn.go). Use the methods
+// netw, dnsAddr, families and up rather than the WireGuard fields.
 type wgTunnel struct {
 	name string
 	err  string // why it is not up
@@ -30,6 +34,61 @@ type wgTunnel struct {
 	v6   bool
 	conf *wgconf.Config // for re-resolving endpoints
 	mon  health.Monitor
+
+	// OpenVPN
+	ovpnMu      sync.Mutex
+	ovpn        *ovpndroid.Tunnel // the running openvpn, replaced on restart
+	ovpnConf    tunnelConf
+	ovpnClean   string // the checked .ovpn text
+	ovpnStarted time.Time
+	mtu         int
+}
+
+func (t *wgTunnel) isOVPN() bool { return t.ovpnConf.Type == typeOpenVPN }
+
+// up: the tunnel exists (WireGuard device made, openvpn started); it may
+// still have no connection.
+func (t *wgTunnel) up() bool {
+	if t.isOVPN() {
+		return t.ovpnTunnel() != nil
+	}
+	return t.dev != nil
+}
+
+// netw is the network to dial through; nil while the tunnel cannot carry
+// anything (then its apps are blocked).
+func (t *wgTunnel) netw() *netstack.Net {
+	if t.isOVPN() {
+		if ot := t.ovpnTunnel(); ot != nil {
+			return ot.Net()
+		}
+		return nil
+	}
+	return t.net
+}
+
+// dnsAddr is the DNS server reached through the tunnel.
+func (t *wgTunnel) dnsAddr() netip.Addr {
+	if t.isOVPN() {
+		if ot := t.ovpnTunnel(); ot != nil {
+			return ovpnDNS(ot)
+		}
+		return netip.MustParseAddr("1.1.1.1")
+	}
+	return t.dns
+}
+
+// families: whether the tunnel has an IPv4 / IPv6 address.
+func (t *wgTunnel) families() (v4, v6 bool) {
+	if t.isOVPN() {
+		if ot := t.ovpnTunnel(); ot != nil {
+			for _, a := range ot.Addrs() {
+				v4, v6 = v4 || a.Is4(), v6 || a.Is6()
+			}
+		}
+		return v4, v6
+	}
+	return t.v4, t.v6
 }
 
 func parseWG(conf string) (*wgconf.Config, error) {
@@ -155,13 +214,19 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 }
 
 func (t *wgTunnel) close() {
+	if ot := t.ovpnTunnel(); ot != nil {
+		ot.Close()
+	}
 	if t.dev != nil {
 		t.dev.Close()
 	}
 }
 
 func (t *wgTunnel) status() (st tunnelStatus) {
-	st = tunnelStatus{Name: t.name, Up: t.dev != nil, Error: t.err}
+	if t.isOVPN() {
+		return t.ovpnStatus()
+	}
+	st = tunnelStatus{Name: t.name, Type: typeWireGuard, Up: t.dev != nil, Error: t.err}
 	if t.dev == nil {
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 		return st
@@ -205,10 +270,13 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			}
 		}
 		for _, t := range e.tunnels {
-			if t.dev == nil {
+			if !t.up() {
 				continue
 			}
 			now := time.Now()
+			if t.isOVPN() {
+				e.ovpnRestart(t, now)
+			}
 			st := t.status()
 			var hs time.Time
 			if st.Handshake > 0 {
@@ -218,9 +286,9 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			e.book.Observe(t.name, st.RX, st.TX, now)
 			if first || t.mon.Active(now) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
-				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dns))
+				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dnsAddr()))
 				cancel()
-				if first && st.Handshake == 0 { // the probe made the first handshake: count it now
+				if first && st.Handshake == 0 && !t.isOVPN() { // the probe made the first handshake: count it now
 					if st2 := t.status(); st2.Handshake > 0 {
 						t.mon.Observe(time.Unix(st2.Handshake, 0), st2.RX, st2.TX, time.Now())
 						e.book.Observe(t.name, st2.RX, st2.TX, time.Now())
@@ -242,11 +310,21 @@ func (t *wgTunnel) dialUDP(_ context.Context, _, addr string) (net.Conn, error) 
 	if err != nil {
 		return nil, err
 	}
-	return t.net.DialUDPAddrPort(netip.AddrPort{}, ap)
+	n := t.netw()
+	if n == nil {
+		return nil, errors.New("tunnel not connected")
+	}
+	return n.DialUDPAddrPort(netip.AddrPort{}, ap)
 }
 
 // reconnect resolves the endpoints again (DDNS) and re-opens the socket.
 func (e *Engine) reconnect(t *wgTunnel) error {
+	if t.isOVPN() {
+		if ot := t.ovpnTunnel(); ot != nil {
+			ot.Reconnect()
+		}
+		return nil
+	}
 	var b strings.Builder
 	for _, p := range t.conf.Peers {
 		if p.Endpoint == "" {

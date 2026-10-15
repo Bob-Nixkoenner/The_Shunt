@@ -132,3 +132,8 @@ func (e *Engine) Stop() { e.e.Stop() }
 // CheckWireGuard validates a wg-quick file (import) and returns a short JSON
 // summary: addresses, DNS, endpoints.
 func CheckWireGuard(conf string) (string, error) { return splitstack.CheckWireGuard(conf) }
+
+// CheckOpenVPN validates a .ovpn file for import: JSON with "remotes",
+// "needs_auth", "removed" (lines taken out: scripts, management, …) and
+// "clean" (the text to store).
+func CheckOpenVPN(conf string) (string, error) { return splitstack.CheckOpenVPN(conf) }

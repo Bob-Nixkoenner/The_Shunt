@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package ovpndroid runs an OpenVPN tunnel behind the Android app's one TUN:
 // the openvpn program (built with TARGET_ANDROID, android/build-openvpn.sh)
 // does not open a tun device itself but asks its management client for one
@@ -50,6 +52,7 @@ type Tunnel struct {
 	o    Options
 	cmd  *exec.Cmd
 	ln   *net.UnixListener
+	wmu  sync.Mutex // guards mgmt and writes to it
 	mgmt *net.UnixConn
 	done chan struct{} // closed when openvpn has ended
 	err  error
@@ -136,7 +139,9 @@ func (t *Tunnel) run() {
 	}()
 	select {
 	case c := <-accepted:
+		t.wmu.Lock()
 		t.mgmt = c
+		t.wmu.Unlock()
 		t.ln.Close()
 		os.Remove(filepath.Join(t.o.Dir, "mgmt"))
 		err := t.serve()
@@ -200,7 +205,10 @@ func (t *Tunnel) serve() error {
 			}
 			line := strings.TrimRight(string(pend[:i]), "\r")
 			pend = pend[i+1:]
-			if strings.HasPrefix(line, ">NEED-OK:Need 'PROTECTFD'") {
+			// a socket to protect comes either with a question (new socket) or,
+			// after "network-change", with a notice (socket kept)
+			notice := strings.HasPrefix(line, "PROTECTFD:")
+			if strings.HasPrefix(line, ">NEED-OK:Need 'PROTECTFD'") || notice {
 				if len(fds) > 0 {
 					fd := fds[0]
 					fds = fds[1:]
@@ -209,7 +217,9 @@ func (t *Tunnel) serve() error {
 					}
 					unix.Close(fd)
 				}
-				t.send("needok 'PROTECTFD' ok")
+				if !notice {
+					t.send("needok 'PROTECTFD' ok")
+				}
 				continue
 			}
 			if err := t.handle(line); err != nil {
@@ -270,7 +280,9 @@ func (t *Tunnel) handle(line string) error {
 				t.send("needok 'OPENTUN' cancel")
 				return nil
 			}
+			t.wmu.Lock()
 			_, _, err = t.mgmt.WriteMsgUnix([]byte("needok 'OPENTUN' ok\n"), unix.UnixRights(fd), nil)
+			t.wmu.Unlock()
 			unix.Close(fd) // openvpn has its own copy now
 			if err != nil {
 				return err
@@ -397,8 +409,15 @@ func (t *Tunnel) closeStack() { // with t.mu
 	}
 }
 
-func (t *Tunnel) send(cmd string) {
-	t.mgmt.Write([]byte(cmd + "\n"))
+// send writes a management command; before openvpn connected it is dropped.
+func (t *Tunnel) send(cmd string) bool {
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	if t.mgmt == nil {
+		return false
+	}
+	_, err := t.mgmt.Write([]byte(cmd + "\n"))
+	return err == nil
 }
 
 // quote for the management interface: double quotes, \ and " escaped.
@@ -428,6 +447,13 @@ func (t *Tunnel) Net() *netstack.Net {
 	return t.net
 }
 
+// Addrs are the tunnel's own addresses (pushed by the server).
+func (t *Tunnel) Addrs() []netip.Addr {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]netip.Addr(nil), t.local...)
+}
+
 // DNS are the DNS servers the server pushed.
 func (t *Tunnel) DNS() []netip.Addr {
 	t.mu.Lock()
@@ -449,6 +475,9 @@ func (t *Tunnel) Bytes() (rx, tx int64) {
 	return t.rx, t.tx
 }
 
+// Pid is the openvpn process ID.
+func (t *Tunnel) Pid() int { return t.cmd.Process.Pid }
+
 // Ready is closed once the tunnel connected the first time.
 func (t *Tunnel) Ready() <-chan struct{} { return t.ready }
 
@@ -459,11 +488,12 @@ func (t *Tunnel) Done() <-chan struct{} { return t.done }
 func (t *Tunnel) Err() error { return t.err }
 
 // Reconnect asks openvpn to reconnect (new socket, endpoints resolved again).
-func (t *Tunnel) Reconnect() {
-	if t.mgmt != nil {
-		t.send("signal SIGUSR1")
-	}
-}
+func (t *Tunnel) Reconnect() { t.send("signal SIGUSR1") }
+
+// NetworkChanged tells openvpn the physical network changed (Wi-Fi <->
+// mobile data): it reconnects at once instead of waiting for its ping
+// timeout. Same command as "OpenVPN for Android".
+func (t *Tunnel) NetworkChanged() { t.send("network-change") }
 
 // Close stops openvpn (SIGTERM over management, then kill).
 func (t *Tunnel) Close() {
@@ -472,9 +502,7 @@ func (t *Tunnel) Close() {
 		return
 	default:
 	}
-	if t.mgmt != nil {
-		t.send("signal SIGTERM")
-	}
+	t.send("signal SIGTERM")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	select {
