@@ -105,7 +105,8 @@ func Start(o Options) (*Tunnel, error) {
 		"--config", conf,
 		"--management", sock, "unix", "--management-client",
 		"--management-hold", "--management-query-passwords",
-		"--persist-tun", // reconnects keep the tun (PERSIST_TUN_ACTION)
+		"--persist-tun",    // reconnects keep the tun (PERSIST_TUN_ACTION)
+		"--tmp-dir", o.Dir, // default /tmp: not writable for an app
 		"--verb", "3")
 	t.cmd.Dir = o.Dir
 	out, _ := t.cmd.StdoutPipe()

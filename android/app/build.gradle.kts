@@ -41,6 +41,11 @@ android {
     buildFeatures {
         compose = true
     }
+    // libopenvpn.so is a program, not a library: it must exist as a file in
+    // nativeLibraryDir to be started, so native libs are extracted on install
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 dependencies {
