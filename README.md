@@ -131,6 +131,14 @@ disturb each other).
   hooks from config files you got from somewhere)
 - Unprivileged CLI talking JSON over a Unix socket; GUIs can plug in the same way
 
+## Windows (beta)
+
+Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
+per-program routes (by file name), rules by address/port/domain, WireGuard, panic, pass,
+leak test and an optional kill switch (Windows Firewall). Build the installer ZIP with
+`packaging/windows/build.sh`, install with `install.ps1` as Administrator. Not yet: OpenVPN,
+groups, DNS filter, app firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
+
 ## Multi-hop and OpenVPN example
 
 ```toml
