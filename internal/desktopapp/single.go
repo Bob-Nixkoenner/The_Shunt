@@ -14,7 +14,7 @@ type Single struct {
 }
 
 // socketName is a variable so tests don't talk to a running app.
-var socketName = func() string { return fmt.Sprintf("@the-shunt-desktop-%d", os.Getuid()) }
+var socketName = defaultSocketName
 
 // Claim returns a Single if this is the first instance, or nil after it
 // has asked the running instance to show itself.
@@ -25,6 +25,12 @@ func Claim() (*Single, error) {
 	}
 	c, derr := net.Dial("unix", socketName())
 	if derr != nil {
+		// a socket file left by a crash (not an abstract socket): remove, retry once
+		if rerr := os.Remove(socketName()); rerr == nil {
+			if ln, err := net.Listen("unix", socketName()); err == nil {
+				return &Single{ln: ln}, nil
+			}
+		}
 		return nil, fmt.Errorf("another instance seems to run but does not answer: %w", err)
 	}
 	defer c.Close()
