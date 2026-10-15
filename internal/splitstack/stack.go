@@ -80,6 +80,9 @@ type flow struct {
 	// byDefault: on the default route (no app or destination rule); cut
 	// when a network profile changes that route
 	byDefault bool
+	// viaLink: the route was link:<kind> (resolved to direct or block when
+	// the flow started); cut when the kind of network changes
+	viaLink string
 }
 
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
@@ -89,6 +92,7 @@ func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 	}
 	normal, byDefault := e.routeFor(f.app, proto, f.dst, f.isDNS(e))
 	f.byDefault = byDefault
+	normal, f.viaLink = e.resolveLink(normal)
 	f.route = e.ov.Route(normal, time.Now())
 	f.pass = f.route == RouteDirect && normal != RouteDirect
 	e.flows.Add(1)
@@ -127,6 +131,22 @@ func (e *Engine) cut(match func(*flow) bool) int {
 		c.Close()
 	}
 	return n
+}
+
+// resolveLink turns link:<kind> into direct (the machine is connected over
+// that kind of network right now) or block (it is not): the app goes out
+// over that connection only, never over another one.
+func (e *Engine) resolveLink(route string) (resolved, kind string) {
+	k, ok := strings.CutPrefix(route, linkPref)
+	if !ok {
+		return route, ""
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.link == k {
+		return RouteDirect, k
+	}
+	return RouteBlock, k
 }
 
 func (f *flow) isDNS(e *Engine) bool { return f.dst.Addr() == e.dns && f.dst.Port() == 53 }

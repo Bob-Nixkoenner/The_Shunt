@@ -35,8 +35,10 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 				return "block", nil
 			}
 			return r.String(), nil
+		case config.RouteLink:
+			return r.String(), nil // resolved by the engine: direct while on that kind of network
 		}
-		return "", fmt.Errorf("route %q: link routes are not available on Windows yet", s)
+		return "", fmt.Errorf("route %q is not available on Windows", s)
 	}
 
 	type tunnelJS struct {

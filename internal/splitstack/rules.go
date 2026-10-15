@@ -264,15 +264,16 @@ func contains(l []string, s string) bool {
 // profile that blocks, nothing may keep going the old way.
 func (e *Engine) SetNetwork(link, ssid string) string {
 	e.mu.Lock()
-	oldDef, oldDirect := e.def, e.direct
+	oldDef, oldDirect, oldLink := e.def, e.direct, e.link
 	e.link, e.ssid = link, ssid
 	name := e.applyNetwork()
 	newDef, newDirect := e.def, e.direct
 	e.mu.Unlock()
 	n := 0
-	if newDef != oldDef || newDirect != oldDirect {
+	if newDef != oldDef || newDirect != oldDirect || link != oldLink {
 		n = e.cut(func(f *flow) bool {
-			return (f.byDefault && newDef != oldDef) || (f.isDNS(e) && f.route == RouteDirect && newDirect != oldDirect)
+			return (f.byDefault && newDef != oldDef) || (f.isDNS(e) && f.route == RouteDirect && newDirect != oldDirect) ||
+				(f.viaLink != "" && link != oldLink)
 		})
 	}
 	e.logf("network %s %q: profile %q, %d connection(s) cut", link, ssid, name, n)

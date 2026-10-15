@@ -27,6 +27,8 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   The "Programs" list (`internal/winapps`) shows running programs and their rules.
 - Programs are matched by file name (`app = ["firefox"]` → `firefox.exe` anywhere) or by path
   (`exe:C:\Tools\x.exe`). Rules by address, port and domain work as on Linux.
+- `link:wifi|ethernet|mobile` routes: direct while the machine is on that kind of network, blocked otherwise
+  (flows are cut when the kind changes).
 - Network changes (Wi-Fi ↔ cable, new Wi-Fi) are followed every 3 s; the Wi-Fi name picks the
   `[[network]]` profile.
 - Kill switch (`[daemon] kill_switch = true`, off by default): Windows Firewall blocks all
@@ -41,8 +43,7 @@ checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows
 
 ## Not yet
 
-OpenVPN (the Android trick needs fd passing; Windows needs another way), `link:` routes,
-groups, `shunt run`-style "start an app in a route", DNS filter, app firewall, restricting
+OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, `shunt run`-style "start an app in a route", DNS filter, app firewall, restricting
 the API to certain users (today every local user may use it; config files stay admin-only),
 code signing (SmartScreen warns), WireGuard `allow_lan`, `via` hops are untested on Windows.
 

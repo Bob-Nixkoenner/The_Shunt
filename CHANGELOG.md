@@ -32,7 +32,8 @@ Fixes from the VM tests (Ubuntu 26.04, CachyOS, Windows 11).
   Optional **kill switch** (`[daemon] kill_switch = true`): Windows Firewall blocks
   everything that bypasses The Shunt, also while the service is down after a crash.
   Install with `packaging/windows` (`build.sh` makes the ZIP, `install.ps1` installs).
-  Not yet on Windows: OpenVPN, `link:` routes, groups, DNS filter, app firewall.
+  `link:wifi|ethernet|mobile` routes work there too. Not yet on Windows: OpenVPN, groups,
+  DNS filter, app firewall.
 - **`shunt remove NAME`** deletes a tunnel and its imported files (refused while the
   default route, a rule or another tunnel's `via` uses it).
 
