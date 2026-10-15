@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"golang.zx2c4.com/wireguard/conn"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsvc"
@@ -68,10 +69,13 @@ func main() {
 		err = control(func(s *mgr.Service) error { return s.Start() })
 	case "stop":
 		err = control(func(s *mgr.Service) error { _, e := s.Control(svc.Stop); return e })
+	case "killswitch-off": // emergency: lift the firewall rules and policy
+		winsplit.DisableKillSwitch()
+		fmt.Println("kill switch lifted")
 	case "version":
 		fmt.Println(version)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|start|stop|run|version")
+		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|start|stop|run|killswitch-off|version")
 		os.Exit(2)
 	}
 	if err != nil {
@@ -147,7 +151,25 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
-	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown}
+	exe, _ := os.Executable()
+	ksOn := false
+	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
+		// [daemon] kill_switch follows the config at once, also when edited in the window
+		OnConfig: func(c *config.Config) {
+			switch {
+			case c.Daemon.KillSwitch && !ksOn:
+				if err := winsplit.EnableKillSwitch(exe); err != nil {
+					log.Printf("kill switch: %v", err)
+					return
+				}
+				ksOn = true
+				log.Print("kill switch on")
+			case !c.Daemon.KillSwitch && ksOn:
+				winsplit.DisableKillSwitch()
+				ksOn = false
+				log.Print("kill switch off")
+			}
+		}}
 	cfg, warns, err := m.Load()
 	if err != nil {
 		return fmt.Errorf("%s: %w", filepath.Join(dataDir, "shunt.toml"), err)
@@ -211,6 +233,10 @@ func runCore(ctx context.Context, ready func()) error {
 	select {
 	case <-ctx.Done():
 		log.Print("stopping")
+		if ksOn { // stopped on purpose: lift it. A crash or a restart keeps it.
+			winsplit.DisableKillSwitch()
+			log.Print("kill switch lifted (service stopped)")
+		}
 		return nil
 	case <-restart:
 		log.Print("restart requested")
@@ -269,6 +295,7 @@ func install() error {
 }
 
 func uninstall() error {
+	winsplit.DisableKillSwitch()
 	return control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)

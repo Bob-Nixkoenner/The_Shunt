@@ -37,6 +37,10 @@ type Manager struct {
 	// for a restart (tunnels changed).
 	SetRules func(js string) error
 	Restart  func()
+	// OnConfig is called with every config that takes effect (after Load,
+	// Save and Reload): the platform applies settings the engine does not
+	// know, like the kill switch. May be nil.
+	OnConfig func(c *config.Config)
 
 	mu      sync.Mutex
 	saveMu  sync.Mutex
@@ -79,7 +83,14 @@ func (m *Manager) Load() (js string, warnings []string, err error) {
 	m.mu.Lock()
 	m.cfg, m.running = c, fingerprint(js)
 	m.mu.Unlock()
+	m.changed(c)
 	return js, warnings, nil
+}
+
+func (m *Manager) changed(c *config.Config) {
+	if m.OnConfig != nil {
+		m.OnConfig(c)
+	}
 }
 
 // Reload re-reads shunt.toml after a change by hand (POST /v1/reload).
@@ -109,6 +120,7 @@ func (m *Manager) Reload() error {
 	m.mu.Lock()
 	m.cfg = c
 	m.mu.Unlock()
+	m.changed(c)
 	return nil
 }
 
@@ -275,6 +287,7 @@ func (m *Manager) Save(raw []byte, expect string) ([]string, error) {
 		m.mu.Lock()
 		m.cfg = c
 		m.mu.Unlock()
+		m.changed(c)
 		if m.Restart != nil {
 			m.Restart()
 		}
@@ -289,6 +302,7 @@ func (m *Manager) Save(raw []byte, expect string) ([]string, error) {
 	m.mu.Lock()
 	m.cfg = c
 	m.mu.Unlock()
+	m.changed(c)
 	return warn, nil
 }
 
