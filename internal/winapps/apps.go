@@ -30,11 +30,40 @@ type Source struct {
 	Client Client
 	// Procs returns the paths of the running programs; nil: Running().
 	Procs func() []string
+	// Installed returns the Start menu programs; nil: StartMenu().
+	Installed func() []StartMenuProgram
 	// TTL keeps the process list for a while (listing is not free).
 	TTL time.Duration
 
 	cached  []string
 	cachedT time.Time
+
+	inst  []StartMenuProgram
+	instT time.Time
+}
+
+func (s *Source) installed() []StartMenuProgram {
+	if s.inst != nil && time.Since(s.instT) < time.Minute {
+		return s.inst
+	}
+	f := s.Installed
+	if f == nil {
+		f = StartMenu
+	}
+	s.inst, s.instT = f(), time.Now()
+	if s.inst == nil {
+		s.inst = []StartMenuProgram{}
+	}
+	return s.inst
+}
+
+func idOf(path string) string {
+	return strings.ToLower(filepath.Base(strings.ReplaceAll(path, `\`, "/")))
+}
+
+func isUninstaller(name, path string) bool {
+	n := strings.ToLower(name + " " + filepath.Base(strings.ReplaceAll(path, `\`, "/")))
+	return strings.Contains(n, "uninstall") || strings.Contains(n, "deinstall")
 }
 
 func (s *Source) procs() []string {
@@ -92,11 +121,22 @@ func (s *Source) List() ([]desktop.Entry, error) {
 		}
 	}
 	byID := map[string]desktop.Entry{}
+	// installed programs first: they carry the proper name ("Mozilla Firefox")
+	for _, p := range s.installed() {
+		if isSystem(p.Path) || isUninstaller(p.Name, p.Path) {
+			continue
+		}
+		if id := idOf(p.Path); id != "" {
+			if _, ok := byID[id]; !ok {
+				byID[id] = desktop.Entry{ID: id, Name: p.Name, Exec: p.Path, Online: true}
+			}
+		}
+	}
 	for _, p := range s.procs() {
 		if isSystem(p) {
 			continue
 		}
-		id := strings.ToLower(filepath.Base(strings.ReplaceAll(p, `\`, "/")))
+		id := idOf(p)
 		if _, ok := byID[id]; !ok {
 			byID[id] = desktop.Entry{ID: id, Name: Name(id), Exec: p, Online: true}
 		}
