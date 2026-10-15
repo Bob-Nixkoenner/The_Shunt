@@ -102,8 +102,11 @@ func (s *Server) Status() (api.Status, error) {
 		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
 		h := t.Health
 		ts.Health = &h
-		if t.Handshake > 0 || t.RX > 0 || t.TX > 0 {
+		{
 			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
+			if s.Cfg != nil {
+				ts.Peers[0].Endpoint = s.Cfg.Endpoint(t.Name)
+			}
 			if t.Handshake > 0 {
 				ts.Peers[0].LastHandshake = time.Unix(t.Handshake, 0)
 			}

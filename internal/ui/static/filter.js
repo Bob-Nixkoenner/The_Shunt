@@ -85,7 +85,7 @@ function renderFilter() {
 }
 
 function ago(t) {
-  if (!t) return "never";
+  if (!t || String(t).startsWith("0001")) return "never"; // Go's zero time
   const s = (Date.now() - new Date(t)) / 1000;
   if (s < 10) return "just now";
   if (s < 90) return Math.round(s) + " s ago";
