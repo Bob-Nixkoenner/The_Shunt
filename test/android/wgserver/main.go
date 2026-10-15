@@ -15,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -31,6 +32,55 @@ var serverIP = netip.MustParseAddr("10.9.0.1")
 
 func b64(k wgtypes.Key) string { return base64.StdEncoding.EncodeToString(k[:]) }
 
+// loopBind is a conn.Bind with one UDP socket on a fixed address (the
+// default bind listens on every address; for tests next to a real network
+// the server should be reachable from this machine only).
+type loopBind struct {
+	ip   netip.Addr
+	port int
+	c    *net.UDPConn
+}
+
+func (b *loopBind) Open(uint16) ([]conn.ReceiveFunc, uint16, error) {
+	c, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(b.ip, uint16(b.port))))
+	if err != nil {
+		return nil, 0, err
+	}
+	b.c = c
+	recv := func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
+		n, ap, err := c.ReadFromUDPAddrPort(bufs[0])
+		if err != nil {
+			return 0, err
+		}
+		sizes[0], eps[0] = n, &conn.StdNetEndpoint{AddrPort: ap}
+		return 1, nil
+	}
+	return []conn.ReceiveFunc{recv}, uint16(b.port), nil
+}
+func (b *loopBind) Close() error {
+	if b.c != nil {
+		return b.c.Close()
+	}
+	return nil
+}
+func (b *loopBind) SetMark(uint32) error { return nil }
+func (b *loopBind) BatchSize() int       { return 1 }
+func (b *loopBind) ParseEndpoint(s string) (conn.Endpoint, error) {
+	ap, err := netip.ParseAddrPort(s)
+	return &conn.StdNetEndpoint{AddrPort: ap}, err
+}
+func (b *loopBind) Send(bufs [][]byte, ep conn.Endpoint) error {
+	ap := ep.(*conn.StdNetEndpoint).AddrPort
+	for _, buf := range bufs {
+		if _, err := b.c.WriteToUDPAddrPort(buf, ap); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var listen = flag.String("listen", "", "listen on this address only (e.g. 127.0.0.1); default: all")
+
 func serve(name string, port int, host string) string {
 	spriv, _ := wgtypes.GeneratePrivateKey()
 	cpriv, _ := wgtypes.GeneratePrivateKey()
@@ -39,7 +89,11 @@ func serve(name string, port int, host string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dev := device.NewDevice(tdev, conn.NewDefaultBind(), device.NewLogger(device.LogLevelError, name+": "))
+	var bind conn.Bind = conn.NewDefaultBind()
+	if *listen != "" {
+		bind = &loopBind{ip: netip.MustParseAddr(*listen), port: port}
+	}
+	dev := device.NewDevice(tdev, bind, device.NewLogger(device.LogLevelError, name+": "))
 	if err := dev.IpcSet(fmt.Sprintf("private_key=%x\nlisten_port=%d\npublic_key=%x\nallowed_ip=10.9.0.2/32\n", spriv[:], port, cpub[:])); err != nil {
 		log.Fatal(err)
 	}
