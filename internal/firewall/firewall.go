@@ -374,6 +374,25 @@ func (m *Manager) Forget(key string) error {
 	return m.save()
 }
 
+// RenameRoute rewrites stored decisions that name route from (a renamed tunnel).
+func (m *Manager) RenameRoute(from, to string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.init()
+	n := 0
+	for k, r := range m.remembered {
+		if r.Route == from {
+			r.Route = to
+			m.remembered[k] = r
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return m.save()
+}
+
 // HeldFor returns the waiting groups (id -> group) for cgroup root root.
 // A ruleset reload replaces the platform's rules and with them the block of
 // these groups: install them together with the new ruleset so held

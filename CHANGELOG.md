@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Rename tunnels.** `shunt rename OLD NEW` (API: `POST /v1/tunnels/{name}/rename`)
+renames a tunnel: its files, the default route, networks, rules, second hops and stored
+app-firewall answers follow; the user's menu launchers are re-pointed by the CLI. The
+tunnel restarts under the new interface name.
+
 **Installer: Arch and Fedora, signed releases, dry run, full log.**
 
 - **Arch Linux** (Manjaro, EndeavourOS) **and Fedora**: the installer uses pacman or dnf
