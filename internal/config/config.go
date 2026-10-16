@@ -179,7 +179,7 @@ type Upstream struct {
 // Tunnel references a wg-quick file or an OpenVPN client config.
 type Tunnel struct {
 	Config string `toml:"config,omitempty" json:"config,omitempty"`
-	// Driver: auto | kernel | userspace (WireGuard), openvpn.
+	// Driver: auto | kernel | userspace (WireGuard), openvpn, tailscale.
 	Driver    string `toml:"driver,omitempty" json:"driver,omitempty"`
 	Interface string `toml:"interface,omitempty" json:"interface,omitempty"`
 	// DNS names the upstream used for this tunnel. Empty means the DNS=
@@ -204,6 +204,10 @@ type Tunnel struct {
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
 func (t Tunnel) IsOpenVPN() bool { return t.Driver == "openvpn" }
+
+// IsTailscale reports whether the tunnel is a Tailscale/Headscale client
+// (tailscaled in its own network namespace, config = a .ts file).
+func (t Tunnel) IsTailscale() bool { return t.Driver == "tailscale" }
 
 // Group is a named set of processes, filled via `shunt run --group`.
 type Group struct {
@@ -317,9 +321,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("tunnel %q: config path missing", n)
 		}
 		switch t.Driver {
-		case "auto", "kernel", "userspace", "openvpn":
+		case "auto", "kernel", "userspace", "openvpn", "tailscale":
 		default:
-			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn)", n, t.Driver)
+			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn | tailscale)", n, t.Driver)
 		}
 		if t.Auth != "" && !t.IsOpenVPN() {
 			return fmt.Errorf("tunnel %q: auth is only for driver = \"openvpn\"", n)

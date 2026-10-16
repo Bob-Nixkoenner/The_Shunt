@@ -57,6 +57,13 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 		}
 		v.Tunnels = append(v.Tunnels, ti)
 	}
+	for name, tc := range d.prep.TS {
+		ti := api.TunnelConfInfo{Name: name, Type: "tailscale", Endpoint: tc.LoginServer}
+		for _, a := range tc.Prefixes() {
+			ti.AllowedIPs = append(ti.AllowedIPs, a.String())
+		}
+		v.Tunnels = append(v.Tunnels, ti)
+	}
 	slices.SortFunc(v.Tunnels, func(a, b api.TunnelConfInfo) int { return strings.Compare(a.Name, b.Name) })
 	return v, nil
 }
