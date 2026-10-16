@@ -68,6 +68,7 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 		errs = append(errs, syncTable(r, ifaceUp[r.Iface], extra))
 	}
 	errs = append(errs, syncRules(wantRules))
+	errs = append(errs, enableForwarding(p.Uplinks()))
 	return errors.Join(errs...)
 }
 
@@ -176,13 +177,17 @@ func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
 			if (pfx.Addr().Is4() && (!r.V4 || !has4)) || (pfx.Addr().Is6() && (!r.V6 || !has6 || !haveFamily(netlink.FAMILY_V6))) {
 				continue // no source address of that family: keep it unreachable
 			}
-			want = append(want, &netlink.Route{
+			rt := &netlink.Route{
 				LinkIndex: link.Attrs().Index,
 				Type:      unix.RTN_UNICAST,
 				Table:     r.Table,
 				Dst:       ipnet(pfx),
 				Scope:     netlink.SCOPE_LINK,
-			})
+			}
+			if r.Gateway.IsValid() && r.Gateway.Is4() == pfx.Addr().Is4() {
+				rt.Gw, rt.Scope, rt.Flags = r.Gateway.AsSlice(), netlink.SCOPE_UNIVERSE, int(netlink.FLAG_ONLINK)
+			}
+			want = append(want, rt)
 		}
 	}
 	return applyTable(r.Table, want, soft)
@@ -332,4 +337,21 @@ func Cleanup() error {
 
 func ipnet(p netip.Prefix) *net.IPNet {
 	return &net.IPNet{IP: p.Addr().AsSlice(), Mask: net.CIDRMask(p.Bits(), p.Addr().BitLen())}
+}
+
+// enableForwarding turns forwarding on for the uplinks: replies to what a
+// Tailscale tunnel's namespace sent arrive there and are forwarded back
+// into it. Per interface, not globally; the ruleset's fwd_guard keeps
+// everything else from using it.
+func enableForwarding(uplinks []string) error {
+	var errs []error
+	for _, u := range uplinks {
+		if _, err := netlink.LinkByName(u); err != nil {
+			continue // not up (yet): the next sync does it
+		}
+		if err := os.WriteFile("/proc/sys/net/ipv4/conf/"+u+"/forwarding", []byte("1"), 0); err != nil {
+			errs = append(errs, fmt.Errorf("forwarding on %s: %w", u, err))
+		}
+	}
+	return errors.Join(errs...)
 }
