@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.7.0-rc5
 
-Fixes from the VM tests (Ubuntu 26.04, CachyOS, Windows 11).
+**Android: OpenVPN tunnels, multi-hop and disguise on foreign Wi-Fi – plus fixes from the
+VM tests (Ubuntu 26.04, CachyOS).** No Windows build in this release.
+
+- **Android: OpenVPN tunnels** next to WireGuard (import a `.ovpn` file or a QR code);
+  OpenVPN runs behind the app's own TUN, per app like every other tunnel.
+- **Android: `via` (multi-hop)**: an OpenVPN tunnel can run through a WireGuard tunnel.
+- **Android: disguise on foreign Wi-Fi** (random device name).
 
 - **Stopping shuntd keeps direct traffic working, DNS included.** Tunnels and the
   login browser stay blocked (their DNS too, fails closed), but direct programs now
