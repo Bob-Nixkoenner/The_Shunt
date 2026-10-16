@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0-rc8
+
+**Same as rc7, but without the Windows files.** The Windows ZIP and `setup.exe` are not part
+of this release until the Windows tunnel (Tailscale/Headscale via tsnet) is tested on real
+machines; the pipeline builds them again once the repository variable `BUILD_WINDOWS` is
+`true`. Windows users stay on v0.7.0-rc6/rc7 for now. Linux and Android: nothing changes.
+
 ## v0.7.0-rc7
 
 **Tailscale / Headscale tunnels on Linux and Windows, a start button for launchers.**
