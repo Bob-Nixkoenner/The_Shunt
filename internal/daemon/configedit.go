@@ -13,6 +13,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
 
@@ -190,6 +191,11 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 		if len(wc.Ignored) > 0 {
 			warn = append(warn, "ignored in the WireGuard file: "+strings.Join(wc.Ignored, ", "))
 		}
+	} else if tsconf.Looks(req.Conf) {
+		if _, err := tsconf.Parse(req.Conf); err != nil {
+			return nil, fmt.Errorf("Tailscale/Headscale config: %w", err)
+		}
+		ext, driver = ".ts", "tailscale"
 	} else {
 		// provider files often carry DNS scripts (up/down): Shunt does
 		// DNS itself, so they are commented out instead of refusing the file

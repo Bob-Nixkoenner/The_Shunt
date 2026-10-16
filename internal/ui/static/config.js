@@ -128,7 +128,7 @@ function renderConfig() {
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
       el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
-  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard or OpenVPN config below."))]));
+  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard, OpenVPN or Tailscale/Headscale config below."))]));
 
   $("#c-rules").replaceChildren(...(model.rule.length ? model.rule.map((r, i) => {
     const sel = [];
@@ -267,6 +267,7 @@ $("#raw-save").addEventListener("click", async () => {
 function confType(t) {
   if (t.includes("[Interface]")) return "wireguard";
   if (/^\s*remote\s+\S/m.test(t)) return "openvpn";
+  if (/^\s*auth_key\s*=/m.test(t)) return "tailscale";
   return "";
 }
 function needsLogin(t) {
@@ -281,7 +282,7 @@ function updateImportForm() {
 }
 // same rules as `shunt import`: "Mullvad-DE_fra 001.conf" -> "mullvad-de"
 function nameFromFile(n) {
-  let s = n.toLowerCase().replace(/\.(conf|ovpn)$/, "").replace(/[-_ .]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/^-+/, "");
+  let s = n.toLowerCase().replace(/\.(conf|ovpn|ts)$/, "").replace(/[-_ .]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/^-+/, "");
   return s.slice(0, 10).replace(/-+$/, "") || "tunnel";
 }
 function takeFile(f) {
@@ -291,7 +292,7 @@ function takeFile(f) {
     $("#t-conf").value = t;
     if (!$("#t-name").value) $("#t-name").value = nameFromFile(f.name);
     updateImportForm();
-    if (!confType(t)) toast(f.name + " doesn't look like a WireGuard or OpenVPN config");
+    if (!confType(t)) toast(f.name + " doesn't look like a WireGuard, OpenVPN or Tailscale/Headscale config");
   }).catch((e) => toast("Cannot read " + f.name + ": " + e.message + " (root-only files: sudo shunt import FILE)"));
 }
 function fillVia() {
@@ -315,7 +316,7 @@ $("#t-import").addEventListener("click", async () => {
   const conf = $("#t-conf").value;
   const type = confType(conf);
   if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
-  if (!type) return toast("Paste or drop a WireGuard (.conf) or OpenVPN (.ovpn) config first");
+  if (!type) return toast("Paste or drop a WireGuard (.conf), OpenVPN (.ovpn) or Tailscale/Headscale (.ts) config first");
   if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
   const req = { name, conf, via: $("#t-via").value || undefined };
   if (type === "openvpn" && needsLogin(conf)) {

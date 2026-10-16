@@ -43,15 +43,50 @@ type wgTunnel struct {
 	ovpnStarted time.Time
 	mtu         int
 	via         *viaRelay // multi-hop relays (tunnelConf.Via), nil = direct
+
+	// Tailscale/Headscale (tailscale.go): tsnet instead of a netstack
+	tsType bool // the tunnel is a Tailscale one (ts may be nil: failed to start)
+	ts     *tsTunnel
 }
 
 func (t *wgTunnel) isOVPN() bool { return t.ovpnConf.Type == typeOpenVPN }
+func (t *wgTunnel) isTS() bool   { return t.tsType }
+
+// reachable: connections can be tried through the tunnel (it may still be
+// without a connection); false = its apps are blocked.
+func (t *wgTunnel) reachable() bool {
+	if t.isTS() {
+		return t.ts != nil
+	}
+	return t.netw() != nil
+}
+
+// dialAP opens a TCP or UDP connection to ap through the tunnel.
+func (t *wgTunnel) dialAP(ctx context.Context, tcp bool, ap netip.AddrPort) (net.Conn, error) {
+	if t.isTS() {
+		if t.ts == nil {
+			return nil, errors.New("tunnel not connected")
+		}
+		return t.ts.dial(ctx, map[bool]string{true: "tcp", false: "udp"}[tcp], ap)
+	}
+	n := t.netw()
+	if n == nil {
+		return nil, errors.New("tunnel not connected")
+	}
+	if tcp {
+		return n.DialContextTCPAddrPort(ctx, ap)
+	}
+	return n.DialUDPAddrPort(netip.AddrPort{}, ap)
+}
 
 // up: the tunnel exists (WireGuard device made, openvpn started); it may
 // still have no connection.
 func (t *wgTunnel) up() bool {
 	if t.isOVPN() {
 		return t.ovpnTunnel() != nil
+	}
+	if t.isTS() {
+		return t.ts != nil
 	}
 	return t.dev != nil
 }
@@ -70,6 +105,9 @@ func (t *wgTunnel) netw() *netstack.Net {
 
 // dnsAddr is the DNS server reached through the tunnel.
 func (t *wgTunnel) dnsAddr() netip.Addr {
+	if t.isTS() {
+		return tsDNS
+	}
 	if t.isOVPN() {
 		if ot := t.ovpnTunnel(); ot != nil {
 			return ovpnDNS(ot)
@@ -81,6 +119,9 @@ func (t *wgTunnel) dnsAddr() netip.Addr {
 
 // families: whether the tunnel has an IPv4 / IPv6 address.
 func (t *wgTunnel) families() (v4, v6 bool) {
+	if t.isTS() {
+		return true, false // IPv4 only, like the Linux driver
+	}
 	if t.isOVPN() {
 		if ot := t.ovpnTunnel(); ot != nil {
 			for _, a := range ot.Addrs() {
@@ -215,6 +256,9 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 }
 
 func (t *wgTunnel) close() {
+	if t.ts != nil {
+		t.ts.close()
+	}
 	if ot := t.ovpnTunnel(); ot != nil {
 		ot.Close()
 	}
@@ -229,6 +273,9 @@ func (t *wgTunnel) close() {
 func (t *wgTunnel) status() (st tunnelStatus) {
 	if t.isOVPN() {
 		return t.ovpnStatus()
+	}
+	if t.isTS() {
+		return t.tsStatus()
 	}
 	st = tunnelStatus{Name: t.name, Type: typeWireGuard, Up: t.dev != nil, Error: t.err}
 	if t.dev == nil {
@@ -292,7 +339,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
 				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dnsAddr()))
 				cancel()
-				if first && st.Handshake == 0 && !t.isOVPN() { // the probe made the first handshake: count it now
+				if first && st.Handshake == 0 && !t.isOVPN() && !t.isTS() { // the probe made the first handshake: count it now
 					if st2 := t.status(); st2.Handshake > 0 {
 						t.mon.Observe(time.Unix(st2.Handshake, 0), st2.RX, st2.TX, time.Now())
 						e.book.Observe(t.name, st2.RX, st2.TX, time.Now())
@@ -314,15 +361,14 @@ func (t *wgTunnel) dialUDP(_ context.Context, _, addr string) (net.Conn, error) 
 	if err != nil {
 		return nil, err
 	}
-	n := t.netw()
-	if n == nil {
-		return nil, errors.New("tunnel not connected")
-	}
-	return n.DialUDPAddrPort(netip.AddrPort{}, ap)
+	return t.dialAP(context.Background(), false, ap)
 }
 
 // reconnect resolves the endpoints again (DDNS) and re-opens the socket.
 func (e *Engine) reconnect(t *wgTunnel) error {
+	if t.isTS() {
+		return nil // tsnet keeps its own connections alive
+	}
 	if t.isOVPN() {
 		if ot := t.ovpnTunnel(); ot != nil {
 			ot.Reconnect()
@@ -352,4 +398,25 @@ func (e *Engine) reconnect(t *wgTunnel) error {
 		return e.o.BindUp(t.dev.Bind())
 	}
 	return nil
+}
+
+// tsStatus: a Tailscale tunnel is "up" once it is on the tailnet (and, with
+// an exit node, the exit node is online).
+func (t *wgTunnel) tsStatus() (st tunnelStatus) {
+	st = tunnelStatus{Name: t.name, Type: typeTailscale, Error: t.err}
+	if t.ts == nil {
+		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
+		return st
+	}
+	defer func() { st.Health = t.mon.Report(time.Now()) }()
+	up, rx, tx, hs, err := t.ts.status()
+	st.RX, st.TX = rx, tx
+	if err != "" {
+		st.Error = err
+	}
+	st.Up = up
+	if up && !hs.IsZero() {
+		st.Handshake = hs.Unix()
+	}
+	return st
 }

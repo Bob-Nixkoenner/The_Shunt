@@ -122,7 +122,7 @@ function render() {
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
     const hs = p.last_handshake && !p.last_handshake.startsWith("0001");
-    const ovpn = t.driver === "openvpn";
+    const ovpn = t.driver === "openvpn" || t.driver === "tailscale";
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
       el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },

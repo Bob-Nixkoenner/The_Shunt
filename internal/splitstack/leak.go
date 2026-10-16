@@ -28,15 +28,12 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 		}
 	case strings.HasPrefix(route, tunnelPref):
 		t := e.tunnels[strings.TrimPrefix(route, tunnelPref)]
-		if t == nil || t.net == nil {
+		if t == nil || !t.reachable() {
 			return nil, nil, fmt.Errorf("%s is not up", route)
 		}
-		dnsSrv = t.dns
+		dnsSrv = t.dnsAddr()
 		raw = func(ctx context.Context, network string, ap netip.AddrPort) (net.Conn, error) {
-			if strings.HasPrefix(network, "udp") {
-				return t.net.DialUDPAddrPort(netip.AddrPort{}, ap)
-			}
-			return t.net.DialContextTCPAddrPort(ctx, ap)
+			return t.dialAP(ctx, !strings.HasPrefix(network, "udp"), ap)
 		}
 	default:
 		return nil, nil, fmt.Errorf("unknown route %q", route)
@@ -73,7 +70,7 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 func (e *Engine) LeakTest(ctx context.Context) string {
 	routes := []string{RouteDirect, RouteBlock}
 	for name, t := range e.tunnels {
-		if t.net != nil {
+		if t.reachable() {
 			routes = append(routes, tunnelPref+name)
 		}
 	}

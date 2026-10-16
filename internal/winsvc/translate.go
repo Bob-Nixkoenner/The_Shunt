@@ -81,6 +81,9 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 			return "", nil, fmt.Errorf("tunnel %q: %w", name, err)
 		}
 		tj := tunnelJS{Name: name, Conf: string(b)}
+		if t.IsTailscale() {
+			tj.Type = "tailscale"
+		}
 		if t.IsOpenVPN() {
 			tj.Type = "openvpn"
 			warn("tunnel %q: OpenVPN is not available on Windows yet, the tunnel stays down", name)

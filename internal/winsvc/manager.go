@@ -16,6 +16,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
 
@@ -53,6 +54,12 @@ const defaultConfig = "# The Shunt for Windows\n[daemon]\ndefault_route = \"dire
 
 func (m *Manager) path() string      { return filepath.Join(m.Dir, "shunt.toml") }
 func (m *Manager) tunnelDir() string { return filepath.Join(m.Dir, "tunnels") }
+func (m *Manager) stateDir() string {
+	if m.Dir == "" {
+		return ""
+	}
+	return filepath.Join(m.Dir, "state")
+}
 
 func (m *Manager) abs(p string) string {
 	if !filepath.IsAbs(p) {
@@ -102,7 +109,11 @@ func (m *Manager) refreshEndpoints(c *config.Config) {
 		if err != nil {
 			continue
 		}
-		if t.IsOpenVPN() {
+		if t.IsTailscale() {
+			if tc, err := tsconf.Parse(string(b)); err == nil {
+				eps[name] = tsServer(tc)
+			}
+		} else if t.IsOpenVPN() {
 			if oc, err := ovpnconf.Parse(string(b), ""); err == nil && len(oc.Remotes) > 0 {
 				eps[name] = oc.Remotes[0]
 			}
@@ -178,14 +189,22 @@ func (m *Manager) build(raw []byte) (*config.Config, string, []string, error) {
 }
 
 func (m *Manager) withStats(js string) string {
-	if m.StatsPath == "" {
-		return js
-	}
 	var o map[string]any
 	if json.Unmarshal([]byte(js), &o) != nil {
 		return js
 	}
-	o["stats_path"] = m.StatsPath
+	if m.StatsPath != "" {
+		o["stats_path"] = m.StatsPath
+	}
+	// private files of the tunnels (Tailscale node keys): same protection as tunnels\
+	if work := m.stateDir(); work != "" {
+		if err := os.MkdirAll(work, 0o700); err == nil {
+			if m.Secure != nil {
+				m.Secure(work)
+			}
+			o["work_dir"] = work
+		}
+	}
 	b, _ := json.Marshal(o)
 	return string(b)
 }
@@ -242,7 +261,15 @@ func (m *Manager) View() (api.ConfigView, error) {
 			continue
 		}
 		ti := api.TunnelConfInfo{Name: name, Type: "wireguard"}
-		if t.IsOpenVPN() {
+		if t.IsTailscale() {
+			ti.Type = "tailscale"
+			if tc, err := tsconf.Parse(string(b)); err == nil {
+				ti.Endpoint = tsServer(tc)
+				for _, p := range tc.Prefixes() {
+					ti.AllowedIPs = append(ti.AllowedIPs, p.String())
+				}
+			}
+		} else if t.IsOpenVPN() {
 			ti.Type, ti.AllowedIPs = "openvpn", []string{"0.0.0.0/0", "::/0"}
 			if oc, err := ovpnconf.Parse(string(b), ""); err == nil && len(oc.Remotes) > 0 {
 				ti.Endpoint = oc.Remotes[0]
@@ -347,6 +374,14 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
+// tsServer names the server of a Tailscale/Headscale tunnel for the status.
+func tsServer(c *tsconf.Config) string {
+	if c.LoginServer == "" {
+		return "Tailscale"
+	}
+	return strings.TrimPrefix(strings.TrimPrefix(c.LoginServer, "https://"), "http://")
+}
+
 var tunnelNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,9}$`)
 
 // ImportTunnel stores a wg-quick file or an OpenVPN client config and adds
@@ -365,6 +400,11 @@ func (m *Manager) ImportTunnel(req api.TunnelImport) ([]string, error) {
 		if len(wc.Ignored) > 0 {
 			warn = append(warn, "ignored in the WireGuard file: "+strings.Join(wc.Ignored, ", "))
 		}
+	} else if tsconf.Looks(req.Conf) {
+		if _, err := tsconf.Parse(req.Conf); err != nil {
+			return nil, fmt.Errorf("Tailscale/Headscale config: %w", err)
+		}
+		ext, driver = ".ts", "tailscale"
 	} else {
 		clean, removed := ovpnconf.Sanitize(req.Conf)
 		if len(removed) > 0 {
