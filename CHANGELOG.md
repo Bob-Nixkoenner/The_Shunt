@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.7.0-rc7
+
+**Tailscale / Headscale tunnels on Linux and Windows, a start button for launchers.**
+
+- **Tailscale/Headscale tunnels (new).** A tunnel file `NAME.ts` (`login_server`,
+  `auth_key`, `hostname`, optional `exit_node`) next to the WireGuard and OpenVPN files,
+  `driver = "tailscale"`. Without an exit node only the tailnet (100.64.0.0/10) is
+  reachable, with one everything routed into the tunnel leaves through that node (IPv4
+  only). Import the `.ts` file in the window like any other config.
+  - **Linux:** Shunt starts its own `tailscaled` in a private network namespace (tailscaled
+    and `tailscale` must be installed), so its routes and rules never touch the host. Kill
+    switch, panic and "this machine is no router" hold like for the other tunnels.
+    Integration test: `test/integration/tailscale.sh` (needs headscale).
+  - **Windows:** Tailscale's own userspace client (tsnet) runs inside the service: no
+    adapter, no routes. Traffic outside the tailnet is refused unless the exit node is
+    online, so nothing can leave through the normal network by accident.
+  - Not on Android yet. The Windows build now needs Go 1.26.4 (tailscale.com v1.100.0).
+- **Launchers: start button and route check.** Every launcher in the window has a "Start"
+  button and shows whether the program runs, and with which route. If it already runs with
+  another route (started from the normal menu entry, or as default browser), you are
+  warned before a second start, which would usually join that copy and keep its route.
+
 ## v0.7.0-rc6
 
 **Windows (beta) joins Linux and Android; the release pipeline now builds the APK and the
