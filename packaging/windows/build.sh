@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Windows ZIP: $DIST/the-shunt-windows-amd64.zip (default dist/)
+# Builds the Windows ZIP (+ setup.exe if ISCC is set): $DIST/the-shunt-windows-amd64.zip (default dist/)
 # (shuntd-win.exe, shunt-desktop.exe, wintun.dll, install.ps1, uninstall.ps1, README.txt)
 # VERSION=v1.2.3 sets the version shown by the program (default: git describe).
 set -euo pipefail
@@ -22,5 +22,16 @@ unzip -oq "$tmp/wintun.zip" -d "$tmp" && cp "$tmp/wintun/bin/amd64/wintun.dll" "
 
 GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkico "$OUT/the-shunt.ico"
 cp packaging/windows/install.ps1 packaging/windows/uninstall.ps1 packaging/windows/README.txt "$OUT/"
+# STAGE_DIR=<dir>: also leave the staged files there (for a separate Windows job that runs ISCC)
+if [ -n "${STAGE_DIR:-}" ]; then mkdir -p "$STAGE_DIR"; cp -r "$OUT/." "$STAGE_DIR/"; fi
+# Setup.exe (Inno Setup): ISCC=/path/to/ISCC.exe (runs under wine on Linux); skipped if not set
+if [ -n "${ISCC:-}" ]; then
+  ISS=$(realpath packaging/windows/the-shunt.iss); SRC=$OUT; DST=$DIST
+  if [ "$(uname)" != MINGW ] && command -v winepath >/dev/null; then
+    SRC=$(winepath -w "$OUT"); DST=$(winepath -w "$DIST"); ISS=$(winepath -w "$ISS")
+  fi
+  wine "$ISCC" /Qp "/DAppVersion=${VERSION#v}" "/DSrcDir=$SRC" "/DOutDir=$DST" "$ISS"
+  mv "$DIST/the-shunt-setup.exe" "$DIST/the-shunt-windows-amd64-setup.exe"
+fi
 rm -f "$DIST/the-shunt-windows-amd64.zip"; (cd "$OUT" && zip -qr "$DIST/the-shunt-windows-amd64.zip" .)
 echo "$DIST/the-shunt-windows-amd64.zip ($VERSION)"
