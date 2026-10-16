@@ -38,6 +38,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
@@ -97,6 +98,7 @@ type Prepared struct {
 	Plan   *engine.Plan
 	Confs  map[string]*wgconf.Config
 	OVPN   map[string]*ovpnconf.Config
+	TS     map[string]*tsconf.Config
 	// AuthFiles: absolute username/password file per OpenVPN tunnel.
 	AuthFiles map[string]string
 	Hashes    map[string]string
@@ -137,7 +139,7 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	if c.Daemon.CgroupRoot != "" {
 		cgroupRoot = c.Daemon.CgroupRoot
 	}
-	p := &Prepared{Config: c, Confs: map[string]*wgconf.Config{}, OVPN: map[string]*ovpnconf.Config{}, AuthFiles: map[string]string{}, Hashes: map[string]string{}}
+	p := &Prepared{Config: c, Confs: map[string]*wgconf.Config{}, OVPN: map[string]*ovpnconf.Config{}, TS: map[string]*tsconf.Config{}, AuthFiles: map[string]string{}, Hashes: map[string]string{}}
 	infos := map[string]engine.TunnelInfo{}
 	abs := func(f string) string {
 		if !filepath.IsAbs(f) {
@@ -155,6 +157,18 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
 		}
 		hash := fmt.Sprintf("%x|%s|%s|%s", sha256.Sum256(raw), t.Driver, t.Interface, t.Via)
+		if t.IsTailscale() {
+			tc, err := tsconf.ParseFile(cp)
+			if err != nil {
+				return nil, fmt.Errorf("tunnel %q: %w", name, err)
+			}
+			_, peer := tunnel.TailscaleAddrs(name)
+			p.TS[name] = tc
+			p.Hashes[name] = hash
+			// IPv6 stays blocked: the veth carries IPv4 only.
+			infos[name] = engine.TunnelInfo{Iface: t.Interface, HasV4: true, AllowedIPs: tc.Prefixes(), Gateway: peer, Forward: true}
+			continue
+		}
 		if t.IsOpenVPN() {
 			oc, err := ovpnconf.ParseFile(cp)
 			if err != nil {
@@ -261,6 +275,11 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 		}
 		if t.IsOpenVPN() {
 			continue // whatever the server pushes (see Daemon.upstreams)
+		}
+		if t.IsTailscale() {
+			// tailscaled's resolver: MagicDNS names, the tailnet's nameservers
+			p.DNSUpstreams[route] = []config.UpstreamSpec{{Proto: "udp", Addr: netip.AddrPortFrom(tunnel.TailscaleDNS, 53)}}
+			continue
 		}
 		for _, d := range p.Confs[name].DNS {
 			if a, err := netip.ParseAddr(d); err == nil {
@@ -597,7 +616,10 @@ func (d *Daemon) syncTunnels() error {
 		}
 		var t tunnel.Device
 		var err error
-		if tc.IsOpenVPN() {
+		if tc.IsTailscale() {
+			t, err = tunnel.StartTailscale(tunnel.TailscaleSpec{Name: name, Iface: tc.Interface, Conf: p.TS[name],
+				RunDir: filepath.Dir(p.Config.Daemon.Socket), StateDir: filepath.Join("/var/lib/shunt", "ts-"+name)}, d.Log, d.signalTunnel)
+		} else if tc.IsOpenVPN() {
 			d.pushed.Delete(name)
 			t, err = tunnel.StartOpenVPN(tunnel.OpenVPNSpec{Name: name, Iface: tc.Interface, Config: d.absConf(tc.Config),
 				AuthFile: p.AuthFiles[name], Mark: mark, PIDDir: filepath.Dir(p.Config.Daemon.Socket)}, d.Log, d.signalTunnel)
@@ -765,7 +787,9 @@ func hopConf(p *Prepared, name string) *wgconf.Config {
 	}
 	outer := strings.TrimPrefix(tc.Via, "tunnel:")
 	mtu := tunnel.DefaultMTU
-	if p.Config.Tunnels[outer].IsOpenVPN() {
+	if p.Config.Tunnels[outer].IsTailscale() {
+		mtu = 1280
+	} else if p.Config.Tunnels[outer].IsOpenVPN() {
 		mtu = 1500
 	} else if oc := p.Confs[outer]; oc != nil && oc.MTU != 0 {
 		mtu = oc.MTU

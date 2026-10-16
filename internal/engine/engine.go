@@ -58,6 +58,12 @@ type TunnelInfo struct {
 	HasV4      bool
 	HasV6      bool
 	AllowedIPs []netip.Prefix
+	// Gateway: the far end of the interface (a Tailscale tunnel's network
+	// namespace); its routes go "via" it. Invalid: plain device routes.
+	Gateway netip.Addr
+	// Forward: the tunnel runs behind this interface in another network
+	// namespace. Its (encrypted) packets arrive on Iface and are forwarded.
+	Forward bool
 }
 
 // Route is a compiled route.
@@ -70,6 +76,13 @@ type Route struct {
 	V6    bool // tunnel carries IPv6
 	// Prefixes routed into the tunnel (union of the peers' AllowedIPs).
 	AllowedIPs []netip.Prefix
+	// Gateway: see TunnelInfo.
+	Gateway netip.Addr
+	// Forward: see TunnelInfo. FwdMark is what the packets arriving on
+	// Iface get: MarkBypass, or the first hop's mark when the tunnel has
+	// a via.
+	Forward bool
+	FwdMark uint32
 	// DNSPort is where the DNS proxy listens for this route's queries.
 	DNSPort int
 	// AllowLAN: directly attached private networks go past the tunnel.
@@ -131,8 +144,33 @@ type Plan struct {
 	DNS      bool // per-route DNS proxy + redirection active
 	BlockDoT bool
 	BlockDoH bool
+	// LinkIfaces: the connected physical links (Wi-Fi, cable, mobile),
+	// whether a route uses them or not.
+	LinkIfaces []string
 	// FilterRoutes: all rules' FilterRoutes (one listener each).
 	FilterRoutes []*Route
+}
+
+// Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
+// on and leave through: connections and replies pass these (physical links
+// and tunnel interfaces, not the veths of Forward tunnels). Empty when no
+// tunnel is a Forward tunnel.
+func (p *Plan) Uplinks() []string {
+	forward := false
+	for _, r := range p.Routes {
+		forward = forward || r.Forward
+	}
+	if !forward {
+		return nil
+	}
+	out := slices.Clone(p.LinkIfaces)
+	for _, r := range p.Routes {
+		if (r.Kind == config.RouteLink || r.Kind == config.RouteTunnel) && !r.Forward && r.Iface != "" && !slices.Contains(out, r.Iface) {
+			out = append(out, r.Iface)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // AppRules returns the rules with app selectors, in order.
@@ -222,6 +260,11 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		DaemonGroup: Group{Name: "daemon", Path: path.Join(cgroupRoot, "daemon")},
 	}
 	p.DNS = !c.DNS.Disabled
+	for _, l := range links {
+		if l != "" && !slices.Contains(p.LinkIfaces, l) {
+			p.LinkIfaces = append(p.LinkIfaces, l)
+		}
+	}
 	p.BlockDoT = p.DNS && !c.DNS.AllowDoT
 	p.BlockDoH = p.DNS && !c.DNS.AllowDoH
 	filter := c.Filter()
@@ -253,6 +296,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
+			r.Gateway, r.Forward = ti.Gateway, ti.Forward
 			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
 			r.Filter = filter.Default
 			if f := c.Tunnels[cr.Tunnel].DNSFilter; f != "" {
@@ -266,6 +310,18 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.V4, r.V6 = true, true
 		}
 		p.Routes = append(p.Routes, r)
+	}
+
+	for _, r := range p.Routes {
+		if !r.Forward {
+			continue
+		}
+		r.FwdMark = MarkBypass
+		if via := c.Tunnels[r.Tunnel].Via; via != "" {
+			if h := p.RouteByName(via); h != nil {
+				r.FwdMark = h.Mark
+			}
+		}
 	}
 
 	names := make([]string, 0, len(c.Groups))

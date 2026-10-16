@@ -117,7 +117,7 @@ type ConfigView struct {
 // TunnelConfInfo is the public part of a tunnel's WireGuard or OpenVPN file.
 type TunnelConfInfo struct {
 	Name       string   `json:"name"`
-	Type       string   `json:"type"` // wireguard | openvpn
+	Type       string   `json:"type"` // wireguard | openvpn | tailscale
 	Endpoint   string   `json:"endpoint"`
 	Addresses  []string `json:"addresses"`
 	DNS        []string `json:"dns,omitempty"`

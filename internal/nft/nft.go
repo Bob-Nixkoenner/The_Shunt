@@ -88,7 +88,35 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain mark_in {")
 	w("\t\ttype filter hook prerouting priority mangle; policy accept;")
 	w("\t\tct mark and %#x == %#x meta mark set ct mark", engine.MarkMask, engine.MarkBase)
+	// Tailscale tunnels: what tailscaled (in its own namespace) sends
+	// arrives on the veth. It leaves like Shunt's own encrypted packets:
+	// bypass, or through the tunnel it is routed via.
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteTunnel && r.Forward {
+			if err := checkIdent(r.Iface); err != nil {
+				return "", err
+			}
+			w("\t\tiifname %q meta mark set %#x", r.Iface, r.FwdMark)
+		}
+	}
 	w("\t}")
+
+	// Tailscale tunnels need forwarding on the uplinks (the replies of
+	// their encrypted packets arrive there). The machine is no router:
+	// nothing may start a new connection through it from those
+	// interfaces, except what was set up on purpose (DNAT, port forwards).
+	if ups := p.Uplinks(); len(ups) > 0 {
+		for _, u := range ups {
+			if err := checkIdent(u); err != nil {
+				return "", err
+			}
+		}
+		w("\tchain fwd_guard {")
+		w("\t\ttype filter hook forward priority filter; policy accept;")
+		w("\t\tct status dnat return")
+		w("\t\tiifname { %s } ct state new counter drop", quoteList(ups))
+		w("\t}")
+	}
 
 	// --- enforcement: the block route.
 	// ask_out holds the app firewall's waiting programs (filled at run time
@@ -201,6 +229,9 @@ func Render(p *engine.Plan) (string, error) {
 	for _, r := range p.Routes {
 		if (r.Kind == config.RouteTunnel || r.Kind == config.RouteLink) && r.Iface != "" {
 			w("\t\tmeta mark %#x oifname %q masquerade", r.Mark, r.Iface)
+		}
+		if r.Kind == config.RouteTunnel && r.Forward && r.Iface != "" {
+			w("\t\tiifname %q oifname != %q masquerade", r.Iface, r.Iface)
 		}
 	}
 	w("\t}")
@@ -317,6 +348,9 @@ func RenderPanic() string {
 		type filter hook input priority -300; policy drop;
 		iifname "lo" accept
 	}
+	chain fwd_drop {
+		type filter hook forward priority -300; policy drop;
+	}
 }
 `, PanicTable)
 	return b.String()
@@ -382,4 +416,12 @@ func AskRules(groups map[string]engine.Group) (string, error) {
 		fmt.Fprintf(&b, "add rule inet %s ask_out %s counter reject with icmpx port-unreachable\n", Table, m)
 	}
 	return b.String(), nil
+}
+
+func quoteList(l []string) string {
+	q := make([]string, len(l))
+	for i, s := range l {
+		q[i] = fmt.Sprintf("%q", s)
+	}
+	return strings.Join(q, ", ")
 }
