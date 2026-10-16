@@ -1,17 +1,35 @@
 # The Shunt
 
-**Per-app and per-destination split tunneling for WireGuard and OpenVPN on Linux.**
-Decide which traffic takes which tunnel – by application, IP range or port – with a
-kill switch that holds even when the daemon crashes. Open source (Apache-2.0),
-no telemetry, no accounts, bring your own WireGuard or OpenVPN servers – chained
-into multi-hop if you like.
+**Per-app and per-destination split tunneling for WireGuard, OpenVPN and Tailscale/Headscale –
+on Linux, Windows and Android.** Decide which traffic takes which tunnel – by application,
+IP range, port or domain – with a kill switch that holds even when the daemon crashes.
+Open source (Apache-2.0), no telemetry, no accounts, bring your own servers – chained into
+multi-hop if you like.
 
-> 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard und OpenVPN unter Linux – fail-closed,
-> ohne Telemetrie. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md)*
+> 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard, OpenVPN und Tailscale/Headscale
+> (Linux, Windows, Android) – fail-closed, ohne Telemetrie. Design-Dokument (deutsch):
+> [docs/DESIGN.md](docs/DESIGN.md)*
 
-> ⚠️ **Status: early.** Tested end-to-end in CI (including a real install on a
-> systemd host), security-reviewed once, but young. Read [SECURITY.md](SECURITY.md)
-> – especially *Known limits* – and try it in a VM before you rely on it.
+> ⚠️ **Status: early beta.** Linux is the most tested (CI, a real install on a systemd host,
+> one security review); Windows and Android are younger. Read [SECURITY.md](SECURITY.md) –
+> especially *Known limits* – and try it in a VM before you rely on it.
+> **Ideas, wishes and bug reports are very welcome** – open an
+> [issue](https://github.com/Bob-Nixkoenner/The_Shunt/issues).
+
+### How this project was made (please read)
+
+This is a **vibe-coded** project: the code was written by an AI – Claude, Anthropic's
+models, working through Claude Code – while I (Bob) steer it, test it on my own machines and
+decide what gets built. I am not a professional developer. I know that many experienced
+developers are sceptical of that, and I understand why: AI-written code can look right and
+still be wrong, and nobody has reviewed every line the way a seasoned maintainer would. So:
+
+- Don't take my word for it – the code is open, read it, run the tests, break it.
+- Security-relevant parts have tests, an automatic CI (vet, race detector, fuzzing,
+  `govulncheck`, integration tests in network namespaces) and one outside-style review, but
+  **no independent professional audit**. Treat it as beta software.
+- That is also why everything is under permissive, standard licences (see
+  [License](#license)): use it, fork it, fix it, and tell me what is wrong.
 
 ![The Shunt web UI](docs/screenshots/shunt-ui-dark.png)
 
@@ -71,6 +89,11 @@ disturb each other).
   (OpenVPN: `.ovpn` with username/password or certificates; scripts, plugins and
   other root-level options in the file are refused, pushed routes are ignored,
   pushed DNS servers are used for that route)
+- **Tailscale / Headscale tunnels**: a `NAME.ts` file (`login_server`, `auth_key`, optional
+  `exit_node`) – on Linux Shunt runs its own `tailscaled` in a private network namespace
+  (needs `tailscaled`/`tailscale` installed), on Windows it uses Tailscale's userspace client
+  inside the service. With an exit node everything routed into the tunnel leaves through it
+  (IPv4 only); without one only the tailnet is reachable. Not on Android yet
 - **Multi-hop**: `via = "tunnel:home"` sends a tunnel's encrypted packets through
   another tunnel – WireGuard in WireGuard, OpenVPN in WireGuard, or the other way
   round. The first hop sees only the second hop's server, the second hop's server
@@ -134,10 +157,30 @@ disturb each other).
 ## Windows (beta)
 
 Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
-per-program routes (by file name), rules by address/port/domain, WireGuard, panic, pass,
-leak test and an optional kill switch (Windows Firewall). Build the installer ZIP with
-`packaging/windows/build.sh`, install with `install.ps1` as Administrator. Not yet: OpenVPN,
-groups, DNS filter, app firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
+per-program routes (by file name or path), rules by address/port/domain, WireGuard,
+Tailscale/Headscale, panic, pass, leak test and an optional kill switch (Windows Firewall).
+Install with `the-shunt-windows-amd64-setup.exe` from the
+[releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases) (not code-signed yet, so
+SmartScreen warns; a restart may be needed). Not yet: OpenVPN, groups, DNS filter, app
+firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
+
+## Android
+
+An app with the same split-tunnel core (WireGuard, OpenVPN, multi-hop, per-app profiles).
+Beta, debug-signed APK in the releases. Details in [docs/ANDROID.md](docs/ANDROID.md).
+
+## Roadmap – what it should be able to do one day
+
+Nothing here is promised; it is the list I would like to get to, in no strict order.
+Tell me what matters to you.
+
+- Windows: OpenVPN, DNS filter, app firewall, groups, code signing; test on real hardware
+- Android: Tailscale/Headscale, Play Store release
+- Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
+- A start button and route check for launchers everywhere, default browser through a launcher
+- `.deb` package, SBOM, reproducible builds, an independent security review
+- macOS (only if someone wants to help), Rosenpass / AmneziaWG, an eBPF backend
+- Per-app LAN blocking, more block lists, a panic hotkey that works out of the box
 
 ## Multi-hop and OpenVPN example
 
@@ -311,4 +354,14 @@ Short version of [SECURITY.md](SECURITY.md):
 
 ## License
 
-Apache-2.0
+**Apache-2.0** for The Shunt itself (see [LICENSE](LICENSE)) – free to use, change and
+share, also commercially; no warranty (and with AI-written code, please take that line
+seriously).
+
+It builds on other open-source software under compatible licences, among them
+[wireguard-go](https://git.zx2c4.com/wireguard-go) (MIT), [gVisor](https://gvisor.dev)
+(Apache-2.0), [Tailscale](https://github.com/tailscale/tailscale) (BSD-3-Clause),
+[miekg/dns](https://github.com/miekg/dns) (BSD-3-Clause), Wintun (the Windows ZIP/installer
+ships WireGuard's signed `wintun.dll` under its own redistribution terms) and, for
+OpenVPN tunnels, OpenVPN 2 (GPL-2.0, a separate program that is only started,
+not linked). `go.mod` lists the Go libraries.
