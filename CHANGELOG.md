@@ -1,15 +1,36 @@
 # Changelog
 
+## v0.7.0-rc6
+
+**Windows (beta) joins Linux and Android; the release pipeline now builds the APK and the
+Windows ZIP.**
+
+- **Windows (new): service, window and installer.** `shuntd-win` runs as a Windows
+  service (wintun adapter + the Android/WireGuard core) and serves the same `/v1` API as
+  the Linux daemon over a Unix socket, so the CLI-style API and the web UI work
+  unchanged. It reads the same `shunt.toml` (in `C:\ProgramData\Shunt`; the window edits
+  it, with checks, backup and live rule changes). Per-program routes match the program's
+  file name (`app = ["firefox"]`) or path (`exe:C:\\Tools\\x.exe`), plus rules by address,
+  port and domain, panic, pass, leak test and traffic statistics. `shunt-desktop.exe`
+  gives a tray icon, toast notifications, autostart and a window (Edge in app mode).
+  Optional **kill switch** (`[daemon] kill_switch = true`): Windows Firewall blocks
+  everything that bypasses The Shunt, also while the service is down after a crash.
+  Install with `packaging/windows` (`build.sh` makes the ZIP, `install.ps1` installs).
+  `link:wifi|ethernet|mobile` routes work there too. Not yet on Windows: OpenVPN, groups,
+  DNS filter, app firewall.
+- **Release assets**: the pipeline builds the Android APK (`shunt-<tag>-android.apk`, debug
+  signed) and the Windows installer ZIP (`the-shunt-windows-amd64.zip`) next to the Linux
+  tarballs; both are in the signed `SHA256SUMS`.
+
 ## v0.7.0-rc5
 
 **Android: OpenVPN tunnels, multi-hop and disguise on foreign Wi-Fi – plus fixes from the
-VM tests (Ubuntu 26.04, CachyOS).** No Windows build in this release.
+VM tests (Ubuntu 26.04, CachyOS).**
 
 - **Android: OpenVPN tunnels** next to WireGuard (import a `.ovpn` file or a QR code);
   OpenVPN runs behind the app's own TUN, per app like every other tunnel.
 - **Android: `via` (multi-hop)**: an OpenVPN tunnel can run through a WireGuard tunnel.
 - **Android: disguise on foreign Wi-Fi** (random device name).
-
 - **Stopping shuntd keeps direct traffic working, DNS included.** Tunnels and the
   login browser stay blocked (their DNS too, fails closed), but direct programs now
   resolve names through the system resolver while shuntd is down. Before, every name
@@ -27,19 +48,6 @@ VM tests (Ubuntu 26.04, CachyOS).** No Windows build in this release.
   second before WireGuard reconnects, a status notification (foreground service, with
   Panic and Stop) keeps Android from ending the VPN, and a warning shows when Android's
   "Private DNS" is on (it bypasses the VPN's DNS and the filter).
-- **Windows (new): service, window and installer.** `shuntd-win` runs as a Windows
-  service (wintun adapter + the Android/WireGuard core) and serves the same `/v1` API as
-  the Linux daemon over a Unix socket, so the CLI-style API and the web UI work
-  unchanged. It reads the same `shunt.toml` (in `C:\ProgramData\Shunt`; the window edits
-  it, with checks, backup and live rule changes). Per-program routes match the program's
-  file name (`app = ["firefox"]`) or path (`exe:C:\\Tools\\x.exe`), plus rules by address,
-  port and domain, panic, pass, leak test and traffic statistics. `shunt-desktop.exe`
-  gives a tray icon, toast notifications, autostart and a window (Edge in app mode).
-  Optional **kill switch** (`[daemon] kill_switch = true`): Windows Firewall blocks
-  everything that bypasses The Shunt, also while the service is down after a crash.
-  Install with `packaging/windows` (`build.sh` makes the ZIP, `install.ps1` installs).
-  `link:wifi|ethernet|mobile` routes work there too. Not yet on Windows: OpenVPN, groups,
-  DNS filter, app firewall.
 - **`shunt remove NAME`** deletes a tunnel and its imported files (refused while the
   default route, a rule or another tunnel's `via` uses it).
 
