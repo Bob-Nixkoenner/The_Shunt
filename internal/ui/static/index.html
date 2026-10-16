@@ -222,7 +222,9 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
         <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
       <label>Updates</label>
-      <div><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updcheck"> ask GitHub every 3 hours for a newer version</label>
+      <div><div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updrel"> releases</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-updpre"> pre-releases (rc)</label>
+        <span class="muted" style="font-size:12px">ask GitHub every 3 hours; both off = no requests</span></div>
         <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
     </div>
   </section>
@@ -260,6 +262,26 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
       </div>
       <div class="muted" style="margin-top:8px">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
       <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tailscale / Headscale <span class="muted" style="text-transform:none;letter-spacing:0">own client in a private namespace</span></h2>
+    <div class="editor">
+      <div class="row"><b>Add a Tailscale or Headscale tunnel</b><span class="muted">(auth key stored with mode 600)</span></div>
+      <div class="row" style="margin-top:10px">
+        <input id="ts-name" placeholder="name, e.g. ts" style="width:140px" maxlength="10">
+        <input id="ts-server" class="grow" placeholder="login server, e.g. https://headscale.example (empty: Tailscale)" autocomplete="off">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="ts-key" class="grow" type="password" placeholder="auth key (hskey-auth-… / tskey-auth-…)" autocomplete="new-password">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <input id="ts-host" placeholder="host name in the tailnet (optional)" style="width:260px" autocomplete="off">
+        <input id="ts-exit" placeholder="exit node IP or name (optional)" style="width:260px" autocomplete="off">
+        <button id="ts-add" class="primary">Add</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Without an exit node the tunnel reaches the tailnet (100.64.0.0/10) only; with one, everything routed into it leaves through that node.</div>
     </div>
   </section>
 

@@ -104,3 +104,17 @@ func TestSourceBuildAhead(t *testing.T) {
 		}
 	}
 }
+
+func TestCmpVersion(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"v0.7.0-rc8", "v0.7.0-rc7", 1}, {"v0.7.0", "v0.7.0-rc8", 1}, {"v0.6.9", "v0.7.0-rc1", -1},
+		{"v0.7.0-rc10", "v0.7.0-rc9", 1}, {"v0.7.0", "v0.7.0", 0},
+	} {
+		if got, ok := cmpVersion(c.a, c.b); !ok || got != c.want {
+			t.Errorf("cmpVersion(%s,%s) = %d,%v want %d", c.a, c.b, got, ok, c.want)
+		}
+	}
+}

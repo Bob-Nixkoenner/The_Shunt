@@ -13,6 +13,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/wgconf"
 )
 
@@ -182,7 +183,9 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 	var warn []string
 	ext, driver := ".conf", ""
 	needsAuth := false
-	if strings.Contains(req.Conf, "[Interface]") {
+	if req.Driver == "tailscale" {
+		ext, driver = ".ts", "tailscale"
+	} else if strings.Contains(req.Conf, "[Interface]") {
 		wc, err := wgconf.Parse(strings.NewReader(req.Conf))
 		if err != nil {
 			return nil, fmt.Errorf("WireGuard config: %w", err)
@@ -244,6 +247,16 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 	}
 	if err := writeAtomic(file, []byte(req.Conf), 0o600); err != nil {
 		return nil, err
+	}
+	if driver == "tailscale" {
+		tc, err := tsconf.ParseFile(file)
+		if err == nil {
+			err = tc.Validate()
+		}
+		if err != nil {
+			os.Remove(file)
+			return nil, fmt.Errorf("Tailscale/Headscale config: %w", err)
+		}
 	}
 	block := fmt.Sprintf("\n[tunnel.%s]\nconfig = %q\n", req.Name, "tunnels/"+req.Name+ext)
 	if driver != "" {

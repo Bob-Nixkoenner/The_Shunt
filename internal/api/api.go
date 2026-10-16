@@ -149,6 +149,8 @@ type TunnelImport struct {
 	Password string `json:"password,omitempty"`
 	// Via: "tunnel:<name>" makes this a second hop.
 	Via string `json:"via,omitempty"`
+	// Driver "tailscale": Conf is a .ts file (login_server, auth_key, ...).
+	Driver string `json:"driver,omitempty"`
 }
 
 // ProcRoute is a running process and the route its traffic takes
