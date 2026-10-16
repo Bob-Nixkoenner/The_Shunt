@@ -58,6 +58,7 @@ jobs:
           if-no-files-found: error
 
   windows-setup:
+    if: ${{ vars.BUILD_WINDOWS == 'true' }} # Windows assets are off until the repository variable BUILD_WINDOWS is 'true'
     # the installer (Inno Setup) is built on a Windows runner from the files build.sh staged
     needs: windows-files
     runs-on: windows-latest
@@ -85,6 +86,7 @@ jobs:
           if-no-files-found: error
 
   windows-files:
+    if: ${{ vars.BUILD_WINDOWS == 'true' }}
     # cross-compiled on Linux: service, window, wintun.dll, scripts (+ the ZIP)
     runs-on: ubuntu-latest
     steps:
@@ -111,6 +113,8 @@ jobs:
 
   release:
     needs: [android, windows-files, windows-setup]
+    # the windows jobs may be skipped (BUILD_WINDOWS), the release still goes out
+    if: ${{ !cancelled() && needs.android.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.windows-files.result) && contains(fromJSON('["success","skipped"]'), needs.windows-setup.result) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -126,6 +130,7 @@ jobs:
           pattern: windows-{zip,setup}
           path: dist
           merge-multiple: true
+        continue-on-error: true # none when Windows is off
       - name: build
         env:
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
@@ -142,7 +147,7 @@ jobs:
           CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o build/desktop/ ./cmd/shunt-desktop
           tar -czf dist/shunt-desktop_linux_amd64.tar.gz -C build/desktop shunt-desktop
           # Windows ZIP and setup.exe come from the windows-* jobs (already in dist/)
-          (cd dist && sha256sum *.tar.gz *.apk *.zip *.exe > SHA256SUMS)
+          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.zip *.exe > SHA256SUMS)
       - name: sign checksums
         # install.sh only uses releases whose SHA256SUMS carry this signature
         # (public key: RELEASE_SIGNER in install.sh)
