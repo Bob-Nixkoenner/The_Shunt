@@ -214,6 +214,11 @@ function renderLaunchers() {
       try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(a.name + " now via " + a.route); }
       catch (err) { toast(err.message); e.target.value = a.route; }
     })),
+    el("td", {}, el("button", { class: "primary", onclick: async () => {
+      try { await api("POST", "/api/run", { route: a.route, cmd: a.clone + " " + (a.args || "") }); toast(a.name + " started via " + a.route); }
+      catch (err) { toast(err.message); }
+      setTimeout(refresh, 800);
+    } }, "Start")),
     el("td", {}, el("button", { onclick: async () => {
       try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(a.name + " removed"); await loadApps(); }
       catch (err) { toast(err.message); }
@@ -350,9 +355,10 @@ async function loadUpdate() {
     $("#upd-cmd").textContent = upd.command;
     $("#upd-ver").textContent = "(installed " + (status && status.version || upd.current) + ")";
   }
-  const cb = $("#c-updcheck");
+  const cb = $("#c-updrel");
   if (cb) {
-    cb.checked = !upd.disabled;
+    cb.checked = upd.releases;
+    $("#c-updpre").checked = upd.prereleases;
     $("#c-updinfo").textContent = upd.disabled ? "off – no requests to GitHub" :
       "installed " + upd.current + (upd.checked && !upd.checked.startsWith("0001") ? " · last check " + ago(upd.checked) : "") +
       (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
@@ -372,10 +378,12 @@ $("#upd-copy").addEventListener("click", async () => {
     toast("Selected – press Ctrl+C, then paste it into a terminal");
   }
 });
-$("#c-updcheck").addEventListener("change", async (e) => {
-  try { await api("POST", "/api/update", { enabled: e.target.checked }); } catch (err) { toast(err.message); }
-  loadUpdate();
-});
+for (const [id, key] of [["#c-updrel", "releases"], ["#c-updpre", "prereleases"]]) {
+  $(id).addEventListener("change", async (e) => {
+    try { await api("POST", "/api/update", { [key]: e.target.checked }); } catch (err) { toast(err.message); }
+    loadUpdate();
+  });
+}
 loadUpdate();
 setInterval(loadUpdate, 60 * 1000);
 

@@ -142,15 +142,35 @@ func (s *Server) handler() http.Handler {
 		writeJSON(w, s.Update.Get())
 	})
 	mux.HandleFunc("POST /api/update", func(w http.ResponseWriter, r *http.Request) {
-		var req struct{ Enabled bool }
+		var req struct {
+			Enabled     *bool
+			Releases    *bool
+			Prereleases *bool
+		}
 		if !decode(w, r, &req) {
 			return
 		}
-		if err := update.SetEnabled(req.Enabled); err != nil {
+		var err error
+		if req.Releases != nil || req.Prereleases != nil {
+			rel, pre := update.Releases(), update.Prereleases()
+			if !update.Enabled() { // everything was off: change from there
+				rel, pre = false, false
+			}
+			if req.Releases != nil {
+				rel = *req.Releases
+			}
+			if req.Prereleases != nil {
+				pre = *req.Prereleases
+			}
+			err = update.SetChannels(rel, pre)
+		} else if req.Enabled != nil {
+			err = update.SetEnabled(*req.Enabled)
+		}
+		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
-		if req.Enabled && s.Update != nil {
+		if update.Enabled() && s.Update != nil {
 			s.Update.Check(r.Context())
 		}
 		writeJSON(w, map[string]bool{"ok": true})

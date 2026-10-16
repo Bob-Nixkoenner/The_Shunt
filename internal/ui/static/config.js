@@ -333,6 +333,25 @@ $("#t-import").addEventListener("click", async () => {
   } catch (e) { toast("Import failed: " + e.message); }
 });
 
+$("#ts-add").addEventListener("click", async () => {
+  const name = $("#ts-name").value.trim();
+  const v = (id) => $(id).value.trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
+  if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
+  if (!v("#ts-key")) return toast("An auth key is needed");
+  if ([v("#ts-server"), v("#ts-key"), v("#ts-host"), v("#ts-exit")].some((x) => /[\r\n]/.test(x))) return toast("No line breaks, please");
+  const conf = ["login_server = " + v("#ts-server"), "auth_key = " + v("#ts-key"),
+    ...(v("#ts-host") ? ["hostname = " + v("#ts-host")] : []), ...(v("#ts-exit") ? ["exit_node = " + v("#ts-exit")] : [])].join("\n") + "\n";
+  if ($("#savebar").classList.contains("dirty") && !(await ask("Adding reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Add" }))) return toast("Cancelled");
+  try {
+    const res = await api("POST", "/api/tunnels", { name, conf, driver: "tailscale" });
+    toast("Tunnel " + name + " added" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
+    for (const id of ["#ts-name", "#ts-server", "#ts-key", "#ts-host", "#ts-exit"]) $(id).value = "";
+    await loadConfig();
+    refresh();
+  } catch (e) { toast("Adding failed: " + e.message); }
+});
+
 async function deleteTunnel(n) {
   if ($("#savebar").classList.contains("dirty")) return toast("Save or discard your other changes first");
   if (!(await ask("Delete tunnel " + n + " and its config file?", { ok: "Delete", danger: true }))) return;
