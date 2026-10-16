@@ -83,6 +83,31 @@ On Arch and Fedora the installer uses pacman/dnf; it needs Go, which it installs
 itself if missing. Use a fresh WireGuard key per machine (two devices with one key
 disturb each other).
 
+## Install on Windows 10/11 (beta)
+
+1. Download `the-shunt-windows-amd64-setup.exe` from the
+   [latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) (the file
+   `SHA256SUMS` next to it has the checksum).
+2. Double-click it and accept the administrator prompt. Windows SmartScreen may warn
+   ("unknown publisher": the installer is not code-signed yet) – *More info → Run anyway*.
+3. Click through the wizard. It installs the service, adds a Start-menu entry and, if you
+   tick it, a desktop icon. **Restart Windows once** if the tunnels stay down afterwards.
+4. Start **The Shunt** from the Start menu: tray icon plus a window (needs Microsoft Edge,
+   which Windows has built in).
+5. *Configure → Tunnels*: drag in a WireGuard `.conf` or a Tailscale/Headscale `.ts` file,
+   then pick a route per program under *Programs*.
+
+Update: run the newer setup over the old one. Uninstall: *Settings → Apps*. Prefer a ZIP
+and PowerShell? `the-shunt-windows-amd64.zip` has `install.ps1` (run as Administrator).
+Details and limits: [docs/WINDOWS.md](docs/WINDOWS.md).
+
+## Install on Android (beta)
+
+Download `shunt-<version>-android.apk` from the
+[latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) and open it (Android
+asks to allow installs from your browser or file manager; the APK is debug-signed, a Play
+Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
+
 ## What works
 
 - Several WireGuard and **OpenVPN** tunnels at once, each in its own routing table
@@ -159,9 +184,7 @@ disturb each other).
 Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
 per-program routes (by file name or path), rules by address/port/domain, WireGuard,
 Tailscale/Headscale, panic, pass, leak test and an optional kill switch (Windows Firewall).
-Install with `the-shunt-windows-amd64-setup.exe` from the
-[releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases) (not code-signed yet, so
-SmartScreen warns; a restart may be needed). Not yet: OpenVPN, groups, DNS filter, app
+Install: see [Install on Windows](#install-on-windows-1011-beta). Not yet: OpenVPN, groups, DNS filter, app
 firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Android
