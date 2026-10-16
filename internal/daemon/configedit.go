@@ -335,3 +335,109 @@ func (d *Daemon) deleteTunnel(name string) error {
 	}
 	return nil
 }
+
+// renameTunnel gives a tunnel a new name: its files, every route that
+// names it (default route, networks, rules, second hops) and the stored
+// app-firewall answers follow. The tunnel restarts under the new interface
+// name. Menu launchers live in the user's home and are the CLI's job.
+func (d *Daemon) renameTunnel(from, to string) error {
+	if !tunnelNameRe.MatchString(to) {
+		return errors.New("name: 1-10 characters a-z 0-9 -, starting with a letter or digit")
+	}
+	d.mu.Lock()
+	cfg := *d.cfg
+	t, ok := cfg.Tunnels[from]
+	_, taken := cfg.Tunnels[to]
+	d.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no tunnel %q", from)
+	}
+	if taken {
+		return fmt.Errorf("a tunnel %q exists already", to)
+	}
+	if from == to {
+		return errors.New("old and new name are the same")
+	}
+	oldRoute, newRoute := "tunnel:"+from, "tunnel:"+to
+
+	// files named after the tunnel move along; others keep their name
+	type move struct{ from, to string }
+	var moved []move
+	undo := func() {
+		for _, m := range moved {
+			_ = os.Rename(m.to, m.from)
+		}
+	}
+	rename := func(conf string) (string, error) {
+		if conf == "" {
+			return "", nil
+		}
+		abs := d.absConf(conf)
+		ext := filepath.Ext(abs)
+		if abs != filepath.Join(d.tunnelDir(), from+ext) {
+			return conf, nil
+		}
+		dst := filepath.Join(d.tunnelDir(), to+ext)
+		if _, err := os.Stat(dst); err == nil {
+			return "", fmt.Errorf("%s exists already", dst)
+		}
+		if err := os.Rename(abs, dst); err != nil {
+			return "", err
+		}
+		moved = append(moved, move{abs, dst})
+		return "tunnels/" + to + ext, nil
+	}
+	var err error
+	if t.Config, err = rename(t.Config); err != nil {
+		undo()
+		return err
+	}
+	if t.Auth, err = rename(t.Auth); err != nil {
+		undo()
+		return err
+	}
+	if t.Interface == "sh-"+from {
+		t.Interface = ""
+	}
+
+	fix := func(r string) string {
+		if r == oldRoute {
+			return newRoute
+		}
+		return r
+	}
+	tunnels := map[string]config.Tunnel{}
+	for n, tt := range cfg.Tunnels {
+		if n == from {
+			continue
+		}
+		tt.Via = fix(tt.Via)
+		tunnels[n] = tt
+	}
+	tunnels[to] = t
+	cfg.Tunnels = tunnels
+	cfg.Daemon.DefaultRoute = fix(cfg.Daemon.DefaultRoute)
+	cfg.Rules = slices.Clone(cfg.Rules)
+	for i := range cfg.Rules {
+		cfg.Rules[i].Route = fix(cfg.Rules[i].Route)
+	}
+	cfg.Networks = slices.Clone(cfg.Networks)
+	for i := range cfg.Networks {
+		cfg.Networks[i].DefaultRoute = fix(cfg.Networks[i].DefaultRoute)
+	}
+	raw, err := cfg.Encode()
+	if err != nil {
+		undo()
+		return err
+	}
+	if _, err := d.saveConfig(raw, ""); err != nil {
+		undo()
+		return err
+	}
+	if d.fw != nil {
+		if err := d.fw.RenameRoute(oldRoute, newRoute); err != nil {
+			d.Log.Warn("stored app-firewall answers could not be updated", "err", err)
+		}
+	}
+	return nil
+}

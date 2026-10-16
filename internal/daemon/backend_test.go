@@ -207,3 +207,50 @@ func TestSoftRouteErrorsDontFailReload(t *testing.T) {
 		t.Error("hard routing error accepted")
 	}
 }
+
+// Renaming a tunnel moves its file and updates every route that names it.
+func TestRenameTunnel(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\ndefault_route = \"tunnel:office\"\n[dns]\ndisabled = true\n"+
+		"[tunnel.office]\nconfig = \"tunnels/office.conf\"\ndisabled = true\n"+
+		"[tunnel.hop]\nconfig = \"tunnels/hop.conf\"\nvia = \"tunnel:office\"\ndisabled = true\n"+
+		"[[rule]]\nname = \"ssh\"\nport = [\"tcp/22\"]\nroute = \"tunnel:office\"\n")
+	wg := "[Interface]\nPrivateKey = " + key + "\nAddress = 10.9.0.2/32\n[Peer]\nPublicKey = " + key + "\nEndpoint = 192.0.2.1:51820\nAllowedIPs = 0.0.0.0/0\n"
+	dir := filepath.Join(filepath.Dir(d.ConfigPath), "tunnels")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"office", "hop"} {
+		if err := os.WriteFile(filepath.Join(dir, n+".conf"), []byte(wg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.renameTunnel("office", "Bad Name"); err == nil {
+		t.Error("invalid name accepted")
+	}
+	if err := d.renameTunnel("office", "hop"); err == nil {
+		t.Error("existing name accepted")
+	}
+	if err := d.renameTunnel("nope", "vps"); err == nil {
+		t.Error("unknown tunnel accepted")
+	}
+	if err := d.renameTunnel("office", "vps"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vps.conf")); err != nil {
+		t.Error("file not moved:", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "office.conf")); err == nil {
+		t.Error("old file still there")
+	}
+	cfg := d.cfg
+	if _, ok := cfg.Tunnels["office"]; ok || cfg.Tunnels["vps"].Config != "tunnels/vps.conf" {
+		t.Errorf("tunnels: %+v", cfg.Tunnels)
+	}
+	if cfg.Daemon.DefaultRoute != "tunnel:vps" || cfg.Rules[0].Route != "tunnel:vps" || cfg.Tunnels["hop"].Via != "tunnel:vps" {
+		t.Errorf("references not updated: default=%q rule=%q via=%q", cfg.Daemon.DefaultRoute, cfg.Rules[0].Route, cfg.Tunnels["hop"].Via)
+	}
+}

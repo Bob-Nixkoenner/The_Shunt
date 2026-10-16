@@ -46,6 +46,8 @@ commands:
   firewall apps | forget KEY
              stored firewall decisions / forget one (asked again next time)
   which NAME show running processes named like NAME and the route each one takes
+  rename OLD NEW
+             rename a tunnel (files, rules, default route, menu entries follow)
   import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]
              add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
              for root-only files like /etc/wireguard/*.conf. --via makes it a
@@ -97,6 +99,8 @@ func main() {
 		err = which(c, args[1:])
 	case "import":
 		err = importTunnel(c, args[1:])
+	case "rename":
+		err = renameTunnel(c, args[1:])
 	case "version":
 		fmt.Println(version)
 	case "ui":
@@ -223,6 +227,33 @@ func importTunnel(c *api.Client, args []string) error {
 	fmt.Printf("imported tunnel %q (route tunnel:%s)\n", req.Name, req.Name)
 	for _, w := range res.Warnings {
 		fmt.Println("warning:", w)
+	}
+	return nil
+}
+
+// renameTunnel renames a tunnel in the daemon, then points the menu
+// launchers of this user (which carry the route name) at the new name.
+func renameTunnel(c *api.Client, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: shunt rename OLD NEW")
+	}
+	from, to := args[0], args[1]
+	if err := c.Do("POST", "/v1/tunnels/"+url.PathEscape(from)+"/rename", api.TunnelRename{To: to}, nil); err != nil {
+		return err
+	}
+	fmt.Printf("tunnel %q is now %q (route tunnel:%s)\n", from, to, to)
+	list, err := desktop.List()
+	if err != nil {
+		return nil
+	}
+	for _, e := range list {
+		if e.Route == "tunnel:"+from {
+			if err := desktop.SetRoute(e.ID, "tunnel:"+to, self()); err != nil {
+				fmt.Printf("warning: menu entry %s: %v\n", e.ID, err)
+			} else {
+				fmt.Printf("menu entry %s now starts via tunnel:%s\n", e.ID, to)
+			}
+		}
 	}
 	return nil
 }
