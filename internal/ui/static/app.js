@@ -239,10 +239,14 @@ function renderLaunchers() {
       try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(a.name + " now via " + a.route); }
       catch (err) { toast(err.message); e.target.value = a.route; }
     })),
+    el("td", {}, el("span", { class: "muted lstate", "data-id": a.id }, "…")),
+    el("td", {}, el("button", { onclick: () => startLauncher(a) }, "Start")),
     el("td", {}, el("button", { onclick: async () => {
       try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(a.name + " removed"); await loadApps(); }
       catch (err) { toast(err.message); }
     } }, "Remove")))));
+
+  updateLauncherState();
 
   const ff = firefoxApp();
   const have = new Set(launchers.map((a) => a.args));
@@ -264,6 +268,47 @@ function renderLaunchers() {
   const curRoute = lroute.value;
   lroute.replaceChildren(...status.routes.map((r) => el("option", { value: r }, r)));
   lroute.value = curRoute || status.routes.find((r) => r.startsWith("tunnel:")) || "direct";
+}
+
+// The command of a launcher: what its Exec line runs after "run --via ROUTE --",
+// without the desktop field codes (%u, %F, ...).
+function launcherCmd(a) {
+  const words = (a.exec || "").match(/"(?:[^"\\]|\\.)*"|\S+/g) || [];
+  const i = words.indexOf("--");
+  return words.slice(i + 1).filter((w) => !/^%[a-zA-Z%]$/.test(w)).join(" ");
+}
+const launcherProg = (a) => (launcherCmd(a).split(/\s+/)[0] || "").replace(/^"|"$/g, "").split("/").pop();
+
+async function startLauncher(a) {
+  const cmd = launcherCmd(a);
+  if (!cmd) return toast("Cannot read the command of " + a.name);
+  try {
+    const p = await api("GET", "/api/procs?name=" + encodeURIComponent(launcherProg(a)));
+    const other = (p || []).find((x) => x.route && x.route !== a.route);
+    if (other && !(await ask(a.name + ": " + launcherProg(a) + " already runs via " + other.route + " (PID " + other.pid +
+      "). A second start usually joins that running copy and then keeps ITS route, not " + a.route + ". Start anyway?", { ok: "Start anyway" }))) return;
+    await api("POST", "/api/run", { route: a.route, cmd });
+    toast(a.name + " started via " + a.route);
+  } catch (e) { toast(e.message); }
+  setTimeout(updateLauncherState, 1500);
+}
+
+// "running via X" next to every launcher, and a warning when the program
+// runs with another route than the launcher's (e.g. started from the normal
+// menu entry or as the default browser, without the wrapper).
+async function updateLauncherState() {
+  const cells = document.querySelectorAll(".lstate");
+  for (const c of cells) {
+    const a = apps.find((x) => x.id === c.dataset.id);
+    if (!a) continue;
+    let ps = [];
+    try { ps = (await api("GET", "/api/procs?name=" + encodeURIComponent(launcherProg(a)))) || []; } catch { continue; }
+    const wrong = ps.filter((x) => x.route && x.route !== a.route);
+    c.className = "lstate " + (wrong.length ? "bad" : ps.length ? "ok" : "muted");
+    c.textContent = !ps.length ? "not running" : wrong.length
+      ? "running via " + wrong[0].route + " – not " + a.route + "!"
+      : "running via " + a.route;
+  }
 }
 
 // By folder, not -P <name>: profiles of Firefox's newer profile manager are
@@ -294,6 +339,7 @@ async function loadApps() {
 async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
   render();
+  if (document.querySelector(".lstate")) updateLauncherState();
   checkCaptive(status);
   checkPending(status);
   if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
