@@ -38,6 +38,8 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
 
 ## Install
 
+**Setup.exe** (from the releases, built with Inno Setup from `packaging/windows/the-shunt.iss`): double-click, accept the administrator prompt, click through; restart Windows once if the tunnels stay down. Update: run the newer one over it; uninstall via *Settings → Apps*. Tunnel files: WireGuard `.conf` or Tailscale/Headscale `.ts` (Configure → Tunnels).
+
 `packaging/windows/build.sh` builds `dist/the-shunt-windows-amd64.zip` (wintun.dll pinned by
 checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows/README.txt`.
 

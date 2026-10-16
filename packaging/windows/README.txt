@@ -1,7 +1,10 @@
 The Shunt for Windows
 =====================
 
-Install (as Administrator):
+Easiest: run the-shunt-windows-amd64-setup.exe (double-click, accept the
+administrator prompt). Restart Windows once if the tunnels stay down.
+
+From this ZIP instead (as Administrator):
     powershell -ExecutionPolicy Bypass -File install.ps1
 
 Then start "The Shunt" from the Start menu. It shows a tray icon and opens the
@@ -15,7 +18,7 @@ Files (C:\ProgramData\Shunt):
     stats.json    traffic per tunnel and month
 
 What works: per-program routes by file name (app = ["firefox"] or
-exe:C:\path\app.exe), rules by address / port / domain, WireGuard tunnels,
+exe:C:\path\app.exe), rules by address / port / domain, WireGuard and Tailscale/Headscale (.ts) tunnels,
 panic mode, 1-60 minute pass, leak test, link:wifi / link:ethernet routes,
 Wi-Fi profiles by name.
 Kill switch (optional, Configure -> General or [daemon] kill_switch = true):
