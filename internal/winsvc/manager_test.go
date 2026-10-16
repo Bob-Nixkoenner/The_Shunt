@@ -182,3 +182,38 @@ route = "link:wifi"
 		t.Fatalf("warnings: %v", warn)
 	}
 }
+
+func TestImportTailscale(t *testing.T) {
+	m, r := newMgr(t)
+	tsConf := "login_server = http://headscale.example:8080\nauth_key = hskey-auth-abc\nexit_node = 100.64.0.1\n"
+	if _, err := m.ImportTunnel(api.TunnelImport{Name: "hs", Conf: "login_server = nonsense\nauth_key = x\n"}); err == nil {
+		t.Fatal("bad login_server accepted")
+	}
+	if _, err := m.ImportTunnel(api.TunnelImport{Name: "hs", Conf: tsConf}); err != nil {
+		t.Fatal(err)
+	}
+	if r.restarts != 1 {
+		t.Fatalf("a new tunnel needs a restart, got %d", r.restarts)
+	}
+	if _, err := os.Stat(filepath.Join(m.Dir, "tunnels", "hs.ts")); err != nil {
+		t.Fatal(err)
+	}
+	v, err := m.View()
+	if err != nil || len(v.Tunnels) != 1 || v.Tunnels[0].Type != "tailscale" || v.Tunnels[0].Endpoint != "headscale.example:8080" {
+		t.Fatalf("view: %+v %v", v.Tunnels, err)
+	}
+	if strings.Contains(v.Raw, "hskey-auth-abc") {
+		t.Fatal("auth key in the config text")
+	}
+	raw, err := os.ReadFile(filepath.Join(m.Dir, "shunt.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, js, _, err := m.build(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js, `"type":"tailscale"`) || !strings.Contains(js, `"work_dir"`) {
+		t.Fatalf("engine config: %s", js)
+	}
+}

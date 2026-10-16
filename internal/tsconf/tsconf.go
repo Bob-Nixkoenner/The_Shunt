@@ -14,6 +14,7 @@ package tsconf
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net/netip"
 	"net/url"
 	"os"
@@ -52,8 +53,15 @@ func ParseFile(path string) (*Config, error) {
 		return nil, err
 	}
 	defer f.Close()
+	return parseFrom(f, path)
+}
+
+// Parse reads and checks the text of a tunnel file.
+func Parse(text string) (*Config, error) { return parseFrom(strings.NewReader(text), "tunnel file") }
+
+func parseFrom(r io.Reader, path string) (*Config, error) {
 	c := &Config{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(r)
 	for n := 1; sc.Scan(); n++ {
 		l := sc.Text()
 		if i := strings.Index(l, "#"); i >= 0 {
@@ -110,4 +118,16 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Looks reports whether text looks like a tunnel file of this kind (an
+// auth_key line), to tell it from WireGuard and OpenVPN files on import.
+func Looks(text string) bool {
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if k, _, ok := strings.Cut(l, "="); ok && strings.TrimSpace(k) == "auth_key" {
+			return true
+		}
+	}
+	return false
 }

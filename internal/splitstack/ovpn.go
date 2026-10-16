@@ -172,3 +172,16 @@ func CheckOpenVPN(conf string) (string, error) {
 	b, _ := json.Marshal(sum)
 	return string(b), nil
 }
+
+func (e *Engine) newTSTunnel(tc tunnelConf) (*wgTunnel, error) {
+	if e.workDir == "" {
+		return nil, errors.New("Tailscale is not available here (no work folder)")
+	}
+	t := &wgTunnel{name: tc.Name, tsType: true, ovpnConf: tc}
+	ts, err := startTailscale(tc.Name, tc.Conf, filepath.Join(e.workDir, "tailscale", tc.Name), e.logf)
+	if err != nil {
+		return t, err
+	}
+	t.ts = ts
+	return t, nil
+}

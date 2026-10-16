@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/tun/netstack"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -47,7 +46,7 @@ func newStack(ep stack.LinkEndpoint, e *Engine) (*stack.Stack, error) {
 	s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
 	tf := tcp.NewForwarder(s, 0, 4096, e.handleTCP)
 	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tf.HandlePacket)
-	uf := udp.NewForwarder(s, e.handleUDP)
+	uf := udp.NewForwarder(s, func(r *udp.ForwarderRequest) bool { e.handleUDP(r); return true })
 	s.SetTransportProtocolHandler(udp.ProtocolNumber, uf.HandlePacket)
 	if terr := s.CreateNICWithOptions(nicID, ep, stack.NICOptions{Disabled: true}); terr != nil {
 		return nil, fmt.Errorf("nic: %v", terr)
@@ -165,11 +164,7 @@ func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
 		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
 	}
 	t := e.tunnels[strings.TrimPrefix(f.route, tunnelPref)]
-	var tn *netstack.Net
-	if t != nil {
-		tn = t.netw()
-	}
-	if tn == nil {
+	if t == nil || !t.reachable() {
 		return nil, fmt.Errorf("tunnel %s is not up", f.route)
 	}
 	if f.isDNS(e) {
@@ -178,10 +173,7 @@ func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
 	if v4, v6 := t.families(); (dst.Addr().Is4() && !v4) || (dst.Addr().Is6() && !v6) {
 		return nil, fmt.Errorf("%s has no address of this IP family", f.route)
 	}
-	if f.proto == 6 {
-		return tn.DialContextTCPAddrPort(ctx, dst)
-	}
-	return tn.DialUDPAddrPort(netip.AddrPort{}, dst)
+	return t.dialAP(ctx, f.proto == 6, dst)
 }
 
 func (e *Engine) handleTCP(r *tcp.ForwarderRequest) {

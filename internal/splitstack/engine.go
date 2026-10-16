@@ -51,8 +51,8 @@ const DNSAddr = "10.111.0.53"
 
 type tunnelConf struct {
 	Name string `json:"name"`
-	Type string `json:"type,omitempty"` // "wireguard" (default) or "openvpn"
-	Conf string `json:"conf"`           // wg-quick file or .ovpn text
+	Type string `json:"type,omitempty"` // "wireguard" (default), "openvpn" or "tailscale"
+	Conf string `json:"conf"`           // wg-quick file, .ovpn text or .ts text
 	User string `json:"user,omitempty"` // OpenVPN auth-user-pass
 	Pass string `json:"pass,omitempty"`
 	// Via: OpenVPN only, the WireGuard tunnel that carries it (multi-hop,
@@ -115,9 +115,9 @@ func parseConfig(js string) (*config, error) {
 		switch t.Type {
 		case "":
 			c.Tunnels[i].Type = typeWireGuard
-		case typeWireGuard, typeOpenVPN:
+		case typeWireGuard, typeOpenVPN, typeTailscale:
 		default:
-			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn)", t.Name, t.Type)
+			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn | tailscale)", t.Name, t.Type)
 		}
 		names[t.Name] = true
 	}
@@ -266,6 +266,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 		var wt *wgTunnel
 		if t.Type == typeOpenVPN {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
+		} else if t.Type == typeTailscale {
+			wt, err = e.newTSTunnel(t)
 		} else {
 			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
 		}
@@ -275,6 +277,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 				wt = &wgTunnel{name: t.Name}
 			}
 			wt.ovpnConf.Type = t.Type
+			wt.tsType = t.Type == typeTailscale
 			wt.err = err.Error()
 		}
 		e.tunnels[t.Name] = wt
@@ -536,7 +539,7 @@ func (e *Engine) closeTunnels() {
 
 type tunnelStatus struct {
 	Name      string        `json:"name"`
-	Type      string        `json:"type"` // wireguard | openvpn
+	Type      string        `json:"type"` // wireguard | openvpn | tailscale
 	Via       string        `json:"via,omitempty"`
 	Up        bool          `json:"up"`
 	Error     string        `json:"error,omitempty"`
