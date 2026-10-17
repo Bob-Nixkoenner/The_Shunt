@@ -2,34 +2,49 @@
 // DNS filter tab: blocklists per level, allowlists, what got blocked.
 // Edits the same config model as the Configure page (same save bar).
 
-// RPiList lists (https://github.com/RPiList/specials/tree/master/Blocklisten),
-// approximate size in MB.
-const RPILIST = [
-  ["easylist", "ads and tracking – the starter list", 3.8],
-  ["Phishing-Angriffe", "phishing", 4.2],
-  ["malware", "malware", 14.9],
-  ["notserious", "dubious shops and sites", 2.2],
-  ["Fake-Science", "fake science", 0],
-  ["crypto", "crypto scams and mining", 2.7],
-  ["spam.mails", "spam senders", 4.4],
-  ["proxies", "proxy and anonymiser services", 3.6],
-  ["Win10Telemetry", "Windows telemetry", 0],
-  ["MS-Office-Telemetry", "MS Office telemetry", 0],
-  ["samsung", "Samsung telemetry", 0],
-  ["lg-tv", "LG TV telemetry", 0],
-  ["Streaming", "streaming sites", 0.5],
-  ["SupportingRussia", "companies supporting Russia", 0],
-  ["Corona-Blocklist", "corona fakes", 7.5],
-  ["DatingSites", "dating sites", 7.3],
-  ["gambling", "gambling", 40],
-  ["child-protection", "child protection", 5.9],
-  ["DomainSquatting1", "domain squatting 1", 32.9],
-  ["DomainSquatting2", "domain squatting 2", 18.8],
-  ["DomainSquatting3", "domain squatting 3", 0],
-  ["DomainSquatting4", "domain squatting 4", 0],
-  ["Overblock", "aggressive, breaks sites", 0],
-  ...[1, 2, 3, 4, 5, 6].map((i) => ["pornblock" + i, "adult content " + i, i === 6 ? 7.2 : 33]),
+// RPiList lists (https://github.com/RPiList/specials/blob/master/Blocklisten.md),
+// grouped like on the RPiList page; approximate size in MB.
+const RPILIST_GROUPS = [
+  ["Ads", [
+    ["easylist", "ads and tracking – the starter list", 3.8],
+    ["spam.mails", "spam senders", 4.4],
+  ]],
+  ["Malware", [
+    ["malware", "malware", 14.9],
+    ["crypto", "crypto scams and mining", 2.7],
+  ]],
+  ["Phishing and domain squatting", [
+    ["Phishing-Angriffe", "phishing", 4.2],
+    ["DomainSquatting1", "domain squatting 1", 32.9],
+    ["DomainSquatting2", "domain squatting 2", 18.8],
+    ["DomainSquatting3", "domain squatting 3", 0],
+    ["DomainSquatting4", "domain squatting 4", 0],
+  ]],
+  ["Fake shops and subscription traps", [
+    ["notserious", "dubious shops and sites", 2.2],
+    ["Streaming", "streaming sites", 0.5],
+  ]],
+  ["Tracking and telemetry", [
+    ["Win10Telemetry", "Windows telemetry", 0],
+    ["MS-Office-Telemetry", "MS Office telemetry", 0],
+    ["samsung", "Samsung telemetry", 0],
+    ["lg-tv", "LG TV telemetry", 0],
+  ]],
+  ["Youth protection", [
+    ["child-protection", "child protection", 5.9],
+    ["gambling", "gambling", 40],
+    ["DatingSites", "dating sites", 7.3],
+    ["proxies", "proxy and anonymiser services", 3.6],
+    ...[1, 2, 3, 4, 5, 6].map((i) => ["pornblock" + i, "adult content " + i, i === 6 ? 7.2 : 33]),
+  ]],
+  ["Miscellaneous", [
+    ["Fake-Science", "fake science", 0],
+    ["Corona-Blocklist", "corona fakes", 7.5],
+    ["SupportingRussia", "companies supporting Russia", 0],
+    ["Overblock", "aggressive, breaks sites", 0],
+  ]],
 ];
+const RPILIST = RPILIST_GROUPS.flatMap(([, l]) => l);
 const LEVELS = ["low", "normal", "paranoid"];
 
 // the working copy's [dns_filter], created from the settings in effect
@@ -57,8 +72,11 @@ function renderFilter() {
 
   const known = new Set(RPILIST.map((x) => x[0]));
   const custom = [...new Set(LEVELS.flatMap((l) => f[l] || []))].filter((n) => !known.has(n));
-  const rows = [...RPILIST, ...custom.map((u) => [u, "own list", null])];
-  $("#f-lists").replaceChildren(...rows.map(([name, desc, mb]) => {
+  const groups = [...RPILIST_GROUPS, ...(custom.length ? [["Your own lists", custom.map((u) => [u, "own list", null])]] : [])];
+  const rows = groups.flatMap(([cat, list]) => [cat, ...list]);
+  $("#f-lists").replaceChildren(...rows.map((row) => {
+    if (typeof row === "string") return el("tr", { class: "grouprow" }, el("th", { colspan: 6, style: "text-align:left;padding-top:14px" }, row));
+    const [name, desc, mb] = row;
     const cells = LEVELS.map((l, i) => el("td", {}, el("input", {
       type: "checkbox", title: l + (used.has(l) ? "" : " – level not in use, nothing is downloaded"),
       // a level has the lists of the levels below it

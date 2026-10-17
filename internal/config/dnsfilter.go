@@ -48,9 +48,9 @@ type DNSFilter struct {
 func DefaultDNSFilter() DNSFilter {
 	return DNSFilter{
 		Default:  FilterNormal,
-		Low:      []string{},
-		Normal:   []string{"easylist"},
-		Paranoid: []string{"easylist", "Phishing-Angriffe", "malware", "Win10Telemetry", "MS-Office-Telemetry", "crypto"},
+		Low:      []string{"easylist"},
+		Normal:   []string{"Phishing-Angriffe", "malware"},
+		Paranoid: []string{"crypto", "spam.mails", "notserious", "Fake-Science", "Win10Telemetry", "MS-Office-Telemetry", "samsung", "lg-tv", "SupportingRussia"},
 	}
 }
 
