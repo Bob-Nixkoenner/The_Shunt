@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.7.1-rc1
+
+**Pre-release: new overview with traffic and block graphs, an Apps tab, the DNS filter on Windows, and
+Android updates.** Tested on Linux (Ubuntu VM), Android (emulator) and Windows 11 (VM); not yet on a
+real Windows laptop.
+
+- **Android: "Disguise on foreign Wi-Fi" removed.** An app cannot set the MAC address, and the device
+  name only with `adb shell pm grant … WRITE_SECURE_SETTINGS`, which no normal user does; the name is
+  not what the DHCP host name is made from on current Android either. The permission is gone from
+  the manifest. For foreign Wi-Fi use the system's own settings (per network: *Privacy → Use
+  randomized MAC*).
+- **Light/dark switch in the web UI** (Configure → General → Appearance: follow the system / light /
+  dark), kept per browser.
+- **Fewer DNS filter lists:** the LG TV and Samsung lists are no longer offered or in the defaults,
+  Windows' telemetry lists only on Windows. Lists that are in your config stay and show up under
+  "Other" so you can remove them.
+- **Android: rename tunnels** (Tunnels → Rename, with the VPN off): routes of apps, the default
+  route, tunnels going through it and the traffic counts follow the new name.
+- **Android: dark mode switch** (Status → Appearance: System / Light / Dark).
+- **Android: DNS filter lists as on the desktop**: 26 RPiList lists in groups with their size, big
+  lists (15 MB and more) are asked about before they are switched on. Windows and Office telemetry
+  and TV lists are not offered on the phone.
+- **Android: traffic and blocks graph** on the status screen (1 h / 24 h / 7 d / 30 d), blocked
+  today / this month, and a history line on every tunnel card.
+- **UI: new "Apps" tab** with Menu apps (Programs on Windows), "Start an app" and "Where traffic
+  goes". Launchers show up there only when Firefox is installed (or launchers exist already).
+  Each menu app has its own **DNS filter level** (off/low/normal/paranoid), stored as a rule
+  without a route. The tab is remembered in the address (`#apps`).
+- **Overview: traffic and blocks.** Graph of tunnel traffic (down/up) and DNS blocks with a
+  1 h / 24 h / 7 d / 30 d switch, tiles for "blocked today / this month", and a small history
+  line on every tunnel card. The daemon keeps 5-minute counters for 35 days next to the traffic
+  totals (`GET /v1/history`); direct traffic is not measured. Linux first.
+- **Leak test** runs by itself a few seconds after a tunnel comes up or goes down (switch in the
+  card, on by default); the last verdict is shown as a pill in the header.
+- **Rules** on the overview show the first four, the rest is under Configure.
+- **Windows: the DNS filter works** (before, the lists were saved but ignored and the status showed
+  nothing). The service downloads the lists of `[dns_filter] default` and answers blocked names
+  with NXDOMAIN; the DNS filter tab shows lists, counters and the last blocked names. Levels per
+  rule, tunnel or network are still Linux/Android only (the service warns).
+
 ## v0.7.0
 
 **The first release after the release candidates: Linux, Android and Windows (beta).** Same

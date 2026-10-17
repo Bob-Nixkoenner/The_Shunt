@@ -57,8 +57,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        UiPrefs.load(this)
         setContent {
-            ShuntTheme(isSystemInDarkTheme()) {
+            ShuntTheme(UiPrefs.dark()) {
                 Surface(Modifier.fillMaxSize(), color = LocalShunt.current.bg) { App() }
             }
         }
@@ -181,6 +182,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
     var confirmPass by remember { mutableStateOf(false) }
     var leak by remember { mutableStateOf<JSONArray?>(null) }
     var leakRunning by remember { mutableStateOf(false) }
+    var range by remember { mutableStateOf("24h") }
+    val history by rememberHistory(range)
     val askVpn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
@@ -263,9 +266,11 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
         val ts = status?.optJSONArray("tunnels")
         if (ts != null && ts.length() > 0) {
             Section("Tunnels") {
-                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status)
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history)
             }
         }
+
+        if (running) HistorySection(history, range) { range = it }
 
         status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
             if ((tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L) > 0L) {
@@ -287,7 +292,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
             }
         }
 
-        DisguiseSection()
+        AppearanceSection()
     }
     if (confirmPass) {
         AlertDialog(
@@ -310,7 +315,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
 }
 
 @Composable
-private fun TunnelCard(t: JSONObject, st: JSONObject) {
+private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) {
     val ctx = LocalContext.current
     val h = t.optJSONObject("health")
     val state = h?.optString("state") ?: "unknown"
@@ -339,6 +344,7 @@ private fun TunnelCard(t: JSONObject, st: JSONObject) {
             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
             if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) " · $loss % lost" else "")
             KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+            Sparkline(history?.tunnel(t.getString("name")), Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -431,6 +437,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
     }
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { add("qr", it) } }
     var confirmDelete by remember { mutableStateOf<Tunnel?>(null) }
+    var renaming by remember { mutableStateOf<Tunnel?>(null) }
+    val vpnRunning by VpnState.running.collectAsStateWithLifecycle()
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Section("Tunnels") {
@@ -449,6 +457,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
                         Pill(if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
+                        TextButton({ renaming = t }) { Text("Rename") }
                         TextButton({ confirmDelete = t }) { Text("Delete", color = LocalShunt.current.bad) }
                     }
                     sum?.let {
@@ -475,6 +484,37 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
             }
         }
+    }
+    renaming?.let { t ->
+        var text by remember { mutableStateOf(t.name) }
+        val others = settings.tunnels.map { it.name } - t.name
+        val shown = Store.tunnelName(text, others)
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename tunnel:${t.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (vpnRunning) Text("Switch the VPN off first: a running tunnel cannot change its name.")
+                    else {
+                        OutlinedTextField(text, { text = it }, label = { Text("New name") }, singleLine = true)
+                        Hint("Letters, digits and \"-\", up to 10. Routes of apps, the default route and tunnels going through this one follow.")
+                        if (text.isNotBlank() && shown != text.trim()) Hint("Will be saved as \"$shown\".")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    val to = shown
+                    if (to != t.name) {
+                        Store.renameStats(ctx, t.name, to)
+                        update(Store.rename(settings, t.name, to))
+                        say("Renamed to tunnel:$to.")
+                    }
+                    renaming = null
+                }, enabled = !vpnRunning && text.isNotBlank()) { Text("Rename") }
+            },
+            dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } },
+        )
     }
     askAuth?.let { t ->
         var user by remember { mutableStateOf("") }
@@ -582,42 +622,64 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
     }
 }
 
-/** DNS filter lists: on/off, where they come from, how many names. */
+/** DNS filter lists: grouped like on the desktop; on/off, size, source, how many names. */
 @Composable
 private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var bigList by remember { mutableStateOf<Blocklists.Entry?>(null) }
     LaunchedEffect(settings.filterLists) {
         while (true) {
             counts = withContext(Dispatchers.IO) { Blocklists.ALL.keys.associateWith { Blocklists.count(ctx, it) } }
             delay(5000) // a list switched on is downloaded in the background
         }
     }
+    fun switchOn(name: String, on: Boolean) {
+        val s = settings.copy(filterLists = if (on) settings.filterLists + name else settings.filterLists - name)
+        if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
+        update(s)
+    }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Section("DNS filter") {
             Hint("Names on these lists get no answer (NXDOMAIN). Per app: Apps → filter. Tap a list's name to see its source.")
             status?.let { Hint("${it.optLong("dns_blocked")} names blocked since the VPN started") }
-            Blocklists.ALL.forEach { (name, what) ->
-                HorizontalDivider(color = c.line)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(name in settings.filterLists, { on ->
-                        val s = settings.copy(filterLists = if (on) settings.filterLists + name else settings.filterLists - name)
-                        if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
-                        update(s)
-                    })
-                    Column(Modifier.weight(1f)) {
-                        Text(what, color = c.text, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            name, fontFamily = Mono, fontSize = 12.sp, color = c.info, textDecoration = TextDecoration.Underline,
-                            modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Blocklists.page(name)))) },
-                        )
+            val on = Blocklists.ALL.keys.count { it in settings.filterLists }
+            Hint("$on of ${Blocklists.ALL.size} lists on. Big lists (marked) use a lot of mobile data and memory – prefer Wi-Fi.")
+        }
+        Blocklists.GROUPS.forEach { (group, entries) ->
+            Section(group) {
+                entries.forEachIndexed { i, e ->
+                    if (i > 0) HorizontalDivider(color = c.line)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(e.name in settings.filterLists, { checked ->
+                            if (checked && e.mb >= Blocklists.BIG_MB) bigList = e else switchOn(e.name, checked)
+                        })
+                        Column(Modifier.weight(1f)) {
+                            Text(e.what, color = c.text, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                e.name, fontFamily = Mono, fontSize = 12.sp, color = c.info, textDecoration = TextDecoration.Underline,
+                                modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Blocklists.page(e.name)))) },
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            counts[e.name]?.takeIf { it > 0 }?.let { Text(if (it == 1) "1 name" else "%,d names".format(it), color = c.muted, fontSize = 12.sp) }
+                            if (e.mb > 0) Text("%.1f MB".format(e.mb), color = if (e.mb >= Blocklists.BIG_MB) c.warn else c.muted, fontSize = 11.sp)
+                        }
                     }
-                    counts[name]?.takeIf { it > 0 }?.let { Text(if (it == 1) "1 name" else "%,d names".format(it), color = c.muted, fontSize = 12.sp) }
                 }
             }
-            Hint("Lists: RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts.")
         }
+        Hint("Lists: RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts.")
+    }
+    bigList?.let { e ->
+        AlertDialog(
+            onDismissRequest = { bigList = null },
+            title = { Text("Big list") },
+            text = { Text("\"${e.what}\" is about %.0f MB and needs a lot of memory on the phone. Switch it on?".format(e.mb)) },
+            confirmButton = { TextButton({ switchOn(e.name, true); bigList = null }) { Text("Switch on") } },
+            dismissButton = { TextButton({ bigList = null }) { Text("Cancel") } },
+        )
     }
 }
 

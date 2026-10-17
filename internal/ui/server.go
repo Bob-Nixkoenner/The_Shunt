@@ -30,6 +30,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
 
@@ -94,6 +95,14 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		writeJSON(w, st)
+	})
+	mux.HandleFunc("GET /api/history", func(w http.ResponseWriter, r *http.Request) {
+		var h stats.History
+		if err := s.Client.Do("GET", "/v1/history?range="+url.QueryEscape(r.URL.Query().Get("range")), nil, &h); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, h)
 	})
 	mux.HandleFunc("POST /api/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest

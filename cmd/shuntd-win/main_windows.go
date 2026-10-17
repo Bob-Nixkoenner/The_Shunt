@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -29,6 +31,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"golang.zx2c4.com/wireguard/conn"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
@@ -221,6 +224,21 @@ func runCore(ctx context.Context, ready func()) error {
 	watchStop := make(chan struct{})
 	defer close(watchStop)
 	go watchUplink(e, up, &phys, &netInfo, watchStop)
+
+	// DNS filter: lists are downloaded straight over the real network
+	// (not through the TUN) and cached next to the config.
+	fm := &blocklist.Manager{
+		Dir: filepath.Join(dataDir, "blocklists"),
+		Log: slog.Default(),
+		Client: func() *http.Client {
+			return &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{
+				DialContext: winsplit.DialDirect(phys.Load), Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
+		},
+		OnChange: func(f *blocklist.Filter) { e.SetFilter(f, m.FilterLevel()) },
+	}
+	m.Filter = fm
+	m.ApplyFilter()
+	go fm.Run(ctx)
 
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules

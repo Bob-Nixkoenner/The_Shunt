@@ -217,3 +217,21 @@ func TestImportTailscale(t *testing.T) {
 		t.Fatalf("engine config: %s", js)
 	}
 }
+
+func TestTranslateFilterScopes(t *testing.T) {
+	c, err := config.Parse("[daemon]\ndefault_route = \"direct\"\n[[network]]\nname = \"cafe\"\nssid = [\"cafe\"]\ndefault_route = \"direct\"\ndns_filter = \"paranoid\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, warn, err := Translate(c, func(string) ([]byte, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warn) != 1 || !strings.Contains(warn[0], "DNS filter level of single tunnels") {
+		t.Fatalf("warnings: %q", warn)
+	}
+	c, _ = config.Parse("[dns_filter]\ndefault = \"low\"\n[daemon]\ndefault_route = \"direct\"\n")
+	if _, warn, _ = Translate(c, func(string) ([]byte, error) { return nil, nil }); len(warn) != 0 {
+		t.Fatalf("default level only should not warn: %q", warn)
+	}
+}

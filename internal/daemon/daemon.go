@@ -1022,6 +1022,15 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.status())
 	})
+	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
+		d.mu.Lock()
+		book := d.book
+		d.mu.Unlock()
+		if book == nil {
+			book, _ = stats.Open("")
+		}
+		writeJSON(w, http.StatusOK, book.History(r.URL.Query().Get("range"), time.Now()))
+	})
 	mux.HandleFunc("POST /v1/run", func(w http.ResponseWriter, r *http.Request) {
 		p := peerOf(r.Context())
 		if p == nil || !p.alive() {

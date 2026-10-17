@@ -320,6 +320,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			case <-tick.C:
 			}
 		}
+		e.book.ObserveDNS(e.dnsBlocked.Load(), time.Now())
 		for _, t := range e.tunnels {
 			if !t.up() {
 				continue

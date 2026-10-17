@@ -45,7 +45,7 @@ checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows
 
 ## Not yet
 
-OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, `shunt run`-style "start an app in a route", DNS filter, app firewall, restricting
+OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, `shunt run`-style "start an app in a route", DNS filter levels per rule/tunnel/network (the default level works, lists are downloaded straight over the real network), app firewall, restricting
 the API to certain users (today every local user may use it; config files stay admin-only),
 code signing (SmartScreen warns), WireGuard `allow_lan`, `via` hops are untested on Windows.
 

@@ -31,8 +31,6 @@ const RPILIST_GROUPS = [
   ["Tracking and telemetry", [
     ["Win10Telemetry", "Windows telemetry", 0],
     ["MS-Office-Telemetry", "MS Office telemetry", 0],
-    ["samsung", "Samsung telemetry", 0],
-    ["lg-tv", "LG TV telemetry", 0],
   ]],
   ["Youth protection", [
     ["child-protection", "child protection", 5.9],
@@ -46,7 +44,14 @@ const RPILIST_GROUPS = [
     ["Overblock", "aggressive, breaks sites", 0],
   ]],
 ];
-const RPILIST = RPILIST_GROUPS.flatMap(([, l]) => l);
+// Offered lists: Windows' own telemetry lists only on Windows. (The RPiList phone and TV lists –
+// Samsung, LG – are not offered at all: nothing on a PC asks for them. A list that is in the
+// config but not offered shows up under "Other" and can be removed there.)
+const WIN_ONLY = new Set(["Win10Telemetry", "MS-Office-Telemetry"]);
+function offeredGroups() {
+  const win = !!status && status.platform === "windows";
+  return RPILIST_GROUPS.map(([cat, list]) => [cat, list.filter(([n]) => win || !WIN_ONLY.has(n))]).filter(([, list]) => list.length);
+}
 const LEVELS = ["low", "normal", "paranoid"];
 
 // the working copy's [dns_filter], created from the settings in effect
@@ -72,9 +77,10 @@ function renderFilter() {
   const used = usedLevels();
   fill("#f-default", [["off", "off"], ...LEVELS.map((l) => [l, l + (used.has(l) || l === (f.default || "normal") ? "" : " (unused)")])], f.default || "normal");
 
-  const known = new Set(RPILIST.map((x) => x[0]));
+  const offered = offeredGroups();
+  const known = new Set(offered.flatMap(([, l]) => l).map((x) => x[0]));
   const custom = [...new Set(LEVELS.flatMap((l) => f[l] || []))].filter((n) => !known.has(n));
-  const groups = RPILIST_GROUPS.map(([cat, list]) => cat === "Other" ? [cat, [...list, ...custom.map((u) => [u, "other list", null])]] : [cat, list]);
+  const groups = offered.map(([cat, list]) => cat === "Other" ? [cat, [...list, ...custom.map((u) => [u, "other list", null])]] : [cat, list]);
   const rows = groups.flatMap(([cat, list]) => [cat, ...list]);
   $("#f-lists").replaceChildren(...rows.map((row) => {
     if (typeof row === "string") return el("tr", { class: "grouprow" }, el("th", { colspan: 6, style: "text-align:left;padding-top:14px" }, row));
