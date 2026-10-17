@@ -428,9 +428,10 @@ async function loadUpdate() {
     $("#upd-cmd").textContent = upd.command;
     $("#upd-ver").textContent = "(installed " + (status && status.version || upd.current) + ")";
   }
-  const cb = $("#c-updcheck");
+  const cb = $("#c-updrel");
   if (cb) {
-    cb.checked = !upd.disabled;
+    cb.checked = upd.releases;
+    $("#c-updpre").checked = upd.prereleases;
     $("#c-updinfo").textContent = upd.disabled ? "off – no requests to GitHub" :
       "installed " + upd.current + (upd.checked && !upd.checked.startsWith("0001") ? " · last check " + ago(upd.checked) : "") +
       (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
@@ -450,10 +451,12 @@ $("#upd-copy").addEventListener("click", async () => {
     toast("Selected – press Ctrl+C, then paste it into a terminal");
   }
 });
-$("#c-updcheck").addEventListener("change", async (e) => {
-  try { await api("POST", "/api/update", { enabled: e.target.checked }); } catch (err) { toast(err.message); }
-  loadUpdate();
-});
+for (const [id, key] of [["#c-updrel", "releases"], ["#c-updpre", "prereleases"]]) {
+  $(id).addEventListener("change", async (e) => {
+    try { await api("POST", "/api/update", { [key]: e.target.checked }); } catch (err) { toast(err.message); }
+    loadUpdate();
+  });
+}
 loadUpdate();
 setInterval(loadUpdate, 60 * 1000);
 

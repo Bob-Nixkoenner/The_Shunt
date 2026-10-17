@@ -31,11 +31,15 @@ type DNSFilter struct {
 	// paranoid). Empty = normal.
 	Default string `toml:"default,omitempty" json:"default,omitempty"`
 	// Lists per level: a file name from Source ("easylist") or an https URL.
+	// A level includes the lists of the one below (low < normal < paranoid).
 	Low      []string `toml:"low" json:"low"`
 	Normal   []string `toml:"normal" json:"normal"`
 	Paranoid []string `toml:"paranoid" json:"paranoid"`
 	// Allow: names (and their subdomains) that are never blocked.
 	Allow []string `toml:"allow,omitempty" json:"allow,omitempty"`
+	// AllowLists: lists of names that are never blocked (a list name from
+	// Source or an https URL; hosts, plain names, ||name^ or @@||name^).
+	AllowLists []string `toml:"allow_lists,omitempty" json:"allow_lists,omitempty"`
 	// Source: base URL for list names. Empty = DefaultFilterSource.
 	Source string `toml:"source,omitempty" json:"source,omitempty"`
 }
@@ -62,17 +66,34 @@ func (c *Config) Filter() DNSFilter {
 	return f
 }
 
-// Lists returns the lists of a level (nil for off).
+// Lists returns the lists of a level (nil for off). Levels build on each
+// other: normal also has everything of low, paranoid everything of normal.
 func (f DNSFilter) Lists(level string) []string {
+	var own [][]string
 	switch level {
 	case FilterLow:
-		return f.Low
+		own = [][]string{f.Low}
 	case FilterNormal:
-		return f.Normal
+		own = [][]string{f.Low, f.Normal}
 	case FilterParanoid:
-		return f.Paranoid
+		own = [][]string{f.Low, f.Normal, f.Paranoid}
+	default:
+		return nil
 	}
-	return nil
+	if len(own) == 1 {
+		return own[0]
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, l := range own {
+		for _, name := range l {
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	return out
 }
 
 // ListURL returns where a list comes from.
@@ -128,21 +149,33 @@ func (c *Config) validateFilter() error {
 	}
 	for _, lvl := range FilterLevels {
 		for _, l := range f.Lists(lvl) {
-			if strings.HasPrefix(l, "https://") {
-				if u, err := url.Parse(l); err != nil || u.Host == "" {
-					return fmt.Errorf("dns_filter.%s: invalid URL %q", lvl, l)
-				}
-				continue
+			if err := validListRef("dns_filter."+lvl, l); err != nil {
+				return err
 			}
-			if !listNameRe.MatchString(l) || strings.Contains(l, "..") {
-				return fmt.Errorf("dns_filter.%s: %q is neither a list name nor an https:// URL", lvl, l)
-			}
+		}
+	}
+	for _, l := range f.AllowLists {
+		if err := validListRef("dns_filter.allow_lists", l); err != nil {
+			return err
 		}
 	}
 	for _, a := range f.Allow {
 		if NormalizeDomain(a) == "" {
 			return fmt.Errorf("dns_filter.allow: invalid name %q", a)
 		}
+	}
+	return nil
+}
+
+func validListRef(where, l string) error {
+	if strings.HasPrefix(l, "https://") {
+		if u, err := url.Parse(l); err != nil || u.Host == "" {
+			return fmt.Errorf("%s: invalid URL %q", where, l)
+		}
+		return nil
+	}
+	if !listNameRe.MatchString(l) || strings.Contains(l, "..") {
+		return fmt.Errorf("%s: %q is neither a list name nor an https:// URL", where, l)
 	}
 	return nil
 }

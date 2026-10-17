@@ -1211,6 +1211,22 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/tunnels/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		var req api.TunnelRename
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.renameTunnel(r.PathValue("name"), req.To); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.fw.List())
 	})

@@ -38,6 +38,7 @@ type Status struct {
 
 type entry struct {
 	ref, url string
+	allow    bool // an allowlist
 	list     *List
 	updated  time.Time // of the cached file
 	tried    time.Time // last download attempt
@@ -77,18 +78,25 @@ func (m *Manager) Configure(cfg config.DNSFilter, used []string) {
 	want := map[string]bool{}
 	for _, lvl := range used {
 		for _, ref := range cfg.Lists(lvl) {
-			want[ref] = true
+			want[ref] = false
+		}
+	}
+	if len(used) > 0 { // allowlists only matter while something is filtered
+		for _, ref := range cfg.AllowLists {
+			if _, ok := want[ref]; !ok {
+				want[ref] = true
+			}
 		}
 	}
 	for ref, e := range m.entries {
-		if !want[ref] || e.url != cfg.ListURL(ref) {
+		if _, ok := want[ref]; !ok || e.url != cfg.ListURL(ref) || e.allow != want[ref] {
 			delete(m.entries, ref)
 		}
 	}
 	var load []*entry
-	for ref := range want {
+	for ref, allow := range want {
 		if m.entries[ref] == nil {
-			e := &entry{ref: ref, url: cfg.ListURL(ref), loading: true}
+			e := &entry{ref: ref, url: cfg.ListURL(ref), allow: allow, loading: true}
 			m.entries[ref] = e
 			load = append(load, e)
 		}
@@ -219,7 +227,7 @@ func (m *Manager) loadCache(e *entry) {
 	if err != nil {
 		return
 	}
-	l, err := Parse(e.ref, io.LimitReader(f, MaxSize))
+	l, err := m.parse(e, io.LimitReader(f, MaxSize))
 	if err != nil {
 		m.Log.Warn("dns filter: cached list unusable", "list", e.ref, "err", err)
 		return
@@ -276,7 +284,7 @@ func (m *Manager) download(ctx context.Context, e *entry) (*List, string, error)
 	}
 	var l *List
 	if err == nil {
-		l, err = Parse(e.ref, tmp)
+		l, err = m.parse(e, tmp)
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
@@ -291,6 +299,13 @@ func (m *Manager) download(ctx context.Context, e *entry) (*List, string, error)
 		return nil, "", err
 	}
 	return l, resp.Header.Get("Last-Modified"), nil
+}
+
+func (m *Manager) parse(e *entry, r io.Reader) (*List, error) {
+	if e.allow {
+		return ParseAllow(e.ref, r)
+	}
+	return Parse(e.ref, r)
 }
 
 func (m *Manager) publish() {
@@ -309,7 +324,14 @@ func (m *Manager) publish() {
 			allow = append(allow, d)
 		}
 	}
+	var allowLists []*List
+	for _, ref := range m.cfg.AllowLists {
+		if e := m.entries[ref]; e != nil && e.allow && e.list != nil {
+			allowLists = append(allowLists, e.list)
+		}
+	}
 	f := NewFilter(levels, allow)
+	f.allowLists = allowLists
 	m.mu.Unlock()
 	if m.OnChange != nil {
 		m.OnChange(f)
@@ -330,6 +352,9 @@ func (m *Manager) Status() []Status {
 			if slices.Contains(m.cfg.Lists(lvl), ref) {
 				s.Levels = append(s.Levels, lvl)
 			}
+		}
+		if e.allow {
+			s.Levels = append(s.Levels, "allow")
 		}
 		out = append(out, s)
 	}
