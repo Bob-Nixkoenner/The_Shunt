@@ -7,6 +7,12 @@
   not what the DHCP host name is made from on current Android either. The permission is gone from
   the manifest. For foreign Wi-Fi use the system's own settings (per network: *Privacy → Use
   randomized MAC*).
+- **Android: rename tunnels** (Tunnels → Rename, with the VPN off): routes of apps, the default
+  route, tunnels going through it and the traffic counts follow the new name.
+- **Android: dark mode switch** (Status → Appearance: System / Light / Dark).
+- **Android: DNS filter lists as on the desktop**: 26 RPiList lists in groups with their size, big
+  lists (15 MB and more) are asked about before they are switched on. Windows and Office telemetry
+  and TV lists are not offered on the phone.
 - **Android: traffic and blocks graph** on the status screen (1 h / 24 h / 7 d / 30 d), blocked
   today / this month, and a history line on every tunnel card.
 - **UI: new "Apps" tab** with Menu apps (Programs on Windows), "Start an app" and "Where traffic

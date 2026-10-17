@@ -1,6 +1,17 @@
 package org.theshunt.app
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,6 +61,44 @@ val LightShunt = ShuntColors(
 )
 
 val LocalShunt = staticCompositionLocalOf { DarkShunt }
+
+/** Light/dark: follow the phone (default) or fixed. Kept apart from the VPN settings. */
+enum class ThemeMode(val label: String) { System("System"), Light("Light"), Dark("Dark") }
+
+object UiPrefs {
+    private const val PREFS = "ui"
+    private const val KEY = "theme"
+    var mode by mutableStateOf(ThemeMode.System)
+        private set
+
+    fun load(ctx: Context) {
+        mode = ThemeMode.entries.firstOrNull { it.name == ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null) } ?: ThemeMode.System
+    }
+
+    fun set(ctx: Context, m: ThemeMode) {
+        mode = m
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, m.name).apply()
+    }
+
+    @Composable
+    fun dark(): Boolean = when (mode) {
+        ThemeMode.System -> isSystemInDarkTheme()
+        ThemeMode.Light -> false
+        ThemeMode.Dark -> true
+    }
+}
+
+/** "Appearance": a card with the three choices. */
+@Composable
+fun AppearanceSection() {
+    val ctx = LocalContext.current
+    Section("Appearance") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in ThemeMode.entries) ShuntButton(m.label, { UiPrefs.set(ctx, m) }, kind = if (UiPrefs.mode == m) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
+        }
+        Hint("System follows the phone's dark mode.")
+    }
+}
 val Mono = FontFamily.Monospace
 
 @Composable
@@ -68,6 +117,15 @@ fun ShuntTheme(dark: Boolean, content: @Composable () -> Unit) {
         error = c.bad, onError = Color.White, errorContainer = c.bad.copy(alpha = .16f), onErrorContainer = c.text,
         secondaryContainer = c.panel2, onSecondaryContainer = c.text,
     )
+    // status and navigation bar icons must match the theme, also when it differs from the phone's
+    val view = LocalView.current
+    if (!view.isInEditMode) SideEffect {
+        var ctx = view.context
+        while (ctx is ContextWrapper && ctx !is Activity) ctx = ctx.baseContext
+        (ctx as? Activity)?.window?.let { w ->
+            WindowCompat.getInsetsController(w, view).apply { isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark }
+        }
+    }
     CompositionLocalProvider(LocalShunt provides c) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
