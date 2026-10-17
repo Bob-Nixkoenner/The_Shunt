@@ -215,7 +215,7 @@ dns_filter = "low"
 		t.Errorf("used levels %v", got)
 	}
 	f := c.Filter()
-	if f.Default != FilterNormal || len(f.Normal) != 1 || f.Normal[0] != "easylist" {
+	if f.Default != FilterNormal || strings.Join(f.Lists(FilterNormal), ",") != "easylist,Phishing-Angriffe,malware" {
 		t.Errorf("defaults %+v", f)
 	}
 	if u := f.ListURL("easylist"); u != DefaultFilterSource+"easylist" {

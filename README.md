@@ -297,9 +297,9 @@ that build on each other (normal = low + its own lists, paranoid = normal + its 
 ```toml
 [dns_filter]
 default  = "normal"                     # everything without its own level
-low      = []
-normal   = ["easylist"]                 # RPiList file names or https:// URLs
-paranoid = ["easylist", "Phishing-Angriffe", "malware", "Win10Telemetry", "MS-Office-Telemetry", "crypto"]
+low      = ["easylist"]                 # RPiList file names or https:// URLs
+normal   = ["Phishing-Angriffe", "malware"]   # + everything of low
+paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "Win10Telemetry", "MS-Office-Telemetry", "samsung", "lg-tv", "SupportingRussia"]
 allow    = ["example.com"]              # never blocked (with subdomains)
 allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
