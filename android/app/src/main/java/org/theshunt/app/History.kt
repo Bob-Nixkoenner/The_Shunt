@@ -63,7 +63,7 @@ fun rememberHistory(range: String): State<History?> {
 @Composable
 fun TrafficChart(h: History, modifier: Modifier = Modifier) {
     val c = LocalShunt.current
-    Canvas(modifier.fillMaxWidth().height(110.dp)) {
+    Canvas(modifier.fillMaxWidth().height(56.dp)) {
         val n = h.size
         if (n < 2) return@Canvas
         val max = maxOf(1L, (0 until n).maxOf { maxOf(h.rx(it), h.tx(it)) }).toFloat()
@@ -87,7 +87,7 @@ fun TrafficChart(h: History, modifier: Modifier = Modifier) {
 @Composable
 fun BlocksChart(h: History, modifier: Modifier = Modifier) {
     val c = LocalShunt.current
-    Canvas(modifier.fillMaxWidth().height(44.dp)) {
+    Canvas(modifier.fillMaxWidth().height(24.dp)) {
         val n = h.size
         if (n == 0) return@Canvas
         val max = maxOf(1L, (0 until n).maxOf { h.dns(it) }).toFloat()
@@ -148,7 +148,7 @@ fun HistorySection(h: History?, range: String, onRange: (String) -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         TrafficChart(h)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(2.dp))
         BlocksChart(h)
         Hint("Through your tunnels only; direct traffic is not measured. Counted on this phone, nothing is sent anywhere.")
     }

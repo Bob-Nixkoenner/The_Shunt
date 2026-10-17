@@ -11,9 +11,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- list apps to give each its own route -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-    <!-- disguise: random device name; only works after "adb shell pm grant" -->
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
