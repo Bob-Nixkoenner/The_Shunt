@@ -36,7 +36,7 @@ function fmtTime(sec, long) {
   return long || histRange === "1h" || histRange === "24h" ? (histRange === "24h" || long ? d.toLocaleDateString([], { weekday: "short" }) + " " : "") + t : d.toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
-function rate(b, step) { return bytes(b / step) + "/s"; }
+function rate(b, step) { return bytes(Math.round(b / step)) + "/s"; }
 
 function drawTraffic(h) {
   const W = 1000, H = 100, n = h.points.length;

@@ -166,14 +166,14 @@ function render() {
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
 
-  // the overview shows the first rules only; all of them are under Configure
+  // The overview shows your first rules only (all of them are under Configure);
+  // the built-in ones (captive, via:...) are not rules you made.
   const SHOWN_RULES = 4;
-  $("#rules").replaceChildren(...st.rules.slice(0, SHOWN_RULES).map((r, i) => {
-    const [name, route] = r.split(" -> ");
-    return el("tr", {}, el("td", { class: "muted" }, i + 1 + "."), el("td", {}, name), el("td", {}, routeTag(route)));
-  }), el("tr", {}, el("td", { class: "muted" }, st.rules.length + 1 + "."), el("td", { class: "muted" }, "everything else"), el("td", {}, routeTag(st.default_route))));
-  const more = $("#rules-more");
-  more.replaceChildren(...(st.rules.length > SHOWN_RULES ? [st.rules.length - SHOWN_RULES + " more rules – ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); setTab("config"); } }, "show all under Configure")] : []));
+  const mine = st.rules.map((r, i) => [i + 1, ...r.split(" -> ")]).filter(([, name]) => name !== "captive" && !name.startsWith("via:"));
+  $("#rules").replaceChildren(...mine.slice(0, SHOWN_RULES).map(([n, name, route]) =>
+    el("tr", {}, el("td", { class: "muted" }, n + "."), el("td", {}, name), el("td", {}, routeTag(route)))),
+    el("tr", {}, el("td", { class: "muted" }, "→"), el("td", { class: "muted" }, "everything else"), el("td", {}, routeTag(st.default_route))));
+  $("#rules-more").replaceChildren(...(mine.length > SHOWN_RULES ? [mine.length - SHOWN_RULES + " more rules – ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); setTab("config"); } }, "show all under Configure")] : []));
 
   $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
@@ -184,10 +184,10 @@ function render() {
 function renderApps() {
   if (!status) return;
   const f = $("#appfilter").value.toLowerCase();
-  const routes = ["", ...status.routes];
   // Default: apps that use the network or are already routed; the rest
   // (hundreds of tools on Kali) only on request or when searching.
   const all = $("#allapps").checked || f !== "";
+  const routes = ["", ...status.routes];
   const shown = apps.filter((a) => !a.clone && (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
   shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
   $("#appcount").textContent = "(" + apps.length + ")";
@@ -202,6 +202,8 @@ function renderApps() {
         } catch (err) { toast(err.message); e.target.value = a.route || ""; }
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
+    // a route that no longer exists (tunnel removed) stays visible instead of an empty box
+    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, a.route + " (gone)"));
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s), el("td", { class: "linux-only" }, appFilterSelect(a)));
   }));
@@ -244,7 +246,7 @@ function appFilterSelect(a) {
 // "brave", "org.mozilla.firefox" -> "firefox", "firefox-esr" -> "firefox".
 function processName(id) {
   const last = id.split(".").pop().toLowerCase();
-  return last.split("-")[0] || last;
+  return last.split(/[-_]/)[0] || last;
 }
 
 // warnRunning: a browser that already runs keeps its route – new windows
@@ -266,7 +268,7 @@ function routeSelect(value, onchange, withDefault) {
   return s;
 }
 
-const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox)$/.test(a.id)) || {}).id;
+const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
 
 function renderLaunchers() {
   if (!status) return;
