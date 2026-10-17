@@ -127,7 +127,7 @@ function renderConfig() {
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
       el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
-  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – import a WireGuard or OpenVPN config below."))]));
+  }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – add a WireGuard, OpenVPN, Tailscale or Headscale tunnel under “Add a tunnel” below."))]));
 
   $("#c-rules").replaceChildren(...(model.rule.length ? model.rule.map((r, i) => {
     const sel = [];
@@ -465,3 +465,13 @@ function fwPreset(mode, defaultToTunnel) {
 $("#fw-p-paranoid").addEventListener("click", () => fwPreset("block", true));
 $("#fw-p-normal").addEventListener("click", () => fwPreset("ask", false));
 $("#fw-p-off").addEventListener("click", () => fwPreset("off", false));
+
+// "Add a tunnel": switch between the file import and the Tailscale/Headscale form
+for (const [t, other] of [["file", "ts"], ["ts", "file"]]) {
+  $("#addtab-" + t).addEventListener("click", () => {
+    $("#add-" + t).hidden = false;
+    $("#add-" + other).hidden = true;
+    $("#addtab-" + t).classList.add("active");
+    $("#addtab-" + other).classList.remove("active");
+  });
+}

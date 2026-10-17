@@ -1,5 +1,5 @@
 "use strict";
-// DNS filter tab: blocklists per level, allowlist, what got blocked.
+// DNS filter tab: blocklists per level, allowlists, what got blocked.
 // Edits the same config model as the Configure page (same save bar).
 
 // RPiList lists (https://github.com/RPiList/specials/tree/master/Blocklisten),
@@ -59,12 +59,17 @@ function renderFilter() {
   const custom = [...new Set(LEVELS.flatMap((l) => f[l] || []))].filter((n) => !known.has(n));
   const rows = [...RPILIST, ...custom.map((u) => [u, "own list", null])];
   $("#f-lists").replaceChildren(...rows.map(([name, desc, mb]) => {
-    const cells = LEVELS.map((l) => el("td", {}, el("input", {
+    const cells = LEVELS.map((l, i) => el("td", {}, el("input", {
       type: "checkbox", title: l + (used.has(l) ? "" : " – level not in use, nothing is downloaded"),
-      checked: (f[l] || []).includes(name) ? "" : null,
+      // a level has the lists of the levels below it
+      checked: LEVELS.slice(0, i + 1).some((k) => (f[k] || []).includes(name)) ? "" : null,
       onchange: (e) => {
         const m = fm();
-        m[l] = e.target.checked ? [...m[l], name] : m[l].filter((x) => x !== name);
+        // ticking a level ticks the higher ones too, unticking clears the lower ones too
+        for (const [j, k] of LEVELS.entries()) {
+          if (e.target.checked && j >= i) { if (!m[k].includes(name)) m[k] = [...m[k], name]; }
+          if (!e.target.checked && j <= i) m[k] = m[k].filter((x) => x !== name);
+        }
         markDirty();
         renderFilter();
       },
@@ -81,11 +86,12 @@ function renderFilter() {
       } }, "✕") : ""));
   }));
   if (document.activeElement !== $("#f-allow")) $("#f-allow").value = (f.allow || []).join("\n");
+  if (document.activeElement !== $("#f-alists")) $("#f-alists").value = (f.allow_lists || []).join("\n");
   renderFilterStatus();
 }
 
 function ago(t) {
-  if (!t) return "never";
+  if (!t || String(t).startsWith("0001")) return "never";
   const s = (Date.now() - new Date(t)) / 1000;
   if (s < 10) return "just now";
   if (s < 90) return Math.round(s) + " s ago";
@@ -143,15 +149,42 @@ $("#f-allow").addEventListener("input", (e) => {
   if (!m.allow.length) delete m.allow;
   markDirty();
 });
+// every https:// URL in a pasted text (Pi-hole adlist export, Markdown, a
+// copied block); returns the URLs and how many other lines were left out
+function pickUrls(text) {
+  const urls = [];
+  let skipped = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\s+#.*$/, "").trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/https:\/\/[^\s<>"'`,)\]]+/);
+    if (m && /^https:\/\/[^\s/]+\/\S*$/.test(m[0])) urls.push(m[0]);
+    else skipped++;
+  }
+  return { urls: [...new Set(urls)], skipped };
+}
 $("#f-add").addEventListener("click", () => {
-  const u = $("#f-custom").value.trim();
-  if (!/^https:\/\/[^\s/]+\/\S*$/.test(u)) return toast("An https:// URL, please");
+  const { urls, skipped } = pickUrls($("#f-paste").value);
+  if (!urls.length) return toast("No https:// URL found");
+  const lvl = $("#f-paste-level").value;
   const m = fm();
-  if (!LEVELS.some((l) => m[l].includes(u))) m.paranoid.push(u);
-  $("#f-custom").value = "";
+  const have = new Set(LEVELS.flatMap((l) => m[l]));
+  let added = 0;
+  const from = LEVELS.indexOf(lvl);
+  for (const u of urls) {
+    for (const k of LEVELS.slice(from)) if (!m[k].includes(u)) m[k].push(u);
+    if (!have.has(u)) added++;
+  }
+  $("#f-paste").value = "";
+  $("#f-paste-info").textContent = urls.length + " lists read, " + added + " new" + (skipped ? ", " + skipped + " lines ignored (not https://)" : "") + " – put into “" + lvl + "” and the levels above";
   markDirty();
   renderFilter();
-  toast("Added to paranoid – tick the other levels if you want it there too");
+});
+$("#f-alists").addEventListener("input", (e) => {
+  const m = fm();
+  m.allow_lists = pickUrls(e.target.value).urls;
+  if (!m.allow_lists.length) delete m.allow_lists;
+  markDirty();
 });
 $("#f-refresh").addEventListener("click", async () => {
   try { await api("POST", "/api/dnsfilter/refresh"); toast("Downloading the lists again…"); } catch (e) { toast(e.message); }

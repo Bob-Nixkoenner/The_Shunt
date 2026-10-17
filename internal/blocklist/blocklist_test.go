@@ -151,3 +151,25 @@ func waitLoaded(t *testing.T, m *Manager) {
 	}
 	t.Fatal("cache load did not finish")
 }
+
+func TestAllowListOverridesBlock(t *testing.T) {
+	bl, _ := Parse("bl", strings.NewReader("||ads.example.com^\ntracker.example.org\n"))
+	al, err := ParseAllow("al", strings.NewReader("@@||ads.example.com^\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := NewFilter(map[string][]*List{"normal": {bl}}, nil)
+	if f.Check("normal", "x.ads.example.com") == "" {
+		t.Fatal("not blocked without allowlist")
+	}
+	f.allowLists = []*List{al}
+	if got := f.Check("normal", "x.ads.example.com"); got != "" {
+		t.Fatalf("allowlist ignored: %q", got)
+	}
+	if f.Check("normal", "tracker.example.org") == "" {
+		t.Fatal("unrelated name must stay blocked")
+	}
+	if _, err := Parse("bl", strings.NewReader("@@||ads.example.com^\n")); err == nil {
+		t.Fatal("exceptions are not entries of a blocklist")
+	}
+}
