@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.0
+
+**The first release after the release candidates: Linux, Android and Windows (beta).** Same
+code as v0.7.0-rc11; the details of each step are in the rc sections below.
+
+- **Tunnels:** WireGuard, OpenVPN (also as second hop), Tailscale/Headscale; rename with
+  `shunt rename`; one "Add a tunnel" tile in the UI.
+- **Routing:** per app, per rule (domain, CIDR, port), per network (Wi-Fi name, cable, mobile
+  data), app firewall, sticky routes, panic button, timed pass, kill switch.
+- **DNS filter:** blocklists inside The Shunt (RPiList lists, AdGuard/Pi-hole/hosts formats),
+  pasted as whole blocks, grouped like the RPiList page, allowlists, three levels that build on
+  each other, per app, tunnel and network.
+- **Platforms:** Linux (installer for Debian/Ubuntu, Arch, Fedora; signed releases), Android
+  app (APK), Windows (setup.exe and ZIP, beta).
+- **UI:** foldable tiles, long lists scroll, health, statistics, leak test.
+
 ## v0.7.0-rc11
 
 **Installer fix.** GitHub lists releases as text ("rc9" before "rc10"), so the installer took
