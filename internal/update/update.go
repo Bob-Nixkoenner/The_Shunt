@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +37,9 @@ type Info struct {
 	Checked   time.Time `json:"checked,omitempty"`
 	Err       string    `json:"error,omitempty"`
 	Disabled  bool      `json:"disabled,omitempty"`
+	// Channels: which kinds of releases are announced.
+	Releases    bool `json:"releases"`
+	Prereleases bool `json:"prereleases"`
 }
 
 // NoCheckFile: if it exists, no checks are made.
@@ -46,33 +51,73 @@ func NoCheckFile() string {
 	return filepath.Join(d, "the-shunt", "no-update-check")
 }
 
-// Enabled reports whether update checks are on.
-func Enabled() bool {
-	f := NoCheckFile()
-	if f == "" {
-		return true
+// markerFile is a file in the config directory; its existence means "off".
+func markerFile(name string) string {
+	d, err := os.UserConfigDir()
+	if err != nil {
+		return ""
 	}
-	_, err := os.Stat(f)
-	return err != nil
+	return filepath.Join(d, "the-shunt", name)
 }
 
-// SetEnabled switches checks on or off.
-func SetEnabled(on bool) error {
-	f := NoCheckFile()
+func exists(f string) bool {
+	if f == "" {
+		return false
+	}
+	_, err := os.Stat(f)
+	return err == nil
+}
+
+// Releases reports whether stable releases are announced.
+func Releases() bool { return Enabled() && !exists(markerFile("no-release-check")) }
+
+// Prereleases reports whether pre-releases (rc, beta) are announced.
+func Prereleases() bool { return Enabled() && !exists(markerFile("no-prerelease-check")) }
+
+// Enabled reports whether update checks are on at all.
+func Enabled() bool { return !exists(NoCheckFile()) }
+
+func setMarker(f string, off bool) error {
 	if f == "" {
 		return fmt.Errorf("no config directory")
 	}
-	if on {
-		err := os.Remove(f)
-		if os.IsNotExist(err) {
-			return nil
+	if !off {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return err
 		}
-		return err
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(f, []byte("delete this file to check for updates again\n"), 0o600)
+}
+
+// SetChannels switches stable releases and pre-releases on or off; with
+// both off no checks are made.
+func SetChannels(releases, pre bool) error {
+	if err := setMarker(markerFile("no-release-check"), !releases); err != nil {
+		return err
+	}
+	if err := setMarker(markerFile("no-prerelease-check"), !pre); err != nil {
+		return err
+	}
+	return setMarker(NoCheckFile(), !releases && !pre)
+}
+
+// SetEnabled switches all checks on or off (tray menu). Switching on
+// restores both channels if none was left on.
+func SetEnabled(on bool) error {
+	if !on {
+		return setMarker(NoCheckFile(), true)
+	}
+	if err := setMarker(NoCheckFile(), false); err != nil {
+		return err
+	}
+	if exists(markerFile("no-release-check")) && exists(markerFile("no-prerelease-check")) {
+		return SetChannels(true, true)
+	}
+	return nil
 }
 
 // Checker checks periodically and remembers the result.
@@ -114,6 +159,7 @@ func (c *Checker) Get() Info {
 		}
 	}
 	i.Disabled = !Enabled()
+	i.Releases, i.Prereleases = Releases(), Prereleases()
 	i.App = c.Current
 	return i
 }
@@ -180,8 +226,49 @@ func newer(current, latest string) bool {
 	case strings.HasPrefix(current, "src-"):
 		return !strings.HasPrefix(latest, strings.TrimPrefix(current, "src-"))
 	default:
+		if c, ok := cmpVersion(latest, current); ok {
+			return c > 0
+		}
 		return latest != current
 	}
+}
+
+var verRe = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.?(\d+)?)?$`)
+
+// cmpVersion compares "v0.7.0-rc8" style tags: a pre-release is older than
+// its release, rc8 is newer than rc7. ok is false for other tag shapes.
+func cmpVersion(a, b string) (int, bool) {
+	ma, mb := verRe.FindStringSubmatch(a), verRe.FindStringSubmatch(b)
+	if ma == nil || mb == nil {
+		return 0, false
+	}
+	for i := 1; i <= 3; i++ {
+		x, _ := strconv.Atoi(ma[i])
+		y, _ := strconv.Atoi(mb[i])
+		if x != y {
+			return map[bool]int{true: 1, false: -1}[x > y], true
+		}
+	}
+	switch {
+	case ma[4] == "" && mb[4] == "":
+		return 0, true
+	case ma[4] == "":
+		return 1, true
+	case mb[4] == "":
+		return -1, true
+	}
+	if c := strings.Compare(ma[4], mb[4]); c != 0 {
+		return c, true
+	}
+	x, _ := strconv.Atoi(ma[5])
+	y, _ := strconv.Atoi(mb[5])
+	switch {
+	case x > y:
+		return 1, true
+	case x < y:
+		return -1, true
+	}
+	return 0, true
 }
 
 // behind asks GitHub how commit sha relates to the newest commit latest:
@@ -231,7 +318,7 @@ func (c *Checker) latestFor(ctx context.Context, current string) (string, error)
 	if cl == nil {
 		cl = &http.Client{Timeout: 20 * time.Second}
 	}
-	path := "/repos/" + Repo + "/releases?per_page=1" // pre-releases too
+	path := "/repos/" + Repo + "/releases?per_page=30"
 	if strings.HasPrefix(current, "src-") {
 		path = "/repos/" + Repo + "/commits/HEAD"
 	}
@@ -254,12 +341,21 @@ func (c *Checker) latestFor(ctx context.Context, current string) (string, error)
 	}
 	if strings.HasPrefix(strings.TrimSpace(string(b)), "[") { // release list
 		var rs []struct {
-			Tag string `json:"tag_name"`
+			Tag   string `json:"tag_name"`
+			Pre   bool   `json:"prerelease"`
+			Draft bool   `json:"draft"`
 		}
-		if err := json.Unmarshal(b, &rs); err != nil || len(rs) == 0 {
+		if err := json.Unmarshal(b, &rs); err != nil {
 			return "", err
 		}
-		return rs[0].Tag, nil
+		stable, pre := Releases(), Prereleases()
+		for _, r := range rs { // newest first
+			if r.Draft || (r.Pre && !pre) || (!r.Pre && !stable) {
+				continue
+			}
+			return r.Tag, nil
+		}
+		return "", nil
 	}
 	var v struct {
 		SHA string `json:"sha"`

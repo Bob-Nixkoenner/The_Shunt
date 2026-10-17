@@ -33,7 +33,13 @@ var ErrEmpty = errors.New("no usable entries (not a blocklist?)")
 // Parse reads a list. Understood: "||name^" (with subdomains), hosts lines
 // ("0.0.0.0 name"), plain names; comments (#, !) and everything else
 // (exceptions, cosmetic or URL rules) are skipped.
-func Parse(name string, r io.Reader) (*List, error) {
+func Parse(name string, r io.Reader) (*List, error) { return parse(name, r, false) }
+
+// ParseAllow reads an allowlist: like Parse, and AdGuard exceptions
+// ("@@||name^") count as entries.
+func ParseAllow(name string, r io.Reader) (*List, error) { return parse(name, r, true) }
+
+func parse(name string, r io.Reader, allow bool) (*List, error) {
 	l := &List{Name: name, entries: map[string]bool{}}
 	br := bufio.NewReaderSize(r, MaxLine)
 	for {
@@ -44,7 +50,7 @@ func Parse(name string, r io.Reader) (*List, error) {
 			}
 			line = nil
 		}
-		if d, sub := parseLine(string(line)); d != "" && (sub || !l.entries[d]) {
+		if d, sub := parseLine(string(line), allow); d != "" && (sub || !l.entries[d]) {
 			l.entries[d] = sub
 		}
 		if err == io.EOF {
@@ -60,8 +66,11 @@ func Parse(name string, r io.Reader) (*List, error) {
 	return l, nil
 }
 
-func parseLine(s string) (string, bool) {
+func parseLine(s string, allow bool) (string, bool) {
 	s = strings.TrimSpace(s)
+	if allow {
+		s = strings.TrimPrefix(s, "@@")
+	}
 	if s == "" || s[0] == '#' || s[0] == '!' || s[0] == '@' {
 		return "", false
 	}
@@ -127,6 +136,8 @@ func (l *List) Has(name string) bool {
 type Filter struct {
 	levels map[string][]*List
 	allow  []string
+	// allowLists: downloaded lists of names that are never blocked.
+	allowLists []*List
 }
 
 // NewFilter builds a filter (levels: level -> lists).
@@ -150,6 +161,11 @@ func (f *Filter) Check(level, name string) string {
 	}
 	for _, l := range lists {
 		if l.Has(name) {
+			for _, a := range f.allowLists {
+				if a.Has(name) {
+					return ""
+				}
+			}
 			return l.Name
 		}
 	}
