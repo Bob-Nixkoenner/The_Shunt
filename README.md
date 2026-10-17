@@ -299,7 +299,7 @@ that build on each other (normal = low + its own lists, paranoid = normal + its 
 default  = "normal"                     # everything without its own level
 low      = ["easylist"]                 # RPiList file names or https:// URLs
 normal   = ["Phishing-Angriffe", "malware"]   # + everything of low
-paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "Win10Telemetry", "MS-Office-Telemetry", "samsung", "lg-tv", "SupportingRussia"]
+paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "SupportingRussia"]   # + the Windows telemetry lists on Windows
 allow    = ["example.com"]              # never blocked (with subdomains)
 allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
