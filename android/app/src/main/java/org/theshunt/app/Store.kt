@@ -99,7 +99,7 @@ data class Settings(
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },
                 directDns = o.optString("direct_dns", "1.1.1.1"),
-                filterLists = strings("filter_lists") ?: Blocklists.DEFAULT,
+                filterLists = strings("filter_lists")?.filter { it in Blocklists.ALL } ?: Blocklists.DEFAULT,
                 unfiltered = strings("unfiltered_apps")?.toSet() ?: emptySet(),
             )
         }
@@ -129,6 +129,40 @@ object Store {
         } catch (e: Exception) {
             f.failWrite(out)
             throw e
+        }
+    }
+
+    /**
+     * Gives a tunnel a new name and rewrites every route that names it (default,
+     * apps, OpenVPN tunnels going through it). The traffic counts follow (renameStats).
+     */
+    fun rename(s: Settings, from: String, to: String): Settings {
+        val old = "tunnel:$from"
+        val new = "tunnel:$to"
+        fun r(route: String) = if (route == old) new else route
+        return s.copy(
+            tunnels = s.tunnels.map { t -> (if (t.name == from) t.copy(name = to) else t).let { if (it.via == from) it.copy(via = to) else it } },
+            defaultRoute = r(s.defaultRoute),
+            apps = s.apps.mapValues { (_, route) -> r(route) },
+        )
+    }
+
+    /**
+     * The statistics file keeps counts under the tunnel's name; they move to the new name.
+     * Only while the VPN is off: the running core holds the file's contents in memory.
+     */
+    fun renameStats(ctx: Context, from: String, to: String) {
+        val f = File(ctx.filesDir, "stats.json")
+        if (!f.exists()) return
+        try {
+            val o = JSONObject(f.readText())
+            fun move(m: JSONObject?) { if (m != null && m.has(from)) { m.put(to, m.get(from)); m.remove(from) } }
+            move(o.optJSONObject("since"))
+            move(o.optJSONObject("months"))
+            o.optJSONArray("series")?.let { a -> for (i in 0 until a.length()) move(a.getJSONObject(i).optJSONObject("tun")) }
+            f.writeText(o.toString())
+        } catch (e: Exception) {
+            android.util.Log.w("Shunt", "rename stats: ${e.message}")
         }
     }
 

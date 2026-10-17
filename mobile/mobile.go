@@ -79,6 +79,11 @@ func (e *Engine) SetRules(configJSON string) error { return e.e.SetRules(configJ
 // Status returns the state as JSON.
 func (e *Engine) Status() string { return e.e.Status() }
 
+// History returns the traffic and DNS-block history as JSON for a range
+// ("1h", "24h", "7d" or "30d"): points of traffic and blocked names, per-tunnel
+// series, and the blocks of today and this month.
+func (e *Engine) History(rng string) string { return e.e.History(rng) }
+
 // NetworkChanged is called by the app when the default network changes.
 func (e *Engine) NetworkChanged() { e.e.NetworkChanged() }
 

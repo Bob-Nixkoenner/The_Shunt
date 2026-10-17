@@ -139,7 +139,8 @@ function render() {
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
           t.health.loss > 0 ? " · " + Math.round(t.health.loss * 100) + " % lost" : "")] : []),
-        ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])));
+        ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
+      ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
     ...(st.traffic && st.traffic.total && st.traffic.total.total.rx + st.traffic.total.total.tx > 0 ? [el("div", { class: "muted", style: "grid-column:1/-1" },
       "All tunnels: this month ↓ " + bytes(st.traffic.total.month.rx) + " ↑ " + bytes(st.traffic.total.month.tx) +
@@ -165,10 +166,14 @@ function render() {
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
 
-  $("#rules").replaceChildren(...st.rules.map((r, i) => {
-    const [name, route] = r.split(" -> ");
-    return el("tr", {}, el("td", { class: "muted" }, i + 1 + "."), el("td", {}, name), el("td", {}, routeTag(route)));
-  }), el("tr", {}, el("td", { class: "muted" }, st.rules.length + 1 + "."), el("td", { class: "muted" }, "everything else"), el("td", {}, routeTag(st.default_route))));
+  // The overview shows your first rules only (all of them are under Configure);
+  // the built-in ones (captive, via:...) are not rules you made.
+  const SHOWN_RULES = 4;
+  const mine = st.rules.map((r, i) => [i + 1, ...r.split(" -> ")]).filter(([, name]) => name !== "captive" && !name.startsWith("via:"));
+  $("#rules").replaceChildren(...mine.slice(0, SHOWN_RULES).map(([n, name, route]) =>
+    el("tr", {}, el("td", { class: "muted" }, n + "."), el("td", {}, name), el("td", {}, routeTag(route)))),
+    el("tr", {}, el("td", { class: "muted" }, "→"), el("td", { class: "muted" }, "everything else"), el("td", {}, routeTag(st.default_route))));
+  $("#rules-more").replaceChildren(...(mine.length > SHOWN_RULES ? [mine.length - SHOWN_RULES + " more rules – ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); setTab("config"); } }, "show all under Configure")] : []));
 
   $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
@@ -179,10 +184,10 @@ function render() {
 function renderApps() {
   if (!status) return;
   const f = $("#appfilter").value.toLowerCase();
-  const routes = ["", ...status.routes];
   // Default: apps that use the network or are already routed; the rest
   // (hundreds of tools on Kali) only on request or when searching.
   const all = $("#allapps").checked || f !== "";
+  const routes = ["", ...status.routes];
   const shown = apps.filter((a) => !a.clone && (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
   shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
   $("#appcount").textContent = "(" + apps.length + ")";
@@ -197,16 +202,51 @@ function renderApps() {
         } catch (err) { toast(err.message); e.target.value = a.route || ""; }
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
+    // a route that no longer exists (tunnel removed) stays visible instead of an empty box
+    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, a.route + " (gone)"));
     s.value = a.route || "";
-    return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s));
+    return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s), el("td", { class: "linux-only" }, appFilterSelect(a)));
   }));
+}
+
+// --- DNS filter level per app ---------------------------------------------
+// A level for one app is a [[rule]] with the app's process name, a
+// dns_filter and no route (the app keeps the route it has otherwise).
+const LEVEL_OPTS = [["", "as everything else"], ["off", "off"], ["low", "low"], ["normal", "normal"], ["paranoid", "paranoid"]];
+let appRules = []; // [[rule]]s of the config in effect
+
+async function loadAppRules() {
+  try { appRules = ((await api("GET", "/api/config")).config.rule) || []; } catch { appRules = []; }
+}
+const isLevelRule = (r, proc) => r.dns_filter && !r.route && !(r.cidr || []).length && !(r.port || []).length && !(r.domain || []).length &&
+  !(r.group || []).length && (r.app || []).length === 1 && r.app[0] === proc;
+const appLevel = (a) => (appRules.find((r) => isLevelRule(r, processName(a.id))) || {}).dns_filter || "";
+
+function appFilterSelect(a) {
+  const s = el("select", { title: "DNS filter for " + a.name + ", whatever route it takes", onchange: async (e) => {
+    try {
+      // fresh copy of the config: never overwrite what changed meanwhile
+      const v = await api("GET", "/api/config");
+      const c = v.config, proc = processName(a.id), level = e.target.value;
+      c.rule = c.rule || [];
+      const i = c.rule.findIndex((r) => isLevelRule(r, proc));
+      if (!level && i >= 0) c.rule.splice(i, 1);
+      else if (level && i >= 0) c.rule[i].dns_filter = level;
+      else if (level) c.rule.push({ name: "DNS filter: " + proc, app: [proc], dns_filter: level });
+      await api("PUT", "/api/config", { config: c, version: v.version });
+      appRules = c.rule;
+      toast(a.name + (level ? ": DNS filter " + level : ": DNS filter as everything else"));
+    } catch (err) { toast(err.message); s.value = appLevel(a); }
+  } }, ...LEVEL_OPTS.map(([v, l]) => el("option", { value: v }, l)));
+  s.value = appLevel(a);
+  return s;
 }
 
 // processName guesses the process name of a menu app: "brave-browser" ->
 // "brave", "org.mozilla.firefox" -> "firefox", "firefox-esr" -> "firefox".
 function processName(id) {
   const last = id.split(".").pop().toLowerCase();
-  return last.split("-")[0] || last;
+  return last.split(/[-_]/)[0] || last;
 }
 
 // warnRunning: a browser that already runs keeps its route – new windows
@@ -228,11 +268,13 @@ function routeSelect(value, onchange, withDefault) {
   return s;
 }
 
-const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox)$/.test(a.id)) || {}).id;
+const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
 
 function renderLaunchers() {
   if (!status) return;
   const launchers = apps.filter((a) => a.clone);
+  // launchers are for Firefox profiles first: no Firefox (and no launcher made earlier) = no section
+  $("#sec-launchers").hidden = !firefoxApp() && !launchers.length;
   $("#launchers").replaceChildren(...launchers.map((a) => el("tr", {},
     el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.clone + " " + (a.args || ""))),
     el("td", {}, routeSelect(a.route, async (e) => {
@@ -332,6 +374,7 @@ $("#lcreate").addEventListener("click", () => {
 
 async function loadApps() {
   try { apps = await api("GET", "/api/apps"); } catch { apps = []; }
+  await loadAppRules();
   renderApps();
   renderLaunchers();
 }
@@ -341,6 +384,7 @@ async function refresh() {
   render();
   if (document.querySelector(".lstate")) updateLauncherState();
   checkCaptive(status);
+  watchTunnels(status);
   checkPending(status);
   if (typeof model !== "undefined" && model) updateNetNow(); // Configure page
 }
@@ -380,11 +424,15 @@ async function runApp() {
 $("#run").addEventListener("click", runApp);
 $("#cmd").addEventListener("keydown", (e) => { if (e.key === "Enter") runApp(); });
 
-$("#leak").addEventListener("click", async () => {
+// runLeak probes every route. auto: started by a tunnel change, not by a click.
+let leakBusy = false;
+async function runLeak(auto) {
+  if (leakBusy) return;
+  leakBusy = true;
   const b = $("#leak");
   b.disabled = true;
   b.textContent = "Testing…";
-  $("#leakres").replaceChildren(el("span", { class: "muted" }, "Probing every route, this takes a few seconds…"));
+  $("#leakres").replaceChildren(el("span", { class: "muted" }, auto ? "A tunnel changed – probing every route…" : "Probing every route, this takes a few seconds…"));
   try {
     const res = await api("POST", "/api/leaktest");
     // one compact row per route: route + verdict, then IP and resolver
@@ -395,10 +443,40 @@ $("#leak").addEventListener("click", async () => {
         el("span", {}, "public IP"), el("span", { class: "mono" }, r.result.ip || "–"),
         el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || "–")),
       r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, r.note) : ""))));
+    showLeakPill(res);
   } catch (e) { $("#leakres").textContent = "Leak test failed: " + e.message; }
   b.disabled = false;
   b.textContent = "Run again";
-});
+  leakBusy = false;
+}
+$("#leak").addEventListener("click", () => runLeak(false));
+
+// the verdict of the last test, always visible in the header
+function showLeakPill(res) {
+  const p = $("#leakpill");
+  const leaks = res.filter((r) => r.verdict === "leak").length;
+  const odd = res.filter((r) => r.verdict === "warn" || r.verdict === "error").length;
+  p.hidden = false;
+  p.className = "pill " + (leaks ? "bad" : odd ? "warn" : "ok");
+  p.textContent = leaks ? "leak test: " + leaks + " LEAK" : odd ? "leak test: check" : "leak test: ok";
+  p.title = "Last leak test " + new Date().toLocaleTimeString() + " – click for details";
+}
+$("#leakpill").addEventListener("click", () => { setTab("overview"); $("#leakres").scrollIntoView({ block: "center" }); });
+
+// Tunnel comes up or goes down: test again a few seconds later (unless switched off).
+let upKey = null, autoLeakTimer = null;
+function watchTunnels(st) {
+  if (!st) return;
+  const key = st.tunnels.filter((t) => t.up && (t.peers || []).some((p) => p.last_handshake && !p.last_handshake.startsWith("0001")) ||
+    (t.up && (t.driver === "openvpn" || t.driver === "tailscale"))).map((t) => t.name).sort().join(",");
+  if (upKey !== null && key !== upKey) {
+    clearTimeout(autoLeakTimer);
+    autoLeakTimer = setTimeout(() => { if ($("#leak-auto").checked && !st.panic && !st.pass_left) runLeak(true); }, 5000);
+  }
+  upKey = key;
+}
+try { $("#leak-auto").checked = localStorage.getItem("shunt-leak-auto") !== "0"; } catch (e) { /* private window */ }
+$("#leak-auto").addEventListener("change", (e) => { try { localStorage.setItem("shunt-leak-auto", e.target.checked ? "1" : "0"); } catch (err) { /* private window */ } });
 
 $("#appfilter").addEventListener("input", renderApps);
 $("#allapps").addEventListener("change", renderApps);

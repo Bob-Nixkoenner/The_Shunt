@@ -184,7 +184,7 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
 per-program routes (by file name or path), rules by address/port/domain, WireGuard,
 Tailscale/Headscale, panic, pass, leak test and an optional kill switch (Windows Firewall).
-Install: see [Install on Windows](#install-on-windows-1011-beta). Not yet: OpenVPN, groups, DNS filter, app
+Install: see [Install on Windows](#install-on-windows-1011-beta). DNS filter: default level only. Not yet: OpenVPN, groups, app
 firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Android
@@ -197,7 +197,7 @@ Beta, debug-signed APK in the releases. Details in [docs/ANDROID.md](docs/ANDROI
 Nothing here is promised; it is the list I would like to get to, in no strict order.
 Tell me what matters to you.
 
-- Windows: OpenVPN, DNS filter, app firewall, groups, code signing; test on real hardware
+- Windows: OpenVPN, DNS filter per rule/tunnel/network, app firewall, groups, code signing; test on real hardware
 - Android: Tailscale/Headscale, Play Store release
 - Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
 - A start button and route check for launchers everywhere, default browser through a launcher
@@ -299,7 +299,7 @@ that build on each other (normal = low + its own lists, paranoid = normal + its 
 default  = "normal"                     # everything without its own level
 low      = ["easylist"]                 # RPiList file names or https:// URLs
 normal   = ["Phishing-Angriffe", "malware"]   # + everything of low
-paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "Win10Telemetry", "MS-Office-Telemetry", "samsung", "lg-tv", "SupportingRussia"]
+paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "SupportingRussia"]   # + the Windows telemetry lists on Windows
 allow    = ["example.com"]              # never blocked (with subdomains)
 allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
