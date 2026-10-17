@@ -35,16 +35,20 @@ type file struct {
 	Version int                         `json:"version"`
 	Since   map[string]int64            `json:"since"`  // tunnel -> unix
 	Months  map[string]map[string]Bytes `json:"months"` // tunnel -> "2026-10" -> bytes
+	// Series: traffic and DNS blocks per 5-minute slot (history.go).
+	Series []slot `json:"series,omitempty"`
 }
 
 // Book is the counter store. Safe for concurrent use.
 type Book struct {
-	mu    sync.Mutex
-	path  string // "" = memory only
-	f     file
-	last  map[string]Bytes // last counter values seen per tunnel
-	dirty bool
-	saved time.Time
+	mu   sync.Mutex
+	path string // "" = memory only
+	f    file
+	last map[string]Bytes // last counter values seen per tunnel
+	// lastDNS: last DNS-blocked counter seen (-1 = none yet)
+	lastDNS int64
+	dirty   bool
+	saved   time.Time
 }
 
 // SaveEvery: at most this often to disk (flash wear on phones); Close saves.
@@ -52,7 +56,7 @@ const SaveEvery = 5 * time.Minute
 
 // Open loads path (a missing file is fine; "" keeps everything in memory).
 func Open(path string) (*Book, error) {
-	b := &Book{path: path, last: map[string]Bytes{}, f: file{Version: 1, Since: map[string]int64{}, Months: map[string]map[string]Bytes{}}}
+	b := &Book{path: path, last: map[string]Bytes{}, lastDNS: -1, f: file{Version: 1, Since: map[string]int64{}, Months: map[string]map[string]Bytes{}}}
 	if path == "" {
 		return b, nil
 	}
@@ -109,6 +113,7 @@ func (b *Book) Observe(tunnel string, rx, tx int64, now time.Time) {
 	v := m[month(now)]
 	v.add(d)
 	m[month(now)] = v
+	b.addSlot(tunnel, d, 0, now)
 	b.dirty = true
 	if b.path != "" && now.Sub(b.saved) >= SaveEvery {
 		b.saveLocked(now)
@@ -179,7 +184,7 @@ func (b *Book) Months(tunnel string) []struct {
 func (b *Book) Reset() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.f.Since, b.f.Months = map[string]int64{}, map[string]map[string]Bytes{}
+	b.f.Since, b.f.Months, b.f.Series = map[string]int64{}, map[string]map[string]Bytes{}, nil
 	b.dirty = true
 	return b.saveLocked(time.Now())
 }
