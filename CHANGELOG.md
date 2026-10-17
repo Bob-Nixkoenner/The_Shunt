@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc1
+
+**Pre-release: new overview with traffic and block graphs, an Apps tab, the DNS filter on Windows, and
+Android updates.** Tested on Linux (Ubuntu VM), Android (emulator) and Windows 11 (VM); not yet on a
+real Windows laptop.
 
 - **Android: "Disguise on foreign Wi-Fi" removed.** An app cannot set the MAC address, and the device
   name only with `adb shell pm grant … WRITE_SECURE_SETTINGS`, which no normal user does; the name is
