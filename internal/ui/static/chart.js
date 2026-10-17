@@ -66,7 +66,7 @@ function drawBlocks(h) {
     svgEl("svg", { viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none" },
       ...vals.map((v, i) => v ? svgEl("rect", { class: "bar", x: (i * bw + bw * 0.12).toFixed(1), width: (bw * 0.76).toFixed(1), y: (H - v / max * H).toFixed(1), height: (v / max * H).toFixed(1) }) : ""),
       cursor),
-    el("span", { class: "ymax" }, max + " blocked"));
+    ...(vals.some((v) => v) ? [el("span", { class: "ymax" }, max + " blocked")] : []));
   return cursor;
 }
 
