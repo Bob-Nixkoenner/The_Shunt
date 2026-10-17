@@ -171,8 +171,18 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 			warn("dns.direct %q: only plain IP addresses (1.1.1.1 or udp://1.1.1.1) work on Windows yet", d)
 		}
 	}
-	if f := c.DNSFilter; f != nil {
-		warn("the DNS filter (blocklists) is not available on Windows yet")
+	// The DNS filter works with the default level only (the service keeps
+	// the lists, see Manager.ApplyFilter); levels per tunnel or network
+	// are not applied yet.
+	scoped := false
+	for _, t := range c.Tunnels {
+		scoped = scoped || t.DNSFilter != ""
+	}
+	for _, n := range c.Networks {
+		scoped = scoped || n.DNSFilter != ""
+	}
+	if scoped { // rules with their own level are warned about with the rule
+		warn("the DNS filter level of single tunnels and networks is not available on Windows yet: [dns_filter] default applies everywhere")
 	}
 	if c.Firewall != nil && c.Firewall.Mode != "" && c.Firewall.Mode != config.FirewallOff {
 		warn("the app firewall is not available on Windows yet")

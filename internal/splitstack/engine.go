@@ -211,6 +211,11 @@ type Engine struct {
 	domains    domainAddrs
 	filter     *blocklist.Filter
 	unfiltered map[string]bool
+	// extFilter/extLevel: a filter kept up to date by the platform
+	// (SetFilter), used while the config names no blocklists itself.
+	extFilter  *blocklist.Filter
+	extLevel   string
+	recent     []blockedQuery // newest last, at most recentBlocked
 	flows      atomic.Int64
 	blocked    atomic.Int64
 	dnsBlocked atomic.Int64
@@ -411,12 +416,47 @@ func (e *Engine) blockedName(app, name string) string {
 		return ""
 	}
 	e.mu.RLock()
-	f, skip := e.filter, appInSet(e.unfiltered, app)
+	f, level, skip := e.filter, filterLevel, appInSet(e.unfiltered, app)
+	if f == nil {
+		f, level = e.extFilter, e.extLevel
+	}
 	e.mu.RUnlock()
 	if f == nil || skip {
 		return ""
 	}
-	return f.Check(filterLevel, blocklist.Normalize(name))
+	list := f.Check(level, blocklist.Normalize(name))
+	if list != "" {
+		e.noteBlocked(app, name, level, list)
+	}
+	return list
+}
+
+// SetFilter swaps the DNS filter kept by the platform (downloaded lists):
+// names on the lists of level are answered NXDOMAIN. nil = no filter.
+func (e *Engine) SetFilter(f *blocklist.Filter, level string) {
+	e.mu.Lock()
+	e.extFilter, e.extLevel = f, level
+	e.mu.Unlock()
+}
+
+const recentBlocked = 50
+
+type blockedQuery struct {
+	Time  time.Time `json:"time"`
+	Name  string    `json:"name"`
+	Level string    `json:"level"`
+	List  string    `json:"list"`
+	Route string    `json:"route"` // the app that asked
+}
+
+func (e *Engine) noteBlocked(app, name, level, list string) {
+	q := blockedQuery{Time: time.Now(), Name: strings.TrimSuffix(strings.ToLower(name), "."), Level: level, List: list, Route: app}
+	e.mu.Lock()
+	if len(e.recent) >= recentBlocked {
+		e.recent = append(e.recent[:0], e.recent[1:]...)
+	}
+	e.recent = append(e.recent, q)
+	e.mu.Unlock()
 }
 
 // routeFor picks the route of a connection: destination rules, then the
@@ -551,9 +591,10 @@ type tunnelStatus struct {
 
 type status struct {
 	Tunnels    []tunnelStatus `json:"tunnels"`
-	Flows      int64          `json:"flows"`       // connections handled since start
-	Blocked    int64          `json:"blocked"`     // of those, blocked
-	DNSBlocked int64          `json:"dns_blocked"` // names answered NXDOMAIN by the filter
+	Flows      int64          `json:"flows"`                // connections handled since start
+	Blocked    int64          `json:"blocked"`              // of those, blocked
+	DNSBlocked int64          `json:"dns_blocked"`          // names answered NXDOMAIN by the filter
+	DNSRecent  []blockedQuery `json:"dns_recent,omitempty"` // the last ones, newest first
 	Time       int64          `json:"time"`
 	// Traffic per tunnel and "total": this month, last month, all.
 	Traffic  map[string]stats.Summary `json:"traffic"`
@@ -571,6 +612,9 @@ func (e *Engine) Status() string {
 	sort.Slice(st.Tunnels, func(i, j int) bool { return st.Tunnels[i].Name < st.Tunnels[j].Name }) // map order: cards would jump
 	e.mu.RLock()
 	st.Network = e.netName
+	for i := len(e.recent) - 1; i >= 0; i-- {
+		st.DNSRecent = append(st.DNSRecent, e.recent[i])
+	}
 	e.mu.RUnlock()
 	b, _ := json.Marshal(st)
 	return string(b)

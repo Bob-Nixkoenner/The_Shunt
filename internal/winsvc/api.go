@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
@@ -67,7 +69,15 @@ type engineStatus struct {
 		Panic    bool  `json:"panic"`
 		PassLeft int64 `json:"pass_left"`
 	} `json:"override"`
-	Network string `json:"network"`
+	Network    string `json:"network"`
+	DNSBlocked int64  `json:"dns_blocked"`
+	DNSRecent  []struct {
+		Time  time.Time `json:"time"`
+		Name  string    `json:"name"`
+		Level string    `json:"level"`
+		List  string    `json:"list"`
+		Route string    `json:"route"`
+	} `json:"dns_recent"`
 }
 
 // Status maps the engine's state to the API's Status.
@@ -97,6 +107,22 @@ func (s *Server) Status() (api.Status, error) {
 	}
 	if s.NetInfo != nil {
 		st.NetInfo = s.NetInfo()
+	}
+	if s.Cfg != nil {
+		if def, lists, on := s.Cfg.FilterStatus(); on {
+			fs := &api.DNSFilterStatus{Default: def, Routes: map[string]string{"all": def}, Lists: lists,
+				Stats: dnsproxy.FilterStats{Blocked: uint64(es.DNSBlocked), ByLevel: map[string]uint64{}}}
+			if lists == nil {
+				fs.Lists = []blocklist.Status{}
+			}
+			if es.DNSBlocked > 0 {
+				fs.Stats.ByLevel[def] = uint64(es.DNSBlocked)
+			}
+			for _, b := range es.DNSRecent {
+				fs.Stats.Recent = append(fs.Stats.Recent, dnsproxy.Blocked{Time: b.Time, Name: b.Name, Level: b.Level, List: b.List, Route: b.Route})
+			}
+			st.DNSFilter = fs
+		}
 	}
 	for _, t := range es.Tunnels {
 		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
