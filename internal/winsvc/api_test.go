@@ -9,6 +9,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 )
 
 type fakeCore struct {
@@ -18,6 +19,9 @@ type fakeCore struct {
 
 func (f *fakeCore) Status() string {
 	return `{"tunnels":[{"name":"home","type":"wireguard","up":true,"handshake":1700000000,"rx":10,"tx":20,"health":{"state":"ok","handshake_age":5}},{"name":"work","type":"openvpn","via":"home","up":false,"error":"no route","handshake":0,"rx":0,"tx":0,"health":{"state":"down","handshake_age":-1}}],"override":{"panic":true,"pass_left":90},"network":"Büro"}`
+}
+func (f *fakeCore) History(rng string) string {
+	return `{"range":"` + rng + `","from":0,"step":300,"points":[],"tunnels":{},"rx":1,"tx":2,"dns":3,"dns_today":3,"dns_month":3}`
 }
 func (f *fakeCore) SetPanic(on bool) { f.panic = on }
 func (f *fakeCore) ProbeRoute(_ context.Context, route string) ([]byte, error) {
@@ -65,6 +69,10 @@ func TestAPIOverSocket(t *testing.T) {
 		t.Fatalf("rules: %v", st.Rules)
 	}
 
+	var h stats.History
+	if err := c.Do("GET", "/v1/history?range=7d", nil, &h); err != nil || h.Range != "7d" || h.DNSMonth != 3 {
+		t.Fatalf("history: %v %+v", err, h)
+	}
 	if err := c.Do("POST", "/v1/panic", api.PanicRequest{On: true}, nil); err != nil || !core.panic {
 		t.Fatalf("panic: %v %v", err, core.panic)
 	}
