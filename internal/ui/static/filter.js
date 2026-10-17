@@ -11,18 +11,22 @@ const RPILIST_GROUPS = [
   ]],
   ["Malware", [
     ["malware", "malware", 14.9],
-    ["crypto", "crypto scams and mining", 2.7],
   ]],
-  ["Phishing and domain squatting", [
+  ["Phishing and scam", [
     ["Phishing-Angriffe", "phishing", 4.2],
-    ["DomainSquatting1", "domain squatting 1", 32.9],
-    ["DomainSquatting2", "domain squatting 2", 18.8],
-    ["DomainSquatting3", "domain squatting 3", 0],
-    ["DomainSquatting4", "domain squatting 4", 0],
+    ["crypto", "crypto scams and mining", 2.7],
+    ["Fake-Science", "fake science", 0],
+    ["Corona-Blocklist", "corona fakes", 7.5],
   ]],
   ["Fake shops and subscription traps", [
     ["notserious", "dubious shops and sites", 2.2],
     ["Streaming", "streaming sites", 0.5],
+  ]],
+  ["Domain squatting", [
+    ["DomainSquatting1", "domain squatting 1", 32.9],
+    ["DomainSquatting2", "domain squatting 2", 18.8],
+    ["DomainSquatting3", "domain squatting 3", 0],
+    ["DomainSquatting4", "domain squatting 4", 0],
   ]],
   ["Tracking and telemetry", [
     ["Win10Telemetry", "Windows telemetry", 0],
@@ -37,9 +41,7 @@ const RPILIST_GROUPS = [
     ["proxies", "proxy and anonymiser services", 3.6],
     ...[1, 2, 3, 4, 5, 6].map((i) => ["pornblock" + i, "adult content " + i, i === 6 ? 7.2 : 33]),
   ]],
-  ["Miscellaneous", [
-    ["Fake-Science", "fake science", 0],
-    ["Corona-Blocklist", "corona fakes", 7.5],
+  ["Other", [
     ["SupportingRussia", "companies supporting Russia", 0],
     ["Overblock", "aggressive, breaks sites", 0],
   ]],
@@ -72,7 +74,7 @@ function renderFilter() {
 
   const known = new Set(RPILIST.map((x) => x[0]));
   const custom = [...new Set(LEVELS.flatMap((l) => f[l] || []))].filter((n) => !known.has(n));
-  const groups = [...RPILIST_GROUPS, ...(custom.length ? [["Your own lists", custom.map((u) => [u, "own list", null])]] : [])];
+  const groups = RPILIST_GROUPS.map(([cat, list]) => cat === "Other" ? [cat, [...list, ...custom.map((u) => [u, "other list", null])]] : [cat, list]);
   const rows = groups.flatMap(([cat, list]) => [cat, ...list]);
   $("#f-lists").replaceChildren(...rows.map((row) => {
     if (typeof row === "string") return el("tr", { class: "grouprow" }, el("th", { colspan: 6, style: "text-align:left;padding-top:14px" }, row));
