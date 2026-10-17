@@ -181,6 +181,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
     var confirmPass by remember { mutableStateOf(false) }
     var leak by remember { mutableStateOf<JSONArray?>(null) }
     var leakRunning by remember { mutableStateOf(false) }
+    var range by remember { mutableStateOf("24h") }
+    val history by rememberHistory(range)
     val askVpn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == android.app.Activity.RESULT_OK) ShuntVpnService.start(ctx)
     }
@@ -263,9 +265,11 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
         val ts = status?.optJSONArray("tunnels")
         if (ts != null && ts.length() > 0) {
             Section("Tunnels") {
-                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status)
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history)
             }
         }
+
+        if (running) HistorySection(history, range) { range = it }
 
         status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
             if ((tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L) > 0L) {
@@ -310,7 +314,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
 }
 
 @Composable
-private fun TunnelCard(t: JSONObject, st: JSONObject) {
+private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) {
     val ctx = LocalContext.current
     val h = t.optJSONObject("health")
     val state = h?.optString("state") ?: "unknown"
@@ -339,6 +343,7 @@ private fun TunnelCard(t: JSONObject, st: JSONObject) {
             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
             if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) " · $loss % lost" else "")
             KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+            Sparkline(history?.tunnel(t.getString("name")), Modifier.padding(top = 8.dp))
         }
     }
 }
