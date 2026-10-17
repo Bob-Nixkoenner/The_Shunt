@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0-rc11
+
+**Installer fix.** GitHub lists releases as text ("rc9" before "rc10"), so the installer took
+the wrong one as "newest", called it outdated and built from source. It now looks through the
+recent releases for the one that is exactly the current code. Nothing else changed since rc10.
+
 ## v0.7.0-rc10
 
 **DNS filter: lists grouped like on the RPiList page** (ads, malware, phishing and scam, fake

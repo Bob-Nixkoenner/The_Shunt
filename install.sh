@@ -271,10 +271,12 @@ find_release() { # -> sets tag (empty: build from source) and why
 	local head_sha t
 	head_sha=$(sha "$REF") || true
 	why="no finished release yet"
-	for t in $(api "releases?per_page=5" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
+	# GitHub lists releases as text ("rc9" before "rc10"), so look at all of
+	# them for the one that is exactly the current code.
+	for t in $(api "releases?per_page=15" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
 		if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
 			why="release $t is not the current code (or GitHub did not answer)"
-			return
+			continue
 		fi
 		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS.sig" 2>/dev/null; then
 			tag=$t
