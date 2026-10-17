@@ -74,8 +74,20 @@ input.grow { flex: 1; min-width: 180px; }
 .muted { color: var(--muted); }
 .banner { grid-column: span 12; border-radius: var(--r); padding: 10px 14px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
 .banner.bad { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
-.apps { max-height: 360px; overflow: auto; }
 .apps td:first-child { font-weight: 600; }
+[data-rows] thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+button.fold { padding: 0 6px; border-color: transparent; background: transparent; color: var(--muted); font-size: 14px; line-height: 1.4; }
+button.fold::before { content: "▾"; }
+section.folded > h2 > button.fold::before { content: "▸"; }
+section.folded > :not(h2) { display: none !important; }
+section.folded > h2 { margin-bottom: 0; }
+h2.foldable { cursor: pointer; user-select: none; }
+.addtabs { display: flex; gap: 4px; }
+.addtabs button { padding: 3px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+.addtabs button.active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+details.inner { margin-bottom: 10px; }
+details.inner > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+details.inner:has(#ffprofiles:empty) { display: none; }
 .verdict { font-weight: 700; }
 .leaklist { display: grid; gap: 8px; }
 .leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
@@ -152,44 +164,26 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <div id="tunnels" class="cards"></div>
   </section>
 
-  <section class="half">
-    <h2>Start an app</h2>
-    <div class="row">
-      <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
-      <select id="runroute"></select>
-      <button id="run" class="primary">Start</button>
-    </div>
-    <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
-  </section>
-
-  <section class="half">
+  <section class="half" data-fold>
     <h2>Leak test <span class="spacer"></span><button id="leak">Run test</button></h2>
-    <div id="leakres" class="muted">Checks every route for its public IP and DNS resolver. Contacts api.ipify.org and Google DNS (o-o.myaddr.l.google.com) through each route.</div>
+    <div id="leakres" data-rows="5" class="muted">Checks every route for its public IP and DNS resolver. Contacts api.ipify.org and Google DNS (o-o.myaddr.l.google.com) through each route.</div>
   </section>
 
-  <section>
-    <h2>Where traffic goes</h2>
-    <table>
-      <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
-      <tbody id="groups"></tbody>
-    </table>
-  </section>
-
-  <section class="half">
+  <section class="half" data-fold>
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins</span></h2>
-    <table><tbody id="rules"></tbody></table>
+    <div data-rows="5"><table><tbody id="rules"></tbody></table></div>
     <div class="hint">Change them under <b>Configure</b> (or edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”).</div>
   </section>
 
-  <section class="half">
+  <section data-fold>
     <h2>DNS</h2>
-    <table><tbody id="dns"></tbody></table>
+    <div data-rows="5"><table><tbody id="dns"></tbody></table></div>
     <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
   </section>
 
-  <section>
+  <section data-fold>
     <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0">extra menu entries, e.g. one per browser profile</span></h2>
-    <div id="ffprofiles"></div>
+    <details id="ffdet" class="inner"><summary>Firefox profiles found</summary><div id="ffprofiles"></div></details>
     <table><tbody id="launchers"></tbody></table>
     <div class="row" style="margin-top:12px">
       <select id="lapp" title="app to start"></select>
@@ -201,13 +195,30 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave: <span class="mono">--user-data-dir=&lt;folder&gt;</span> (profiles inside one Brave share one process and therefore one route).</div>
   </section>
 
-  <section>
+  <section data-fold>
     <h2>Menu apps <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
-    <div class="apps"><table>
+    <div class="apps" data-rows="5"><table>
       <thead><tr><th>App</th><th>Starts via</th></tr></thead>
       <tbody id="apps"></tbody>
     </table></div>
     <div class="hint">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
+  </section>
+  <section class="half" data-fold>
+    <h2>Start an app</h2>
+    <div class="row">
+      <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
+      <select id="runroute"></select>
+      <button id="run" class="primary">Start</button>
+    </div>
+    <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
+  </section>
+
+  <section class="half" data-fold>
+    <h2>Where traffic goes</h2>
+    <table>
+      <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
+      <tbody id="groups"></tbody>
+    </table>
   </section>
 </main>
 
@@ -240,10 +251,14 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     </div>
   </section>
 
-  <section>
+  <section data-fold>
     <h2>Tunnels</h2>
     <table><tbody id="c-tunnels"></tbody></table>
-    <div class="editor">
+  </section>
+
+  <section data-fold>
+    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button></span></h2>
+    <div class="editor" id="add-file">
       <div class="row"><b>Import a WireGuard or OpenVPN config</b><span class="muted">(stored with mode 600; scripts in it are switched off)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="t-name" placeholder="name, e.g. vps" style="width:140px" maxlength="10">
@@ -263,11 +278,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
       <div class="muted" style="margin-top:8px">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
       <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
     </div>
-  </section>
-
-  <section>
-    <h2>Tailscale / Headscale <span class="muted" style="text-transform:none;letter-spacing:0">own client in a private namespace</span></h2>
-    <div class="editor">
+    <div class="editor" id="add-ts" hidden>
       <div class="row"><b>Add a Tailscale or Headscale tunnel</b><span class="muted">(auth key stored with mode 600)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="ts-name" placeholder="name, e.g. ts" style="width:140px" maxlength="10">
@@ -285,7 +296,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     </div>
   </section>
 
-  <section>
+  <section data-fold>
     <h2>Networks <span class="muted" style="text-transform:none;letter-spacing:0">where you are decides “everything else” · first match wins</span><span class="spacer"></span><button id="n-add">+ Add the current network</button></h2>
     <div id="n-now" class="muted" style="margin-bottom:8px"></div>
     <table><tbody id="c-networks"></tbody></table>
@@ -350,30 +361,32 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
     <div id="f-now" style="margin-top:10px"></div>
   </section>
 
-  <section class="pf half">
+  <section class="pf half" data-fold>
     <h2>Statistics <span class="spacer"></span><button id="f-refresh" title="Download all lists in use again">Update lists now</button></h2>
     <div id="f-stats" class="muted"></div>
-    <table style="margin-top:8px"><tbody id="f-loaded"></tbody></table>
+    <div data-rows="5" style="margin-top:8px"><table><tbody id="f-loaded"></tbody></table></div>
   </section>
 
-  <section class="pf">
-    <h2>Lists per level <span class="muted" style="text-transform:none;letter-spacing:0">only lists of levels that are in use get downloaded</span></h2>
-    <table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table>
-    <div class="row" style="margin-top:10px">
-      <input id="f-custom" class="grow" placeholder="another list: an https:// URL (hosts file, domain list or ||name^ format)">
-      <button id="f-add">Add</button>
+  <section class="pf" data-fold>
+    <h2>Lists per level <span class="muted" style="text-transform:none;letter-spacing:0">only lists of levels that are in use get downloaded · a level includes the one below it</span></h2>
+    <div data-rows="10"><table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table></div>
+    <div style="margin-top:10px">
+      <textarea id="f-paste" spellcheck="false" placeholder="more lists: paste one https:// URL or a whole block, one per line (Pi-hole adlists, AdGuard Home lists, hosts files, domain lists)" style="min-height:70px"></textarea>
+      <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><span id="f-paste-info" class="muted"></span></div>
     </div>
     <div class="hint">Lists: <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to the RPiList project for building and maintaining them. Big lists cost memory (roughly 3× their size).</div>
   </section>
 
   <section class="pf half">
     <h2>Never block</h2>
-    <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:140px"></textarea>
+    <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:100px"></textarea>
+    <div class="hint" style="margin:10px 0 4px">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
+    <textarea id="f-alists" spellcheck="false" placeholder="https://…/whitelist.txt" style="min-height:60px"></textarea>
   </section>
 
-  <section class="pf half">
+  <section class="pf half" data-fold>
     <h2>Recently blocked</h2>
-    <table><tbody id="f-recent"></tbody></table>
+    <div data-rows="5"><table><tbody id="f-recent"></tbody></table></div>
   </section>
 
   <div class="savebar" id="savebar">
@@ -399,6 +412,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
   <input id="modal-input" hidden>
   <div class="row"><button id="modal-cancel">Cancel</button><button id="modal-ok" class="primary">OK</button></div>
 </div></div>
+<script src="fold.js"></script>
 <script src="app.js"></script>
 <script src="config.js"></script>
 <script src="filter.js"></script>

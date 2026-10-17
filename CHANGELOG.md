@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+**UI: foldable tiles, long lists scroll.** Tiles on Overview, Configure (tunnels, networks)
+and DNS filter fold with a click on the heading (remembered per browser). Leak test, rules,
+DNS, menu apps, statistics and recently blocked show at most 5 rows (lists per level: 10),
+the rest scrolls. Firefox profiles in Launchers are folded by default. "Start an app" and
+"Where traffic goes" moved to the bottom of Overview.
+
+**DNS filter: levels build on each other.** A list in `low` is also in `normal` and
+`paranoid`, a list in `normal` also in `paranoid` (the daemon merges the levels, the UI ticks
+the higher boxes for you and unticking clears the lower ones).
+
+**DNS filter: paste whole list blocks, allowlists.** The UI takes a block of URLs at once
+(one per line; Pi-hole adlist exports and the RPiList copy block work, comments and
+non-https lines are skipped, duplicates removed) and puts them into a chosen level.
+AdGuard Home lists were already understood (`||name^`). New `dns_filter.allow_lists`:
+lists of names that are never blocked (hosts, plain names, `||name^`, `@@||name^`),
+downloaded and refreshed like blocklists.
+
 **Rename tunnels.** `shunt rename OLD NEW` (API: `POST /v1/tunnels/{name}/rename`)
 renames a tunnel: its files, the default route, networks, rules, second hops and stored
 app-firewall answers follow; the user's menu launchers are re-pointed by the CLI. The

@@ -199,7 +199,7 @@ installer offers `shuntd fix-nsswitch` (reverted on uninstall).
 ## DNS filter (blocklists)
 
 Blocked names get NXDOMAIN inside Shunt – the query never leaves the machine. Three levels
-with their own lists; which one applies depends on where a query comes from:
+that build on each other (normal = low + its own lists, paranoid = normal + its own); which one applies depends on where a query comes from:
 
 ```toml
 [dns_filter]
@@ -208,6 +208,7 @@ low      = []
 normal   = ["easylist"]                 # RPiList file names or https:// URLs
 paranoid = ["easylist", "Phishing-Angriffe", "malware", "Win10Telemetry", "MS-Office-Telemetry", "crypto"]
 allow    = ["example.com"]              # never blocked (with subdomains)
+allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
 [tunnel.vps]
 config = "/etc/shunt/tunnels/vps.conf"
@@ -228,6 +229,11 @@ dns_filter = "paranoid"                 # no route: only the filter level change
 Order: rule (app/group) → tunnel → network → default. Only lists of levels that are used
 somewhere are downloaded (daily refresh, through the default route). Names routed with a
 domain rule and the Wi-Fi login browser are never filtered.
+
+Lists can be pasted as a whole block in the UI (one URL per line, like a Pi-hole adlist
+export or the copy block on the RPiList page). Understood formats: hosts files, plain domain
+lists and AdGuard syntax (`||name^`), so **AdGuard Home lists work too**. `allow_lists`
+works the other way round: a name on such a list is never blocked (`@@||name^` is read too).
 
 The lists come from **[RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten)** –
 many thanks to the RPiList project for building and maintaining them.
