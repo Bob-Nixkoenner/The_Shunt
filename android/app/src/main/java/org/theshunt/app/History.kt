@@ -134,11 +134,11 @@ private fun Kpi(value: String, label: String, color: Color, modifier: Modifier) 
 fun HistorySection(h: History?, range: String, onRange: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
-    Section("Traffic and blocks", action = {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (r in HISTORY_RANGES) ShuntButton(r, { onRange(r) }, kind = if (r == range) Tone.Ok else Tone.Neutral)
+    Section("Traffic and blocks") {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (r in HISTORY_RANGES) ShuntButton(r, { onRange(r) }, kind = if (r == range) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
         }
-    }) {
+        Spacer(Modifier.height(8.dp))
         if (h == null) { Hint("Loading…"); return@Section }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Kpi("↓ " + Formatter.formatShortFileSize(ctx, h.rx), "downloaded", c.accent, Modifier.weight(1f))
