@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.0-rc10
+
+**DNS filter: lists grouped like on the RPiList page** (ads, malware, phishing and scam, fake
+shops, domain squatting, tracking, youth protection, other; your own URLs sit under "Other"),
+and more lists in the defaults: low = easylist, normal adds Phishing-Angriffe and malware,
+paranoid adds crypto, spam.mails, notserious, Fake-Science, the telemetry lists and
+SupportingRussia. Everything else of rc9 is unchanged; the repository's default branch is now
+`main`, so the installer from the README installs the release.
+
 ## v0.7.0-rc9
 
 **UI: foldable tiles, one "Add a tunnel" tile; DNS filter: list blocks, allowlists, levels
