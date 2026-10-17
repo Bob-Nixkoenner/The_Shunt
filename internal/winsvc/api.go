@@ -26,6 +26,8 @@ import (
 // Core is what the API needs from the running engine (*splitstack.Engine).
 type Core interface {
 	Status() string
+	// History returns stats.History as JSON for a range name.
+	History(rng string) string
 	SetPanic(on bool)
 	Pass(d time.Duration) time.Time
 	// ProbeRoute runs the leak-test probe through one route (probe.Result JSON).
@@ -158,6 +160,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		ok(w, st)
+	})
+	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(s.Core.History(r.URL.Query().Get("range"))))
 	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest

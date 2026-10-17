@@ -602,6 +602,13 @@ type status struct {
 	Network  string                   `json:"network"` // matching profile, "" = none
 }
 
+// History returns the traffic and DNS-block history for a range ("1h", "24h",
+// "7d", "30d") as JSON (stats.History).
+func (e *Engine) History(rng string) string {
+	b, _ := json.Marshal(e.book.History(rng, time.Now()))
+	return string(b)
+}
+
 // Status returns the state as JSON.
 func (e *Engine) Status() string {
 	st := status{Flows: e.flows.Load(), Blocked: e.blocked.Load(), DNSBlocked: e.dnsBlocked.Load(), Time: time.Now().Unix(),
