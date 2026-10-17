@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
@@ -42,12 +43,17 @@ type Manager struct {
 	// Save and Reload): the platform applies settings the engine does not
 	// know, like the kill switch. May be nil.
 	OnConfig func(c *config.Config)
+	// Filter downloads and keeps the DNS blocklists (its OnChange feeds
+	// the engine). May be nil; set it once the engine runs, then call
+	// ApplyFilter.
+	Filter *blocklist.Manager
 
 	mu      sync.Mutex
 	saveMu  sync.Mutex
 	cfg     *config.Config
 	eps     map[string]string // tunnel -> first endpoint, for the status
 	running string            // fingerprint of the tunnels the engine runs with
+	level   string            // DNS filter level in effect ("" = off)
 }
 
 const defaultConfig = "# The Shunt for Windows\n[daemon]\ndefault_route = \"direct\"\n"
@@ -126,8 +132,54 @@ func (m *Manager) refreshEndpoints(c *config.Config) {
 	m.mu.Unlock()
 }
 
+// FilterLevel is the DNS filter level in effect ("" = off).
+func (m *Manager) FilterLevel() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.level
+}
+
+// ApplyFilter hands the DNS filter settings of the current config to the
+// list manager. Only the default level works on Windows (see Translate).
+func (m *Manager) ApplyFilter() {
+	m.mu.Lock()
+	c := m.cfg
+	m.mu.Unlock()
+	m.applyFilter(c)
+}
+
+func (m *Manager) applyFilter(c *config.Config) {
+	if m.Filter == nil || c == nil {
+		return
+	}
+	f := c.Filter()
+	level, used := "", []string(nil)
+	if f.Lists(f.Default) != nil {
+		level, used = f.Default, []string{f.Default}
+	}
+	m.mu.Lock()
+	m.level = level
+	m.mu.Unlock()
+	m.Filter.Configure(f, used)
+}
+
+// FilterStatus describes the DNS filter for the status (nil = no manager).
+func (m *Manager) FilterStatus() (def string, lists []blocklist.Status, ok bool) {
+	if m.Filter == nil {
+		return "", nil, false
+	}
+	m.mu.Lock()
+	c := m.cfg
+	m.mu.Unlock()
+	if c == nil {
+		return "", nil, false
+	}
+	return c.Filter().Default, m.Filter.Status(), true
+}
+
 func (m *Manager) changed(c *config.Config) {
 	m.refreshEndpoints(c)
+	m.applyFilter(c)
 	if m.OnConfig != nil {
 		m.OnConfig(c)
 	}

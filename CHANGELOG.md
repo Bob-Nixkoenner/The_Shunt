@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Windows: the DNS filter works** (before, the lists were saved but ignored and the status showed
+  nothing). The service downloads the lists of `[dns_filter] default` and answers blocked names
+  with NXDOMAIN; the DNS filter tab shows lists, counters and the last blocked names. Levels per
+  rule, tunnel or network are still Linux/Android only (the service warns).
+
 ## v0.7.0
 
 **The first release after the release candidates: Linux, Android and Windows (beta).** Same
