@@ -27,6 +27,6 @@ also while the service is down after a crash. Stopping the service on
 purpose lifts it. Emergency, as Administrator:
     "C:\Program Files\The Shunt\shuntd-win.exe" killswitch-off
 
-Not yet: OpenVPN, groups, "start an app in a route", DNS filter, app firewall.
+DNS filter: default level (blocklists), per-rule levels not yet. Not yet: OpenVPN, groups, "start an app in a route", app firewall.
 
 Uninstall: powershell -ExecutionPolicy Bypass -File uninstall.ps1  [-Purge]
