@@ -41,7 +41,7 @@ func (d *Daemon) checkHealth() {
 		}
 		d.book = b
 	}
-	book := d.book
+	book, proxy := d.book, d.proxy
 	var jobs []job
 	for name, t := range d.tunnels {
 		m := d.health[name]
@@ -75,6 +75,9 @@ func (d *Daemon) checkHealth() {
 		d.mu.Unlock()
 	}()
 
+	if proxy != nil {
+		book.ObserveDNS(int64(proxy.FilterStats().Blocked), time.Now())
+	}
 	for _, j := range jobs {
 		now := time.Now()
 		before := j.mon.Report(now).State

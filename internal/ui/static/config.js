@@ -13,12 +13,16 @@ const joinList = (a) => (a || []).join(", ");
 // filter sections are marked .pf.
 function setTab(t) {
   $("#page-overview").hidden = t !== "overview";
-  $("#page-config").hidden = t === "overview";
+  $("#page-apps").hidden = t !== "apps";
+  $("#page-config").hidden = t === "overview" || t === "apps";
   for (const s of document.querySelectorAll("#page-config > section")) s.hidden = s.classList.contains("pf") !== (t === "filter");
-  for (const n of ["overview", "config", "filter"]) $("#tab-" + n).classList.toggle("active", t === n);
-  if (t !== "overview" && !model) loadConfig();
+  for (const n of ["overview", "apps", "config", "filter"]) $("#tab-" + n).classList.toggle("active", t === n);
+  if ((t === "config" || t === "filter") && !model) loadConfig();
+  try { history.replaceState(null, "", t === "overview" ? location.pathname : "#" + t); } catch (e) { /* file: or sandbox */ }
+  if (t === "apps") loadApps(); // installed programs and the config may have changed since the last visit
 }
 $("#tab-overview").addEventListener("click", () => setTab("overview"));
+$("#tab-apps").addEventListener("click", () => setTab("apps"));
 $("#tab-config").addEventListener("click", () => setTab("config"));
 $("#tab-filter").addEventListener("click", () => setTab("filter"));
 
@@ -477,4 +481,10 @@ for (const [t, other] of [["file", "ts"], ["ts", "file"]]) {
     $("#addtab-" + t).classList.add("active");
     $("#addtab-" + other).classList.remove("active");
   });
+}
+
+// a reload (or a link with #apps) opens the same tab again
+{
+  const t = location.hash.slice(1);
+  if (["apps", "config", "filter"].includes(t)) setTab(t);
 }

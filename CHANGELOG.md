@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **UI: new "Apps" tab** with Menu apps (Programs on Windows), "Start an app" and "Where traffic
+  goes". Launchers show up there only when Firefox is installed (or launchers exist already).
+  Each menu app has its own **DNS filter level** (off/low/normal/paranoid), stored as a rule
+  without a route. The tab is remembered in the address (`#apps`).
+- **Overview: traffic and blocks.** Graph of tunnel traffic (down/up) and DNS blocks with a
+  1 h / 24 h / 7 d / 30 d switch, tiles for "blocked today / this month", and a small history
+  line on every tunnel card. The daemon keeps 5-minute counters for 35 days next to the traffic
+  totals (`GET /v1/history`); direct traffic is not measured. Linux first.
+- **Leak test** runs by itself a few seconds after a tunnel comes up or goes down (switch in the
+  card, on by default); the last verdict is shown as a pill in the header.
+- **Rules** on the overview show the first four, the rest is under Configure.
 - **Windows: the DNS filter works** (before, the lists were saved but ignored and the status showed
   nothing). The service downloads the lists of `[dns_filter] default` and answers blocked names
   with NXDOMAIN; the DNS filter tab shows lists, counters and the last blocked names. Levels per
