@@ -7,6 +7,11 @@
   not what the DHCP host name is made from on current Android either. The permission is gone from
   the manifest. For foreign Wi-Fi use the system's own settings (per network: *Privacy → Use
   randomized MAC*).
+- **Light/dark switch in the web UI** (Configure → General → Appearance: follow the system / light /
+  dark), kept per browser.
+- **Fewer DNS filter lists:** the LG TV and Samsung lists are no longer offered or in the defaults,
+  Windows' telemetry lists only on Windows. Lists that are in your config stay and show up under
+  "Other" so you can remove them.
 - **Android: rename tunnels** (Tunnels → Rename, with the VPN off): routes of apps, the default
   route, tunnels going through it and the traffic counts follow the new name.
 - **Android: dark mode switch** (Status → Appearance: System / Light / Dark).

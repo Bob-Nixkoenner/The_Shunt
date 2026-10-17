@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -50,8 +51,18 @@ func DefaultDNSFilter() DNSFilter {
 		Default:  FilterNormal,
 		Low:      []string{"easylist"},
 		Normal:   []string{"Phishing-Angriffe", "malware"},
-		Paranoid: []string{"crypto", "spam.mails", "notserious", "Fake-Science", "Win10Telemetry", "MS-Office-Telemetry", "samsung", "lg-tv", "SupportingRussia"},
+		Paranoid: paranoidDefaults(),
 	}
+}
+
+// paranoidDefaults: Windows' telemetry lists only make sense on Windows; the phone and TV lists
+// (Samsung, LG) are not in the defaults at all.
+func paranoidDefaults() []string {
+	l := []string{"crypto", "spam.mails", "notserious", "Fake-Science"}
+	if runtime.GOOS == "windows" {
+		l = append(l, "Win10Telemetry", "MS-Office-Telemetry")
+	}
+	return append(l, "SupportingRussia")
 }
 
 // Filter returns the DNS filter settings in effect (defaults filled in).

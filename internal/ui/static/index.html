@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Shunt</title>
+<script src="theme.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2310b981'/%3E%3Cpath d='M6 22h4.5l6-9.5h6M10.5 22H26' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 :root {
@@ -13,8 +14,9 @@
   --r: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: light) {
-  :root { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
+  :root:not([data-theme="dark"]) { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
 }
+:root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
@@ -65,7 +67,8 @@ input, select { font: inherit; background: var(--panel2); color: var(--text); bo
 /* WebKitGTK draws native selects with the GTK theme (light field) but our
    text colour: white on white. Draw them ourselves. */
 :root { color-scheme: dark; }
-@media (prefers-color-scheme: light) { :root { color-scheme: light; } }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { color-scheme: light; } }
+:root[data-theme="light"] { color-scheme: light; } :root[data-theme="dark"] { color-scheme: dark; }
 select { -webkit-appearance: none; appearance: none; padding-right: 30px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b98a8'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; }
@@ -269,6 +272,7 @@ body.windows .win-only { display: block !important; }
   <section class="half">
     <h2>General</h2>
     <div class="form">
+      <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
       <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
       <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
       <label>Encrypted DNS of apps</label>
