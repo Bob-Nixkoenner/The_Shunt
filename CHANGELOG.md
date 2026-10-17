@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Android: "Disguise on foreign Wi-Fi" removed.** An app cannot set the MAC address, and the device
+  name only with `adb shell pm grant … WRITE_SECURE_SETTINGS`, which no normal user does; the name is
+  not what the DHCP host name is made from on current Android either. The permission is gone from
+  the manifest. For foreign Wi-Fi use the system's own settings (per network: *Privacy → Use
+  randomized MAC*).
+- **Android: traffic and blocks graph** on the status screen (1 h / 24 h / 7 d / 30 d), blocked
+  today / this month, and a history line on every tunnel card.
 - **UI: new "Apps" tab** with Menu apps (Programs on Windows), "Start an app" and "Where traffic
   goes". Launchers show up there only when Firefox is installed (or launchers exist already).
   Each menu app has its own **DNS filter level** (off/low/normal/paranoid), stored as a rule

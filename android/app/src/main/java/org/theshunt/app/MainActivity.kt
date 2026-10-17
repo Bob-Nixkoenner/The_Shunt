@@ -291,7 +291,6 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
             }
         }
 
-        DisguiseSection()
     }
     if (confirmPass) {
         AlertDialog(
