@@ -1731,7 +1731,7 @@ func (d *Daemon) adoptable(p *peer, pid int) error {
 	if !ok {
 		return errors.New("no cgroup")
 	}
-	if !strings.HasPrefix(cg, "/user.slice/user-"+strconv.Itoa(uid)+".slice/") {
+	if !strings.HasPrefix(cg, "user.slice/user-"+strconv.Itoa(uid)+".slice/") {
 		return fmt.Errorf("%s is not in the user's slice", cg)
 	}
 	d.mu.Lock()
