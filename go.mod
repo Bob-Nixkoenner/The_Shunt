@@ -10,6 +10,7 @@ require (
 	github.com/florianl/go-nflog/v2 v2.3.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/google/nftables v0.3.0
+	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/mdlayher/wifi v0.9.0
 	github.com/miekg/dns v1.1.73
 	github.com/vishvananda/netlink v1.3.1
@@ -37,6 +38,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
+	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/jsimonetti/rtnetlink v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/mdlayher/genetlink v1.4.0 // indirect
