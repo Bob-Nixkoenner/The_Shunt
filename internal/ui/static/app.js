@@ -279,9 +279,10 @@ function routeSelect(value, onchange, withDefault) {
   return s;
 }
 
-// Chromium family: one process per data folder, so a launcher with its own route needs its own folder
-const isChromium = (id) => /^(brave|brave-browser|google-chrome|google-chrome-stable|chromium|chromium-browser|vivaldi|vivaldi-stable|microsoft-edge|microsoft-edge-stable|opera)$/.test(id || "") || /^(com\.brave\.Browser|com\.google\.Chrome|org\.chromium\.Chromium|com\.vivaldi\.Vivaldi)$/.test(id || "");
-const chromiumApp = () => (apps.find((a) => !a.clone && isChromium(a.id)) || {}).id;
+// Chromium family (the server names the browser): one process per data folder, so a launcher with
+// its own route needs a folder of its own
+const isChromium = (id) => !!(apps.find((a) => a.id === id) || {}).chromium;
+const chromiumApp = () => (apps.find((a) => !a.clone && a.chromium) || {}).id;
 const slug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
 
@@ -315,6 +316,21 @@ function renderLaunchers() {
       const sel = routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
       return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
         el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher"));
+    }))] : []));
+
+  // existing Chromium-family profiles: each gets a data folder of its own (a link to the profile) and a launcher
+  const haveC = new Set(launchers.map((a) => a.args));
+  const crTodo = crProfiles.filter((p) => apps.some((a) => !a.clone && a.chromium === p.browser));
+  $("#crprofiles").replaceChildren(...(crTodo.length ? [el("div", { class: "row", style: "margin-bottom:10px;flex-wrap:wrap" },
+    el("span", { class: "muted" }, "Browser profiles found:"),
+    ...crTodo.map((p) => {
+      const app = apps.find((a) => !a.clone && a.chromium === p.browser);
+      const lname = app.name + " " + p.name;
+      const done = launchers.some((l) => l.name === lname);
+      const sel = routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
+      return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.root + "/" + p.dir }, lname,
+        ...(done ? [el("span", { class: "muted" }, "has a launcher")] : [sel,
+          el("button", { onclick: () => createProfileLauncher(app.id, lname, p, sel.value) }, "+ launcher")]));
     }))] : []));
 
   const lapp = $("#lapp");
@@ -372,6 +388,15 @@ async function updateLauncherState() {
 // not in profiles.ini, and names differ between machines anyway.
 function profileArgs(p) { return '--new-instance --profile "' + p.path.replace(/(["\\`$])/g, "\\$1") + '"'; }
 function legacyProfileArgs(n) { return "--new-instance -P " + (/\s/.test(n) ? '"' + n + '"' : n); }
+
+let crProfiles = [];
+async function createProfileLauncher(app, name, profile, route) {
+  try {
+    await api("POST", "/api/profile-launchers", { app, name, route, profile });
+    toast("Menu entry \u201c" + name + "\u201d created (" + route + "). Close the browser's own window of this profile first: one profile, one process.");
+    await loadApps();
+  } catch (e) { toast(e.message); }
+}
 
 async function createLauncher(app, name, args, route) {
   try {
@@ -503,6 +528,7 @@ $("#allapps").addEventListener("change", renderApps);
 (async () => {
   await refresh();
   try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
+  try { crProfiles = await api("GET", "/api/chromium-profiles"); } catch { crProfiles = []; }
   await loadApps();
   setInterval(refresh, 2000);
 })();

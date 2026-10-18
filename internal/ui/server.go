@@ -156,6 +156,11 @@ func (s *Server) handler() http.Handler {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
+		for i := range list {
+			if list[i].Clone == "" {
+				list[i].Chromium = desktop.ChromiumBrowserOf(list[i].ID)
+			}
+		}
 		writeJSON(w, list)
 	})
 	mux.HandleFunc("POST /api/captive", func(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +312,36 @@ func (s *Server) handler() http.Handler {
 			req.Args = strings.ReplaceAll(req.Args, "{home}", home)
 		}
 		id, err := desktop.Clone(req.App, req.Name, req.Args, req.Route, s.Self)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]string{"id": id})
+	})
+	mux.HandleFunc("GET /api/chromium-profiles", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, desktop.ChromiumProfiles())
+	})
+	// a launcher for an existing Chromium-family profile: the profile gets a
+	// data directory of its own (see desktop.ChromiumInstance), so it can have its own route
+	mux.HandleFunc("POST /api/profile-launchers", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			App, Name, Route string
+			Profile          desktop.ChromiumProfile
+		}
+		if !decode(w, r, &req) {
+			return
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		dir, err := desktop.ChromiumInstance(home, req.Profile, req.Name)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		id, err := desktop.Clone(req.App, req.Name, `--user-data-dir="`+dir+`"`, req.Route, s.Self)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
