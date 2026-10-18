@@ -399,6 +399,7 @@ async function loadApps() {
 
 async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
+  if (status) { status.tunnels = status.tunnels || []; status.routes = status.routes || []; } // Go sends null for "none yet"
   render();
   if (document.querySelector(".lstate")) updateLauncherState();
   checkCaptive(status);
