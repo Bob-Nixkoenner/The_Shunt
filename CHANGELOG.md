@@ -7,6 +7,7 @@
 - Launchers: Chromium family (Chrome, Chromium, Brave, Vivaldi, Opera, Opera GX, Edge): existing profiles are found and get a launcher each (own data folder in `~/ShuntProfiles` that links to the profile), new profiles get their own folder.
 - Snap browsers that refuse a pre-placed cgroup (Brave, Vivaldi, Opera GX: "is not a snap cgroup") now start: `shunt run` starts them as they are and shuntd moves them into the route as soon as they have become the app (`POST /v1/adopt`, own processes only, only ones in no route yet).
 - Rules: hint when an address/domain/port rule does not reach apps started in a route, one click to change.
+- UI: folded sections, theme and graph range are kept in the user's config folder (`shunt/ui-state.json`) as well, so they survive a restart even when the page address changes.
 - UI: no longer breaks while no tunnel exists. Test builds (`-next`, `-wgui…`) never show an update warning.
 - Release: Debian packages `the-shunt` (amd64, arm64) and `the-shunt-desktop` (amd64), CycloneDX SBOM.
 
