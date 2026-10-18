@@ -9,6 +9,7 @@
 - Rules: hint when an address/domain/port rule does not reach apps started in a route, one click to change.
 - UI: folded sections, theme and graph range are kept in the user's config folder (`shunt/ui-state.json`) as well, so they survive a restart even when the page address changes.
 - UI: no longer breaks while no tunnel exists. Test builds (`-next`, `-wgui…`) never show an update warning.
+- DNS: a UDP query that the (per conntrack entry) nat redirect sent to another route's listener is answered for the route its packet was marked for (`SO_RCVMARK`, Linux 6.1+; older kernels keep the old behaviour). The mark is no longer overwritten on loopback (`mark_in`). Found and tested with two programs using the same source port within 30 s.
 - Release: Debian packages `the-shunt` (amd64, arm64) and `the-shunt-desktop` (amd64), CycloneDX SBOM.
 
 ## v0.7.1-rc1
