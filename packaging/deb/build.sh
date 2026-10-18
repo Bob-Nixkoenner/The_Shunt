@@ -53,6 +53,7 @@ if [ "$1" = configure ]; then
 	systemctl daemon-reload >/dev/null 2>&1 || true
 	systemctl enable shuntd.service >/dev/null 2>&1 || true
 	systemctl restart shuntd.service >/dev/null 2>&1 || true
+	echo "The Shunt is early beta software and not a 100% solution: running programs keep their route, some snap apps start in two steps, and apps may connect before they are routed. Check with 'shunt leaktest'."
 	echo "The Shunt: add yourself to the group 'shunt' to use the CLI: sudo usermod -aG shunt \$USER"
 fi
 EOF

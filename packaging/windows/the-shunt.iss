@@ -28,6 +28,7 @@ UninstallDisplayIcon={app}\the-shunt.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+InfoBeforeFile={#SrcDir}\disclaimer.txt
 CloseApplications=no
 
 [Files]
