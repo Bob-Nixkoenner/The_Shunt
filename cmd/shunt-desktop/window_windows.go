@@ -178,6 +178,21 @@ func windowVisible() bool {
 	return win.open || win.cmd != nil && win.cmd.ProcessState == nil
 }
 
-// windowMain blocks: the tray runs its own message loop on Windows, and
-// Quit ends the process.
-func windowMain() { select {} }
+// windowMain blocks and runs the message loop of the tray icon. The tray
+// library creates its hidden window on the main thread (it locks it in init)
+// and leaves pumping that thread's messages to us; without the pump clicks on
+// the icon never arrive. Quit ends the process.
+func windowMain() {
+	getMessage := user32.NewProc("GetMessageW")
+	translate := user32.NewProc("TranslateMessage")
+	dispatch := user32.NewProc("DispatchMessageW")
+	var msg [48]byte // MSG, big enough for 64-bit
+	for {
+		r, _, _ := getMessage.Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0)
+		if int32(r) <= 0 {
+			return
+		}
+		translate.Call(uintptr(unsafe.Pointer(&msg[0])))
+		dispatch.Call(uintptr(unsafe.Pointer(&msg[0])))
+	}
+}
