@@ -60,7 +60,7 @@ func (r markReader) ReadPacketConn(conn net.PacketConn, timeout time.Duration) (
 	if err != nil {
 		return nil, nil, err
 	}
-	a := markAddr{UDPAddr: from, mark: markUnknown}
+	a := markAddr{UDPAddr: from} // no control message = mark 0 (the kernel only reports a mark that is set)
 	if msgs, err := unix.ParseSocketControlMessage(oob[:oobn]); err == nil {
 		for _, m := range msgs {
 			if m.Header.Level == unix.SOL_SOCKET && m.Header.Type == unix.SO_MARK && len(m.Data) >= 4 {
