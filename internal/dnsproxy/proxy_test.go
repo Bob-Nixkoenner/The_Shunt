@@ -2,6 +2,7 @@ package dnsproxy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/netip"
@@ -51,7 +52,7 @@ func TestCaptiveUpstream(t *testing.T) {
 	ask := func(port int, name string) string {
 		q := new(dns.Msg)
 		q.SetQuestion(name, dns.TypeTXT)
-		r := p.handle(port, q)
+		r := p.handle(port, q, markUnknown)
 		if len(r.Answer) == 0 {
 			return "none"
 		}
@@ -86,7 +87,7 @@ func TestFilter(t *testing.T) {
 	ask := func(port int, name string) int {
 		q := new(dns.Msg)
 		q.SetQuestion(name, dns.TypeA)
-		return p.handle(port, q).Rcode
+		return p.handle(port, q, markUnknown).Rcode
 	}
 	for _, c := range []struct {
 		port int
@@ -107,5 +108,41 @@ func TestFilter(t *testing.T) {
 	st := p.FilterStats()
 	if st.Blocked != 2 || st.ByLevel["paranoid"] != 1 || len(st.Recent) != 2 || st.Recent[0].Name != "evil.example" || st.Recent[0].List != "mal" {
 		t.Errorf("stats %+v", st)
+	}
+}
+
+// A query that reaches another route's listener (the nat redirect is sticky
+// per conntrack entry) is answered for the route its packet was marked for.
+func TestWrongListener(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, Mark: engine.MarkDirect, DNSPort: 1}
+	vps := &engine.Route{Route: config.Route{Kind: config.RouteTunnel, Tunnel: "vps"}, Mark: engine.MarkBase | 1, DNSPort: 3}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct, vps}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct, 3: vps}
+	p.upstreams = RouteUpstreams{"direct": {tagUpstream("direct")}, "tunnel:vps": {tagUpstream("vps")}}
+	ask := func(port int, mark uint32) string {
+		q := new(dns.Msg)
+		q.SetQuestion("x.example.", dns.TypeTXT)
+		r := p.handle(port, q, mark)
+		if len(r.Answer) == 0 {
+			return fmt.Sprintf("rcode %d", r.Rcode)
+		}
+		return r.Answer[0].(*dns.TXT).Txt[0]
+	}
+	for _, c := range []struct {
+		port int
+		mark uint32
+		want string
+	}{
+		{1, markUnknown, "direct"},       // old kernel: the listener decides
+		{1, 0, "direct"},                 // unmarked = direct
+		{1, engine.MarkBase | 1, "vps"},  // tunnel app, redirected to the direct listener
+		{3, 0, "direct"},                 // direct program, redirected to the tunnel listener
+		{3, engine.MarkBase | 1, "vps"},  // as intended
+		{3, engine.MarkBlock, "rcode 3"}, // blocked: name error
+	} {
+		if got := ask(c.port, c.mark); got != c.want {
+			t.Errorf("port %d mark %#x: %s, want %s", c.port, c.mark, got, c.want)
+		}
 	}
 }
