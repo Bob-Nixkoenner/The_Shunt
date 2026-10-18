@@ -185,6 +185,9 @@ function pickUrls(text) {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\s+#.*$/, "").trim();
     if (!line || line.startsWith("#")) continue;
+    // a file on this machine: file:/path, /path or C:\path
+    const local = line.match(/^(?:file:)?((?:\/|[A-Za-z]:[\\/])\S.*)$/);
+    if (local && !line.startsWith("//")) { urls.push("file:" + local[1].trim()); continue; }
     const m = line.match(/https:\/\/[^\s<>"'`,)\]]+/);
     if (m && /^https:\/\/[^\s/]+\/\S*$/.test(m[0])) urls.push(m[0]);
     else skipped++;
@@ -193,7 +196,7 @@ function pickUrls(text) {
 }
 $("#f-add").addEventListener("click", () => {
   const { urls, skipped } = pickUrls($("#f-paste").value);
-  if (!urls.length) return toast("No https:// URL found");
+  if (!urls.length) return toast("No https:// URL or file path found");
   const lvl = $("#f-paste-level").value;
   const m = fm();
   const have = new Set(LEVELS.flatMap((l) => m[l]));

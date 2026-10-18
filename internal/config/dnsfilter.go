@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -178,7 +179,7 @@ func (f DNSFilter) Duplicates() []string {
 
 // ListURL returns where a list comes from.
 func (f DNSFilter) ListURL(name string) string {
-	if strings.HasPrefix(name, "https://") {
+	if strings.HasPrefix(name, "https://") || IsLocalList(name) {
 		return name
 	}
 	src := f.Source
@@ -247,7 +248,21 @@ func (c *Config) validateFilter() error {
 	return nil
 }
 
+// IsLocalList: "file:/etc/lists/mine.txt" (Windows: "file:C:\lists\mine.txt") is
+// a list on this machine instead of a download.
+func IsLocalList(ref string) bool { return strings.HasPrefix(ref, "file:") }
+
+// LocalListPath returns the path of a local list reference.
+func LocalListPath(ref string) string { return strings.TrimPrefix(ref, "file:") }
+
 func validListRef(where, l string) error {
+	if IsLocalList(l) {
+		p := LocalListPath(l)
+		if !filepath.IsAbs(p) || strings.Contains(p, "..") {
+			return fmt.Errorf("%s: %q: a local list needs an absolute path (file:/path/to/list.txt)", where, l)
+		}
+		return nil
+	}
 	if strings.HasPrefix(l, "https://") {
 		if u, err := url.Parse(l); err != nil || u.Host == "" {
 			return fmt.Errorf("%s: invalid URL %q", where, l)
