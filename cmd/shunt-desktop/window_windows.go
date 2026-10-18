@@ -4,25 +4,36 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
+	"unsafe"
+
+	"github.com/jchv/go-webview2"
+	"golang.org/x/sys/windows"
 )
 
-// The window is Microsoft Edge in app mode (installed on every Windows 11):
-// a plain window without tabs or address bar that shows the local web UI.
-// Closing it only ends that process; the tray keeps running.
+// The window is an own window with the WebView2 runtime inside (part of
+// Windows 11 and of current Edge): no tabs, no address bar, its own taskbar
+// entry. Without that runtime it falls back to Microsoft Edge/Chrome in app
+// mode, and without a browser to the default browser. Closing the window
+// only ends it; the tray keeps running.
 
 var onHidden = func() {}
 
 var win struct {
 	mu     sync.Mutex
 	prefix string
-	cmd    *exec.Cmd
+	icon   []byte
+	cmd    *exec.Cmd // fallback: browser in app mode
+	wv     webview2.WebView
+	open   bool // the WebView2 window exists
 }
 
 func windowInit(title, allowedPrefix string, icon []byte) {
 	win.mu.Lock()
 	win.prefix = allowedPrefix
+	win.icon = icon
 	win.mu.Unlock()
 }
 
@@ -42,11 +53,18 @@ func browser() string {
 func windowShow(uri string) {
 	win.mu.Lock()
 	defer win.mu.Unlock()
+	if win.open {
+		focusWindow(win.wv)
+		return
+	}
 	if win.cmd != nil && win.cmd.ProcessState == nil {
 		return // already open; Edge keeps its page
 	}
 	if uri == "" {
 		uri = win.prefix
+	}
+	if showWebView(uri) {
+		return
 	}
 	exe := browser()
 	if exe == "" {
@@ -68,9 +86,87 @@ func windowShow(uri string) {
 	}()
 }
 
+// showWebView opens the WebView2 window; false if the runtime is missing.
+// The window lives on its own OS thread (its message loop).
+func showWebView(uri string) bool {
+	type result struct{ wv webview2.WebView }
+	ready := make(chan result, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		wv := webview2.NewWithOptions(webview2.WebViewOptions{
+			AutoFocus: true,
+			DataPath:  filepath.Join(os.Getenv("LOCALAPPDATA"), "Shunt", "webview"),
+			WindowOptions: webview2.WindowOptions{
+				Title: "The Shunt", Width: 1240, Height: 860, Center: true,
+			},
+		})
+		if wv == nil {
+			ready <- result{}
+			return
+		}
+		setWindowIcon(wv, win.icon)
+		wv.Navigate(uri)
+		ready <- result{wv}
+		wv.Run()
+		win.mu.Lock()
+		win.open = false
+		win.wv = nil
+		win.mu.Unlock()
+		wv.Destroy()
+		onHidden()
+	}()
+	// the caller holds win.mu; the goroutine only takes it after Run
+	r := <-ready
+	if r.wv == nil {
+		return false
+	}
+	win.wv, win.open = r.wv, true
+	return true
+}
+
+var (
+	user32                  = windows.NewLazySystemDLL("user32.dll")
+	procSendMessage         = user32.NewProc("SendMessageW")
+	procCreateIconFromRes   = user32.NewProc("CreateIconFromResourceEx")
+	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
+	procShowWindow          = user32.NewProc("ShowWindow")
+)
+
+// setWindowIcon gives the window (title bar, taskbar) the tray's PNG icon.
+func setWindowIcon(wv webview2.WebView, png []byte) {
+	if len(png) == 0 {
+		return
+	}
+	const wmSetIcon, iconSmall, iconBig = 0x80, 0, 1
+	for i, size := range []uintptr{16, 32} {
+		h, _, _ := procCreateIconFromRes.Call(uintptr(unsafe.Pointer(&png[0])), uintptr(len(png)), 1, 0x00030000, size, size, 0)
+		if h != 0 {
+			kind := uintptr(iconSmall)
+			if i == 1 {
+				kind = iconBig
+			}
+			procSendMessage.Call(uintptr(wv.Window()), wmSetIcon, kind, h)
+		}
+	}
+}
+
+// focusWindow brings an open window to the front.
+func focusWindow(wv webview2.WebView) {
+	if wv == nil {
+		return
+	}
+	h := uintptr(wv.Window())
+	procShowWindow.Call(h, 9) // SW_RESTORE
+	procSetForegroundWindow.Call(h)
+}
+
 func windowQuit() {
 	win.mu.Lock()
 	defer win.mu.Unlock()
+	if win.wv != nil {
+		win.wv.Destroy()
+	}
 	if win.cmd != nil && win.cmd.Process != nil && win.cmd.ProcessState == nil {
 		_ = win.cmd.Process.Kill()
 	}
@@ -79,7 +175,7 @@ func windowQuit() {
 func windowVisible() bool {
 	win.mu.Lock()
 	defer win.mu.Unlock()
-	return win.cmd != nil && win.cmd.ProcessState == nil
+	return win.open || win.cmd != nil && win.cmd.ProcessState == nil
 }
 
 // windowMain blocks: the tray runs its own message loop on Windows, and
