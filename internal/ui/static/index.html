@@ -233,11 +233,11 @@ body.windows .win-only { display: block !important; }
     <div class="row" style="margin-top:12px">
       <select id="lapp" title="app to start"></select>
       <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
-      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm">
+      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm (Chromium/Brave: empty = own profile folder)">
       <select id="lroute"></select>
       <button id="lcreate" class="primary">Create</button>
     </div>
-    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave: <span class="mono">--user-data-dir=&lt;folder&gt;</span> (profiles inside one Brave share one process and therefore one route).</div>
+    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>; profiles inside one Brave share one process and therefore one route, so an existing profile cannot be split).</div>
   </section>
 
   <section data-fold>

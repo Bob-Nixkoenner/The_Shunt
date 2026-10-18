@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
@@ -301,6 +302,9 @@ func (s *Server) handler() http.Handler {
 		var req struct{ App, Name, Args, Route string }
 		if !decode(w, r, &req) {
 			return
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			req.Args = strings.ReplaceAll(req.Args, "{home}", home)
 		}
 		id, err := desktop.Clone(req.App, req.Name, req.Args, req.Route, s.Self)
 		if err != nil {
