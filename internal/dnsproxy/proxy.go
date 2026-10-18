@@ -257,9 +257,23 @@ func (p *Proxy) listen(port int) ([]*dns.Server, error) {
 	for _, a := range addrs {
 		for _, netw := range []string{"udp", "tcp"} {
 			started := make(chan error, 1)
-			s := &dns.Server{Addr: a, Net: netw, Handler: h, NotifyStartedFunc: func() { started <- nil }}
+			var s *dns.Server
+			marked := false
+			if netw == "udp" {
+				s = newUDPServer(a, h, func() { started <- nil })
+				marked = s != nil
+			}
+			if s == nil {
+				s = &dns.Server{Addr: a, Net: netw, Handler: h, NotifyStartedFunc: func() { started <- nil }}
+			}
 			go func() {
-				if err := s.ListenAndServe(); err != nil {
+				var err error
+				if marked {
+					err = s.ActivateAndServe()
+				} else {
+					err = s.ListenAndServe()
+				}
+				if err != nil {
 					select {
 					case started <- err:
 					default:
@@ -289,14 +303,14 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 			_ = w.WriteMsg(m)
 		}
 	}()
-	resp := p.handle(port, r)
+	resp := p.handle(port, r, queryMark(w))
 	resp.Id = r.Id
 	if err := w.WriteMsg(resp); err != nil {
 		p.Log.Debug("dns write", "err", err)
 	}
 }
 
-func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
+func (p *Proxy) handle(port int, r *dns.Msg, mark uint32) *dns.Msg {
 	if len(r.Question) != 1 {
 		return fail(r, dns.RcodeFormatError)
 	}
@@ -308,6 +322,18 @@ func (p *Proxy) handle(port int, r *dns.Msg) *dns.Msg {
 	p.mu.RUnlock()
 	if src == nil {
 		return fail(r, dns.RcodeServerFailure)
+	}
+	// the query is answered for the route its packet was marked for, not the
+	// one the (per conntrack entry) redirect happened to choose
+	if mark != markUnknown {
+		if own := routeOfMark(plan, mark); own == nil {
+			if mark == engine.MarkBlock {
+				return fail(r, dns.RcodeNameError)
+			}
+		} else if own.Mark != src.Mark {
+			p.Log.Debug("dns query came to the wrong listener, answering for its own route", "listener", src.String(), "route", own.String())
+			src = own
+		}
 	}
 	if name == canaryDomain || (plan.BlockDoH && isDoHHost(name)) {
 		return fail(r, dns.RcodeNameError)
@@ -426,6 +452,22 @@ func Routable(ip netip.Addr) bool {
 		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsInterfaceLocalMulticast() &&
 		ip != netip.AddrFrom4([4]byte{255, 255, 255, 255}) &&
 		!netip.MustParsePrefix("0.0.0.0/8").Contains(ip)
+}
+
+// routeOfMark finds the route a packet mark stands for (no mark: direct).
+func routeOfMark(plan *engine.Plan, mark uint32) *engine.Route {
+	if mark&engine.MarkMask != engine.MarkBase {
+		mark = engine.MarkDirect
+	}
+	for _, r := range plan.Routes {
+		if r.Kind != config.RouteBlock && r.Mark == mark {
+			return r
+		}
+	}
+	if plan.Captive != nil && plan.Captive.Mark == mark {
+		return plan.Captive
+	}
+	return nil
 }
 
 func fail(r *dns.Msg, rcode int) *dns.Msg {

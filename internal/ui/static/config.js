@@ -144,10 +144,17 @@ function renderConfig() {
     if (r.network) sel.push("only on: " + joinList(r.network));
     if (r.override_explicit) sel.push("also for apps started in a route");
     if (r.dns_filter) sel.push("DNS filter: " + r.dns_filter);
+    // a rule that matches addresses/domains/ports does not reach programs that were started in a
+    // route on purpose (launcher, shunt run --via): they keep their route unless the rule says otherwise
+    const skipped = r.route && !r.override_explicit && !r.app && !r.group && !r.dns_filter && typeof apps !== "undefined"
+      ? apps.filter((a) => a.route && a.route !== r.route && (a.clone || a.route.startsWith("tunnel:"))).map((a) => a.name + " (" + a.route + ")") : [];
     const move = (d) => { const j = i + d; [model.rule[i], model.rule[j]] = [model.rule[j], model.rule[i]]; markDirty(); renderConfig(); };
     return el("tr", {},
       el("td", { class: "muted" }, i + 1 + "."),
-      el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...sel.map((x) => el("span", { class: "chip" }, x)))),
+      el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...sel.map((x) => el("span", { class: "chip" }, x))),
+        skipped.length ? el("div", { class: "muted", style: "font-size:12px;margin-top:4px;color:var(--warn)" },
+          "does not apply to: " + skipped.slice(0, 3).join(", ") + (skipped.length > 3 ? " …" : "") + " – they keep the route they were started with. ",
+          el("a", { href: "#", onclick: (e) => { e.preventDefault(); r.override_explicit = true; markDirty(); renderConfig(); } }, "apply to them too")) : ""),
       el("td", {}, r.route ? routeTag(r.route) : el("span", { class: "muted" }, "route unchanged")),
       el("td", { style: "white-space:nowrap" },
         el("button", { class: "iconbtn", title: "up", onclick: () => i > 0 && move(-1) }, "↑"), " ",

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Shunt</title>
+<script src="state.js"></script>
 <script src="theme.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2310b981'/%3E%3Cpath d='M6 22h4.5l6-9.5h6M10.5 22H26' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
@@ -91,7 +92,8 @@ h2.foldable { cursor: pointer; user-select: none; }
 .addtabs button.active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 details.inner { margin-bottom: 10px; }
 details.inner > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-details.inner:has(#ffprofiles:empty) { display: none; }
+details.browser > summary { color: var(--text, inherit); font-size: 14px; padding: 4px 0; }
+details.browser { border-top: 1px solid var(--line, #e5e7eb); padding: 4px 0; }
 .verdict { font-weight: 700; }
 .leaklist { display: grid; gap: 8px; }
 .leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
@@ -228,16 +230,16 @@ body.windows .win-only { display: block !important; }
 <main id="page-apps" hidden>
   <section class="linux-only" id="sec-launchers" data-fold hidden>
     <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0">extra menu entries, e.g. one per browser profile</span></h2>
-    <details id="ffdet" class="inner"><summary>Firefox profiles found</summary><div id="ffprofiles"></div></details>
-    <table><tbody id="launchers"></tbody></table>
+    <div id="browsers"></div>
     <div class="row" style="margin-top:12px">
       <select id="lapp" title="app to start"></select>
       <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
-      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm">
+      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm (Chromium/Brave: empty = own profile folder)">
       <select id="lroute"></select>
       <button id="lcreate" class="primary">Create</button>
     </div>
-    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave: <span class="mono">--user-data-dir=&lt;folder&gt;</span> (profiles inside one Brave share one process and therefore one route).</div>
+    <div class="hint" style="margin-top:10px"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
+    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
   <section data-fold>
@@ -422,7 +424,7 @@ body.windows .win-only { display: block !important; }
     <div data-rows="10"><table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table></div>
     <div style="margin-top:10px">
       <textarea id="f-paste" spellcheck="false" placeholder="more lists: paste one https:// URL or a whole block, one per line (Pi-hole adlists, AdGuard Home lists, hosts files, domain lists)" style="min-height:70px"></textarea>
-      <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><span id="f-paste-info" class="muted"></span></div>
+      <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><button id="f-tidy" title="Remove entries that a lower level already includes, or that are listed twice">Tidy lists</button><span id="f-paste-info" class="muted"></span></div>
     </div>
     <div class="hint">Lists: <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to the RPiList project for building and maintaining them. Big lists cost memory (roughly 3× their size).</div>
   </section>

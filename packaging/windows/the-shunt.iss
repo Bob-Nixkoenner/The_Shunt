@@ -28,6 +28,7 @@ UninstallDisplayIcon={app}\the-shunt.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+InfoBeforeFile={#SrcDir}\disclaimer.txt
 CloseApplications=no
 
 [Files]
@@ -43,6 +44,11 @@ Name: "{commondesktop}\The Shunt"; Filename: "{app}\shunt-desktop.exe"; IconFile
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop icon"; Flags: unchecked
+Name: "autostart"; Description: "Start the tray icon at login"
+
+[Registry]
+; same value the tray menu's "Start at login" switch writes
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TheShunt"; ValueData: """{app}\shunt-desktop.exe"" --hidden"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\shuntd-win.exe"; Parameters: "install"; Flags: runhidden; Check: not ServiceExists; StatusMsg: "Installing service..."

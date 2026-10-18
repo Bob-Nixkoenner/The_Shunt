@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
@@ -154,6 +155,11 @@ func (s *Server) handler() http.Handler {
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
+		}
+		for i := range list {
+			if list[i].Clone == "" {
+				list[i].Chromium = desktop.ChromiumBrowserOf(list[i].ID)
+			}
 		}
 		writeJSON(w, list)
 	})
@@ -302,7 +308,40 @@ func (s *Server) handler() http.Handler {
 		if !decode(w, r, &req) {
 			return
 		}
+		if home, err := os.UserHomeDir(); err == nil {
+			req.Args = strings.ReplaceAll(req.Args, "{home}", home)
+		}
 		id, err := desktop.Clone(req.App, req.Name, req.Args, req.Route, s.Self)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]string{"id": id})
+	})
+	mux.HandleFunc("GET /api/chromium-profiles", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, desktop.ChromiumProfiles())
+	})
+	// a launcher for an existing Chromium-family profile: the profile gets a
+	// data directory of its own (see desktop.ChromiumInstance), so it can have its own route
+	mux.HandleFunc("POST /api/profile-launchers", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			App, Name, Route string
+			Profile          desktop.ChromiumProfile
+		}
+		if !decode(w, r, &req) {
+			return
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		dir, err := desktop.ChromiumInstance(home, req.Profile, req.Name)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		id, err := desktop.Clone(req.App, req.Name, `--user-data-dir="`+dir+`"`, req.Route, s.Self)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
@@ -311,6 +350,35 @@ func (s *Server) handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/firefox-profiles", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, desktop.FirefoxProfiles())
+	})
+	mux.HandleFunc("GET /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
+		uiStateMu.Lock()
+		st := loadUIState()
+		uiStateMu.Unlock()
+		writeJSON(w, st)
+	})
+	mux.HandleFunc("PUT /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
+		var changes map[string]*string
+		if !decode(w, r, &changes) {
+			return
+		}
+		st, err := mergeUIState(changes)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, st)
+	})
+	mux.HandleFunc("POST /api/open-url", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ URL string }
+		if !decode(w, r, &req) {
+			return
+		}
+		if err := openURL(req.URL); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]string{"ok": "1"})
 	})
 	mux.HandleFunc("POST /api/leaktest", func(w http.ResponseWriter, r *http.Request) {
 		var st api.Status

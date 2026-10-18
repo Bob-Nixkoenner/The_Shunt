@@ -87,6 +87,10 @@ func Render(p *engine.Plan) (string, error) {
 	// validates replies against the tunnel table, not the main table.
 	w("\tchain mark_in {")
 	w("\t\ttype filter hook prerouting priority mangle; policy accept;")
+	// not on loopback: a query redirected to a DNS proxy keeps the mark of
+	// its own route there (the proxy reads it, SO_RCVMARK); the conntrack
+	// entry it joined may belong to another route's query
+	w("\t\tiifname \"lo\" return")
 	w("\t\tct mark and %#x == %#x meta mark set ct mark", engine.MarkMask, engine.MarkBase)
 	// Tailscale tunnels: what tailscaled (in its own namespace) sends
 	// arrives on the veth. It leaves like Shunt's own encrypted packets:

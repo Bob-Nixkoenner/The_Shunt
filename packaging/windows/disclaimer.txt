@@ -1,0 +1,8 @@
+The Shunt is early beta software and not a 100 % solution.
+
+It sorts traffic per program, but:
+ - a program that is already running keeps the route it started with,
+ - an app can open connections before it is routed,
+ - it does not make you anonymous.
+
+Check with the leak test in the app, and do not rely on it where a leak would put you at risk.
