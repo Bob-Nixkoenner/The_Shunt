@@ -22,3 +22,9 @@ func TestIsAppExe(t *testing.T) {
 		t.Error("snapApp")
 	}
 }
+
+func TestIsAppExeScript(t *testing.T) {
+	if !isAppExe("/snap/brave/696/opt/brave.com/brave/brave-browser") {
+		t.Error("launcher script of a snap")
+	}
+}

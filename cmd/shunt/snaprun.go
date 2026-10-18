@@ -136,14 +136,24 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 // once snap-confine has changed the process' credentials, so the first word
 // of the command line serves as the fallback.
 func procImage(pid int) string {
-	if exe, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil {
+	if exe, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil && !strings.HasSuffix(exe, "/bash") && !strings.HasSuffix(exe, "/sh") && !strings.HasSuffix(exe, "/dash") {
 		return exe
 	}
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil {
 		return ""
 	}
-	return strings.SplitN(string(b), "\x00", 2)[0]
+	w := strings.Split(string(b), "\x00")
+	// a launcher script of the snap ("/bin/bash /snap/brave/696/.../brave-browser"): the script is the app
+	switch filepath.Base(w[0]) {
+	case "bash", "sh", "dash", "python3", "python", "perl":
+		for _, a := range w[1:] {
+			if !strings.HasPrefix(a, "-") {
+				return a
+			}
+		}
+	}
+	return w[0]
 }
 
 // isAppExe: the process image is the snap's own program, not the snap tooling.
