@@ -351,6 +351,24 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/firefox-profiles", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, desktop.FirefoxProfiles())
 	})
+	mux.HandleFunc("GET /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
+		uiStateMu.Lock()
+		st := loadUIState()
+		uiStateMu.Unlock()
+		writeJSON(w, st)
+	})
+	mux.HandleFunc("PUT /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
+		var changes map[string]*string
+		if !decode(w, r, &changes) {
+			return
+		}
+		st, err := mergeUIState(changes)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, st)
+	})
 	mux.HandleFunc("POST /api/open-url", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ URL string }
 		if !decode(w, r, &req) {
