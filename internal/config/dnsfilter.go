@@ -45,24 +45,30 @@ type DNSFilter struct {
 	Source string `toml:"source,omitempty" json:"source,omitempty"`
 }
 
-// DefaultDNSFilter is in effect while the config has no [dns_filter].
+// DefaultDNSFilter is in effect while the config has no [dns_filter]. It is
+// what the maintainer's own machines settled on (Linux host, Windows VM),
+// minus the lists that have nothing to do with this OS: Windows' telemetry
+// lists are in "normal" on Windows and nowhere else, the phone and TV lists
+// (Samsung, LG) are not in any default. Android gets its own set in the app.
 func DefaultDNSFilter() DNSFilter {
-	return DNSFilter{
-		Default:  FilterNormal,
-		Low:      []string{"easylist"},
-		Normal:   []string{"Phishing-Angriffe", "malware"},
-		Paranoid: paranoidDefaults(),
-	}
+	return defaultDNSFilterFor(runtime.GOOS)
 }
 
-// paranoidDefaults: Windows' telemetry lists only make sense on Windows; the phone and TV lists
-// (Samsung, LG) are not in the defaults at all.
-func paranoidDefaults() []string {
-	l := []string{"crypto", "spam.mails", "notserious", "Fake-Science"}
-	if runtime.GOOS == "windows" {
-		l = append(l, "Win10Telemetry", "MS-Office-Telemetry")
+func defaultDNSFilterFor(goos string) DNSFilter {
+	normal := []string{"notserious", "Fake-Science", "spam.mails", "crypto"}
+	if goos == "windows" {
+		normal = append(normal, "Win10Telemetry", "MS-Office-Telemetry")
 	}
-	return append(l, "SupportingRussia")
+	return DNSFilter{
+		Default: FilterNormal,
+		Low:     []string{"easylist", "Phishing-Angriffe", "malware", "Corona-Blocklist", "SupportingRussia"},
+		Normal:  normal,
+		Paranoid: []string{
+			"gambling", "Streaming", "DatingSites", "child-protection", "proxies",
+			"DomainSquatting1", "DomainSquatting2", "DomainSquatting3", "DomainSquatting4",
+			"pornblock1", "pornblock2", "pornblock3", "pornblock4", "pornblock5", "pornblock6", "Overblock",
+		},
+	}
 }
 
 // Filter returns the DNS filter settings in effect (defaults filled in).
