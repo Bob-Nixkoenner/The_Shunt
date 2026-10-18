@@ -312,6 +312,17 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/firefox-profiles", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, desktop.FirefoxProfiles())
 	})
+	mux.HandleFunc("POST /api/open-url", func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ URL string }
+		if !decode(w, r, &req) {
+			return
+		}
+		if err := openURL(req.URL); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]string{"ok": "1"})
+	})
 	mux.HandleFunc("POST /api/leaktest", func(w http.ResponseWriter, r *http.Request) {
 		var st api.Status
 		if err := s.Client.Do("GET", "/v1/status", nil, &st); err != nil {

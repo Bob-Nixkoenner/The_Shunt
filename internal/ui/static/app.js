@@ -35,6 +35,16 @@ async function api(method, path, body) {
   return data;
 }
 
+// The Windows window shows no external pages: links to other sites are
+// opened by the app in the default browser.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("a[href]");
+  if (!a || a.protocol !== "https:" || a.host === location.host) return;
+  if (!status || status.platform !== "windows") return;
+  e.preventDefault();
+  api("POST", "/api/open-url", { url: a.href }).catch((err) => toast(err.message));
+});
+
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;

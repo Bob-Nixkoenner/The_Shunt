@@ -97,18 +97,81 @@ func (f DNSFilter) Lists(level string) []string {
 	default:
 		return nil
 	}
-	if len(own) == 1 {
-		return own[0]
-	}
 	var out []string
 	seen := map[string]bool{}
 	for _, l := range own {
 		for _, name := range l {
-			if !seen[name] {
-				seen[name] = true
+			if k := f.listKey(name); !seen[k] { // "easylist" and its full URL are one list
+				seen[k] = true
 				out = append(out, name)
 			}
 		}
+	}
+	return out
+}
+
+// listKey identifies a list by where it comes from.
+func (f DNSFilter) listKey(name string) string {
+	return strings.ToLower(strings.TrimSuffix(f.ListURL(name), "/"))
+}
+
+// Tidy removes the redundant entries Duplicates reports: a list stays in the
+// lowest level that has it. Order is kept.
+func (f DNSFilter) Tidy() DNSFilter {
+	seen := map[string]bool{}
+	keep := func(in []string) []string {
+		out := []string{}
+		for _, name := range in {
+			if k := f.listKey(name); !seen[k] {
+				seen[k] = true
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	f.Low, f.Normal, f.Paranoid = keep(f.Low), keep(f.Normal), keep(f.Paranoid)
+	allow := map[string]bool{}
+	var al []string
+	for _, name := range f.AllowLists {
+		if k := f.listKey(name); !allow[k] {
+			allow[k] = true
+			al = append(al, name)
+		}
+	}
+	f.AllowLists = al
+	return f
+}
+
+// Duplicates describes lists that are listed twice: in one level, or again in
+// a higher level that already includes the lower one (levels build on each
+// other, so the second entry does nothing). Allowlists count too.
+func (f DNSFilter) Duplicates() []string {
+	var out []string
+	seen := map[string]string{}
+	for _, lv := range []struct {
+		name  string
+		lists []string
+	}{{FilterLow, f.Low}, {FilterNormal, f.Normal}, {FilterParanoid, f.Paranoid}} {
+		for _, name := range lv.lists {
+			k := f.listKey(name)
+			if first, ok := seen[k]; ok {
+				if first == lv.name {
+					out = append(out, fmt.Sprintf("dns_filter.%s lists %s twice", lv.name, name))
+				} else {
+					out = append(out, fmt.Sprintf("dns_filter.%s: %s is already in %s, which it includes", lv.name, name, first))
+				}
+				continue
+			}
+			seen[k] = lv.name
+		}
+	}
+	allow := map[string]bool{}
+	for _, name := range f.AllowLists {
+		k := f.listKey(name)
+		if allow[k] {
+			out = append(out, fmt.Sprintf("dns_filter.allow_lists lists %s twice", name))
+		}
+		allow[k] = true
 	}
 	return out
 }
