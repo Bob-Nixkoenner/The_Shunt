@@ -67,7 +67,12 @@ func main() {
 	if !updatesSupported {
 		srv.Update = nil
 	}
-	ln, url, err := srv.Listen(0)
+	// a fixed port keeps the page's origin (and with it the saved UI
+	// settings) the same across restarts; a taken port falls back to a random one
+	ln, url, err := srv.Listen(uiPort)
+	if err != nil {
+		ln, url, err = srv.Listen(0)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -97,6 +102,9 @@ func main() {
 	}
 	windowMain()
 }
+
+// uiPort is the preferred port of the local web UI.
+const uiPort = 47615
 
 func sibling(self, name string) string {
 	p := filepath.Join(filepath.Dir(self), name+exeSuffix)

@@ -245,6 +245,7 @@ function appFilterSelect(a) {
 // processName guesses the process name of a menu app: "brave-browser" ->
 // "brave", "org.mozilla.firefox" -> "firefox", "firefox-esr" -> "firefox".
 function processName(id) {
+  if (/\.exe$/i.test(id)) return id.slice(0, -4).toLowerCase(); // Windows: "firefox.exe"
   const last = id.split(".").pop().toLowerCase();
   return last.split(/[-_]/)[0] || last;
 }
