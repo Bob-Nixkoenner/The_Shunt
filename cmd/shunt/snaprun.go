@@ -110,9 +110,12 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 		}
 		if isAppExe(procImage(pid)) {
 			scope = cgroupOf(pid)
-			if n := adopt(pid); n < 0 {
-				return errors.New("shuntd refused to move the app into the route")
-			} else if n == 0 {
+			if n := adopt(pid); n <= 0 {
+				// never leave an app running outside the route it was asked for
+				_ = child.Process.Kill()
+				if n < 0 {
+					return errors.New("shuntd refused to move the app into the route")
+				}
 				return fmt.Errorf("could not move %s into %s", cmd[0], group)
 			}
 			break
