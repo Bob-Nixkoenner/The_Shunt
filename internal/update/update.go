@@ -225,12 +225,29 @@ func newer(current, latest string) bool {
 		return false
 	case strings.HasPrefix(current, "src-"):
 		return !strings.HasPrefix(latest, strings.TrimPrefix(current, "src-"))
+	case localBuild(current):
+		return false
 	default:
 		if c, ok := cmpVersion(latest, current); ok {
 			return c > 0
 		}
 		return latest != current
 	}
+}
+
+// localBuild: a test build with its own tag word ("v0.7.1-next", "-wgui3")
+// instead of rc/beta/alpha is newer than any release the maintainer works
+// from: it never asks.
+func localBuild(v string) bool {
+	m := verRe.FindStringSubmatch(v)
+	if m == nil || m[4] == "" {
+		return false
+	}
+	switch strings.ToLower(m[4]) {
+	case "rc", "beta", "alpha":
+		return false
+	}
+	return true
 }
 
 var verRe = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.?(\d+)?)?$`)

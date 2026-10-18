@@ -39,8 +39,10 @@ type Entry struct {
 	Online bool `json:"online"`
 	// Clone is set on extra launchers made by Clone: the source app id.
 	Clone string `json:"clone,omitempty"`
-	Args  string `json:"args,omitempty"`
-	path  string
+	// Chromium: browser key when the entry is a Chromium-family browser (not a launcher)
+	Chromium string `json:"chromium,omitempty"`
+	Args     string `json:"args,omitempty"`
+	path     string
 }
 
 // Dirs returns the application directories in XDG precedence order (the

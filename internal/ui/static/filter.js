@@ -91,11 +91,13 @@ function renderFilter() {
       checked: LEVELS.slice(0, i + 1).some((k) => (f[k] || []).includes(name)) ? "" : null,
       onchange: (e) => {
         const m = fm();
-        // ticking a level ticks the higher ones too, unticking clears the lower ones too
+        // a level includes the ones below it, so the list is stored once, in the lowest level
+        // that has it; unticking a level takes it out of this one and the lower ones
         for (const [j, k] of LEVELS.entries()) {
-          if (e.target.checked && j >= i) { if (!m[k].includes(name)) m[k] = [...m[k], name]; }
+          if (e.target.checked && j !== i) m[k] = m[k].filter((x) => x !== name);
           if (!e.target.checked && j <= i) m[k] = m[k].filter((x) => x !== name);
         }
+        if (e.target.checked) m[LEVELS[i]] = [...m[LEVELS[i]], name];
         markDirty();
         renderFilter();
       },
@@ -183,6 +185,9 @@ function pickUrls(text) {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\s+#.*$/, "").trim();
     if (!line || line.startsWith("#")) continue;
+    // a file on this machine: file:/path, /path or C:\path
+    const local = line.match(/^(?:file:)?((?:\/|[A-Za-z]:[\\/])\S.*)$/);
+    if (local && !line.startsWith("//")) { urls.push("file:" + local[1].trim()); continue; }
     const m = line.match(/https:\/\/[^\s<>"'`,)\]]+/);
     if (m && /^https:\/\/[^\s/]+\/\S*$/.test(m[0])) urls.push(m[0]);
     else skipped++;
@@ -191,20 +196,36 @@ function pickUrls(text) {
 }
 $("#f-add").addEventListener("click", () => {
   const { urls, skipped } = pickUrls($("#f-paste").value);
-  if (!urls.length) return toast("No https:// URL found");
+  if (!urls.length) return toast("No https:// URL or file path found");
   const lvl = $("#f-paste-level").value;
   const m = fm();
   const have = new Set(LEVELS.flatMap((l) => m[l]));
   let added = 0;
-  const from = LEVELS.indexOf(lvl);
+  const to = LEVELS.indexOf(lvl);
   for (const u of urls) {
-    for (const k of LEVELS.slice(from)) if (!m[k].includes(u)) m[k].push(u);
+    // stored once; a list that a lower level has already needs nothing
+    if (LEVELS.slice(0, to + 1).some((k) => m[k].includes(u))) continue;
+    for (const k of LEVELS.slice(to + 1)) m[k] = m[k].filter((x) => x !== u);
+    m[lvl].push(u);
     if (!have.has(u)) added++;
   }
   $("#f-paste").value = "";
-  $("#f-paste-info").textContent = urls.length + " lists read, " + added + " new" + (skipped ? ", " + skipped + " lines ignored (not https://)" : "") + " – put into “" + lvl + "” and the levels above";
+  $("#f-paste-info").textContent = urls.length + " lists read, " + added + " new" + (skipped ? ", " + skipped + " lines ignored (not https://)" : "") + " – put into “" + lvl + "” (the levels above include it)";
   markDirty();
   renderFilter();
+});
+// the same list under its short name and its full URL counts once
+const FILTER_SRC = "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/";
+const listKey = (n) => ((n.startsWith("https://") ? n : (fview().source || FILTER_SRC).replace(/\/$/, "") + "/" + encodeURIComponent(n)).replace(/\/$/, "")).toLowerCase();
+$("#f-tidy").addEventListener("click", () => {
+  const m = fm();
+  const seen = new Set();
+  let removed = 0;
+  for (const l of LEVELS) {
+    m[l] = m[l].filter((n) => { const k = listKey(n); if (seen.has(k)) { removed++; return false; } seen.add(k); return true; });
+  }
+  $("#f-paste-info").textContent = removed ? removed + " redundant entries removed" : "nothing to tidy";
+  if (removed) { markDirty(); renderFilter(); }
 });
 $("#f-alists").addEventListener("input", (e) => {
   const m = fm();

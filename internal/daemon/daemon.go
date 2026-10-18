@@ -316,6 +316,9 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
 		}
 	}
+	if d := c.Filter().Duplicates(); len(d) > 0 { // harmless: every list is loaded once
+		p.Warnings = append(p.Warnings, fmt.Sprintf("dns_filter: %d redundant list entries (e.g. %s); Configure → DNS filter → Tidy lists removes them", len(d), d[0]))
+	}
 	// Domain rules trust the DNS server of their route: on a foreign network a
 	// plain-DNS "direct" resolver could answer with any IP and so pull other
 	// traffic out of a tunnel. Encrypted upstreams can't be tampered with.
@@ -1080,6 +1083,43 @@ func (d *Daemon) routes() http.Handler {
 		d.Log.Info("process attached", "pid", p.pid, "uid", p.uid, "group", g.Name)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/adopt", func(w http.ResponseWriter, r *http.Request) {
+		p := peerOf(r.Context())
+		if p == nil || !p.alive() {
+			writeErr(w, http.StatusForbidden, errors.New("no peer credentials"))
+			return
+		}
+		var req api.AdoptRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if len(req.PIDs) == 0 || len(req.PIDs) > 64 {
+			writeErr(w, http.StatusBadRequest, errors.New("1 to 64 pids"))
+			return
+		}
+		d.mu.Lock()
+		g, ok := d.plan.Group(req.Group)
+		d.mu.Unlock()
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown group %q", req.Group))
+			return
+		}
+		moved := 0
+		for _, pid := range req.PIDs {
+			if err := d.adoptable(p, pid); err != nil {
+				d.Log.Debug("adopt refused", "pid", pid, "why", err)
+				continue
+			}
+			if err := d.cg.Move(g.Path, pid); err != nil {
+				continue // gone already
+			}
+			d.watcher.Place(pid, g.Path)
+			moved++
+			d.Log.Info("process adopted", "pid", pid, "uid", p.uid, "group", g.Name)
+		}
+		writeJSON(w, http.StatusOK, map[string]int{"moved": moved})
+	})
 	mux.HandleFunc("POST /v1/probe", func(w http.ResponseWriter, r *http.Request) {
 		var req api.ProbeRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -1666,4 +1706,39 @@ func Cleanup() error {
 		return errors.New("no backend for this platform")
 	}
 	return b.Cleanup()
+}
+
+// adoptable: pid belongs to the caller's user, lives in that user's slice and
+// runs in no route yet (so adopting never lets anything out of a route).
+func (d *Daemon) adoptable(p *peer, pid int) error {
+	if pid <= 1 {
+		return errors.New("bad pid")
+	}
+	st, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	if err != nil {
+		return err
+	}
+	uid := -1
+	for _, l := range strings.Split(string(st), "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "Uid:" {
+			uid, _ = strconv.Atoi(f[1])
+		}
+	}
+	if uid < 0 || uint32(uid) != p.uid {
+		return errors.New("not the caller's process")
+	}
+	cg, ok := d.Backend.CgroupOf(pid)
+	if !ok {
+		return errors.New("no cgroup")
+	}
+	if !strings.HasPrefix(cg, "user.slice/user-"+strconv.Itoa(uid)+".slice/") {
+		return fmt.Errorf("%s is not in the user's slice", cg)
+	}
+	d.mu.Lock()
+	from := fromRoute(cg, d.plan, d.groupRoute)
+	d.mu.Unlock()
+	if from != "" {
+		return fmt.Errorf("already in route %s", from)
+	}
+	return nil
 }

@@ -35,6 +35,16 @@ async function api(method, path, body) {
   return data;
 }
 
+// The Windows window shows no external pages: links to other sites are
+// opened by the app in the default browser.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("a[href]");
+  if (!a || a.protocol !== "https:" || a.host === location.host) return;
+  if (!status || status.platform !== "windows") return;
+  e.preventDefault();
+  api("POST", "/api/open-url", { url: a.href }).catch((err) => toast(err.message));
+});
+
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -245,6 +255,7 @@ function appFilterSelect(a) {
 // processName guesses the process name of a menu app: "brave-browser" ->
 // "brave", "org.mozilla.firefox" -> "firefox", "firefox-esr" -> "firefox".
 function processName(id) {
+  if (/\.exe$/i.test(id)) return id.slice(0, -4).toLowerCase(); // Windows: "firefox.exe"
   const last = id.split(".").pop().toLowerCase();
   return last.split(/[-_]/)[0] || last;
 }
@@ -268,15 +279,22 @@ function routeSelect(value, onchange, withDefault) {
   return s;
 }
 
+// Chromium family (the server names the browser): one process per data folder, so a launcher with
+// its own route needs a folder of its own
+const isChromium = (id) => !!(apps.find((a) => a.id === id) || {}).chromium;
+const chromiumApp = () => (apps.find((a) => !a.clone && a.chromium) || {}).id;
+const slug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
 
-function renderLaunchers() {
-  if (!status) return;
-  const launchers = apps.filter((a) => a.clone);
-  // launchers are for Firefox profiles first: no Firefox (and no launcher made earlier) = no section
-  $("#sec-launchers").hidden = !firefoxApp() && !launchers.length;
-  $("#launchers").replaceChildren(...launchers.map((a) => el("tr", {},
-    el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.clone + " " + (a.args || ""))),
+// open/closed state of the browser groups survives a re-render
+const openBrowsers = new Set(JSON.parse((() => { try { return localStorage.getItem("shunt-open-browsers") || "[]"; } catch { return "[]"; } })()));
+function rememberOpen() { try { localStorage.setItem("shunt-open-browsers", JSON.stringify([...openBrowsers])); } catch {} }
+
+const isSnap = (app) => /\/snap\/bin\//.test(app.exec || "");
+
+function launcherRow(a) {
+  return el("tr", {},
+    el("td", {}, a.name, " ", el("span", { class: "muted mono" }, (a.args || ""))),
     el("td", {}, routeSelect(a.route, async (e) => {
       try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(a.name + " now via " + a.route); }
       catch (err) { toast(err.message); e.target.value = a.route; }
@@ -286,21 +304,56 @@ function renderLaunchers() {
     el("td", {}, el("button", { onclick: async () => {
       try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(a.name + " removed"); await loadApps(); }
       catch (err) { toast(err.message); }
-    } }, "Remove")))));
+    } }, "Remove")));
+}
+
+function renderLaunchers() {
+  if (!status) return;
+  const launchers = apps.filter((a) => a.clone);
+  const ff = firefoxApp();
+  // one foldable group per browser: its profiles (without a launcher yet) and its launchers
+  const groups = [];
+  if (ff) groups.push({ key: "firefox", app: apps.find((a) => a.id === ff), label: "Firefox" });
+  for (const a of apps.filter((x) => !x.clone && x.chromium)) groups.push({ key: a.chromium, app: a, label: a.name });
+  const keyOf = (l) => (l.clone && firefoxApp() === l.clone) ? "firefox" : ((apps.find((a) => a.id === l.clone) || {}).chromium || "other");
+  for (const l of launchers) if (!groups.some((g) => g.key === keyOf(l))) groups.push({ key: keyOf(l), app: null, label: keyOf(l) === "other" ? "Other apps" : keyOf(l) });
+  $("#sec-launchers").hidden = !groups.length;
+
+  const sel0 = () => routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
+  $("#browsers").replaceChildren(...groups.map((g) => {
+    const mine = launchers.filter((l) => keyOf(l) === g.key);
+    const chips = [];
+    if (g.key === "firefox") {
+      const have = new Set(launchers.map((a) => a.args));
+      // launchers made before profiles were started by folder used -P <name>
+      for (const p of ffProfiles.filter((p) => !have.has(profileArgs(p)) && !have.has(legacyProfileArgs(p.name)))) {
+        const sel = sel0();
+        chips.push(el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
+          el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher")));
+      }
+    } else if (g.app) {
+      // an existing profile gets a data folder of its own (a link to the profile) and a launcher
+      for (const p of crProfiles.filter((p) => p.browser === g.key)) {
+        const lname = g.app.name + " " + p.name;
+        const done = launchers.some((l) => l.name === lname);
+        const sel = sel0();
+        chips.push(el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.root + "/" + p.dir }, p.name,
+          ...(done ? [el("span", { class: "muted" }, "has a launcher")] : [sel,
+            el("button", { onclick: () => createProfileLauncher(g.app.id, lname, p, sel.value) }, "+ launcher")])));
+      }
+    }
+    const note = g.app && isSnap(g.app) ? el("div", { class: "hint", style: "margin:6px 0" },
+      "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.") : "";
+    const det = el("details", { class: "inner browser", ontoggle: (e) => { if (e.target.open) openBrowsers.add(g.key); else openBrowsers.delete(g.key); rememberOpen(); } },
+      el("summary", {}, el("b", {}, g.label), " ", el("span", { class: "muted" }, mine.length + (mine.length === 1 ? " launcher" : " launchers") + (chips.length ? " · " + chips.length + " profile" + (chips.length === 1 ? "" : "s") + " found" : ""))),
+      note,
+      chips.length ? el("div", { class: "row", style: "margin:8px 0;flex-wrap:wrap" }, el("span", { class: "muted" }, "Profiles found:"), ...chips) : "",
+      mine.length ? el("table", {}, el("tbody", {}, ...mine.map(launcherRow))) : "");
+    if (openBrowsers.has(g.key)) det.open = true;
+    return det;
+  }));
 
   updateLauncherState();
-
-  const ff = firefoxApp();
-  const have = new Set(launchers.map((a) => a.args));
-  // launchers made before profiles were started by folder used -P <name>
-  const todo = ff ? ffProfiles.filter((p) => !have.has(profileArgs(p)) && !have.has(legacyProfileArgs(p.name))) : [];
-  $("#ffprofiles").replaceChildren(...(todo.length ? [el("div", { class: "row", style: "margin-bottom:10px" },
-    el("span", { class: "muted" }, "Firefox profiles found:"),
-    ...todo.map((p) => {
-      const sel = routeSelect(status.routes.find((r) => r.startsWith("tunnel:")) || "direct");
-      return el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
-        el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher"));
-    }))] : []));
 
   const lapp = $("#lapp");
   const cur = lapp.value;
@@ -358,6 +411,15 @@ async function updateLauncherState() {
 function profileArgs(p) { return '--new-instance --profile "' + p.path.replace(/(["\\`$])/g, "\\$1") + '"'; }
 function legacyProfileArgs(n) { return "--new-instance -P " + (/\s/.test(n) ? '"' + n + '"' : n); }
 
+let crProfiles = [];
+async function createProfileLauncher(app, name, profile, route) {
+  try {
+    await api("POST", "/api/profile-launchers", { app, name, route, profile });
+    toast("Menu entry \u201c" + name + "\u201d created (" + route + "). Close the browser's own window of this profile first: one profile, one process.");
+    await loadApps();
+  } catch (e) { toast(e.message); }
+}
+
 async function createLauncher(app, name, args, route) {
   try {
     await api("POST", "/api/launchers", { app, name, args, route });
@@ -369,7 +431,10 @@ async function createLauncher(app, name, args, route) {
 $("#lcreate").addEventListener("click", () => {
   const name = $("#lname").value.trim();
   if (!name) { toast("Give the launcher a menu name"); return; }
-  createLauncher($("#lapp").value, name, $("#largs").value.trim(), $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
+  const app = $("#lapp").value;
+  let args = $("#largs").value.trim();
+  if (!args && isChromium(app)) args = '--user-data-dir="{home}/.local/share/shunt/profiles/' + (slug(name) || "profile") + '"'; // {home}: filled in by the app
+  createLauncher(app, name, args, $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
 });
 
 async function loadApps() {
@@ -381,6 +446,7 @@ async function loadApps() {
 
 async function refresh() {
   try { status = await api("GET", "/api/status"); } catch { status = null; }
+  if (status) { status.tunnels = status.tunnels || []; status.routes = status.routes || []; } // Go sends null for "none yet"
   render();
   if (document.querySelector(".lstate")) updateLauncherState();
   checkCaptive(status);
@@ -484,6 +550,7 @@ $("#allapps").addEventListener("change", renderApps);
 (async () => {
   await refresh();
   try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
+  try { crProfiles = await api("GET", "/api/chromium-profiles"); } catch { crProfiles = []; }
   await loadApps();
   setInterval(refresh, 2000);
 })();

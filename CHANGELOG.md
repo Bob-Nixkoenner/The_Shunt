@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1-rc2
+
+- Windows: own window (WebView2) instead of an Edge app window, fixed UI port 47615, tray icon clicks and menu work (the tray's message loop was missing), "Restart service and app" keeps the app, setup option "Start the tray at login" (on by default), https links open in the default browser.
+- DNS filter: defaults per OS (Windows telemetry lists in `normal` on Windows only; no phone/TV lists), lists are stored once in the lowest level and deduplicated by URL, "Tidy lists" button, local lists (`file:/path/to/list.txt`).
+- Launchers: Chromium family (Chrome, Chromium, Brave, Vivaldi, Opera, Opera GX, Edge): existing profiles are found and get a launcher each (own data folder in `~/ShuntProfiles` that links to the profile), new profiles get their own folder.
+- Snap browsers that refuse a pre-placed cgroup (Brave, Vivaldi, Opera GX: "is not a snap cgroup") now start: `shunt run` starts them as they are and shuntd moves them into the route as soon as they have become the app (`POST /v1/adopt`, own processes only, only ones in no route yet).
+- Rules: hint when an address/domain/port rule does not reach apps started in a route, one click to change.
+- UI: folded sections, theme and graph range are kept in the user's config folder (`shunt/ui-state.json`) as well, so they survive a restart even when the page address changes.
+- UI: no longer breaks while no tunnel exists. Test builds (`-next`, `-wgui…`) never show an update warning.
+- DNS: a UDP query that the (per conntrack entry) nat redirect sent to another route's listener is answered for the route its packet was marked for (`SO_RCVMARK`, Linux 6.1+; older kernels keep the old behaviour). The mark is no longer overwritten on loopback (`mark_in`). Found and tested with two programs using the same source port within 30 s.
+- Release: Debian packages `the-shunt` (amd64, arm64) and `the-shunt-desktop` (amd64), CycloneDX SBOM.
+
 ## v0.7.1-rc1
 
 **Pre-release: new overview with traffic and block graphs, an Apps tab, the DNS filter on Windows, and

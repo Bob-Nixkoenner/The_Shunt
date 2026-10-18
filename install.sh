@@ -214,6 +214,14 @@ if [[ $MODE == uninstall ]]; then
 fi
 
 # ---------------------------------------------------------------- checks
+say "Please note"
+cat <<EOF
+  The Shunt is early beta software and not a 100 % solution. It sorts traffic per
+  program, but a program that is already running keeps its route, some apps (snap
+  browsers) start in two steps, and apps can open connections before they are
+  routed. It does not make you anonymous. Check with 'shunt leaktest' and
+  'shunt which', and do not rely on it where a leak would put you at risk.
+EOF
 say "Checking the system"
 [[ $(uname -s) == Linux ]] || die "Linux only"
 [[ -d /run/systemd/system ]] || die "systemd is required"

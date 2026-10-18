@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -45,24 +46,30 @@ type DNSFilter struct {
 	Source string `toml:"source,omitempty" json:"source,omitempty"`
 }
 
-// DefaultDNSFilter is in effect while the config has no [dns_filter].
+// DefaultDNSFilter is in effect while the config has no [dns_filter]. It is
+// what the maintainer's own machines settled on (Linux host, Windows VM),
+// minus the lists that have nothing to do with this OS: Windows' telemetry
+// lists are in "normal" on Windows and nowhere else, the phone and TV lists
+// (Samsung, LG) are not in any default. Android gets its own set in the app.
 func DefaultDNSFilter() DNSFilter {
-	return DNSFilter{
-		Default:  FilterNormal,
-		Low:      []string{"easylist"},
-		Normal:   []string{"Phishing-Angriffe", "malware"},
-		Paranoid: paranoidDefaults(),
-	}
+	return defaultDNSFilterFor(runtime.GOOS)
 }
 
-// paranoidDefaults: Windows' telemetry lists only make sense on Windows; the phone and TV lists
-// (Samsung, LG) are not in the defaults at all.
-func paranoidDefaults() []string {
-	l := []string{"crypto", "spam.mails", "notserious", "Fake-Science"}
-	if runtime.GOOS == "windows" {
-		l = append(l, "Win10Telemetry", "MS-Office-Telemetry")
+func defaultDNSFilterFor(goos string) DNSFilter {
+	normal := []string{"notserious", "Fake-Science", "spam.mails", "crypto"}
+	if goos == "windows" {
+		normal = append(normal, "Win10Telemetry", "MS-Office-Telemetry")
 	}
-	return append(l, "SupportingRussia")
+	return DNSFilter{
+		Default: FilterNormal,
+		Low:     []string{"easylist", "Phishing-Angriffe", "malware", "Corona-Blocklist", "SupportingRussia"},
+		Normal:  normal,
+		Paranoid: []string{
+			"gambling", "Streaming", "DatingSites", "child-protection", "proxies",
+			"DomainSquatting1", "DomainSquatting2", "DomainSquatting3", "DomainSquatting4",
+			"pornblock1", "pornblock2", "pornblock3", "pornblock4", "pornblock5", "pornblock6", "Overblock",
+		},
+	}
 }
 
 // Filter returns the DNS filter settings in effect (defaults filled in).
@@ -91,15 +98,12 @@ func (f DNSFilter) Lists(level string) []string {
 	default:
 		return nil
 	}
-	if len(own) == 1 {
-		return own[0]
-	}
 	var out []string
 	seen := map[string]bool{}
 	for _, l := range own {
 		for _, name := range l {
-			if !seen[name] {
-				seen[name] = true
+			if k := f.listKey(name); !seen[k] { // "easylist" and its full URL are one list
+				seen[k] = true
 				out = append(out, name)
 			}
 		}
@@ -107,9 +111,75 @@ func (f DNSFilter) Lists(level string) []string {
 	return out
 }
 
+// listKey identifies a list by where it comes from.
+func (f DNSFilter) listKey(name string) string {
+	return strings.ToLower(strings.TrimSuffix(f.ListURL(name), "/"))
+}
+
+// Tidy removes the redundant entries Duplicates reports: a list stays in the
+// lowest level that has it. Order is kept.
+func (f DNSFilter) Tidy() DNSFilter {
+	seen := map[string]bool{}
+	keep := func(in []string) []string {
+		out := []string{}
+		for _, name := range in {
+			if k := f.listKey(name); !seen[k] {
+				seen[k] = true
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	f.Low, f.Normal, f.Paranoid = keep(f.Low), keep(f.Normal), keep(f.Paranoid)
+	allow := map[string]bool{}
+	var al []string
+	for _, name := range f.AllowLists {
+		if k := f.listKey(name); !allow[k] {
+			allow[k] = true
+			al = append(al, name)
+		}
+	}
+	f.AllowLists = al
+	return f
+}
+
+// Duplicates describes lists that are listed twice: in one level, or again in
+// a higher level that already includes the lower one (levels build on each
+// other, so the second entry does nothing). Allowlists count too.
+func (f DNSFilter) Duplicates() []string {
+	var out []string
+	seen := map[string]string{}
+	for _, lv := range []struct {
+		name  string
+		lists []string
+	}{{FilterLow, f.Low}, {FilterNormal, f.Normal}, {FilterParanoid, f.Paranoid}} {
+		for _, name := range lv.lists {
+			k := f.listKey(name)
+			if first, ok := seen[k]; ok {
+				if first == lv.name {
+					out = append(out, fmt.Sprintf("dns_filter.%s lists %s twice", lv.name, name))
+				} else {
+					out = append(out, fmt.Sprintf("dns_filter.%s: %s is already in %s, which it includes", lv.name, name, first))
+				}
+				continue
+			}
+			seen[k] = lv.name
+		}
+	}
+	allow := map[string]bool{}
+	for _, name := range f.AllowLists {
+		k := f.listKey(name)
+		if allow[k] {
+			out = append(out, fmt.Sprintf("dns_filter.allow_lists lists %s twice", name))
+		}
+		allow[k] = true
+	}
+	return out
+}
+
 // ListURL returns where a list comes from.
 func (f DNSFilter) ListURL(name string) string {
-	if strings.HasPrefix(name, "https://") {
+	if strings.HasPrefix(name, "https://") || IsLocalList(name) {
 		return name
 	}
 	src := f.Source
@@ -178,7 +248,21 @@ func (c *Config) validateFilter() error {
 	return nil
 }
 
+// IsLocalList: "file:/etc/lists/mine.txt" (Windows: "file:C:\lists\mine.txt") is
+// a list on this machine instead of a download.
+func IsLocalList(ref string) bool { return strings.HasPrefix(ref, "file:") }
+
+// LocalListPath returns the path of a local list reference.
+func LocalListPath(ref string) string { return strings.TrimPrefix(ref, "file:") }
+
 func validListRef(where, l string) error {
+	if IsLocalList(l) {
+		p := LocalListPath(l)
+		if !filepath.IsAbs(p) || strings.Contains(p, "..") {
+			return fmt.Errorf("%s: %q: a local list needs an absolute path (file:/path/to/list.txt)", where, l)
+		}
+		return nil
+	}
 	if strings.HasPrefix(l, "https://") {
 		if u, err := url.Parse(l); err != nil || u.Host == "" {
 			return fmt.Errorf("%s: invalid URL %q", where, l)

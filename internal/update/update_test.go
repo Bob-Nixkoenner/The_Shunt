@@ -118,3 +118,14 @@ func TestCmpVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalBuildNeverAsks(t *testing.T) {
+	for _, cur := range []string{"v0.7.1-next", "v0.7.1-wgui3"} {
+		if newer(cur, "v0.7.1-rc1") || newer(cur, "v0.8.0") {
+			t.Errorf("%s should not be offered an update", cur)
+		}
+	}
+	if !newer("v0.7.1-rc1", "v0.7.1") {
+		t.Error("rc1 should see 0.7.1")
+	}
+}
