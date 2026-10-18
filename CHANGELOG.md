@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Windows: own window (WebView2) instead of an Edge app window, fixed UI port 47615, tray icon clicks and menu work (the tray's message loop was missing), "Restart service and app" keeps the app, setup option "Start the tray at login" (on by default), https links open in the default browser.
+- DNS filter: defaults per OS (Windows telemetry lists in `normal` on Windows only; no phone/TV lists), lists are stored once in the lowest level and deduplicated by URL, "Tidy lists" button, local lists (`file:/path/to/list.txt`).
+- Launchers: Chromium family (Brave, Chrome, Chromium, Vivaldi, Edge) gets its own profile folder.
+- Rules: hint when an address/domain/port rule does not reach apps started in a route, one click to change.
+- UI: no longer breaks while no tunnel exists.
+- Release: Debian packages `the-shunt` (amd64, arm64) and `the-shunt-desktop` (amd64), CycloneDX SBOM.
+
 ## v0.7.1-rc1
 
 **Pre-release: new overview with traffic and block graphs, an Apps tab, the DNS filter on Windows, and
