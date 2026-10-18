@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 )
 
 // Single makes sure only one desktop app runs per user. The first
@@ -50,5 +51,19 @@ func (s *Single) Requests(show func()) {
 			show()
 		}
 		c.Close()
+	}
+}
+
+// WaitFree blocks until no instance answers on the socket (or 10 s passed):
+// a restarting app starts its successor first and exits right after, and
+// the successor must not mistake the dying instance for a running one.
+func WaitFree() {
+	for range 50 {
+		c, err := net.Dial("unix", socketName())
+		if err != nil {
+			return
+		}
+		c.Close()
+		time.Sleep(200 * time.Millisecond)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
@@ -20,9 +21,19 @@ var (
 
 // execSelf starts a fresh copy and ends this process (Windows has no exec).
 func execSelf(exe string, args []string) error {
-	cmd := exec.Command(exe, args[1:]...)
-	if err := cmd.Start(); err != nil {
-		return err
+	start := func(flags uint32) error {
+		cmd := exec.Command(exe, args[1:]...)
+		cmd.Env = append(os.Environ(), "SHUNT_RESTART=1") // the copy waits until this process is gone
+		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
+		return cmd.Start()
+	}
+	// leave a job object the old process may live in (Task Scheduler kills
+	// the job's processes when the task's main process ends), then fall back
+	const detached, newGroup, breakaway = 0x8, 0x200, 0x01000000
+	if err := start(detached | newGroup | breakaway); err != nil {
+		if err := start(detached | newGroup); err != nil {
+			return err
+		}
 	}
 	os.Exit(0)
 	return nil
