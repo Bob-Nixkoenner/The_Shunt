@@ -40,6 +40,9 @@ func main() {
 		return
 	}
 
+	if os.Getenv("SHUNT_RESTART") != "" {
+		desktopapp.WaitFree()
+	}
 	single, err := desktopapp.Claim()
 	if err != nil {
 		log.Fatal(err)
