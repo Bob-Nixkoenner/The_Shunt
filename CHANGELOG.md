@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc2
 
 - Windows: own window (WebView2) instead of an Edge app window, fixed UI port 47615, tray icon clicks and menu work (the tray's message loop was missing), "Restart service and app" keeps the app, setup option "Start the tray at login" (on by default), https links open in the default browser.
 - DNS filter: defaults per OS (Windows telemetry lists in `normal` on Windows only; no phone/TV lists), lists are stored once in the lowest level and deduplicated by URL, "Tidy lists" button, local lists (`file:/path/to/list.txt`).
