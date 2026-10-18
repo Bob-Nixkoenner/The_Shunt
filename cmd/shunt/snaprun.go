@@ -108,7 +108,7 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 			return exitStatus(err) // ended before it ever was the app: nothing to route
 		default:
 		}
-		if exe, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil && isAppExe(exe) {
+		if isAppExe(procImage(pid)) {
 			scope = cgroupOf(pid)
 			if n := adopt(pid); n < 0 {
 				return errors.New("shuntd refused to move the app into the route")
@@ -130,6 +130,20 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 		}
 	}
 	return exitStatus(<-done)
+}
+
+// procImage is the program a process runs. /proc/<pid>/exe is closed to us
+// once snap-confine has changed the process' credentials, so the first word
+// of the command line serves as the fallback.
+func procImage(pid int) string {
+	if exe, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil {
+		return exe
+	}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return ""
+	}
+	return strings.SplitN(string(b), "\x00", 2)[0]
 }
 
 // isAppExe: the process image is the snap's own program, not the snap tooling.
