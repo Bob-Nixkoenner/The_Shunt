@@ -238,7 +238,7 @@ body.windows .win-only { display: block !important; }
       <select id="lroute"></select>
       <button id="lcreate" class="primary">Create</button>
     </div>
-    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>; profiles inside one Brave share one process and therefore one route, so an existing profile cannot be split).</div>
+    <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
   <section data-fold>
