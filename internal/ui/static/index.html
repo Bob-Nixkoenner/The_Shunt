@@ -91,7 +91,8 @@ h2.foldable { cursor: pointer; user-select: none; }
 .addtabs button.active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 details.inner { margin-bottom: 10px; }
 details.inner > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-details.inner:has(#ffprofiles:empty) { display: none; }
+details.browser > summary { color: var(--text, inherit); font-size: 14px; padding: 4px 0; }
+details.browser { border-top: 1px solid var(--line, #e5e7eb); padding: 4px 0; }
 .verdict { font-weight: 700; }
 .leaklist { display: grid; gap: 8px; }
 .leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
@@ -228,9 +229,7 @@ body.windows .win-only { display: block !important; }
 <main id="page-apps" hidden>
   <section class="linux-only" id="sec-launchers" data-fold hidden>
     <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0">extra menu entries, e.g. one per browser profile</span></h2>
-    <details id="ffdet" class="inner"><summary>Firefox profiles found</summary><div id="ffprofiles"></div></details>
-    <div id="crprofiles"></div>
-    <table><tbody id="launchers"></tbody></table>
+    <div id="browsers"></div>
     <div class="row" style="margin-top:12px">
       <select id="lapp" title="app to start"></select>
       <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
@@ -238,6 +237,7 @@ body.windows .win-only { display: block !important; }
       <select id="lroute"></select>
       <button id="lcreate" class="primary">Create</button>
     </div>
+    <div class="hint" style="margin-top:10px"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
     <div class="hint">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
