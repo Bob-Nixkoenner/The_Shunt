@@ -84,6 +84,7 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 	c := api.NewClient(*sock)
+	socketPath = *sock
 	args := flag.Args()
 	if len(args) == 0 {
 		flag.Usage()
@@ -158,10 +159,14 @@ func main() {
 	}
 }
 
+// socketPath is the -s flag, for commands that start shunt again.
+var socketPath string
+
 func run(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	via := fs.String("via", "", "route: direct | block | tunnel:<name> | link:wifi|ethernet|mobile")
 	group := fs.String("group", "", "named group from the config")
+	placed := fs.Bool("placed", false, "")
 	_ = fs.Parse(args)
 	cmd := fs.Args()
 	if len(cmd) == 0 || (*via == "") == (*group == "") {
@@ -174,6 +179,9 @@ func run(c *api.Client, args []string) error {
 	bin, err := exec.LookPath(cmd[0])
 	if err != nil {
 		return err
+	}
+	if snapApp(cmd) && !*placed {
+		return runSnapCmd(c, g, cmd)
 	}
 	// shuntd moves *this* process (identified by SO_PEERCRED) into the
 	// group's cgroup; exec keeps the PID, so the command and all its children

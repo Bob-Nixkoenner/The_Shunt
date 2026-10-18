@@ -104,6 +104,15 @@ type RunRequest struct {
 	Group string `json:"group"`
 }
 
+// AdoptRequest asks shuntd to move processes of the caller's own user into a
+// group, after they started: snap-confined apps need a cgroup of their own
+// while they start and can only be moved once they have exec'd. Only
+// processes of the caller's uid that run in no route yet are accepted.
+type AdoptRequest struct {
+	Group string `json:"group"`
+	PIDs  []int  `json:"pids"`
+}
+
 // ProbeRequest asks the daemon to run the leak test probe in a route
 // (POST /v1/probe, answer: probe.Result).
 type ProbeRequest struct {
