@@ -218,6 +218,10 @@ func (m *Manager) loadCache(e *entry) {
 		e.loading = false
 		m.mu.Unlock()
 	}()
+	if config.IsLocalList(e.url) { // no cache: the file itself, read again on every refresh
+		m.loadLocal(e)
+		return
+	}
 	f, err := os.Open(m.file(e))
 	if err != nil {
 		return
@@ -237,8 +241,53 @@ func (m *Manager) loadCache(e *entry) {
 	m.mu.Unlock()
 }
 
+// localInfo opens a local list: a regular file only.
+func localOpen(e *entry) (*os.File, os.FileInfo, error) {
+	f, err := os.Open(config.LocalListPath(e.url))
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", e.url)
+	}
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return f, st, nil
+}
+
+func (m *Manager) loadLocal(e *entry) {
+	f, st, err := localOpen(e)
+	if err == nil {
+		defer f.Close()
+		var l *List
+		if l, err = m.parse(e, io.LimitReader(f, MaxSize)); err == nil {
+			m.mu.Lock()
+			e.list, e.updated, e.err = l, m.clock(), ""
+			m.mu.Unlock()
+			m.Log.Info("dns filter: local list read", "list", e.ref, "entries", l.Len(), "modified", st.ModTime())
+			return
+		}
+	}
+	m.mu.Lock()
+	e.err = err.Error()
+	m.mu.Unlock()
+	m.Log.Warn("dns filter: local list unusable", "list", e.ref, "err", err)
+}
+
 // download fetches e. A nil list without error: not modified.
 func (m *Manager) download(ctx context.Context, e *entry) (*List, string, error) {
+	if config.IsLocalList(e.url) {
+		f, st, err := localOpen(e)
+		if err != nil {
+			return nil, "", err
+		}
+		defer f.Close()
+		l, err := m.parse(e, io.LimitReader(f, MaxSize))
+		return l, st.ModTime().Format(http.TimeFormat), err
+	}
 	path := m.file(e)
 	req, err := http.NewRequestWithContext(ctx, "GET", e.url, nil)
 	if err != nil {

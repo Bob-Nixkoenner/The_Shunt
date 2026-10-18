@@ -60,3 +60,12 @@ func TestTidy(t *testing.T) {
 		t.Error("still duplicates")
 	}
 }
+
+func TestLocalListRef(t *testing.T) {
+	if validListRef("x", "file:relative.txt") == nil || validListRef("x", "file:/a/../b") == nil {
+		t.Error("relative or .. path accepted")
+	}
+	if validListRef("x", "file:/etc/lists/mine.txt") != nil {
+		t.Error("absolute path rejected")
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -171,5 +173,32 @@ func TestAllowListOverridesBlock(t *testing.T) {
 	}
 	if _, err := Parse("bl", strings.NewReader("@@||ads.example.com^\n")); err == nil {
 		t.Fatal("exceptions are not entries of a blocklist")
+	}
+}
+
+func TestLocalList(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "mine.txt")
+	if err := os.WriteFile(file, []byte("# mine\n0.0.0.0 tracker.example\n||ads.example^\nnot a domain line!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var cur atomic.Pointer[Filter]
+	m := &Manager{Dir: filepath.Join(dir, "cache"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		OnChange: func(f *Filter) { cur.Store(f) }}
+	cfg := config.DNSFilter{Default: "normal", Normal: []string{"file:" + file}}
+	m.Configure(cfg, []string{"normal"})
+	waitLoaded(t, m)
+	f := cur.Load()
+	if f == nil || f.Check("normal", "tracker.example") == "" || f.Check("normal", "ads.example") == "" {
+		t.Fatal("local list not active")
+	}
+	// the file changes: the next refresh reads it again
+	if err := os.WriteFile(file, []byte("new.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.now = func() time.Time { return time.Now().Add(25 * time.Hour) }
+	m.refresh(context.Background())
+	if cur.Load().Check("normal", "new.example") == "" || cur.Load().Check("normal", "tracker.example") != "" {
+		t.Fatal("local list not re-read")
 	}
 }
