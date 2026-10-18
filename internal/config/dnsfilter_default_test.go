@@ -32,3 +32,31 @@ func TestDefaultFilterPerOS(t *testing.T) {
 		}
 	}
 }
+
+func TestListDuplicates(t *testing.T) {
+	f := DNSFilter{
+		Low:      []string{"easylist", "malware"},
+		Normal:   []string{DefaultFilterSource + "easylist", "notserious", "notserious"},
+		Paranoid: []string{"malware", "crypto"},
+	}
+	if got := f.Lists(FilterParanoid); len(got) != 4 { // easylist, malware, notserious, crypto
+		t.Errorf("lists %v", got)
+	}
+	d := f.Duplicates()
+	if len(d) != 3 {
+		t.Errorf("duplicates %v", d)
+	}
+	if got := DefaultDNSFilter().Duplicates(); len(got) != 0 {
+		t.Errorf("defaults have duplicates: %v", got)
+	}
+}
+
+func TestTidy(t *testing.T) {
+	f := DNSFilter{Low: []string{"easylist"}, Normal: []string{DefaultFilterSource + "easylist", "malware"}, Paranoid: []string{"malware", "crypto"}}.Tidy()
+	if len(f.Low) != 1 || len(f.Normal) != 1 || f.Normal[0] != "malware" || len(f.Paranoid) != 1 || f.Paranoid[0] != "crypto" {
+		t.Errorf("tidy %+v", f)
+	}
+	if len(f.Duplicates()) != 0 {
+		t.Error("still duplicates")
+	}
+}

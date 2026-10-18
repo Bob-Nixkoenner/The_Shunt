@@ -316,6 +316,9 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
 		}
 	}
+	if d := c.Filter().Duplicates(); len(d) > 0 { // harmless: every list is loaded once
+		p.Warnings = append(p.Warnings, fmt.Sprintf("dns_filter: %d redundant list entries (e.g. %s); Configure → DNS filter → Tidy lists removes them", len(d), d[0]))
+	}
 	// Domain rules trust the DNS server of their route: on a foreign network a
 	// plain-DNS "direct" resolver could answer with any IP and so pull other
 	// traffic out of a tunnel. Encrypted upstreams can't be tampered with.
