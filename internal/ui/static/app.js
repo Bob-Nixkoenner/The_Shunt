@@ -279,13 +279,17 @@ function routeSelect(value, onchange, withDefault) {
   return s;
 }
 
+// Chromium family: one process per data folder, so a launcher with its own route needs its own folder
+const isChromium = (id) => /^(brave|brave-browser|google-chrome|google-chrome-stable|chromium|chromium-browser|vivaldi|vivaldi-stable|microsoft-edge|microsoft-edge-stable|opera)$/.test(id || "") || /^(com\.brave\.Browser|com\.google\.Chrome|org\.chromium\.Chromium|com\.vivaldi\.Vivaldi)$/.test(id || "");
+const chromiumApp = () => (apps.find((a) => !a.clone && isChromium(a.id)) || {}).id;
+const slug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
 
 function renderLaunchers() {
   if (!status) return;
   const launchers = apps.filter((a) => a.clone);
   // launchers are for Firefox profiles first: no Firefox (and no launcher made earlier) = no section
-  $("#sec-launchers").hidden = !firefoxApp() && !launchers.length;
+  $("#sec-launchers").hidden = !firefoxApp() && !chromiumApp() && !launchers.length;
   $("#launchers").replaceChildren(...launchers.map((a) => el("tr", {},
     el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.clone + " " + (a.args || ""))),
     el("td", {}, routeSelect(a.route, async (e) => {
@@ -380,7 +384,10 @@ async function createLauncher(app, name, args, route) {
 $("#lcreate").addEventListener("click", () => {
   const name = $("#lname").value.trim();
   if (!name) { toast("Give the launcher a menu name"); return; }
-  createLauncher($("#lapp").value, name, $("#largs").value.trim(), $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
+  const app = $("#lapp").value;
+  let args = $("#largs").value.trim();
+  if (!args && isChromium(app)) args = '--user-data-dir="{home}/.local/share/shunt/profiles/' + (slug(name) || "profile") + '"'; // {home}: filled in by the app
+  createLauncher(app, name, args, $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
 });
 
 async function loadApps() {
