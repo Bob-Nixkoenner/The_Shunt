@@ -48,6 +48,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -125,7 +126,7 @@ private fun App() {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> StatusScreen(settings, status)
+                0 -> StatusScreen(settings, status) { message = it }
                 1 -> TunnelsScreen(settings, update) { message = it }
                 2 -> AppsScreen(settings, update)
                 3 -> FilterScreen(settings, update, status)
@@ -171,7 +172,7 @@ private fun Header(status: JSONObject?) {
 }
 
 @Composable
-private fun StatusScreen(settings: Settings, status: JSONObject?) {
+private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     val running by VpnState.running.collectAsStateWithLifecycle()
@@ -292,6 +293,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
             }
         }
 
+        UpdateSection(say)
         AppearanceSection()
     }
     if (confirmPass) {
@@ -426,14 +428,25 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             say("Not a usable ${if (wg) "WireGuard" else "OpenVPN"} config: ${e.message}")
         }
     }
+    val scope = rememberCoroutineScope()
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@rememberLauncherForActivityResult
-        val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return@rememberLauncherForActivityResult
-        var name = "vpn"
-        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-            if (it.moveToFirst()) name = it.getString(0)
+        // cloud providers (Nextcloud etc.) fetch the file over the network: not on the main thread
+        scope.launch {
+            val picked = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("file not readable")
+                    var name = "vpn"
+                    ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                        if (it.moveToFirst()) name = it.getString(0)
+                    }
+                    name to text
+                }
+            }
+            picked.onSuccess { (name, text) -> add(name, text) }
+                .onFailure { say("Could not read the file: ${it.message}") }
         }
-        add(name, text)
     }
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { add("qr", it) } }
     var confirmDelete by remember { mutableStateOf<Tunnel?>(null) }

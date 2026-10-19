@@ -29,14 +29,16 @@ const (
 
 // Info is the result of the last check.
 type Info struct {
-	Current   string    `json:"current"`       // installed version
-	App       string    `json:"app,omitempty"` // version of this running program
-	Latest    string    `json:"latest,omitempty"`
-	Available bool      `json:"available"`
-	Command   string    `json:"command,omitempty"`
-	Checked   time.Time `json:"checked,omitempty"`
-	Err       string    `json:"error,omitempty"`
-	Disabled  bool      `json:"disabled,omitempty"`
+	Current   string `json:"current"`       // installed version
+	App       string `json:"app,omitempty"` // version of this running program
+	Latest    string `json:"latest,omitempty"`
+	Available bool   `json:"available"`
+	Command   string `json:"command,omitempty"`
+	// CanApply: the app can install this update itself (POST /api/update/apply).
+	CanApply bool      `json:"can_apply,omitempty"`
+	Checked  time.Time `json:"checked,omitempty"`
+	Err      string    `json:"error,omitempty"`
+	Disabled bool      `json:"disabled,omitempty"`
 	// Channels: which kinds of releases are announced.
 	Releases    bool `json:"releases"`
 	Prereleases bool `json:"prereleases"`
@@ -158,6 +160,7 @@ func (c *Checker) Get() Info {
 			go c.Check(context.Background())
 		}
 	}
+	i.CanApply = i.Available && verRe.MatchString(i.Latest) && canApply()
 	i.Disabled = !Enabled()
 	i.Releases, i.Prereleases = Releases(), Prereleases()
 	i.App = c.Current
@@ -381,4 +384,13 @@ func (c *Checker) latestFor(ctx context.Context, current string) (string, error)
 		return "", err
 	}
 	return v.SHA, nil
+}
+
+// Apply installs the update found by the last check (release builds only).
+func (c *Checker) Apply(ctx context.Context) error {
+	i := c.Get()
+	if !i.Available || !i.CanApply {
+		return ErrNotSupported
+	}
+	return Apply(ctx, i.Latest)
 }
