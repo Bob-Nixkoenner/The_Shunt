@@ -564,6 +564,9 @@ async function loadUpdate() {
   $("#updbar").hidden = !upd.available && !stale;
   $("#upd-cmd").hidden = $("#upd-copy").hidden = !upd.available || upd.can_apply;
   $("#upd-now").hidden = !upd.can_apply;
+  if (!upd.available || Date.now() - updInstalling > 10 * 60 * 1000) updInstalling = 0;
+  $("#upd-now").disabled = !!updInstalling;
+  $("#upd-now").textContent = updInstalling ? "Installing…" : "Install update";
   if (stale && !upd.available) {
     $("#updbar").firstElementChild.textContent = "Updated to " + status.version;
     $("#upd-ver").textContent = "– this window still runs " + upd.app + ".";
@@ -583,15 +586,18 @@ async function loadUpdate() {
       (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
   }
 }
-$("#upd-now").addEventListener("click", async (e) => {
-  const b = e.target;
-  b.disabled = true;
-  b.textContent = "Working…";
+let updInstalling = 0; // time the install was started; the bar goes away by itself when it worked
+$("#upd-now").addEventListener("click", async () => {
+  updInstalling = Date.now();
+  loadUpdate();
   try {
     await api("POST", "/api/update/apply");
-    toast("Update started – confirm the password / admin prompt when it appears");
-  } catch (err) { toast(err.message); }
-  setTimeout(() => { b.disabled = false; b.textContent = "Install update"; }, 15000);
+    toast("Update started – confirm the password / admin prompt when it appears. This takes a minute.");
+  } catch (err) {
+    updInstalling = 0;
+    toast(err.message);
+    loadUpdate();
+  }
 });
 $("#upd-copy").addEventListener("click", async () => {
   const cmd = $("#upd-cmd").textContent;
