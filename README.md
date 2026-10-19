@@ -282,6 +282,8 @@ domain = ["netflix.com", "nflxvideo.net"]   # covers subdomains
 route  = "direct"
 ```
 
+Fallback: `fallback = "google"` under `[dns]` (with a `[dns.upstream.google]` of `8.8.8.8`) is asked, over the same route, when a route's own server does not answer. It is only added to routes whose servers are public addresses; a private resolver such as the Pi-hole above is never replaced by a public one. A plain UDP query that gets no answer is sent once more after 1.5 s before the fallback is tried.
+
 Domain rules work on the addresses a name resolves to, so other sites on the same CDN
 address follow the same route. Apps with their own hard-coded DNS-over-HTTPS bypass
 domain rules (app, IP and port rules still apply).

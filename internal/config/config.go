@@ -159,6 +159,11 @@ type DNS struct {
 	// Direct names the upstream for the direct route. Empty means the
 	// system's resolvers (from systemd-resolved or /etc/resolv.conf).
 	Direct string `toml:"direct,omitempty" json:"direct,omitempty"`
+	// Fallback names an upstream that is asked (over the same route) when the
+	// route's own server does not answer, e.g. "google" for 8.8.8.8. Only
+	// used for routes whose servers are public addresses: a private resolver
+	// (AdGuard, Pi-hole) is never replaced by a public one behind your back.
+	Fallback string `toml:"fallback,omitempty" json:"fallback,omitempty"`
 	// AllowDoH / AllowDoT disable the blocking of encrypted DNS that would
 	// bypass Shunt (known DoH hosts get NXDOMAIN, port 853 is rejected).
 	AllowDoH bool                `toml:"allow_doh,omitempty" json:"allow_doh,omitempty"`
@@ -389,6 +394,11 @@ func (c *Config) Validate() error {
 	if c.DNS.Direct != "" {
 		if _, ok := c.DNS.Upstream[c.DNS.Direct]; !ok {
 			return fmt.Errorf("dns.direct: unknown upstream %q", c.DNS.Direct)
+		}
+	}
+	if c.DNS.Fallback != "" {
+		if _, ok := c.DNS.Upstream[c.DNS.Fallback]; !ok {
+			return fmt.Errorf("dns.fallback: unknown upstream %q", c.DNS.Fallback)
 		}
 	}
 	for n, u := range c.DNS.Upstream {

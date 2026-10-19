@@ -299,3 +299,49 @@ func TestRenameTunnel(t *testing.T) {
 		t.Errorf("references not updated: default=%q rule=%q via=%q", cfg.Daemon.DefaultRoute, cfg.Rules[0].Route, cfg.Tunnels["hop"].Via)
 	}
 }
+
+// dns.fallback is added to routes with public servers only: a private
+// resolver (Pi-hole, AdGuard) is not replaced by a public one.
+func TestDNSFallback(t *testing.T) {
+	conf := `[daemon]
+socket = "/nonexistent/s.sock"
+[dns]
+direct = "cloudflare"
+fallback = "google"
+[dns.upstream.cloudflare]
+addr = "1.1.1.1"
+[dns.upstream.google]
+addr = "8.8.8.8"
+[dns.upstream.pihole]
+addr = "192.168.1.2"
+[[network]]
+name = "home"
+ssid = ["home"]
+default_route = "direct"
+dns_direct = "pihole"
+`
+	path := filepath.Join(t.TempDir(), "shunt.toml")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for ssid, want := range map[string]string{"elsewhere": "1.1.1.1:53,8.8.8.8:53", "home": "192.168.1.2:53"} {
+		p, err := PrepareOn(path, "shunt", Env{Net: &netdetect.Info{SSID: ssid}, Backend: newFake()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, u := range p.DNSUpstreams["direct"] {
+			got = append(got, u.Addr.String())
+		}
+		if strings.Join(got, ",") != want {
+			t.Errorf("%s: direct DNS %v, want %s", ssid, got, want)
+		}
+	}
+	bad := strings.Replace(conf, `fallback = "google"`, `fallback = "nope"`, 1)
+	if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareOn(path, "shunt", Env{Backend: newFake()}); err == nil {
+		t.Error("unknown dns.fallback accepted")
+	}
+}
