@@ -3,6 +3,8 @@
 ## v0.7.1-rc4
 
 - Linux: "Install update" shows the reason when the installer cannot start (no polkit agent, password prompt cancelled) instead of staying on "Working…". Tested in the Ubuntu VM: v0.7.0 to v0.7.1-rc3 with the button.
+- Windows: the update check and the "Install update" button are on (they were switched off in the app on Windows).
+- UI: the button stays on "Installing…" until the update is done.
 
 ## v0.7.1-rc3
 
