@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.1-rc5
+
+- DNS: `dns.fallback = "<upstream name>"` adds a second server (e.g. 8.8.8.8) to every route whose servers are public addresses; private resolvers are never replaced. A UDP query without an answer is sent once more after 1.5 s (one lost packet no longer costs the whole 4 s timeout).
+- Tray: "DNS for … does not work" is only shown after the failure lasted a minute (a lossy tunnel made it flicker for seconds at a time); the window still shows it at once.
+
 ## v0.7.1-rc4
 
 - Linux: "Install update" shows the reason when the installer cannot start (no polkit agent, password prompt cancelled) instead of staying on "Working…". Tested in the Ubuntu VM: v0.7.0 to v0.7.1-rc3 with the button.

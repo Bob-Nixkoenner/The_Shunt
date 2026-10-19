@@ -63,8 +63,23 @@ type classicUpstream struct {
 
 func (u *classicUpstream) String() string { return u.spec.Proto + "://" + u.spec.Addr.String() }
 
+// udpRetryAfter: a plain UDP query that got no answer by then is sent once
+// more (a lost packet should cost a second, not the whole timeout).
+const udpRetryAfter = 1500 * time.Millisecond
+
 func (u *classicUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
-	r, _, err := u.client.ExchangeContext(ctx, m, u.spec.Addr.String())
+	var r *dns.Msg
+	var err error
+	if u.spec.Proto == "udp" {
+		first, cancel := context.WithTimeout(ctx, udpRetryAfter)
+		r, _, err = u.client.ExchangeContext(first, m, u.spec.Addr.String())
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			r, _, err = u.client.ExchangeContext(ctx, m, u.spec.Addr.String())
+		}
+	} else {
+		r, _, err = u.client.ExchangeContext(ctx, m, u.spec.Addr.String())
+	}
 	if err == nil && r.Truncated && u.tcp != nil {
 		r, _, err = u.tcp.ExchangeContext(ctx, m, u.spec.Addr.String())
 	}

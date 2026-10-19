@@ -280,6 +280,7 @@ func (a *trayApp) togglePanic() {
 
 func (a *trayApp) poll() {
 	var prev desktopapp.View
+	var dnsHold desktopapp.DNSHold
 	first := true
 	for {
 		var st api.Status
@@ -287,6 +288,7 @@ func (a *trayApp) poll() {
 		var sp *api.Status
 		if err == nil {
 			sp = &st
+			st.DNSFailing = dnsHold.Filter(st.DNSFailing, time.Now(), desktopapp.DNSNotifyAfter)
 		}
 		v := desktopapp.Compute(sp, err, time.Now())
 		for _, n := range desktopapp.Diff(prev, v, first) {
