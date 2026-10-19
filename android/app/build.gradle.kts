@@ -6,7 +6,8 @@ plugins {
 
 // Version from the git tag (v0.7.0-rc4 -> "0.7.0-rc4", 2 commits later
 // "0.7.0-rc4-2-gabc1234", uncommitted changes "…-dirty"); versionCode = major*10000 + minor*100 + patch.
-val gitVersion: String = runCatching {
+// -PshuntVersion=v0.7.0 builds as that version (to test the in-app update)
+val gitVersion: String = providers.gradleProperty("shuntVersion").orNull?.removePrefix("v") ?: runCatching {
     providers.exec { commandLine("git", "describe", "--tags", "--dirty", "--match", "v[0-9]*") }
         .standardOutput.asText.get().trim().removePrefix("v")
 }.getOrDefault("").ifEmpty { "0.0.0-dev" }
