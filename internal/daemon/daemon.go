@@ -282,6 +282,31 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	return p, nil
 }
 
+// addDNSFallback appends dns.fallback to every route whose own servers are all
+// public addresses (and do not already contain it).
+func (p *Prepared) addDNSFallback(c *config.Config) {
+	if c.DNS.Fallback == "" {
+		return
+	}
+	fb, err := config.ParseUpstream(c.DNS.Upstream[c.DNS.Fallback])
+	if err != nil {
+		return // validated
+	}
+	for route, specs := range p.DNSUpstreams {
+		public := len(specs) > 0
+		for _, s := range specs {
+			a := s.Addr.Addr()
+			public = public && a.IsGlobalUnicast() && !a.IsPrivate()
+			if s == fb {
+				public = false // already there
+			}
+		}
+		if public {
+			p.DNSUpstreams[route] = append(specs, fb)
+		}
+	}
+}
+
 // prepareDNS works on c, the config in effect (a network profile may
 // change dns.direct).
 func (p *Prepared) prepareDNS(c *config.Config) {
@@ -316,6 +341,7 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
 		}
 	}
+	p.addDNSFallback(c)
 	if d := c.Filter().Duplicates(); len(d) > 0 { // harmless: every list is loaded once
 		p.Warnings = append(p.Warnings, fmt.Sprintf("dns_filter: %d redundant list entries (e.g. %s); Configure → DNS filter → Tidy lists removes them", len(d), d[0]))
 	}
