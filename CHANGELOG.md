@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.1-rc4
+
+- Linux: "Install update" shows the reason when the installer cannot start (no polkit agent, password prompt cancelled) instead of staying on "Working…". Tested in the Ubuntu VM: v0.7.0 to v0.7.1-rc3 with the button.
+- Windows: the update check and the "Install update" button are on (they were switched off in the app on Windows).
+- UI: the button stays on "Installing…" until the update is done.
+
 ## v0.7.1-rc3
 
 - Android: the APK is signed with a fixed key (CI secrets `SHUNT_KEYSTORE_B64`, `SHUNT_KEYSTORE_PASSWORD`) instead of a random debug key per build, so a new version installs over the old one. Builds before rc3 have other keys: uninstall once (and remove the old entry under Settings > VPN).
