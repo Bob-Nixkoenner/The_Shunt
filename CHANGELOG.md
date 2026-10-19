@@ -5,6 +5,7 @@
 - Android: the APK is signed with a fixed key (CI secrets `SHUNT_KEYSTORE_B64`, `SHUNT_KEYSTORE_PASSWORD`) instead of a random debug key per build, so a new version installs over the old one. Builds before rc3 have other keys: uninstall once (and remove the old entry under Settings > VPN).
 - Android: importing a config from a cloud provider (e.g. Nextcloud) crashed with `NetworkOnMainThreadException`; the file is now read off the main thread and read errors are shown instead of crashing.
 - Android: "Update" section on the status screen: press Check, then Download and install. Only asks GitHub on that press. The APK is installed only if SHA256SUMS carries the release key's signature (verified in the Go core, `internal/update/verify.go`) and the APK matches its hash. Needs "Install unknown apps" once; Android asks to confirm each update.
+- Linux/Windows: "Install update" button in the update bar (instead of only a command). Linux: runs the installer after a polkit password prompt (log: `~/.config/the-shunt/update.log`); Windows: downloads the setup, checks the signed checksum list and the file's hash, starts it with the UAC prompt. Source builds keep the command.
 
 ## v0.7.1-rc2
 
