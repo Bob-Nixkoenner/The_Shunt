@@ -214,6 +214,18 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("POST /api/update/apply", func(w http.ResponseWriter, r *http.Request) {
+		if s.Update == nil {
+			writeErr(w, http.StatusBadRequest, update.ErrNotSupported)
+			return
+		}
+		// the download can take a while; the browser's request must not cancel it half way
+		if err := s.Update.Apply(context.WithoutCancel(r.Context())); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /api/pending", func(w http.ResponseWriter, r *http.Request) {
 		var ps []firewall.Pending
 		if err := s.Client.Do("GET", "/v1/pending", nil, &ps); err != nil {
