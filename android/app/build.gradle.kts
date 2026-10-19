@@ -26,6 +26,20 @@ android {
         versionName = gitVersion
     }
 
+    // Fixed release key (CI secret): without it every build gets a random debug key
+    // and Android refuses to update an installed app. Local builds keep the debug key.
+    val releaseKeystore = System.getenv("SHUNT_KEYSTORE")?.takeIf { file(it).exists() }
+    if (releaseKeystore != null) {
+        signingConfigs.create("shunt") {
+            storeFile = file(releaseKeystore)
+            storeType = "pkcs12"
+            storePassword = System.getenv("SHUNT_KEYSTORE_PASSWORD")
+            keyAlias = "shunt"
+            keyPassword = System.getenv("SHUNT_KEYSTORE_PASSWORD")
+        }
+        buildTypes.getByName("debug").signingConfig = signingConfigs.getByName("shunt")
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
