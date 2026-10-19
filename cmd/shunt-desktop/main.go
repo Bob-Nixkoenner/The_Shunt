@@ -156,12 +156,12 @@ func (a *trayApp) onReady() {
 	systray.AddSeparator()
 	restart := systray.AddMenuItem("Restart service", "Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment")
 	restartAll := systray.AddMenuItem("Restart service and app", "Restart shuntd, then this tray app and window")
-	a.update = systray.AddMenuItem("Update available – how to update…", "Shows the command to update The Shunt")
+	a.update = systray.AddMenuItem("Update available – how to update…", "Opens the window with the update")
 	a.update.Hide()
 	systray.AddSeparator()
 	a.updOn = systray.AddMenuItemCheckbox("Check for updates", "Ask GitHub every 3 hours whether a newer version exists", update.Enabled())
 	if !updatesSupported {
-		a.updOn.Hide() // the update command is for Linux; Windows: install the new ZIP
+		a.updOn.Hide()
 	}
 	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
 	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
@@ -232,7 +232,7 @@ func (a *trayApp) updateAvailable(i update.Info) {
 	if a.update != nil {
 		a.update.Show()
 	}
-	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt: update available", Body: "Open the tray menu → “Update available” for the command (one click to copy)."})
+	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt: update available", Body: "Open the tray menu → “Update available”, then “Install update” in the window."})
 }
 
 // restartService asks shuntd to restart and waits until it answers again;
