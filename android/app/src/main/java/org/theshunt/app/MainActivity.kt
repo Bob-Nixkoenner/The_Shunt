@@ -126,7 +126,7 @@ private fun App() {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> StatusScreen(settings, status)
+                0 -> StatusScreen(settings, status) { message = it }
                 1 -> TunnelsScreen(settings, update) { message = it }
                 2 -> AppsScreen(settings, update)
                 3 -> FilterScreen(settings, update, status)
@@ -172,7 +172,7 @@ private fun Header(status: JSONObject?) {
 }
 
 @Composable
-private fun StatusScreen(settings: Settings, status: JSONObject?) {
+private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     val running by VpnState.running.collectAsStateWithLifecycle()
@@ -293,6 +293,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?) {
             }
         }
 
+        UpdateSection(say)
         AppearanceSection()
     }
     if (confirmPass) {
