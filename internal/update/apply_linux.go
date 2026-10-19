@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 )
 
 // Apply runs the installer (the same one as Command) as root after a
@@ -32,8 +34,31 @@ func Apply(_ context.Context, tag string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	// pkexec waits for the password, so an early end means it could not ask
+	// (no polkit agent, wrong session) or the user cancelled
+	select {
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("the installer did not start: %s", lastLine(LogFile(), err))
+		}
+	case <-time.After(3 * time.Second):
+	}
 	return nil
+}
+
+// lastLine returns the last line of the log file (the reason pkexec gave).
+func lastLine(path string, fallback error) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fallback.Error()
+	}
+	l := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if last := strings.TrimSpace(l[len(l)-1]); last != "" {
+		return last
+	}
+	return fallback.Error()
 }
 
 // LogFile is where the installer started by Apply writes its output.
