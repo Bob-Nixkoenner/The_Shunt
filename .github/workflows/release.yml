@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   android:
-    # the Android app (debug-signed APK); the release job signs its checksum
+    # the Android app (signed with the fixed SHUNT_KEYSTORE key, debug key without the secret); the release job signs its checksum
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -44,7 +44,16 @@ jobs:
           path: ~/.cache/shunt-openvpn
           key: openvpn-${{ hashFiles('android/build-openvpn.sh') }}
       - name: build
+        env:
+          SHUNT_KEYSTORE_B64: ${{ secrets.SHUNT_KEYSTORE_B64 }}
+          SHUNT_KEYSTORE_PASSWORD: ${{ secrets.SHUNT_KEYSTORE_PASSWORD }}
         run: |
+          if [ -n "$SHUNT_KEYSTORE_B64" ]; then
+            echo "$SHUNT_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/shunt.p12"
+            export SHUNT_KEYSTORE="$RUNNER_TEMP/shunt.p12"
+          else
+            echo "::warning::no SHUNT_KEYSTORE_B64 secret: APK gets a random debug key (no in-place updates)"
+          fi
           android/build-openvpn.sh
           android/build-core.sh
           (cd android && ./gradlew --no-daemon assembleDebug)

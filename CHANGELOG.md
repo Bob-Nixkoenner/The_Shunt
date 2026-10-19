@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.1-rc3
+
+- Android: the APK is signed with a fixed key (CI secrets `SHUNT_KEYSTORE_B64`, `SHUNT_KEYSTORE_PASSWORD`) instead of a random debug key per build, so a new version installs over the old one. Builds before rc3 have other keys: uninstall once (and remove the old entry under Settings > VPN).
+- Android: importing a config from a cloud provider (e.g. Nextcloud) crashed with `NetworkOnMainThreadException`; the file is now read off the main thread and read errors are shown instead of crashing.
+
 ## v0.7.1-rc2
 
 - Windows: own window (WebView2) instead of an Edge app window, fixed UI port 47615, tray icon clicks and menu work (the tray's message loop was missing), "Restart service and app" keeps the app, setup option "Start the tray at login" (on by default), https links open in the default browser.
