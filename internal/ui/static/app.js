@@ -562,14 +562,15 @@ async function loadUpdate() {
   // the service was updated but this app still runs the old version
   const stale = status && status.version && upd.app && status.version !== upd.app && upd.app !== "dev";
   $("#updbar").hidden = !upd.available && !stale;
-  $("#upd-cmd").hidden = $("#upd-copy").hidden = !upd.available;
+  $("#upd-cmd").hidden = $("#upd-copy").hidden = !upd.available || upd.can_apply;
+  $("#upd-now").hidden = !upd.can_apply;
   if (stale && !upd.available) {
     $("#updbar").firstElementChild.textContent = "Updated to " + status.version;
     $("#upd-ver").textContent = "– this window still runs " + upd.app + ".";
     $("#updbar").children[2].textContent = "Restart the app: tray → “Restart service and app”.";
   } else if (upd.available) {
     $("#updbar").firstElementChild.textContent = "Update available";
-    $("#updbar").children[2].textContent = "Run this in a terminal:";
+    $("#updbar").children[2].textContent = upd.can_apply ? "Checked against the release signature, then installed:" : "Run this in a terminal:";
     $("#upd-cmd").textContent = upd.command;
     $("#upd-ver").textContent = "(installed " + (status && status.version || upd.current) + ")";
   }
@@ -582,6 +583,16 @@ async function loadUpdate() {
       (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
   }
 }
+$("#upd-now").addEventListener("click", async (e) => {
+  const b = e.target;
+  b.disabled = true;
+  b.textContent = "Working…";
+  try {
+    await api("POST", "/api/update/apply");
+    toast("Update started – confirm the password / admin prompt when it appears");
+  } catch (err) { toast(err.message); }
+  setTimeout(() => { b.disabled = false; b.textContent = "Install update"; }, 15000);
+});
 $("#upd-copy").addEventListener("click", async () => {
   const cmd = $("#upd-cmd").textContent;
   try {

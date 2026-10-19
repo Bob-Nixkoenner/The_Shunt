@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/tcpip/link/fdbased"
 )
@@ -142,3 +143,14 @@ func CheckWireGuard(conf string) (string, error) { return splitstack.CheckWireGu
 // "needs_auth", "removed" (lines taken out: scripts, management, …) and
 // "clean" (the text to store).
 func CheckOpenVPN(conf string) (string, error) { return splitstack.CheckOpenVPN(conf) }
+
+// VerifyUpdate checks the release signature of a downloaded SHA256SUMS file
+// (error if it was not signed by the release key) and returns the SHA-256
+// (hex) that the file lists for name, "" if it lists none.
+func VerifyUpdate(sums, sig, name string) (string, error) {
+	if err := update.VerifySums([]byte(sums), []byte(sig)); err != nil {
+		return "", err
+	}
+	h, _ := update.SumFor([]byte(sums), name)
+	return h, nil
+}
