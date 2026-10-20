@@ -61,7 +61,7 @@ build() { # abi openssl-target clang-triple ("" = this machine)
 		./configure "${host[@]}" --disable-lzo --disable-lz4 --enable-comp-stub \
 			--disable-plugins --disable-dco --disable-unit-tests --disable-debug \
 			OPENSSL_CFLAGS="-I$W/prefix/include" OPENSSL_LIBS="-L$W/prefix/lib -lssl -lcrypto" \
-			LIBCAPNG_CFLAGS=" " LIBCAPNG_LIBS=" " CFLAGS="-O2 -fPIE" LDFLAGS="-pie" >/dev/null &&
+			LIBCAPNG_CFLAGS=" " LIBCAPNG_LIBS=" " CFLAGS="-O2 -fPIE" LDFLAGS="-pie -Wl,-z,max-page-size=16384" >/dev/null &&
 		# configure only knows Linux: switch config.h to the Android target
 		# (as "OpenVPN for Android" does with its own config.h). No libcap-ng
 		# on Android.
