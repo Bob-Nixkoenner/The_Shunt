@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Android: tunnels on demand (Tunnels tab, "Battery", on by default). A WireGuard tunnel no app uses is closed after 3 minutes (no keepalives, no radio wakeups) and made again on the first connection of an app on its route; the tunnel card shows "asleep". Tunnels an OpenVPN tunnel runs through (multi-hop) stay up. Turning it off wakes everything. Desktop: not yet.
+- Android: DNS servers (Tunnels tab). A query to the tunnel's DNS that gets no answer within 2 s is asked of the next server; the one that answered is asked first for 5 minutes. Default list 1.1.1.1 and 8.8.8.8, own servers can be added and removed; "Ignore the DNS of the tunnels" uses only that list (Tailscale's resolver stays). The tunnel health probe tries the same list, so a dead DNS line in a config no longer marks the tunnel as down.
+
 ## v0.7.1-rc5
 
 - DNS: `dns.fallback = "<upstream name>"` adds a second server (e.g. 8.8.8.8) to every route whose servers are public addresses; private resolvers are never replaced. A UDP query without an answer is sent once more after 1.5 s (one lost packet no longer costs the whole 4 s timeout).

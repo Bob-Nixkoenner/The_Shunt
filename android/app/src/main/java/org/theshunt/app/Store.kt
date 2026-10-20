@@ -46,6 +46,12 @@ data class Settings(
     val filterLists: List<String> = Blocklists.DEFAULT,
     /** Apps (package names) whose DNS is not filtered. */
     val unfiltered: Set<String> = emptySet(),
+    /** Tunnels nobody uses are closed (battery) and made again on the first connection. */
+    val onDemand: Boolean = true,
+    /** DNS servers asked after the route's own one when that does not answer. */
+    val dnsServers: List<String> = DEFAULT_DNS,
+    /** Leave the DNS of the tunnel files out (Tailscale's resolver stays). */
+    val ignoreTunnelDns: Boolean = false,
 ) {
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" }
 
@@ -56,6 +62,9 @@ data class Settings(
         put("direct_dns", directDns)
         put("filter_lists", JSONArray(filterLists))
         put("unfiltered_apps", JSONArray(unfiltered.toList()))
+        put("on_demand", onDemand)
+        put("dns_servers", JSONArray(dnsServers))
+        put("ignore_tunnel_dns", ignoreTunnelDns)
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -101,8 +110,18 @@ data class Settings(
                 directDns = o.optString("direct_dns", "1.1.1.1"),
                 filterLists = strings("filter_lists")?.filter { it in Blocklists.ALL } ?: Blocklists.DEFAULT,
                 unfiltered = strings("unfiltered_apps")?.toSet() ?: emptySet(),
+                onDemand = o.optBoolean("on_demand", true),
+                dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
+                ignoreTunnelDns = o.optBoolean("ignore_tunnel_dns", false),
             )
         }
+
+        /** The public resolvers offered by default (Cloudflare, Google). */
+        val DEFAULT_DNS = listOf("1.1.1.1", "8.8.8.8")
+
+        /** The core refuses anything but an IP address (at most 8 of them). */
+        fun isDnsAddress(s: String) = android.net.InetAddresses.isNumericAddress(s)
+        const val MAX_DNS = 8
     }
 }
 

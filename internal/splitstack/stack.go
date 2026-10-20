@@ -2,6 +2,7 @@ package splitstack
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -82,6 +83,8 @@ type flow struct {
 	// viaLink: the route was link:<kind> (resolved to direct or block when
 	// the flow started); cut when the kind of network changes
 	viaLink string
+	// dnsTried: the DNS server a query to the VPN's DNS address was sent to
+	dnsTried netip.Addr
 }
 
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
@@ -153,22 +156,35 @@ func (f *flow) isDNS(e *Engine) bool { return f.dst.Addr() == e.dns && f.dst.Por
 // dial opens the outgoing side of a flow on its route. Unknown or broken
 // tunnels block: nothing falls back to direct.
 func (e *Engine) dial(ctx context.Context, f *flow) (net.Conn, error) {
-	dst := f.dst
+	return e.dialTo(ctx, f, f.dst)
+}
+
+// dialTo is dial to another destination (the DNS retries). Queries to the
+// VPN's DNS address go to the first DNS server of the route.
+func (e *Engine) dialTo(ctx context.Context, f *flow, dst netip.AddrPort) (net.Conn, error) {
 	if f.route == RouteBlock {
 		return nil, errBlocked
 	}
+	toDNS := dst.Addr() == e.dns && dst.Port() == 53
 	if f.route == RouteDirect {
-		if f.isDNS(e) {
-			dst = netip.AddrPortFrom(e.directDNS(), 53)
+		if toDNS {
+			f.dnsTried = e.dnsServers(RouteDirect)[0]
+			dst = netip.AddrPortFrom(f.dnsTried, 53)
 		}
 		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
 	}
-	t := e.tunnels[strings.TrimPrefix(f.route, tunnelPref)]
+	name := strings.TrimPrefix(f.route, tunnelPref)
+	t := e.tunnel(name)
+	if t != nil && t.dormant {
+		t = e.wake(name) // on demand: the first connection makes the tunnel
+	}
 	if t == nil || !t.reachable() {
 		return nil, fmt.Errorf("tunnel %s is not up", f.route)
 	}
-	if f.isDNS(e) {
-		dst = netip.AddrPortFrom(t.dnsAddr(), 53)
+	t.use()
+	if toDNS {
+		f.dnsTried = e.dnsServers(f.route)[0]
+		dst = netip.AddrPortFrom(f.dnsTried, 53)
 	}
 	if v4, v6 := t.families(); (dst.Addr().Is4() && !v4) || (dst.Addr().Is6() && !v6) {
 		return nil, fmt.Errorf("%s has no address of this IP family", f.route)
@@ -290,13 +306,17 @@ func relayUDP(in, out net.Conn, idle time.Duration) {
 // filter: blocked names are answered NXDOMAIN right here.
 func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 	done := make(chan struct{})
-	go func() { // answers back to the app
+	var pending sync.Map // IDs of queries that wait for an answer (dnslist.go)
+	go func() {          // answers back to the app
 		buf := make([]byte, 65535)
 		for {
 			out.SetReadDeadline(time.Now().Add(dnsIdle))
 			n, err := out.Read(buf)
 			if err != nil {
 				break
+			}
+			if n >= 2 {
+				pending.Delete(binary.BigEndian.Uint16(buf))
 			}
 			in.Write(buf[:n])
 		}
@@ -327,6 +347,10 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		}
 		if _, err := out.Write(buf[:n]); err != nil {
 			break
+		}
+		e.touch(f.route)
+		if f.dnsTried.IsValid() && f.route != RouteBlock && len(e.dnsServers(f.route)) > 1 {
+			e.watchDNS(f, append([]byte(nil), buf[:n]...), f.dnsTried, in, &pending)
 		}
 	}
 	in.Close()

@@ -27,11 +27,11 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 			return e.o.DialDirect(ctx, network, ap.String())
 		}
 	case strings.HasPrefix(route, tunnelPref):
-		t := e.tunnels[strings.TrimPrefix(route, tunnelPref)]
+		t := e.wake(strings.TrimPrefix(route, tunnelPref))
 		if t == nil || !t.reachable() {
 			return nil, nil, fmt.Errorf("%s is not up", route)
 		}
-		dnsSrv = t.dnsAddr()
+		dnsSrv = e.dnsServers(route)[0]
 		raw = func(ctx context.Context, network string, ap netip.AddrPort) (net.Conn, error) {
 			return t.dialAP(ctx, !strings.HasPrefix(network, "udp"), ap)
 		}
@@ -69,9 +69,9 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 // probe.RouteResult; blocks for up to ~10 s.
 func (e *Engine) LeakTest(ctx context.Context) string {
 	routes := []string{RouteDirect, RouteBlock}
-	for name, t := range e.tunnels {
-		if t.reachable() {
-			routes = append(routes, tunnelPref+name)
+	for _, t := range e.allTunnels() {
+		if t = e.wake(t.name); t != nil && t.reachable() { // a leak test is asked for: sleeping tunnels wake up
+			routes = append(routes, tunnelPref+t.name)
 		}
 	}
 	b, _ := json.Marshal(probe.LeakTest(ctx, e.ProbeRoute, routes))

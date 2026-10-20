@@ -56,7 +56,7 @@ func (e *Engine) newOVPNTunnel(tc tunnelConf, mtu int) (*wgTunnel, error) {
 	}
 	t := &wgTunnel{name: tc.Name, ovpnConf: tc, ovpnClean: clean, mtu: mtu}
 	if tc.Via != "" {
-		outer := e.tunnels[tc.Via]
+		outer := e.tunnel(tc.Via)
 		if outer == nil || outer.isOVPN() {
 			return nil, errors.New("via: " + tc.Via + " is not a WireGuard tunnel here")
 		}
