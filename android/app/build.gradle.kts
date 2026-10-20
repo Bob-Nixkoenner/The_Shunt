@@ -41,9 +41,19 @@ android {
         buildTypes.getByName("debug").signingConfig = signingConfigs.getByName("shunt")
     }
 
+    // github: the APK from the GitHub release, updates itself. play: the bundle for Google Play,
+    // which updates apps itself (no install permission, the update section only points to Play).
+    flavorDimensions += "dist"
+    productFlavors {
+        create("github") { dimension = "dist" }
+        create("play") { dimension = "dist" }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            // the bundle for Play is signed with the same key (as upload key)
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("shunt")
         }
     }
     compileOptions {
