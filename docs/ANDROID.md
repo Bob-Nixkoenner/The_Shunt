@@ -20,7 +20,12 @@ App C ─┘   (10.111.0.2)   │      ├─ direct: normaler Socket (Shunt ist
 - **Pro App eine Route** (`direct`, `block`, `tunnel:<name>`), Rest über die Standard-Route.
 - **DNS pro Route:** Die VPN meldet `10.111.0.53` als DNS-Server. Anfragen dorthin gehen zum
   DNS-Server der Route der fragenden App: Tunnel → `DNS=` aus der WireGuard-Datei (sonst
-  1.1.1.1 *durch den Tunnel*), direct → `direct_dns`.
+  1.1.1.1 *durch den Tunnel*), direct → `direct_dns`. Dahinter eine Liste (`dns_servers`,
+  Standard 1.1.1.1, 8.8.8.8): antwortet der Server der Route nicht binnen 2 s, wird der nächste
+  gefragt (`internal/splitstack/dnslist.go`). `ignore_tunnel_dns` lässt den der Tunnel-Datei weg.
+- **Tunnel bei Bedarf** (`on_demand`, `internal/splitstack/ondemand.go`): ein WireGuard-Tunnel, den
+  keine App nutzt, wird nach 3 min geschlossen und bei der ersten Verbindung neu gebaut (Platzhalter
+  im Tunnel-Verzeichnis, Status `idle`). Tunnel unter einem OpenVPN-`via` schlafen nie.
 - **Fail closed:** Ein Tunnel, der nicht hochkommt, oder eine unbekannte Route blockiert –
   nichts fällt auf direct zurück.
 - Die Shunt-App selbst ist per `addDisallowedApplication` ausgenommen: ihre Sockets

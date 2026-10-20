@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
@@ -25,15 +26,23 @@ import (
 // (wireguard-go) or OpenVPN (ovpn* fields, see ovpn.go). Use the methods
 // netw, dnsAddr, families and up rather than the WireGuard fields.
 type wgTunnel struct {
-	name string
-	err  string // why it is not up
-	dev  *device.Device
-	net  *netstack.Net
-	dns  netip.Addr // DNS server reached through this tunnel
-	v4   bool
-	v6   bool
-	conf *wgconf.Config // for re-resolving endpoints
-	mon  health.Monitor
+	name   string
+	err    string // why it is not up
+	dev    *device.Device
+	net    *netstack.Net
+	dns    netip.Addr   // DNS server reached through this tunnel
+	dnsAll []netip.Addr // all DNS servers of the file
+	v4     bool
+	v6     bool
+	conf   *wgconf.Config // for re-resolving endpoints
+	mon    health.Monitor
+
+	// On demand (ondemand.go): lazy tunnels may sleep; a dormant one is only
+	// the stand-in (name and file) of a sleeping tunnel.
+	lazy     bool
+	dormant  bool
+	lazyConf string
+	lastUse  atomic.Int64 // unix nanos of the last connection wanted
 
 	// OpenVPN
 	ovpnMu      sync.Mutex
@@ -159,8 +168,10 @@ func newWGTunnel(name, conf string, r *net.Resolver, bind conn.Bind, bindUp func
 	t := &wgTunnel{name: name, dns: netip.MustParseAddr("1.1.1.1")}
 	for _, d := range c.DNS {
 		if a, err := netip.ParseAddr(d); err == nil {
-			t.dns = a
-			break
+			if len(t.dnsAll) == 0 {
+				t.dns = a
+			}
+			t.dnsAll = append(t.dnsAll, a)
 		}
 	}
 	var addrs []netip.Addr
@@ -271,6 +282,9 @@ func (t *wgTunnel) close() {
 }
 
 func (t *wgTunnel) status() (st tunnelStatus) {
+	if t.dormant {
+		return t.dormantStatus()
+	}
 	if t.isOVPN() {
 		return t.ovpnStatus()
 	}
@@ -321,7 +335,8 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			}
 		}
 		e.book.ObserveDNS(e.dnsBlocked.Load(), time.Now())
-		for _, t := range e.tunnels {
+		e.sleepIdle(time.Now())
+		for _, t := range e.allTunnels() {
 			if !t.up() {
 				continue
 			}
@@ -338,7 +353,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			e.book.Observe(t.name, st.RX, st.TX, now)
 			if first || t.mon.Active(now) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
-				t.mon.Probed(health.DNSProbe(pctx, t.dialUDP, t.dnsAddr()))
+				t.mon.Probed(e.probeDNS(pctx, t))
 				cancel()
 				if first && st.Handshake == 0 && !t.isOVPN() && !t.isTS() { // the probe made the first handshake: count it now
 					if st2 := t.status(); st2.Handshake > 0 {
