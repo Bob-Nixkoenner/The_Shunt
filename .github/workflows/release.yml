@@ -56,14 +56,20 @@ jobs:
           fi
           android/build-openvpn.sh
           android/build-core.sh
-          (cd android && ./gradlew --no-daemon assembleDebug)
+          # github: the APK (updates itself); play: the bundle for Google Play (no install permission),
+          # signed with the same key as upload key (Play re-signs the apps it hands out)
+          (cd android && ./gradlew --no-daemon assembleGithubDebug bundlePlayRelease)
           mkdir dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
+          cp android/app/build/outputs/apk/github/debug/app-github-debug.apk \
             "dist/shunt-${{ github.event.release.tag_name || github.ref_name }}-android.apk"
+          cp android/app/build/outputs/bundle/playRelease/app-play-release.aab \
+            "dist/shunt-${{ github.event.release.tag_name || github.ref_name }}-play.aab"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/*.aab
           if-no-files-found: error
 
   windows-setup:
@@ -170,7 +176,7 @@ jobs:
             VERSION=$TAG ARCH=$arch BIN=build/$arch OUT=dist bash packaging/deb/build.sh
           done
           # Windows ZIP and setup.exe come from the windows-* jobs (already in dist/)
-          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.zip *.exe *.deb *.cdx.json > SHA256SUMS)
+          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json > SHA256SUMS)
       - name: sign checksums
         # install.sh only uses releases whose SHA256SUMS carry this signature
         # (public key: RELEASE_SIGNER in install.sh)
@@ -192,6 +198,7 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.apk
+            dist/*.aab
             dist/*.zip
             dist/*.exe
             dist/*.deb
