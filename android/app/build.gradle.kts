@@ -5,24 +5,25 @@ plugins {
 }
 
 // Version from the git tag (v0.7.0-rc4 -> "0.7.0-rc4", 2 commits later
-// "0.7.0-rc4-2-gabc1234", uncommitted changes "…-dirty"); versionCode = major*10000 + minor*100 + patch.
+// "0.7.0-rc4-2-gabc1234", uncommitted changes "…-dirty"); versionCode = (major*10000 + minor*100 + patch)*100 + rc,
+// rc = N of "-rcN", 99 for a release without rc (Google Play wants a higher versionCode with every upload).
 // -PshuntVersion=v0.7.0 builds as that version (to test the in-app update)
 val gitVersion: String = providers.gradleProperty("shuntVersion").orNull?.removePrefix("v") ?: runCatching {
     providers.exec { commandLine("git", "describe", "--tags", "--dirty", "--match", "v[0-9]*") }
         .standardOutput.asText.get().trim().removePrefix("v")
 }.getOrDefault("").ifEmpty { "0.0.0-dev" }
-val gitVersionCode: Int = Regex("""^(\d+)\.(\d+)\.(\d+)""").find(gitVersion)
-    ?.destructured?.let { (a, b, c) -> a.toInt() * 10000 + b.toInt() * 100 + c.toInt() }
+val gitVersionCode: Int = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?""").find(gitVersion)
+    ?.destructured?.let { (a, b, c, rc) -> (a.toInt() * 10000 + b.toInt() * 100 + c.toInt()) * 100 + (rc.toIntOrNull()?.coerceAtMost(98) ?: 99) }
     ?.takeIf { it > 0 } ?: 1 // no tag (shallow clone): 0.0.0-dev, but Android needs >= 1
 
 android {
     namespace = "org.theshunt.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.theshunt.app"
         minSdk = 29 // getConnectionOwnerUid: which app owns a connection
-        targetSdk = 35
+        targetSdk = 36
         versionCode = gitVersionCode
         versionName = gitVersion
     }
