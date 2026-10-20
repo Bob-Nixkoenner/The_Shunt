@@ -71,6 +71,13 @@ type config struct {
 	Apps      map[string]string `json:"apps"`       // app ID (see Owner) -> route
 	DirectDNS string            `json:"direct_dns"` // DNS server for the direct route
 	MTU       int               `json:"mtu"`
+	// OnDemand: WireGuard tunnels that no app uses are closed and made
+	// again on the first connection (ondemand.go).
+	OnDemand bool `json:"on_demand"`
+	// DNSServers: asked after the DNS of the route itself, when that one
+	// does not answer (dnslist.go); IgnoreTunnelDNS leaves the tunnel's own out.
+	DNSServers      []string `json:"dns_servers"`
+	IgnoreTunnelDNS bool     `json:"ignore_tunnel_dns"`
 	// DNS filter: names on these lists get NXDOMAIN, except for the
 	// apps in Unfiltered.
 	Blocklists []blocklistConf `json:"blocklists"`
@@ -106,6 +113,14 @@ func parseConfig(js string) (*config, error) {
 	}
 	if c.MTU == 0 {
 		c.MTU = 1280
+	}
+	if len(c.DNSServers) > maxDNSServers {
+		return nil, fmt.Errorf("dns_servers: at most %d", maxDNSServers)
+	}
+	for _, s := range c.DNSServers {
+		if _, err := netip.ParseAddr(s); err != nil {
+			return nil, fmt.Errorf("dns_servers: %w", err)
+		}
 	}
 	names := map[string]bool{}
 	for i, t := range c.Tunnels {
@@ -191,12 +206,17 @@ type Options struct {
 
 // Engine runs while the VPN is up.
 type Engine struct {
-	o       Options
-	stack   *stack.Stack
-	tunnels map[string]*wgTunnel
-	dns     netip.Addr
-	ovpnExe string // openvpn program, "" = none
-	workDir string
+	o        Options
+	stack    *stack.Stack
+	tunMu    sync.RWMutex // guards the tunnel map (slots are swapped, see ondemand.go)
+	wakeMu   sync.Mutex   // one wake-up at a time
+	tunnels  map[string]*wgTunnel
+	mtu      int
+	dns      netip.Addr
+	onDemand atomic.Bool
+	dnsGood  dnsGoods
+	ovpnExe  string // openvpn program, "" = none
+	workDir  string
 
 	mu         sync.RWMutex
 	apps       map[string]string
@@ -205,12 +225,15 @@ type Engine struct {
 	baseDef    string     // from the config, without profile
 	baseDirect netip.Addr
 	rules      []rule
-	networks   []networkConf
-	link, ssid string // current network (SetNetwork)
-	netName    string // matching profile, "" = none
-	domains    domainAddrs
-	filter     *blocklist.Filter
-	unfiltered map[string]bool
+	// DNS servers after the route's own one, and whether the tunnels' own are left out
+	dnsExtra        []netip.Addr
+	ignoreTunnelDNS bool
+	networks        []networkConf
+	link, ssid      string // current network (SetNetwork)
+	netName         string // matching profile, "" = none
+	domains         domainAddrs
+	filter          *blocklist.Filter
+	unfiltered      map[string]bool
 	// extFilter/extLevel: a filter kept up to date by the platform
 	// (SetFilter), used while the config names no blocklists itself.
 	extFilter  *blocklist.Filter
@@ -245,7 +268,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if o.NewBind == nil {
 		o.NewBind = conn.NewDefaultBind
 	}
-	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir}
+	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, mtu: c.MTU, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir}
 	book, err := stats.Open(c.StatsPath)
 	if err != nil {
 		e.logf("traffic statistics in memory only: %v", err)
@@ -269,12 +292,22 @@ func New(o Options, configJSON string) (*Engine, error) {
 	}
 	for _, t := range ordered {
 		var wt *wgTunnel
+		if c.OnDemand && onDemandEligible(t, c.Tunnels) {
+			if _, err := parseWG(t.Conf); err == nil { // a broken file is shown as an error now, not at the first use
+				e.tunnels[t.Name] = dormantTunnel(t.Name, t.Conf)
+				continue
+			}
+		}
 		if t.Type == typeOpenVPN {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
 		} else if t.Type == typeTailscale {
 			wt, err = e.newTSTunnel(t)
 		} else {
 			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
+			if wt != nil && onDemandEligible(t, c.Tunnels) {
+				wt.lazy, wt.lazyConf = true, t.Conf
+				wt.use()
+			}
 		}
 		if err != nil {
 			e.logf("tunnel %s: %v", t.Name, err)
@@ -285,7 +318,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt.tsType = t.Type == typeTailscale
 			wt.err = err.Error()
 		}
-		e.tunnels[t.Name] = wt
+		e.setTunnel(t.Name, wt)
 		// a new userspace tunnel starts at zero: count from the first byte
 		e.book.Observe(t.Name, 0, 0, time.Now())
 	}
@@ -320,11 +353,17 @@ func (e *Engine) SetRules(configJSON string) error {
 		routes = append(routes, r.Route)
 	}
 	for _, r := range routes {
-		if n, ok := strings.CutPrefix(r, tunnelPref); ok && e.tunnels[n] == nil {
+		if n, ok := strings.CutPrefix(r, tunnelPref); ok && e.tunnel(n) == nil {
 			return fmt.Errorf("tunnel %q is not running, restart the VPN", n)
 		}
 	}
-	return e.setRules(c)
+	if err := e.setRules(c); err != nil {
+		return err
+	}
+	if !c.OnDemand {
+		go e.wakeAll()
+	}
+	return nil
 }
 
 func values(m map[string]string) []string {
@@ -363,6 +402,11 @@ func (e *Engine) setRules(c *config) error {
 	e.mu.Lock()
 	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
+	e.dnsExtra, e.ignoreTunnelDNS = nil, c.IgnoreTunnelDNS
+	for _, s := range c.DNSServers {
+		e.dnsExtra = append(e.dnsExtra, netip.MustParseAddr(s))
+	}
+	e.onDemand.Store(c.OnDemand)
 	e.applyNetwork()
 	e.mu.Unlock()
 	return nil
@@ -572,7 +616,7 @@ func (e *Engine) Stop() {
 }
 
 func (e *Engine) closeTunnels() {
-	for _, t := range e.tunnels {
+	for _, t := range e.allTunnels() {
 		t.close()
 	}
 }
@@ -582,6 +626,7 @@ type tunnelStatus struct {
 	Type      string        `json:"type"` // wireguard | openvpn | tailscale
 	Via       string        `json:"via,omitempty"`
 	Up        bool          `json:"up"`
+	Idle      bool          `json:"idle,omitempty"` // asleep (on demand): made on the first connection
 	Error     string        `json:"error,omitempty"`
 	Handshake int64         `json:"handshake"` // unix seconds, 0 = never
 	RX        int64         `json:"rx"`
@@ -613,7 +658,7 @@ func (e *Engine) History(rng string) string {
 func (e *Engine) Status() string {
 	st := status{Flows: e.flows.Load(), Blocked: e.blocked.Load(), DNSBlocked: e.dnsBlocked.Load(), Time: time.Now().Unix(),
 		Traffic: e.book.Summaries(time.Now()), Override: e.ov.Status(time.Now())}
-	for _, t := range e.tunnels {
+	for _, t := range e.allTunnels() {
 		st.Tunnels = append(st.Tunnels, t.status())
 	}
 	sort.Slice(st.Tunnels, func(i, j int) bool { return st.Tunnels[i].Name < st.Tunnels[j].Name }) // map order: cards would jump

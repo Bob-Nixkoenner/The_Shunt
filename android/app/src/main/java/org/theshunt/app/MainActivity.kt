@@ -322,7 +322,9 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
     val h = t.optJSONObject("health")
     val state = h?.optString("state") ?: "unknown"
     val up = t.optBoolean("up")
+    val asleep = t.optBoolean("idle") // on demand: made on the first connection
     val tone = when {
+        asleep -> Tone.Neutral
         !up || state == "down" -> Tone.Bad
         state == "stale" -> Tone.Warn
         state == "ok" || state == "idle" -> Tone.Ok
@@ -333,12 +335,13 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
             Text(t.getString("name"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
             Pill(
                 when {
-                    !up -> "down"; state == "ok" -> "up"; state == "idle" -> "idle"; state == "stale" -> "no answers"; state == "down" -> "down"; else -> "waiting"
+                    t.optBoolean("idle") -> "asleep"; !up -> "down"; state == "ok" -> "up"; state == "idle" -> "idle"; state == "stale" -> "no answers"; state == "down" -> "down"; else -> "waiting"
                 },
                 tone,
             )
         }
-        if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
+        if (asleep) Hint("Not used right now – saves battery. Connects when an app needs it.")
+        else if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
         else {
             val hs = t.optLong("handshake")
             KV("handshake", if (hs == 0L) "never" else "${st.optLong("time") - hs}s ago")
@@ -497,6 +500,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
             }
         }
+        PowerAndDnsSections(settings, update, vpnRunning)
     }
     renaming?.let { t ->
         var text by remember { mutableStateOf(t.name) }
@@ -569,6 +573,57 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             },
             dismissButton = { TextButton({ confirmDelete = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Battery (tunnels on demand) and DNS servers: below the tunnel list. */
+@Composable
+private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, vpnRunning: Boolean) {
+    val c = LocalShunt.current
+    Section("Battery") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Only keep used tunnels connected", color = c.text, fontWeight = FontWeight.SemiBold)
+                Text("A tunnel no app uses is closed after a few minutes and opens again on the first connection (about a second).", color = c.muted, fontSize = 12.sp)
+            }
+            Switch(settings.onDemand, { update(settings.copy(onDemand = it)) })
+        }
+        if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
+    }
+    Section("DNS servers") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ignore the DNS of the tunnels", color = c.text, fontWeight = FontWeight.SemiBold)
+                Text("Use only the servers below, not the DNS line of the tunnel files. Names that exist only inside a tunnel (home network) stop resolving.", color = c.muted, fontSize = 12.sp)
+            }
+            Switch(settings.ignoreTunnelDns, { update(settings.copy(ignoreTunnelDns = it)) })
+        }
+        HorizontalDivider(color = c.line)
+        Hint(
+            if (settings.ignoreTunnelDns) "These servers are asked, in this order, through the route of the app."
+            else "Asked after the tunnel's own DNS, when that one does not answer within 2 s."
+        )
+        settings.dnsServers.forEach { s ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(s, Modifier.weight(1f), fontFamily = Mono, color = c.text)
+                Text(
+                    when (s) { "1.1.1.1", "1.0.0.1" -> "Cloudflare"; "8.8.8.8", "8.8.4.4" -> "Google"; "9.9.9.9" -> "Quad9"; else -> "" },
+                    color = c.muted, fontSize = 12.sp,
+                )
+                TextButton({ update(settings.copy(dnsServers = settings.dnsServers - s)) }) { Text("Remove", color = c.bad) }
+            }
+        }
+        var text by remember { mutableStateOf("") }
+        val ok = Settings.isDnsAddress(text.trim()) && text.trim() !in settings.dnsServers && settings.dnsServers.size < Settings.MAX_DNS
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                text, { text = it }, Modifier.weight(1f), label = { Text("Add a DNS server (IP)") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
+            )
+            ShuntButton("Add", { update(settings.copy(dnsServers = settings.dnsServers + text.trim())); text = "" }, kind = Tone.Ok, enabled = ok)
+        }
+        val missing = Settings.DEFAULT_DNS.filter { it !in settings.dnsServers }
+        if (missing.isNotEmpty()) TextButton({ update(settings.copy(dnsServers = settings.dnsServers + missing)) }) { Text("Add 1.1.1.1 and 8.8.8.8 again") }
     }
 }
 
