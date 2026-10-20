@@ -21,9 +21,9 @@ check() { # check "what" expected actual
 
 if [[ -z ${NOBUILD:-} ]]; then
 	android/build-core.sh
-	(cd android && $GRADLE -q assembleDebug)
+	(cd android && $GRADLE -q assembleGithubDebug)
 fi
-$ADB install -r android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
+$ADB install -r android/app/build/outputs/apk/github/debug/app-github-debug.apk >/dev/null
 
 go build -o "$W/wgserver" ./test/android/wgserver
 "$W/wgserver" -out "$W" 2>"$W/server.log" &

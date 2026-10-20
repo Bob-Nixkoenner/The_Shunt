@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.1-rc7
+
+- Android: two flavors. `github` is the APK as before. `play` is for Google Play: no `REQUEST_INSTALL_PACKAGES`, and the update section only tells that a newer version exists and opens the Play page (no download or install). The release now also carries `shunt-<tag>-play.aab` (signed with the release key as upload key; listed in SHA256SUMS). Local debug APK path: `app/build/outputs/apk/github/debug/app-github-debug.apk`.
+
 ## v0.7.1-rc6
 
 - Android: tunnels on demand (Tunnels tab, "Battery", on by default). A WireGuard tunnel no app uses is closed after 3 minutes (no keepalives, no radio wakeups) and made again on the first connection of an app on its route; the tunnel card shows "asleep". Tunnels an OpenVPN tunnel runs through (multi-hop) stay up. Turning it off wakes everything. Desktop: not yet.

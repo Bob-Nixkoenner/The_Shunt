@@ -2,6 +2,12 @@
 
 Stand: 14.10.2026 nachmittags (Branch `android`, Worktree `~/projects/The_Shunt-android`, nur lokal).
 
+## Zwei Varianten (Flavors)
+
+- `github`: die APK aus dem GitHub-Release, aktualisiert sich selbst (Update-Bereich lädt, prüft die signierte Prüfsummenliste und installiert; Berechtigung `REQUEST_INSTALL_PACKAGES`).
+- `play`: das App Bundle (`.aab`) für Google Play. Ohne `REQUEST_INSTALL_PACKAGES` (`src/play/AndroidManifest.xml`), der Update-Bereich zeigt nur „neue Version da“ (Check gegen GitHub) und öffnet die Play-Seite der App; Play selbst spielt das Update ein. Die Pipeline signiert das Bundle mit demselben Schlüssel (Upload-Key); Google signiert die ausgelieferten APKs neu, die Play-App lässt sich deshalb nicht über die GitHub-APK installieren (und umgekehrt).
+- Gemeinsamer Code in `src/main`, Unterschiede in `src/github` und `src/play` (`UpdateGithub.kt` / `UpdatePlay.kt`).
+
 ## Idee
 
 Android gibt einer VPN-App **genau ein** TUN-Interface (`VpnService`), und es kann nur eine
@@ -58,8 +64,9 @@ beim Start die UIDs ein.
 # einmalig: SDK unter ~/Android (siehe ~/Android/setup.sh), dazu
 #   platforms;android-35, build-tools;35.0.0, ndk;27.2.12479018, Gradle 8.11
 android/build-core.sh                      # Go-Kern -> app/libs/shunt-core.aar
-cd android && ./gradlew assembleDebug      # -> app/build/outputs/apk/debug/app-debug.apk (Wrapper lädt Gradle 8.11.1, Prüfsumme geprüft)
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew assembleGithubDebug      # -> app/build/outputs/apk/github/debug/app-github-debug.apk (Wrapper lädt Gradle 8.11.1, Prüfsumme geprüft)
+adb install -r app/build/outputs/apk/github/debug/app-github-debug.apk
+./gradlew bundlePlayRelease          # -> app/build/outputs/bundle/playRelease/app-play-release.aab (für Google Play)
 ```
 
 Go-Tests: `go test ./mobile/ ./internal/splitstack/`. Emulator-Test (Emulator läuft,
