@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.1-rc8
+
+- Android: target and compile SDK 36 (Google Play requires it for new apps). Native libraries (Go core, OpenVPN) are built with 16 KB page alignment (Play requirement, also needed on Android 15+ devices with 16 KB pages).
+- Android: versionCode now includes the rc number (`(major*10000+minor*100+patch)*100+rc`, 99 without rc), so every upload to Google Play gets a higher code. rc7 and older had 701 for all builds; newer builds are higher and install over them.
+- Build: Android Gradle Plugin 8.10.1.
+
 ## v0.7.1-rc7
 
 - Android: two flavors. `github` is the APK as before. `play` is for Google Play: no `REQUEST_INSTALL_PACKAGES`, and the update section only tells that a newer version exists and opens the Play page (no download or install). The release now also carries `shunt-<tag>-play.aab` (signed with the release key as upload key; listed in SHA256SUMS). Local debug APK path: `app/build/outputs/apk/github/debug/app-github-debug.apk`.

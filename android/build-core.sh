@@ -16,5 +16,5 @@ fi
 mkdir -p android/app/libs # not in git (only *.aar would be in it, and those are ignored)
 go install golang.org/x/mobile/cmd/gobind
 go tool gomobile bind -target=android/arm64,android/amd64 -androidapi 29 -javapkg org.theshunt \
-	-ldflags "-s -w" -o android/app/libs/shunt-core.aar ./mobile
+	-ldflags "-s -w -extldflags=-Wl,-z,max-page-size=16384" -o android/app/libs/shunt-core.aar ./mobile
 echo "built android/app/libs/shunt-core.aar"
