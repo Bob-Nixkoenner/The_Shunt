@@ -1,0 +1,155 @@
+# Default DNS filter lists of The Shunt.
+#
+# This file is the single source of truth: it is compiled into the programs
+# (go:embed) and rendered as docs/DNS-LISTS.md (run: go test ./dnslists -update).
+# Want something added, moved or removed? Edit this file and open a pull
+# request - or open an issue. Forks only need to change this file.
+#
+# Levels build on each other: 2 (normal) = 1 + its own lists, 3 (paranoid) =
+# 1 + 2 + its own lists. Lists come from RPiList/specials unless "url" is set.
+
+# Level used for everything without its own level: 1 = low, 2 = normal,
+# 3 = paranoid. 0 would turn the filter off.
+default_level = 2
+
+# name  = file name in RPiList/specials/Blocklisten (or set url = "https://...")
+# level = 1, 2 or 3
+# os    = only on these systems (linux, windows, android); empty = everywhere
+# about = one line for people who read the list
+
+[[list]]
+name  = "easylist"
+level = 1
+about = "Ads and trackers (EasyList)"
+
+[[list]]
+name  = "Phishing-Angriffe"
+level = 1
+about = "Phishing sites"
+
+[[list]]
+name  = "malware"
+level = 1
+about = "Known malware hosts"
+
+[[list]]
+name  = "Corona-Blocklist"
+level = 1
+about = "Scam and fake-shop sites that used the pandemic"
+
+[[list]]
+name  = "SupportingRussia"
+level = 1
+about = "Sites supporting the Russian war of aggression"
+
+[[list]]
+name  = "notserious"
+level = 2
+about = "Fake shops and dubious offers"
+
+[[list]]
+name  = "Fake-Science"
+level = 2
+about = "Fake science and misinformation sites"
+
+[[list]]
+name  = "spam.mails"
+level = 2
+about = "Domains seen in spam mails"
+
+[[list]]
+name  = "crypto"
+level = 2
+about = "Cryptojacking and crypto scams"
+
+[[list]]
+name  = "Win10Telemetry"
+level = 2
+os    = ["windows"]
+about = "Windows 10 telemetry"
+
+[[list]]
+name  = "MS-Office-Telemetry"
+level = 2
+os    = ["windows"]
+about = "Microsoft Office telemetry"
+
+[[list]]
+name  = "gambling"
+level = 3
+about = "Gambling and betting"
+
+[[list]]
+name  = "Streaming"
+level = 3
+about = "Streaming sites"
+
+[[list]]
+name  = "DatingSites"
+level = 3
+about = "Dating sites"
+
+[[list]]
+name  = "child-protection"
+level = 3
+about = "Child protection"
+
+[[list]]
+name  = "proxies"
+level = 3
+about = "Public proxies and anonymizers"
+
+[[list]]
+name  = "DomainSquatting1"
+level = 3
+about = "Domain squatting, part 1"
+
+[[list]]
+name  = "DomainSquatting2"
+level = 3
+about = "Domain squatting, part 2"
+
+[[list]]
+name  = "DomainSquatting3"
+level = 3
+about = "Domain squatting, part 3"
+
+[[list]]
+name  = "DomainSquatting4"
+level = 3
+about = "Domain squatting, part 4"
+
+[[list]]
+name  = "pornblock1"
+level = 3
+about = "Adult content, part 1"
+
+[[list]]
+name  = "pornblock2"
+level = 3
+about = "Adult content, part 2"
+
+[[list]]
+name  = "pornblock3"
+level = 3
+about = "Adult content, part 3"
+
+[[list]]
+name  = "pornblock4"
+level = 3
+about = "Adult content, part 4"
+
+[[list]]
+name  = "pornblock5"
+level = 3
+about = "Adult content, part 5"
+
+[[list]]
+name  = "pornblock6"
+level = 3
+about = "Adult content, part 6"
+
+[[list]]
+name  = "Overblock"
+level = 3
+about = "Very broad list - blocks a lot, expect breakage"
