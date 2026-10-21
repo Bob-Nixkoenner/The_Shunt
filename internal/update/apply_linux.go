@@ -34,6 +34,7 @@ func Apply(_ context.Context, tag string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	writePid(cmd.Process.Pid)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	// pkexec waits for the password, so an early end means it could not ask
