@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Bob-Nixkoenner/the_shunt/dnslists"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -56,20 +57,21 @@ func DefaultDNSFilter() DNSFilter {
 }
 
 func defaultDNSFilterFor(goos string) DNSFilter {
-	normal := []string{"notserious", "Fake-Science", "spam.mails", "crypto"}
-	if goos == "windows" {
-		normal = append(normal, "Win10Telemetry", "MS-Office-Telemetry")
+	d, err := dnslists.Load()
+	if err != nil { // the built-in file is checked by a test
+		panic("dnslists/defaults.toml: " + err.Error())
 	}
 	return DNSFilter{
-		Default: FilterNormal,
-		Low:     []string{"easylist", "Phishing-Angriffe", "malware", "Corona-Blocklist", "SupportingRussia"},
-		Normal:  normal,
-		Paranoid: []string{
-			"gambling", "Streaming", "DatingSites", "child-protection", "proxies",
-			"DomainSquatting1", "DomainSquatting2", "DomainSquatting3", "DomainSquatting4",
-			"pornblock1", "pornblock2", "pornblock3", "pornblock4", "pornblock5", "pornblock6", "Overblock",
-		},
+		Default:  levelName(d.DefaultLevel),
+		Low:      d.For(1, goos),
+		Normal:   d.For(2, goos),
+		Paranoid: d.For(3, goos),
 	}
+}
+
+// levelName maps 0-3 to off/low/normal/paranoid.
+func levelName(n int) string {
+	return []string{FilterOff, FilterLow, FilterNormal, FilterParanoid}[n]
 }
 
 // Filter returns the DNS filter settings in effect (defaults filled in).
@@ -78,6 +80,14 @@ func (c *Config) Filter() DNSFilter {
 		return DefaultDNSFilter()
 	}
 	f := *c.DNSFilter
+	if f.Low == nil && f.Normal == nil && f.Paranoid == nil {
+		// only default/allow set: the built-in lists apply
+		def := DefaultDNSFilter()
+		f.Low, f.Normal, f.Paranoid = def.Low, def.Normal, def.Paranoid
+		if f.Default == "" {
+			f.Default = def.Default
+		}
+	}
 	if f.Default == "" {
 		f.Default = FilterNormal
 	}
