@@ -83,6 +83,8 @@ port = ["tcp/22"]
 route = "direct"
 `
 
+var platform, version string // platform: "" = Linux, "windows"
+
 var mu sync.Mutex
 var (
 	panicOn bool
@@ -91,6 +93,8 @@ var (
 
 func main() {
 	sock := flag.String("s", "/tmp/shunt-mock.sock", "socket to listen on")
+	flag.StringVar(&platform, "platform", "", `platform the UI shows ("" = Linux, "windows")`)
+	flag.StringVar(&version, "version", "v0.7.1", "version the daemon reports (the app warns when it differs from its own)")
 	flag.Parse()
 	cfg, err := config.Parse(raw)
 	if err != nil {
@@ -215,7 +219,8 @@ func status(cfg *config.Config) api.Status {
 		DNS:      map[string][]string{"direct": {"192.0.2.53"}, "tunnel:work": {"10.7.0.1"}, "tunnel:home": {"10.8.0.1"}, "tunnel:nl": {"10.9.0.1"}},
 		Network:  "Home",
 		Firewall: "off",
-		Version:  "v0.7.1",
+		Platform: platform,
+		Version:  version,
 		NetInfo:  netdetect.Info{Iface: "wlan0", SSID: "HomeWiFi", GatewayIP: "192.168.1.1", GatewayMAC: "02:00:00:00:00:01"},
 		DNSFilter: &api.DNSFilterStatus{
 			Default: "normal",
