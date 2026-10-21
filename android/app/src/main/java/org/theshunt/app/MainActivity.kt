@@ -757,7 +757,7 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
                 }
             }
         }
-        Hint("Lists: RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts.")
+        Hint("Lists: HaGeZi (github.com/hagezi/dns-blocklists) and RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts. Of the HaGeZi all-round lists use one: they build on each other.")
     }
     bigList?.let { e ->
         AlertDialog(
