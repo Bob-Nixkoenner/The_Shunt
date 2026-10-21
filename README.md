@@ -31,7 +31,7 @@ still be wrong, and nobody has reviewed every line the way a seasoned maintainer
 - That is also why everything is under permissive, standard licences (see
   [License](#license)): use it, fork it, fix it, and tell me what is wrong.
 
-![The Shunt web UI](docs/screenshots/shunt-ui-dark.png)
+<p align="center"><img src="docs/screenshots/linux-overview-dark.png" alt="The Shunt on Linux: tunnels with health and traffic, leak test, rules, DNS" width="900"></p>
 
 ```console
 $ shunt ui                                   # web interface (local only)
@@ -46,6 +46,34 @@ $ sudo shunt import /etc/wireguard/home.conf # add a tunnel (.conf or .ovpn)
 $ shunt import nl.ovpn --via tunnel:home     # OpenVPN inside WireGuard (multi-hop)
 $ shunt captive                              # hotel Wi-Fi login past the tunnels
 ```
+
+## Screenshots
+
+All screenshots show invented data (documentation address ranges, made-up names), produced
+with the mock daemon in [`test/mockd`](test/mockd).
+
+**Linux** (the desktop app and `shunt ui` show the same interface; Windows uses it too):
+
+| Overview, light | Configure |
+|---|---|
+| <img src="docs/screenshots/linux-overview-light.png" alt="Overview in the light theme" width="440"> | <img src="docs/screenshots/linux-configure.png" alt="Configure: tunnels, networks, app firewall, rules" width="440"> |
+| **DNS filter** | **Apps** |
+| <img src="docs/screenshots/linux-dns-filter.png" alt="DNS filter: levels, lists, statistics, recently blocked" width="440"> | <img src="docs/screenshots/linux-apps.png" alt="Apps: menu entries and launchers with their route" width="440"> |
+
+A timed **pass** (everything direct, with a countdown) and **panic** (everything blocked)
+are always one click away and cannot be missed:
+
+<img src="docs/screenshots/linux-pass.png" alt="Pass: everything goes direct for 5 minutes" width="760">
+<img src="docs/screenshots/linux-panic.png" alt="Panic: all traffic blocked" width="760">
+
+**Android:**
+
+<p>
+<img src="docs/screenshots/android-status.png" alt="Android: status, tunnels, traffic" width="200">
+<img src="docs/screenshots/android-tunnels.png" alt="Android: tunnels, battery saving, DNS servers" width="200">
+<img src="docs/screenshots/android-apps.png" alt="Android: route per app" width="200">
+<img src="docs/screenshots/android-dns-filter.png" alt="Android: DNS filter lists" width="200">
+</p>
 
 ## Install (Debian, Ubuntu, Pop!_OS, Kali, Arch, Fedora)
 
@@ -189,8 +217,23 @@ firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Android
 
-An app with the same split-tunnel core (WireGuard, OpenVPN, multi-hop, per-app profiles).
-Beta, debug-signed APK in the releases. Details in [docs/ANDROID.md](docs/ANDROID.md).
+An app with the same split-tunnel core: WireGuard and OpenVPN tunnels at once, multi-hop,
+a route per app, a DNS filter with the same lists as the desktop, panic and a timed pass.
+No account, no telemetry.
+
+- **Kill switch**: with Android's "Always-on VPN" and "Block connections without VPN" the
+  app tells you when it is missing; the status bar icon shows how many tunnels work.
+- **Tunnels on demand** (default): a WireGuard tunnel no app uses is closed after a few
+  minutes and made again on the first connection, so it costs no battery while idle.
+- **DNS servers**: a query without an answer is asked of the next server; your own servers
+  can be added, and the DNS lines of the tunnels can be ignored.
+- Light and dark theme follow the system.
+
+Beta. The APK is in the [releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases)
+(debug-signed); a Google Play version is in preparation. Details:
+[docs/ANDROID.md](docs/ANDROID.md).
+
+<img src="docs/screenshots/android-status-light.png" alt="Android: status in the light theme" width="220">
 
 ## Roadmap – what it should be able to do one day
 
@@ -366,6 +409,10 @@ sudo SHUNT_DRIVER=userspace ./test/integration/run.sh
 The integration test builds a small internet in two network namespaces (WireGuard
 server + "whoami" HTTP server) and checks every route, the kill switch, panic mode
 and fail-closed behaviour after the daemon stops.
+
+`go run ./test/mockd -s /tmp/mock.sock` is a fake daemon with invented data: run
+`shunt -s /tmp/mock.sock ui` against it to try the web interface or to take screenshots
+without real tunnels, addresses or keys.
 
 `test/farm.sh` runs all CI checks (gofmt, vet, unit tests, race detector, fuzzing,
 cross builds, govulncheck, both integration drivers; `--full`: installer in Arch,
