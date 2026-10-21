@@ -50,7 +50,8 @@ $ shunt captive                              # hotel Wi-Fi login past the tunnel
 ## Screenshots
 
 All screenshots show invented data (documentation address ranges, made-up names), produced
-with the mock daemon in [`test/mockd`](test/mockd).
+with the mock daemon in [`test/mockd`](test/mockd) (Linux, Windows) or two test tunnels in the
+emulator (Android).
 
 **Linux** (the desktop app and `shunt ui` show the same interface; Windows uses it too):
 
@@ -65,6 +66,14 @@ are always one click away and cannot be missed:
 
 <img src="docs/screenshots/linux-pass.png" alt="Pass: everything goes direct for 5 minutes" width="760">
 <img src="docs/screenshots/linux-panic.png" alt="Panic: all traffic blocked" width="760">
+
+**Windows** (native window, same interface; light and dark follow Windows):
+
+| Overview | Configure (with the Windows-only kill switch) |
+|---|---|
+| <img src="docs/screenshots/windows-overview-light.png" alt="The Shunt on Windows 11: overview in the light theme" width="440"> | <img src="docs/screenshots/windows-configure.png" alt="Configure on Windows with the Windows Firewall kill switch" width="440"> |
+| **Overview, dark** | **DNS filter, dark** |
+| <img src="docs/screenshots/windows-overview-dark.png" alt="Overview in the dark theme on Windows" width="440"> | <img src="docs/screenshots/windows-dns-filter.png" alt="DNS filter on Windows" width="440"> |
 
 **Android:**
 
@@ -212,7 +221,7 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
 per-program routes (by file name or path), rules by address/port/domain, WireGuard,
 Tailscale/Headscale, panic, pass, leak test and an optional kill switch (Windows Firewall).
-Install: see [Install on Windows](#install-on-windows-1011-beta). DNS filter: default level only. Not yet: OpenVPN, groups, app
+Install: see [Install on Windows](#install-on-windows-1011-beta). Screenshots: [above](#screenshots). DNS filter: default level only. Not yet: OpenVPN, groups, app
 firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Android
