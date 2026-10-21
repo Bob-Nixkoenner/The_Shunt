@@ -12,6 +12,8 @@
 #   --from-source           build from git even if a release exists
 #   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
+#   --dns-level=0|1|2|3     DNS filter level: 0 off, 1 low, 2 normal, 3 paranoid
+#                           (default: see dnslists/defaults.toml; also SHUNT_DNS_LEVEL)
 #   SHUNT_YES=1             answer every question with the default
 # Release downloads are only used if their SHA256SUMS carry the release
 # signature (key below); everything is logged to /var/log/shunt-install.log.
@@ -148,7 +150,7 @@ pkg_install() { # pkg_install "what" logical-name
 }
 
 SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
-MODE=install FROM_SOURCE=0 PURGE=0 DRY=0
+MODE=install FROM_SOURCE=0 PURGE=0 DRY=0 DNS_LEVEL=${SHUNT_DNS_LEVEL:-}
 ARGS=("$@")
 for a in "$@"; do
 	case $a in
@@ -156,13 +158,16 @@ for a in "$@"; do
 	--uninstall) MODE=uninstall ;;
 	--purge) PURGE=1 ;;
 	--from-source) FROM_SOURCE=1 ;;
+	--dns-level=*) DNS_LEVEL=${a#*=} ;;
 	-h | --help)
-		sed -n '2,17p' "$0"
+		sed -n '2,19p' "$0"
 		exit 0
 		;;
 	*) die "unknown option $a" ;;
 	esac
 done
+
+[[ -z $DNS_LEVEL || $DNS_LEVEL =~ ^[0-3]$ ]] || die "--dns-level must be 0, 1, 2 or 3"
 
 ((DRY)) || [[ $EUID -eq 0 ]] || die "run as root: sudo bash $0"
 ((DRY)) && [[ $MODE == uninstall ]] && die "--dry-run only works for installing"
@@ -488,6 +493,11 @@ else
 		tunnel_block=$(printf '[tunnel.%s]\nconfig = "%s/tunnels/%s.conf"\n' "$name" "$ETC" "$name")
 		rule_hint="shunt run --via tunnel:$name -- firefox"
 	fi
+	dns_filter_block=""
+	if [[ -n $DNS_LEVEL ]]; then
+		lv=(off low normal paranoid)
+		dns_filter_block=$(printf '[dns_filter]\n# default lists: https://github.com/%s/blob/HEAD/docs/DNS-LISTS.md\ndefault = "%s"\n\n' "$REPO" "${lv[$DNS_LEVEL]}")
+	fi
 	cat >"$ETC/shunt.toml" <<EOF
 # The Shunt configuration - docs: https://github.com/$REPO
 # After editing: sudo systemctl reload shuntd   (or: shunt reload)
@@ -507,7 +517,7 @@ default_route = "direct"
 # addr = "https://10.8.0.1/dns-query"
 # tls_name = "adguard.example.org"
 
-$tunnel_block
+$dns_filter_block$tunnel_block
 # DNS for a tunnel: the DNS= line of its WireGuard file, or set
 # dns = "adguard" in its [tunnel.<name>] block.
 
