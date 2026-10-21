@@ -226,6 +226,9 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("GET /api/update/progress", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, update.GetProgress())
+	})
 	mux.HandleFunc("GET /api/pending", func(w http.ResponseWriter, r *http.Request) {
 		var ps []firewall.Pending
 		if err := s.Client.Do("GET", "/v1/pending", nil, &ps); err != nil {

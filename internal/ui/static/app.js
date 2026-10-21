@@ -564,9 +564,10 @@ async function loadUpdate() {
   $("#updbar").hidden = !upd.available && !stale;
   $("#upd-cmd").hidden = $("#upd-copy").hidden = !upd.available || upd.can_apply;
   $("#upd-now").hidden = !upd.can_apply;
-  if (!upd.available || Date.now() - updInstalling > 10 * 60 * 1000) updInstalling = 0;
+  if (!upd.available || Date.now() - updInstalling > 30 * 60 * 1000) updInstalling = 0;
   $("#upd-now").disabled = !!updInstalling;
   $("#upd-now").textContent = updInstalling ? "Installing…" : "Install update";
+  if (updInstalling) $("#updbar").hidden = false;
   if (stale && !upd.available) {
     $("#updbar").firstElementChild.textContent = "Updated to " + status.version;
     $("#upd-ver").textContent = "– this window still runs " + upd.app + ".";
@@ -587,12 +588,55 @@ async function loadUpdate() {
   }
 }
 let updInstalling = 0; // time the install was started; the bar goes away by itself when it worked
+let updTimer = 0;
+// Shows how far the installer got: step n of m, what runs now, and why it
+// failed. Polls while it runs, so it also resumes after the app restarted.
+async function pollUpdate() {
+  clearTimeout(updTimer);
+  const step = $("#upd-step"), prog = $("#upd-prog");
+  let p;
+  try { p = await api("GET", "/api/update/progress"); } catch {
+    // the app itself restarts at the end of an update: keep asking
+    if (updInstalling) { step.hidden = false; step.className = "muted"; step.textContent = "waiting for the app…"; updTimer = setTimeout(pollUpdate, 2000); }
+    return;
+  }
+  if (p.state === "running") {
+    if (!updInstalling) updInstalling = Date.now();
+    prog.hidden = step.hidden = false;
+    prog.value = p.step;
+    step.className = "muted";
+    step.textContent = (p.step ? p.step + "/" + p.total + " " : "") + (p.text || "starting…") +
+      (p.quiet ? " – no news for 5 min, still running? Log: " + p.log : "");
+    $("#upd-now").textContent = "Installing… " + (p.step || 0) + "/" + p.total;
+    $("#upd-now").disabled = true;
+    $("#updbar").hidden = false;
+    updTimer = setTimeout(pollUpdate, 2000);
+    return;
+  }
+  prog.hidden = true;
+  if (p.state === "failed" && updInstalling) {
+    updInstalling = 0;
+    step.hidden = false;
+    step.className = "bad";
+    step.textContent = "Update failed: " + p.error + " – log: " + p.log;
+  } else if (p.state === "done" && updInstalling) {
+    updInstalling = 0;
+    step.hidden = false;
+    step.className = "muted";
+    step.textContent = "Installed. Restart the app: tray → “Restart service and app”.";
+  } else if (!updInstalling) {
+    step.hidden = true;
+  }
+  loadUpdate();
+}
 $("#upd-now").addEventListener("click", async () => {
   updInstalling = Date.now();
+  $("#upd-step").hidden = true;
   loadUpdate();
   try {
     await api("POST", "/api/update/apply");
     toast("Update started – confirm the password / admin prompt when it appears. This takes a minute.");
+    pollUpdate();
   } catch (err) {
     updInstalling = 0;
     toast(err.message);
@@ -620,6 +664,7 @@ for (const [id, key] of [["#c-updrel", "releases"], ["#c-updpre", "prereleases"]
   });
 }
 loadUpdate();
+pollUpdate();
 setInterval(loadUpdate, 60 * 1000);
 
 // --- Wi-Fi login page (captive portal) ---------------------------------------

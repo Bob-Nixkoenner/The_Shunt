@@ -627,23 +627,37 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
     }
 }
 
-private class AppEntry(val pkg: String, val label: String, val info: ApplicationInfo, val system: Boolean)
+internal class AppEntry(val pkg: String, val label: String, val info: ApplicationInfo, val system: Boolean)
+
+/**
+ * The app list and its icons, kept for the whole process: asking the package
+ * manager for every app (and drawing every icon) each time the tab opens cost
+ * battery. Cleared when an app is installed or removed (see [ShuntApp]).
+ */
+internal object AppCache {
+    @Volatile var apps: List<AppEntry>? = null
+    val icons = object : android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>(300) {}
+    fun clear() { apps = null; icons.evictAll() }
+}
 
 @Composable
 private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     val pm = ctx.packageManager
-    var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    var apps by remember { mutableStateOf(AppCache.apps ?: emptyList()) }
     var query by remember { mutableStateOf("") }
     var showSystem by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) {
+        if (AppCache.apps != null) return@LaunchedEffect
+        val list = withContext(Dispatchers.IO) {
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
                 .filter { it.packageName != ctx.packageName && pm.checkPermission(Manifest.permission.INTERNET, it.packageName) == PackageManager.PERMISSION_GRANTED }
                 .map { AppEntry(it.packageName, pm.getApplicationLabel(it).toString(), it, it.flags and ApplicationInfo.FLAG_SYSTEM != 0 && pm.getLaunchIntentForPackage(it.packageName) == null) }
                 .sortedBy { it.label.lowercase() }
         }
+        AppCache.apps = list
+        apps = list
     }
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Section("Where traffic goes") {
@@ -662,7 +676,10 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
         }
         LazyColumn(Modifier.weight(1f)) {
             items(apps.filter { (showSystem || !it.system) && (query.isBlank() || it.label.contains(query, true) || it.pkg.contains(query, true)) }, key = { it.pkg }) { a ->
-                val icon = remember(a.pkg) { runCatching { pm.getApplicationIcon(a.info).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
+                val icon = remember(a.pkg) {
+                    AppCache.icons.get(a.pkg) ?: runCatching { pm.getApplicationIcon(a.info).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+                        ?.also { AppCache.icons.put(a.pkg, it) }
+                }
                 val route = settings.apps[a.pkg]
                 Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     icon?.let { Image(it, null, Modifier.size(36.dp)) } ?: Spacer(Modifier.size(36.dp))
@@ -700,7 +717,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
     LaunchedEffect(settings.filterLists) {
         while (true) {
             counts = withContext(Dispatchers.IO) { Blocklists.ALL.keys.associateWith { Blocklists.count(ctx, it) } }
-            delay(5000) // a list switched on is downloaded in the background
+            // a list switched on is downloaded in the background: look again until all are there
+            if (settings.filterLists.all { (counts[it] ?: 0) > 0 }) break
+            delay(5000)
         }
     }
     fun switchOn(name: String, on: Boolean) {
