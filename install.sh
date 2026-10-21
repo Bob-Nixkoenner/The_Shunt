@@ -73,6 +73,7 @@ step() { # step "message" cmd...
 	log "--- $msg: $*"
 	"$@" >>"$LOG" 2>&1 &
 	pid=$!
+	[[ -t 1 ]] || printf '  ... %s\n' "$msg" # no spinner: tell a reader of the output what runs now
 	while kill -0 "$pid" 2>/dev/null; do
 		if [[ -t 1 ]]; then
 			local extra=''
@@ -182,6 +183,10 @@ on_exit() {
 	local rc=$?
 	if [[ -n $WORK ]]; then rm -rf "$WORK"; fi
 	log "===== $(date '+%F %T') finished (exit $rc)"
+	# the app that started us (update button) reads this from the output
+	if [[ -n ${SHUNT_YES:-} ]]; then
+		if ((rc)); then echo "SHUNT-RESULT failed"; else echo "SHUNT-RESULT ok"; fi
+	fi
 }
 trap on_exit EXIT
 

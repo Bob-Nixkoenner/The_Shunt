@@ -203,10 +203,22 @@ class ShuntVpnService : VpnService() {
             !VpnState.lockdown.value -> "On – no kill switch (Android VPN settings)"
             else -> "Protected"
         }
-        getSystemService(NotificationManager::class.java).notify(NOTIFY_ID, notification(text))
+        getSystemService(NotificationManager::class.java).notify(NOTIFY_ID, notification(text, if (e == null) 0 else activeTunnels(e)))
     }
 
-    private fun notification(text: String): Notification {
+    /** Tunnels that work: up and answering, or asleep (on demand, made on first use). */
+    private fun activeTunnels(e: Engine): Int {
+        val ts = runCatching { org.json.JSONObject(e.status()).optJSONArray("tunnels") }.getOrNull() ?: return 0
+        var n = 0
+        for (i in 0 until ts.length()) {
+            val t = ts.getJSONObject(i)
+            val state = t.optJSONObject("health")?.optString("state")
+            if (t.optBoolean("idle") || (t.optBoolean("up") && (state == "ok" || state == "idle"))) n++
+        }
+        return n
+    }
+
+    private fun notification(text: String, active: Int = 0): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(NotificationChannel(CHANNEL, "VPN status", NotificationManager.IMPORTANCE_LOW))
@@ -216,7 +228,7 @@ class ShuntVpnService : VpnService() {
         val panic = PendingIntent.getService(this, 1, Intent(this, ShuntVpnService::class.java).setAction(ACTION_PANIC), flags)
         val stop = PendingIntent.getService(this, 2, Intent(this, ShuntVpnService::class.java).setAction(ACTION_STOP), flags)
         return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notify)
+            .apply { if (active > 0) setSmallIcon(StatusIcon.create(active)) else setSmallIcon(R.drawable.ic_notify) }
             .setContentTitle("The Shunt")
             .setContentText(text)
             .setContentIntent(open)
@@ -229,9 +241,12 @@ class ShuntVpnService : VpnService() {
 
     /** Keeps the watchdog job in the future while the VPN runs. */
     private val watchdog = Handler(Looper.getMainLooper())
+    private var pushes = 0L
     private val pushWatchdog = object : Runnable {
         override fun run() {
             Watchdog.push(this@ShuntVpnService)
+            // the tunnel count in the status bar icon: tunnels come and go without an event of ours
+            if (++pushes % (NOTIFY_REFRESH_MS / Watchdog.PUSH_MS) == 0L) notifyStatus()
             watchdog.postDelayed(this, Watchdog.PUSH_MS)
         }
     }
@@ -294,6 +309,7 @@ class ShuntVpnService : VpnService() {
         const val ACTION_PANIC = "org.theshunt.app.PANIC"
         private const val CHANNEL = "status"
         const val NOTIFY_ID = 1
+        const val NOTIFY_REFRESH_MS = 10 * 60_000L
 
         fun start(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java))
         fun stop(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java).setAction(ACTION_STOP))

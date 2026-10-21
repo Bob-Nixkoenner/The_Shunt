@@ -127,6 +127,9 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 #toast.show { opacity: 1; }
 #updbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px auto 0; max-width: 1140px; padding: 10px 14px; border: 1px solid var(--accent); border-radius: var(--r); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
 #updbar[hidden] { display: none; }
+#upd-prog { width: 160px; accent-color: var(--accent); }
+#upd-step.bad { color: var(--bad, #ef4444); }
+#upd-prog[hidden], #upd-step[hidden] { display: none; }
 #updbar code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 6px 8px; background: var(--panel2); border-radius: 6px; font-size: 12px; }
 #modal, #fwmodal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 #modal .box, #fwmodal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: 100%; max-width: 440px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
@@ -189,6 +192,8 @@ body.windows .win-only { display: block !important; }
   <code id="upd-cmd" class="mono"></code>
   <button id="upd-copy" class="primary">Copy</button>
   <button id="upd-now" class="primary" hidden>Install update</button>
+  <progress id="upd-prog" max="7" hidden></progress>
+  <span id="upd-step" class="muted" hidden></span>
 </div>
 <main id="page-overview">
   <div id="banners" style="display:contents"></div>

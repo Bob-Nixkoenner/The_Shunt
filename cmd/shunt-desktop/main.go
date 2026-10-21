@@ -304,7 +304,7 @@ func (a *trayApp) poll() {
 }
 
 func (a *trayApp) render(v desktopapp.View) {
-	systray.SetIcon(trayIcon(desktopapp.Icon(v.Level)))
+	systray.SetIcon(trayIcon(desktopapp.IconN(v.Level, v.Active)))
 	systray.SetTooltip("The Shunt – " + v.Title)
 	a.title.SetTitle(v.Title)
 	lastPanic = v.Panic

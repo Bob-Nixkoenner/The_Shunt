@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.1-rc9
+
+- Linux: "Install update" shows how far the installer got (step n/7 and what runs now), says when it is done, and shows the reason and the log path when it fails. Before it stayed on "Installing..." for 10 minutes whatever happened. The installer prints `SHUNT-RESULT ok|failed` for this (when started with `SHUNT_YES=1`), the app reads `update.log` and checks that the installer still runs. An update running while the window restarts is picked up again.
+- Linux: fixed the installer's dry run failing with `unsafe identifier` when the update was started from the autostarted tray app (its cgroup path contains `\x2d`). `shuntd check` now renders for the service's cgroup instead of the caller's.
+- Tray (Linux, Windows): the icon shows the number of active tunnels (connected, or idle and connecting on demand) as a badge.
+- Android: the status bar icon shows the number of active tunnels; refreshed on every status change and every 10 minutes from the existing watchdog timer.
+- Android: the Apps tab keeps the app list and icons for the process (cleared when an app is installed or removed) instead of asking the package manager and redrawing every icon on each visit; the Filter tab counts list sizes only when a file changed and stops polling once all enabled lists are downloaded (it re-read all lists every 5 s before).
+
 ## v0.7.1-rc8
 
 - Android: target and compile SDK 36 (Google Play requires it for new apps). Native libraries (Go core, OpenVPN) are built with 16 KB page alignment (Play requirement, also needed on Android 15+ devices with 16 KB pages).

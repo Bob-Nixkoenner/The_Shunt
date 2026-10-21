@@ -31,6 +31,15 @@ func TestCompute(t *testing.T) {
 	if v := Compute(idle, nil, now); v.Level != OK {
 		t.Errorf("idle tunnel without keepalive is not broken: %+v", v)
 	}
+	if v := Compute(status(false, 30*time.Second, now), nil, now); v.Active != 1 {
+		t.Errorf("one connected tunnel counts as active: %+v", v)
+	}
+	if v := Compute(status(false, 10*time.Minute, now), nil, now); v.Active != 0 {
+		t.Errorf("a tunnel without connection is not active: %+v", v)
+	}
+	if v := Compute(idle, nil, now); v.Active != 1 {
+		t.Errorf("an idle on-demand tunnel counts as active: %+v", v)
+	}
 	if v := Compute(status(true, time.Second, now), nil, now); v.Level != Bad || !v.Panic {
 		t.Errorf("panic: %+v", v)
 	}
@@ -75,6 +84,16 @@ func TestIconsDiffer(t *testing.T) {
 	a, b, c := Icon(OK), Icon(Warn), Icon(Bad)
 	if len(a) < 200 || string(a) == string(b) || string(b) == string(c) {
 		t.Fatal("icons missing or identical")
+	}
+}
+
+func TestIconBadge(t *testing.T) {
+	plain, one, two, many := IconN(OK, 0), IconN(OK, 1), IconN(OK, 2), IconN(OK, 40)
+	if string(plain) != string(Icon(OK)) || string(plain) == string(one) || string(one) == string(two) {
+		t.Fatal("the badge must show for active tunnels, and change with the number")
+	}
+	if string(many) != string(IconN(OK, 9)) {
+		t.Fatal("more than 9 show 9")
 	}
 }
 
