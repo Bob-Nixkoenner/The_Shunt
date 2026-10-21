@@ -3,10 +3,11 @@
 // Edits the same config model as the Configure page (same save bar).
 
 // HaGeZi's lists (https://github.com/hagezi/dns-blocklists, GPL-3.0, "hagezi:<file>"):
-// Light to Ultimate build on each other, so one of them per level is enough;
+// Light to Ultimate build on each other (the defaults still put a bigger one into
+// each higher level, so the lower levels stay small);
 // approximate size in MB (adblock format).
 const HAGEZI_GROUPS = [
-  ["HaGeZi – all-round (Light … Ultimate build on each other: use one of them)", [
+  ["HaGeZi – all-round (each contains the one before: a bigger one makes the smaller ones unnecessary)", [
     ["hagezi:light", "Multi LIGHT: basic protection, hardly ever breaks anything", 1.6],
     ["hagezi:multi", "Multi NORMAL: all-round protection", 3.9],
     ["hagezi:pro", "Multi PRO: extended protection (recommended)", 4.5],

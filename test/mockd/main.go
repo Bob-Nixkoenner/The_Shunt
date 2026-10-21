@@ -178,7 +178,11 @@ func status(cfg *config.Config) api.Status {
 				levels = append(levels, lv)
 			}
 		}
-		lists = append(lists, blocklist.Status{Name: ref, URL: f.ListURL(ref), Levels: levels, Entries: 3000 + (i*7919)%140000, Updated: now.Add(-time.Duration(3+i%7) * time.Hour)})
+		n := 3000 + (i*7919)%140000
+		if known, ok := map[string]int{"hagezi:light": 67831, "hagezi:pro": 206567, "hagezi:pro.plus": 220466, "hagezi:tif.mini": 211020}[ref]; ok {
+			n = known
+		}
+		lists = append(lists, blocklist.Status{Name: ref, URL: f.ListURL(ref), Levels: levels, Entries: n, Updated: now.Add(-time.Duration(3+i%7) * time.Hour)})
 	}
 	rec := func(ago time.Duration, name, level, list, route string) dnsproxy.Blocked {
 		return dnsproxy.Blocked{Time: now.Add(-ago), Name: name, Level: level, List: list, Route: route}
@@ -218,8 +222,8 @@ func status(cfg *config.Config) api.Status {
 			Routes:  map[string]string{"direct": "normal", "tunnel:work": "normal", "tunnel:home": "paranoid", "tunnel:nl": "normal"},
 			Lists:   lists,
 			Stats: dnsproxy.FilterStats{Blocked: 4182, ByLevel: map[string]uint64{"normal": 3790, "paranoid": 392}, Recent: []dnsproxy.Blocked{
-				rec(40*time.Second, "ads.tracker.example", "normal", "easylist", "tunnel:work"),
-				rec(2*time.Minute, "metrics.example.net", "normal", "easylist", "tunnel:nl"),
+				rec(40*time.Second, "ads.tracker.example", "normal", "hagezi:pro", "tunnel:work"),
+				rec(2*time.Minute, "metrics.example.net", "normal", "hagezi:pro", "tunnel:nl"),
 				rec(7*time.Minute, "pixel.shop.example", "paranoid", "crypto", "tunnel:home"),
 				rec(11*time.Minute, "cdn.malware.example", "normal", "malware", "direct"),
 			}},
