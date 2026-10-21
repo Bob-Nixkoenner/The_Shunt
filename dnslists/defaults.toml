@@ -6,21 +6,28 @@
 # request - or open an issue. Forks only need to change this file.
 #
 # Levels build on each other: 2 (normal) = 1 + its own lists, 3 (paranoid) =
-# 1 + 2 + its own lists. Lists come from RPiList/specials unless "url" is set.
+# 1 + 2 + its own lists. Lists come from RPiList/specials unless the name is
+# "hagezi:<file>" (HaGeZi's DNS blocklists, adblock format) or "url" is set.
 
 # Level used for everything without its own level: 1 = low, 2 = normal,
 # 3 = paranoid. 0 would turn the filter off.
 default_level = 2
 
-# name  = file name in RPiList/specials/Blocklisten (or set url = "https://...")
+# name  = file name in RPiList/specials/Blocklisten, "hagezi:<file>" (e.g. hagezi:pro
+#         = adblock/pro.txt in hagezi/dns-blocklists), or set url = "https://..."
 # level = 1, 2 or 3
 # os    = only on these systems (linux, windows, android); empty = everywhere
 # about = one line for people who read the list
 
 [[list]]
-name  = "easylist"
+name  = "hagezi:light"
 level = 1
-about = "Ads and trackers (EasyList)"
+about = "HaGeZi Multi LIGHT: basic protection against ads, trackers and telemetry, hardly ever breaks anything"
+
+[[list]]
+name  = "hagezi:tif.mini"
+level = 1
+about = "HaGeZi Threat Intelligence (mini): malware, phishing and command-and-control hosts"
 
 [[list]]
 name  = "Phishing-Angriffe"
@@ -41,6 +48,11 @@ about = "Scam and fake-shop sites that used the pandemic"
 name  = "SupportingRussia"
 level = 1
 about = "Sites supporting the Russian war of aggression"
+
+[[list]]
+name  = "hagezi:pro"
+level = 2
+about = "HaGeZi Multi PRO: extended protection against ads, trackers, telemetry, scams and cryptojacking (the maintainer's recommendation)"
 
 [[list]]
 name  = "notserious"
@@ -73,6 +85,11 @@ name  = "MS-Office-Telemetry"
 level = 2
 os    = ["windows"]
 about = "Microsoft Office telemetry"
+
+[[list]]
+name  = "hagezi:pro.plus"
+level = 3
+about = "HaGeZi Multi PRO++: more aggressive than PRO, some sites may need an allow entry"
 
 [[list]]
 name  = "gambling"

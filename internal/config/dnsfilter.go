@@ -26,6 +26,16 @@ var FilterLevels = []string{FilterLow, FilterNormal, FilterParanoid}
 // referenced by file name.
 const DefaultFilterSource = "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/"
 
+// HageziPrefix starts the short name of a list of HaGeZi's DNS blocklists
+// (https://github.com/hagezi/dns-blocklists, GPL-3.0; downloaded when used,
+// not part of this program): "hagezi:pro" is adblock/pro.txt there. The
+// adblock format is used because "||name^" also covers the subdomains.
+const HageziPrefix = "hagezi:"
+
+const hageziBase = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/"
+
+var hageziNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,59}$`)
+
 // DNSFilter blocks names from blocklists inside the DNS proxy: a blocked
 // query never reaches any DNS server. Lists are only downloaded while a
 // level that contains them is in use somewhere in the config.
@@ -33,7 +43,8 @@ type DNSFilter struct {
 	// Default level for everything without its own (off | low | normal |
 	// paranoid). Empty = normal.
 	Default string `toml:"default,omitempty" json:"default,omitempty"`
-	// Lists per level: a file name from Source ("easylist") or an https URL.
+	// Lists per level: a file name from Source ("malware"), a HaGeZi list
+	// ("hagezi:pro") or an https URL.
 	// A level includes the lists of the one below (low < normal < paranoid).
 	Low      []string `toml:"low" json:"low"`
 	Normal   []string `toml:"normal" json:"normal"`
@@ -189,6 +200,9 @@ func (f DNSFilter) Duplicates() []string {
 
 // ListURL returns where a list comes from.
 func (f DNSFilter) ListURL(name string) string {
+	if file, ok := strings.CutPrefix(name, HageziPrefix); ok {
+		return hageziBase + file + ".txt"
+	}
 	if strings.HasPrefix(name, "https://") || IsLocalList(name) {
 		return name
 	}
@@ -276,6 +290,12 @@ func validListRef(where, l string) error {
 	if strings.HasPrefix(l, "https://") {
 		if u, err := url.Parse(l); err != nil || u.Host == "" {
 			return fmt.Errorf("%s: invalid URL %q", where, l)
+		}
+		return nil
+	}
+	if file, ok := strings.CutPrefix(l, HageziPrefix); ok {
+		if !hageziNameRe.MatchString(file) || strings.Contains(file, "..") {
+			return fmt.Errorf("%s: %q is not a HaGeZi list name (hagezi:pro, hagezi:tif.mini, ...)", where, l)
 		}
 		return nil
 	}
