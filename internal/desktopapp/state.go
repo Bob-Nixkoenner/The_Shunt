@@ -38,6 +38,7 @@ type View struct {
 	Title   string // first menu line / tooltip
 	Panic   bool
 	Tunnels []TunnelLine
+	Active  int             // tunnels that work (connected, or idle and connecting on demand)
 	Down    map[string]bool // tunnels without a working connection
 	DNSDown map[string]bool // routes whose DNS servers don't answer
 	Captive bool            // a Wi-Fi login page is in the way
@@ -85,6 +86,8 @@ func Compute(st *api.Status, err error, now time.Time) View {
 		}
 		if !line.OK {
 			v.Down[t.Name] = true
+		} else if !t.Disabled {
+			v.Active++
 		}
 		v.Tunnels = append(v.Tunnels, line)
 	}
