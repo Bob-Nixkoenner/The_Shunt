@@ -7,13 +7,17 @@ Default level: **Normal** (2).
 
 **Something missing, too much, or in the wrong level?** Open an issue or a pull request that edits
 [`dnslists/defaults.toml`](../dnslists/defaults.toml) – this page is generated from it.
-Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) unless a link says otherwise.
+Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) and from
+[HaGeZi's DNS blocklists](https://github.com/hagezi/dns-blocklists) (GPL-3.0; the `hagezi:` ones) - many thanks to both projects.
+They are downloaded when used and are not part of The Shunt. HaGeZi's Light, Pro and Pro++ build on each other (each
+contains the one before); the levels still use a bigger one each, which keeps Low small and costs only a little overlap.
 
 ## Level 1 – Low
 
 | List | What it blocks | Only on |
 |---|---|---|
-| `easylist` | Ads and trackers (EasyList) |  |
+| [hagezi:light](https://github.com/hagezi/dns-blocklists) | HaGeZi Multi LIGHT: basic protection against ads, trackers and telemetry, hardly ever breaks anything |  |
+| [hagezi:tif.mini](https://github.com/hagezi/dns-blocklists) | HaGeZi Threat Intelligence (mini): malware, phishing and command-and-control hosts |  |
 | `Phishing-Angriffe` | Phishing sites |  |
 | `malware` | Known malware hosts |  |
 | `Corona-Blocklist` | Scam and fake-shop sites that used the pandemic |  |
@@ -23,6 +27,7 @@ Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/mast
 
 | List | What it blocks | Only on |
 |---|---|---|
+| [hagezi:pro](https://github.com/hagezi/dns-blocklists) | HaGeZi Multi PRO: extended protection against ads, trackers, telemetry, scams and cryptojacking (the maintainer's recommendation) |  |
 | `notserious` | Fake shops and dubious offers |  |
 | `Fake-Science` | Fake science and misinformation sites |  |
 | `spam.mails` | Domains seen in spam mails |  |
@@ -34,6 +39,7 @@ Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/mast
 
 | List | What it blocks | Only on |
 |---|---|---|
+| [hagezi:pro.plus](https://github.com/hagezi/dns-blocklists) | HaGeZi Multi PRO++: more aggressive than PRO, some sites may need an allow entry |  |
 | `gambling` | Gambling and betting |  |
 | `Streaming` | Streaming sites |  |
 | `DatingSites` | Dating sites |  |

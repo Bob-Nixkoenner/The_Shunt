@@ -7,15 +7,24 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * DNS filter lists, the same ones the desktop uses (RPiList, thank you).
+ * DNS filter lists, the same ones the desktop uses (HaGeZi and RPiList, thank
+ * you for maintaining them; both are downloaded when switched on, not part of the app).
  * Downloaded by the app itself – it is excluded from its own VPN, so this
  * goes out directly – and refreshed once a day when the VPN starts.
  */
 object Blocklists {
     const val SOURCE = "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/"
 
-    /** One list: file name on RPiList, what it blocks, size in MB (0 = unknown). */
-    class Entry(val name: String, val what: String, val mb: Double = 0.0)
+    /** HaGeZi's lists (https://github.com/hagezi/dns-blocklists, GPL-3.0), adblock format: "||name^" covers subdomains. */
+    const val HAGEZI = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/"
+
+    /**
+     * One list: its name (file name on RPiList, or "hagezi-…" for HaGeZi, then
+     * [url] is the file), what it blocks, size in MB (0 = unknown).
+     */
+    class Entry(val name: String, val what: String, val mb: Double = 0.0, val url: String? = null)
+
+    private fun hagezi(name: String, file: String, what: String, mb: Double) = Entry(name, what, mb, "$HAGEZI$file.txt")
 
     /**
      * The lists of the desktop's DNS filter tab, grouped the same way (see
@@ -23,6 +32,27 @@ object Blocklists {
      * Windows and Office telemetry, smart-TV lists.
      */
     val GROUPS: List<Pair<String, List<Entry>>> = listOf(
+        // Light, Pro and Pro++ build on each other (a "mini" is the same list, smaller): one of them is enough
+        "HaGeZi – all-round" to listOf(
+            hagezi("hagezi-light", "light", "Multi LIGHT: basic protection, hardly ever breaks anything", 1.6),
+            hagezi("hagezi-pro-mini", "pro.mini", "Multi PRO mini: extended protection, made for phones (recommended)", 1.8),
+            hagezi("hagezi-pro", "pro", "Multi PRO: extended protection", 4.5),
+            hagezi("hagezi-pro-plus-mini", "pro.plus.mini", "Multi PRO++ mini: more aggressive", 2.1),
+        ),
+        "HaGeZi – threats, scams and pop-ups" to listOf(
+            hagezi("hagezi-tif-mini", "tif.mini", "Threat intelligence (mini): malware, phishing, C2", 4.4),
+            hagezi("hagezi-fake", "fake", "Scams, fake shops and fake sites", 0.4),
+            hagezi("hagezi-popupads", "popupads", "Pop-up ads", 1.0),
+        ),
+        "HaGeZi – trackers built into devices" to listOf(
+            hagezi("hagezi-native-samsung", "native.samsung", "Samsung", 0.0),
+            hagezi("hagezi-native-xiaomi", "native.xiaomi", "Xiaomi", 0.0),
+            hagezi("hagezi-native-huawei", "native.huawei", "Huawei", 0.0),
+            hagezi("hagezi-native-oppo", "native.oppo-realme", "OPPO and Realme", 0.0),
+            hagezi("hagezi-native-vivo", "native.vivo", "Vivo", 0.0),
+            hagezi("hagezi-native-amazon", "native.amazon", "Amazon", 0.0),
+            hagezi("hagezi-native-tiktok", "native.tiktok", "TikTok fingerprinting", 0.0),
+        ),
         "Ads" to listOf(Entry("easylist", "Ads and tracking – the starter list", 3.8), Entry("spam.mails", "Spam senders", 4.4)),
         "Malware" to listOf(Entry("malware", "Malware", 14.9)),
         "Phishing and scam" to listOf(
@@ -46,13 +76,19 @@ object Blocklists {
     val ALL: Map<String, String> = GROUPS.flatMap { it.second }.associate { it.name to it.what }
 
     /** On by default. */
-    val DEFAULT = listOf("easylist", "Phishing-Angriffe")
+    val DEFAULT = listOf("hagezi-pro-mini", "Phishing-Angriffe")
 
     /** From this size on a list is large for a phone (download and memory): asked before switching it on. */
     const val BIG_MB = 15.0
 
     /** Web page of a list (shown when its name is tapped). */
-    fun page(name: String) = "https://github.com/RPiList/specials/blob/master/Blocklisten/$name"
+    fun page(name: String) =
+        if (name.startsWith("hagezi-")) "https://github.com/hagezi/dns-blocklists" else "https://github.com/RPiList/specials/blob/master/Blocklisten/$name"
+
+    private val urls: Map<String, String> = GROUPS.flatMap { it.second }.mapNotNull { e -> e.url?.let { e.name to it } }.toMap()
+
+    /** Where a list is downloaded from. */
+    fun url(name: String) = urls[name] ?: (SOURCE + name)
 
     /** Names in a downloaded list (0 if not downloaded): lines that are not comments. */
     fun count(ctx: Context, name: String): Int {
@@ -84,7 +120,7 @@ object Blocklists {
             try {
                 f.parentFile?.mkdirs()
                 val tmp = File(f.path + ".part")
-                val c = URL(SOURCE + name).openConnection() as HttpURLConnection
+                val c = URL(url(name)).openConnection() as HttpURLConnection
                 c.connectTimeout = 10_000
                 c.readTimeout = 30_000
                 c.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }

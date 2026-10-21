@@ -1,8 +1,9 @@
 // Package blocklist loads DNS blocklists (Pi-hole/AdGuard style) and
 // answers "is this name blocked at level X?" for the DNS proxy.
 //
-// Default source: RPiList (https://github.com/RPiList/specials) – thank you
-// for maintaining these lists.
+// Default sources: RPiList (https://github.com/RPiList/specials) and HaGeZi
+// (https://github.com/hagezi/dns-blocklists) – thank you for maintaining
+// these lists.
 package blocklist
 
 import (

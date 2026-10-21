@@ -97,7 +97,10 @@ func Markdown(d Defaults) string {
 	fmt.Fprintf(&b, "Default level: **%s** (%d).\n\n", names[d.DefaultLevel], d.DefaultLevel)
 	b.WriteString("**Something missing, too much, or in the wrong level?** Open an issue or a pull request that edits\n")
 	b.WriteString("[`dnslists/defaults.toml`](../dnslists/defaults.toml) – this page is generated from it.\n")
-	b.WriteString("Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) unless a link says otherwise.\n")
+	b.WriteString("Lists come from [RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten) and from\n")
+	b.WriteString("[HaGeZi's DNS blocklists](https://github.com/hagezi/dns-blocklists) (GPL-3.0; the `hagezi:` ones) - many thanks to both projects.\n")
+	b.WriteString("They are downloaded when used and are not part of The Shunt. HaGeZi's Light, Pro and Pro++ build on each other (each\n")
+	b.WriteString("contains the one before); the levels still use a bigger one each, which keeps Low small and costs only a little overlap.\n")
 	for lv := 1; lv <= 3; lv++ {
 		fmt.Fprintf(&b, "\n## Level %d – %s\n\n| List | What it blocks | Only on |\n|---|---|---|\n", lv, names[lv])
 		for _, e := range d.Lists {
@@ -107,6 +110,8 @@ func Markdown(d Defaults) string {
 			name := "`" + e.Name + "`"
 			if e.URL != "" {
 				name = "[" + e.Name + "](" + e.URL + ")"
+			} else if strings.HasPrefix(e.Name, "hagezi:") {
+				name = "[" + e.Name + "](https://github.com/hagezi/dns-blocklists)"
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s |\n", name, e.About, strings.Join(e.OS, ", "))
 		}

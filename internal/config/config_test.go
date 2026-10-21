@@ -215,10 +215,13 @@ dns_filter = "low"
 		t.Errorf("used levels %v", got)
 	}
 	f := c.Filter()
-	if f.Default != FilterNormal || !strings.HasPrefix(strings.Join(f.Lists(FilterNormal), ","), "easylist,Phishing-Angriffe,malware,") {
+	if f.Default != FilterNormal || !strings.HasPrefix(strings.Join(f.Lists(FilterNormal), ","), "hagezi:light,hagezi:tif.mini,Phishing-Angriffe,malware,") {
 		t.Errorf("defaults %+v", f)
 	}
 	if u := f.ListURL("easylist"); u != DefaultFilterSource+"easylist" {
 		t.Errorf("url %s", u)
+	}
+	if u := f.ListURL("hagezi:tif.mini"); u != "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/tif.mini.txt" {
+		t.Errorf("hagezi url %s", u)
 	}
 }
