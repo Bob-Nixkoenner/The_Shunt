@@ -22,6 +22,10 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 )
 
+// checkCgroupRoot is the cgroup `shuntd check` renders the ruleset for: the
+// one the installed service runs in.
+const checkCgroupRoot = "system.slice/shuntd.service"
+
 // version is set at build time (-ldflags "-X main.version=…").
 var version = "dev"
 
@@ -58,12 +62,12 @@ func main() {
 			os.Exit(75)
 		}
 	case "check":
-		var root string
-		if b := daemon.DefaultBackend(); b != nil {
-			root, _ = b.CgroupOf(os.Getpid())
-		}
+		// check changes nothing, so it renders for the cgroup the service
+		// runs in, not the caller's: an app started from the desktop lives in
+		// a unit like app-the\x2dshunt@autostart.service, whose backslash
+		// the ruleset refuses (the installer's dry run failed on it)
 		var p *daemon.Prepared
-		if p, err = daemon.Prepare(*cfgPath, root); err == nil {
+		if p, err = daemon.Prepare(*cfgPath, checkCgroupRoot); err == nil {
 			fmt.Print(p.Ruleset)
 			for route, ups := range p.DNSUpstreams {
 				for _, u := range ups {
