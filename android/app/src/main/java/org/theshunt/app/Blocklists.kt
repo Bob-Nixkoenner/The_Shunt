@@ -58,8 +58,15 @@ object Blocklists {
     fun count(ctx: Context, name: String): Int {
         val f = file(ctx, name)
         if (!f.exists()) return 0
-        return f.useLines { ls -> ls.count { l -> l.isNotBlank() && !l.trimStart().startsWith("#") && !l.trimStart().startsWith("!") } }
+        // reading a big list takes a while: count again only when the file changed
+        val stamp = f.length() to f.lastModified()
+        counted[name]?.let { (s, n) -> if (s == stamp) return n }
+        val n = f.useLines { ls -> ls.count { l -> l.isNotBlank() && !l.trimStart().startsWith("#") && !l.trimStart().startsWith("!") } }
+        counted[name] = stamp to n
+        return n
     }
+
+    private val counted = java.util.concurrent.ConcurrentHashMap<String, Pair<Pair<Long, Long>, Int>>()
 
     private const val MAX_AGE_MS = 24 * 3600 * 1000L
 
