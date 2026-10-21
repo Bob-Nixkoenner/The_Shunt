@@ -2,7 +2,7 @@
 
 ## v0.7.1-rc10
 
-- DNS filter: HaGeZi's DNS blocklists (https://github.com/hagezi/dns-blocklists, GPL-3.0, thank you) join RPiList as a source. A list is written `hagezi:<file>` (`hagezi:pro` is `adblock/pro.txt` there; the adblock format also blocks subdomains). New defaults: `low` = Multi LIGHT + Threat Intelligence mini (instead of easylist) and the RPiList phishing/malware lists, `normal` adds Multi PRO, `paranoid` adds Multi PRO++. Only configs without a `[dns_filter]` section get the new defaults; an existing section is left as it is. The DNS filter tab lists the HaGeZi lists (all-round, threats/scams/pop-ups, Windows) with their sizes.
+- DNS filter: HaGeZi's DNS blocklists (https://github.com/hagezi/dns-blocklists, GPL-3.0, thank you) join RPiList as a source. A list is written `hagezi:<file>` (`hagezi:pro` is `adblock/pro.txt` there; the adblock format also blocks subdomains). New defaults (in `dnslists/defaults.toml`, page `docs/DNS-LISTS.md`): `low` = Multi LIGHT + Threat Intelligence mini (instead of easylist) and the RPiList phishing/malware lists, `normal` adds Multi PRO, `paranoid` adds Multi PRO++. Only configs without a `[dns_filter]` section get the new defaults; an existing section is left as it is. The DNS filter tab lists the HaGeZi lists (all-round, threats/scams/pop-ups, Windows) with their sizes.
 - Android: the filter tab offers the HaGeZi lists (all-round with the mobile-sized "pro mini", threats and scams, trackers built into Samsung, Xiaomi, Huawei, OPPO/Realme, Vivo, Amazon and TikTok). New installs start with Multi PRO mini and the RPiList phishing list; settings of existing installs keep their lists.
 - New screenshots in the README, `test/mockd` (fake daemon with invented data to take them).
 

@@ -337,14 +337,18 @@ installer offers `shuntd fix-nsswitch` (reverted on uninstall).
 ## DNS filter (blocklists)
 
 Blocked names get NXDOMAIN inside Shunt – the query never leaves the machine. Three levels
-that build on each other (normal = low + its own lists, paranoid = normal + its own); which one applies depends on where a query comes from:
+that build on each other (normal = low + its own lists, paranoid = normal + its own); which one applies depends on where a query comes from.
+**The default lists: [docs/DNS-LISTS.md](docs/DNS-LISTS.md)** (generated from [`dnslists/defaults.toml`](dnslists/defaults.toml) –
+missing something? Open an issue or a PR for that file; forks only change that file).
+Pick the default level at install time with `sudo bash install.sh --dns-level=1|2|3`.
 
 ```toml
 [dns_filter]
 default  = "normal"                     # everything without its own level
+# Optional - without these three the built-in lists apply (docs/DNS-LISTS.md); setting them replaces the built-in lists of that level:
 low      = ["hagezi:light", "hagezi:tif.mini", "malware"]   # "hagezi:<file>", RPiList file names or https:// URLs
 normal   = ["hagezi:pro", "spam.mails"]       # + everything of low
-paranoid = ["hagezi:pro.plus", "crypto", "notserious", "gambling"]   # + everything of normal
+paranoid = ["hagezi:pro.plus", "crypto", "gambling"]   # + everything of normal
 allow    = ["example.com"]              # never blocked (with subdomains)
 allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
