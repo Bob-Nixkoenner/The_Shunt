@@ -2,6 +2,28 @@
 // DNS filter tab: blocklists per level, allowlists, what got blocked.
 // Edits the same config model as the Configure page (same save bar).
 
+// HaGeZi's lists (https://github.com/hagezi/dns-blocklists, GPL-3.0, "hagezi:<file>"):
+// Light to Ultimate build on each other, so one of them per level is enough;
+// approximate size in MB (adblock format).
+const HAGEZI_GROUPS = [
+  ["HaGeZi – all-round (Light … Ultimate build on each other: use one of them)", [
+    ["hagezi:light", "Multi LIGHT: basic protection, hardly ever breaks anything", 1.6],
+    ["hagezi:multi", "Multi NORMAL: all-round protection", 3.9],
+    ["hagezi:pro", "Multi PRO: extended protection (recommended)", 4.5],
+    ["hagezi:pro.plus", "Multi PRO++: more aggressive", 4.9],
+    ["hagezi:ultimate", "Multi ULTIMATE: maximum, breaks sites", 5.4],
+  ]],
+  ["HaGeZi – threats, scams and pop-ups", [
+    ["hagezi:tif.mini", "threat intelligence (mini): malware, phishing, C2", 4.4],
+    ["hagezi:tif.medium", "threat intelligence (medium)", 14.5],
+    ["hagezi:fake", "scams, fake shops and fake sites", 0.4],
+    ["hagezi:popupads", "pop-up ads", 1],
+  ]],
+  ["HaGeZi – Windows", [
+    ["hagezi:native.winoffice", "Windows, Office and MSN telemetry", 0],
+  ]],
+];
+
 // RPiList lists (https://github.com/RPiList/specials/blob/master/Blocklisten.md),
 // grouped like on the RPiList page; approximate size in MB.
 const RPILIST_GROUPS = [
@@ -47,10 +69,10 @@ const RPILIST_GROUPS = [
 // Offered lists: Windows' own telemetry lists only on Windows. (The RPiList phone and TV lists –
 // Samsung, LG – are not offered at all: nothing on a PC asks for them. A list that is in the
 // config but not offered shows up under "Other" and can be removed there.)
-const WIN_ONLY = new Set(["Win10Telemetry", "MS-Office-Telemetry"]);
+const WIN_ONLY = new Set(["Win10Telemetry", "MS-Office-Telemetry", "hagezi:native.winoffice"]);
 function offeredGroups() {
   const win = !!status && status.platform === "windows";
-  return RPILIST_GROUPS.map(([cat, list]) => [cat, list.filter(([n]) => win || !WIN_ONLY.has(n))]).filter(([, list]) => list.length);
+  return [...HAGEZI_GROUPS, ...RPILIST_GROUPS].map(([cat, list]) => [cat, list.filter(([n]) => win || !WIN_ONLY.has(n))]).filter(([, list]) => list.length);
 }
 const LEVELS = ["low", "normal", "paranoid"];
 
@@ -216,7 +238,8 @@ $("#f-add").addEventListener("click", () => {
 });
 // the same list under its short name and its full URL counts once
 const FILTER_SRC = "https://raw.githubusercontent.com/RPiList/specials/master/Blocklisten/";
-const listKey = (n) => ((n.startsWith("https://") ? n : (fview().source || FILTER_SRC).replace(/\/$/, "") + "/" + encodeURIComponent(n)).replace(/\/$/, "")).toLowerCase();
+const HAGEZI_SRC = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/";
+const listKey = (n) => ((n.startsWith("https://") ? n : n.startsWith("hagezi:") ? HAGEZI_SRC + n.slice(7) + ".txt" : (fview().source || FILTER_SRC).replace(/\/$/, "") + "/" + encodeURIComponent(n)).replace(/\/$/, "")).toLowerCase();
 $("#f-tidy").addEventListener("click", () => {
   const m = fm();
   const seen = new Set();

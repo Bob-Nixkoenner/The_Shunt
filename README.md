@@ -342,9 +342,9 @@ that build on each other (normal = low + its own lists, paranoid = normal + its 
 ```toml
 [dns_filter]
 default  = "normal"                     # everything without its own level
-low      = ["easylist"]                 # RPiList file names or https:// URLs
-normal   = ["Phishing-Angriffe", "malware"]   # + everything of low
-paranoid = ["crypto", "spam.mails", "notserious", "Fake-Science", "SupportingRussia"]   # + the Windows telemetry lists on Windows
+low      = ["hagezi:light", "hagezi:tif.mini", "malware"]   # "hagezi:<file>", RPiList file names or https:// URLs
+normal   = ["hagezi:pro", "spam.mails"]       # + everything of low
+paranoid = ["hagezi:pro.plus", "crypto", "notserious", "gambling"]   # + everything of normal
 allow    = ["example.com"]              # never blocked (with subdomains)
 allow_lists = ["https://example.org/whitelist.txt"]  # lists of names that are never blocked
 
@@ -369,12 +369,34 @@ somewhere are downloaded (daily refresh, through the default route). Names route
 domain rule and the Wi-Fi login browser are never filtered.
 
 Lists can be pasted as a whole block in the UI (one URL per line, like a Pi-hole adlist
-export or the copy block on the RPiList page). Understood formats: hosts files, plain domain
+export or the copy block of a list page). Understood formats: hosts files, plain domain
 lists and AdGuard syntax (`||name^`), so **AdGuard Home lists work too**. `allow_lists`
 works the other way round: a name on such a list is never blocked (`@@||name^` is read too).
 
-The lists come from **[RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten)** –
-many thanks to the RPiList project for building and maintaining them.
+### Where the lists come from, and what is on by default
+
+The lists are downloaded when they are used (they are not part of The Shunt) from two
+projects – many thanks to both for building and maintaining them:
+
+- **[HaGeZi's DNS blocklists](https://github.com/hagezi/dns-blocklists)** (GPL-3.0), written
+  `hagezi:<file>`, e.g. `hagezi:pro`. Shunt uses the adblock format, where `||name^` also
+  covers the subdomains. Multi **LIGHT, NORMAL, PRO, PRO++ and ULTIMATE build on each other**:
+  one of them per level is enough. The *threat intelligence* lists (`hagezi:tif.mini`,
+  `tif.medium`; the full `tif` has about 2 million names and is too big for most machines),
+  `hagezi:fake` and `hagezi:popupads` come on top.
+- **[RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten)**: German
+  phishing, scam, spam and family lists, written as plain file names (`malware`, `crypto`, …).
+
+| Level | In the defaults | What to expect |
+|---|---|---|
+| `low` | HaGeZi **LIGHT** (basic ads, trackers, telemetry; minimal breakage), HaGeZi **TIF mini** (malware, phishing, C2), RPiList phishing, malware and a few more | The safe minimum. Hardly ever breaks a site |
+| `normal` (default) | + HaGeZi **PRO** (the maintainer's own recommendation), RPiList spam, crypto scams, dubious shops, fake science (+ the Windows telemetry lists on Windows) | Good ad and tracker blocking; rare breakage |
+| `paranoid` | + HaGeZi **PRO++**, RPiList gambling, dating, proxies, youth protection, domain squatting, adult content | Aggressive. Expect to allow a name now and then (`allow`) |
+
+The default `normal` downloads about 46 MB of lists (memory: roughly three times that; the big
+RPiList `malware` list is a third of it). HaGeZi **ULTIMATE** (most aggressive) and the full
+**TIF** are not in any default; add them yourself if you want them
+(`paranoid = ["hagezi:ultimate"]`, `hagezi:tif.medium`).
 
 ## Manual build
 

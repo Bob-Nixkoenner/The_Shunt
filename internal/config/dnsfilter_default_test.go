@@ -69,3 +69,26 @@ func TestLocalListRef(t *testing.T) {
 		t.Error("absolute path rejected")
 	}
 }
+
+// The HaGeZi tiers build on each other: one of Light, Pro, Pro++ per level,
+// and every default reference must be valid.
+func TestHageziDefaults(t *testing.T) {
+	f := DefaultDNSFilter()
+	for _, lvl := range FilterLevels {
+		for _, l := range f.Lists(lvl) {
+			if err := validListRef("test", l); err != nil {
+				t.Errorf("%s: %v", lvl, err)
+			}
+		}
+	}
+	for _, bad := range []string{"hagezi:", "hagezi:../x", "hagezi:Pro", "hagezi:a/b", "hagezi:-x"} {
+		if validListRef("test", bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	for _, good := range []string{"hagezi:pro", "hagezi:pro.plus", "hagezi:tif.mini", "hagezi:native.winoffice"} {
+		if err := validListRef("test", good); err != nil {
+			t.Errorf("%q: %v", good, err)
+		}
+	}
+}
