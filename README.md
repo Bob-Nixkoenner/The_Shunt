@@ -380,8 +380,10 @@ projects – many thanks to both for building and maintaining them:
 
 - **[HaGeZi's DNS blocklists](https://github.com/hagezi/dns-blocklists)** (GPL-3.0), written
   `hagezi:<file>`, e.g. `hagezi:pro`. Shunt uses the adblock format, where `||name^` also
-  covers the subdomains. Multi **LIGHT, NORMAL, PRO, PRO++ and ULTIMATE build on each other**:
-  one of them per level is enough. The *threat intelligence* lists (`hagezi:tif.mini`,
+  covers the subdomains. Multi **LIGHT, NORMAL, PRO, PRO++ and ULTIMATE build on each other**
+  (each contains the one before), so a bigger one makes the smaller ones unnecessary; the
+  defaults still use a bigger one per higher level, which keeps `low` small and costs only a
+  little overlap. The *threat intelligence* lists (`hagezi:tif.mini`,
   `tif.medium`; the full `tif` has about 2 million names and is too big for most machines),
   `hagezi:fake` and `hagezi:popupads` come on top.
 - **[RPiList/specials](https://github.com/RPiList/specials/tree/master/Blocklisten)**: German
