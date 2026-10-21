@@ -2,7 +2,7 @@ module github.com/Bob-Nixkoenner/the_shunt
 
 go 1.26.4
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	fyne.io/systray v1.12.2
