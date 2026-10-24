@@ -173,6 +173,9 @@ func localStateProfiles(root string) map[string]string {
 	return out
 }
 
+// ErrSharedProfile: an existing Chromium profile cannot get a launcher of its own on Windows.
+var ErrSharedProfile = errors.New("on Windows an existing Chrome/Brave/Edge profile cannot get a launcher of its own: the browser binds its logins to its data folder and would delete them. Create a launcher with a new profile folder (empty arguments) instead")
+
 // InstanceDir is where a profile launcher keeps its own user data directory.
 // It is not hidden: snap-confined browsers may only write to visible folders in $HOME.
 func InstanceDir(home, launcherName string) string {
@@ -183,7 +186,15 @@ func InstanceDir(home, launcherName string) string {
 // returns its path. A browser process serves every profile of its data
 // directory, so a profile can only get its own route when it runs in a
 // directory of its own: this one holds a link to the profile's folder.
+//
+// Not on Windows: there Chromium binds cookies and saved passwords to the
+// user data directory (tested with Brave, App-Bound Encryption). A second
+// directory cannot read them, and the browser then deletes them from the
+// shared profile, in the original too.
 func ChromiumInstance(home string, p ChromiumProfile, launcherName string) (string, error) {
+	if goos == "windows" {
+		return "", ErrSharedProfile
+	}
 	known := false
 	for _, k := range chromiumProfilesIn(home) {
 		if k == p {
@@ -203,35 +214,15 @@ func ChromiumInstance(home string, p ChromiumProfile, launcherName string) (stri
 	link := filepath.Join(dir, "Default")
 	target := filepath.Join(p.Root, p.Dir)
 	if cur, err := os.Readlink(link); err == nil {
-		if samePath(cur, target) {
-			return dir, keyFile(p.Root, dir)
+		if cur == target {
+			return dir, nil
 		}
 		return "", fmt.Errorf("%s already belongs to another profile (%s)", dir, cur)
 	} else if _, err := os.Lstat(link); err == nil {
 		return "", fmt.Errorf("%s exists and is not a link", link)
 	}
-	if err := dirLink(target, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		return "", err
 	}
-	return dir, keyFile(p.Root, dir)
-}
-
-// keyFile: on Windows, Chromium encrypts cookies and saved passwords with a
-// key kept in "Local State" of the user data directory. A new directory
-// would make a new key and the linked profile could not read its own data
-// (logged out everywhere, passwords gone), so the instance starts with a
-// copy of the original's. Linux keeps that key in the keyring instead.
-func keyFile(root, dir string) error {
-	if goos != "windows" {
-		return nil
-	}
-	dst := filepath.Join(dir, "Local State")
-	if _, err := os.Stat(dst); err == nil {
-		return nil // the browser keeps it up to date from now on
-	}
-	b, err := os.ReadFile(filepath.Join(root, "Local State"))
-	if err != nil {
-		return fmt.Errorf("the browser's key file: %w", err)
-	}
-	return os.WriteFile(dst, b, 0o600)
+	return dir, nil
 }

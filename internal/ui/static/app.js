@@ -333,6 +333,8 @@ function renderLaunchers() {
         chips.push(el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
           el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher")));
       }
+    } else if (g.app && onWindows()) {
+      // Windows: an existing profile cannot be shared with a launcher (desktop.ErrSharedProfile)
     } else if (g.app) {
       // an existing profile gets a data folder of its own (a link to the profile) and a launcher
       for (const p of crProfiles.filter((p) => p.browser === g.key)) {
@@ -345,7 +347,9 @@ function renderLaunchers() {
       }
     }
     const note = g.app && isSnap(g.app) ? el("div", { class: "hint", style: "margin:6px 0" },
-      "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.") : "";
+      "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.")
+      : g.app && g.key !== "firefox" && onWindows() ? el("div", { class: "hint", style: "margin:6px 0" },
+      "Existing profiles of " + g.label + " cannot get a launcher of their own on Windows: the browser binds logins and saved passwords to its data folder and would delete them. Use a launcher with a new profile folder (below, arguments empty) and log in there once, or give the whole browser a route under Programs.") : "";
     const det = el("details", { class: "inner browser", ontoggle: (e) => { if (e.target.open) openBrowsers.add(g.key); else openBrowsers.delete(g.key); rememberOpen(); } },
       el("summary", {}, el("b", {}, g.label), " ", el("span", { class: "muted" }, mine.length + (mine.length === 1 ? " launcher" : " launchers") + (chips.length ? " · " + chips.length + " profile" + (chips.length === 1 ? "" : "s") + " found" : ""))),
       note,

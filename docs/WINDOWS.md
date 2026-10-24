@@ -40,8 +40,10 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   from another program (Explorer starts it), Edge preloaded by "Startup boost".
 - Launchers (`internal/winapps/launchers.go`): Start menu shortcuts in the user's folder
   "The Shunt Launchers" to `shunt-desktop.exe run …`, described in `%APPDATA%\Shunt\launchers.json`.
-  Chromium-family profiles get `%USERPROFILE%\ShuntProfiles\<name>` with a junction `Default` to
-  the profile and a copy of `Local State` (the DPAPI key of cookies and passwords).
+  Chromium-family launchers get a new data folder `%USERPROFILE%\ShuntProfiles\<name>`. Existing
+  Chromium profiles are not linked as on Linux: on Windows the browser binds cookies and saved
+  passwords to its user data directory (App-Bound Encryption), a second directory cannot read them
+  and deletes them from the shared profile (tested with Brave, same `Local State` keys).
 - Kill switch (`[daemon] kill_switch = true`, off by default): Windows Firewall blocks all
   outgoing traffic except the service, the adapter's address (= apps whose packets entered
   the split), the local network and DHCP. Stays after a crash, lifted when the service is
