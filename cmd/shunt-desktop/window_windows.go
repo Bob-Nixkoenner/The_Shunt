@@ -71,7 +71,7 @@ func windowShow(uri string) {
 		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", uri).Start()
 		return
 	}
-	profile := filepath.Join(os.Getenv("LOCALAPPDATA"), "Shunt", "window")
+	profile := filepath.Join(localAppData(), "Shunt", "window")
 	cmd := exec.Command(exe, "--app="+uri, "--user-data-dir="+profile, "--window-size=1240,860",
 		"--no-first-run", "--no-default-browser-check", "--disable-extensions",
 		"--disable-features=Translate,TranslateUI,msEdgeTranslate,msEdgeFollow")
@@ -86,6 +86,16 @@ func windowShow(uri string) {
 	}()
 }
 
+// localAppData is %LOCALAPPDATA%, also when the variable is missing (started
+// by a scheduled task): WebView2 fails with a relative data folder.
+func localAppData() string {
+	if d := os.Getenv("LOCALAPPDATA"); d != "" {
+		return d
+	}
+	d, _ := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
+	return d
+}
+
 // showWebView opens the WebView2 window; false if the runtime is missing.
 // The window lives on its own OS thread (its message loop).
 func showWebView(uri string) bool {
@@ -96,7 +106,7 @@ func showWebView(uri string) bool {
 		defer runtime.UnlockOSThread()
 		wv := webview2.NewWithOptions(webview2.WebViewOptions{
 			AutoFocus: true,
-			DataPath:  filepath.Join(os.Getenv("LOCALAPPDATA"), "Shunt", "webview"),
+			DataPath:  filepath.Join(localAppData(), "Shunt", "webview"),
 			WindowOptions: webview2.WindowOptions{
 				Title: "The Shunt", Width: 1240, Height: 860, Center: true,
 			},
