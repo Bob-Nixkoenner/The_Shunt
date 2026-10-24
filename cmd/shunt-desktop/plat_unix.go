@@ -3,6 +3,8 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"os"
 	"syscall"
 
@@ -21,8 +23,16 @@ func execSelf(exe string, args []string) error { return syscall.Exec(exe, args, 
 func trayIcon(png []byte) []byte { return png }
 
 // appSource: nil = the menu of the desktop (.desktop files).
-func appSource(*api.Client) ui.AppSource { return nil }
+func appSource(*api.Client, string) ui.AppSource { return nil }
 
 const restartHint = "Check: journalctl -u shuntd -e"
 
 const updatesSupported = true
+
+// launcher is the program that starts apps in a route: the CLI.
+func launcher(_, shunt string) string { return shunt }
+
+// runIn: on Linux, `shunt run` does this.
+func runIn(string, []string) error { return errors.New("use: shunt run --via ROUTE -- CMD") }
+
+func runFailed(err error) { log.Print(err) }

@@ -506,11 +506,14 @@ func (e *Engine) noteBlocked(app, name, level, list string) {
 // routeFor picks the route of a connection: destination rules, then the
 // app's rule, then the default (of the network profile).
 // byDefault: the route is the default, so it changes with the network.
-func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool) (route string, byDefault bool) {
+func (e *Engine) routeFor(app, pinned string, proto int, dst netip.AddrPort, isDNS bool) (route string, byDefault bool) {
 	if !isDNS {
 		if r, _ := e.ruleRoute(app, proto, dst); r != "" {
 			return r, false
 		}
+	}
+	if pinned != "" {
+		return e.pinnedRoute(pinned), false
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -518,6 +521,20 @@ func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool)
 		return r, false
 	}
 	return e.def, true
+}
+
+// pinnedRoute checks the route a process was started in: one that does not
+// exist (any more) blocks, never falls back to another route.
+func (e *Engine) pinnedRoute(r string) string {
+	switch {
+	case r == RouteDirect, r == RouteBlock,
+		r == linkPref+"wifi", r == linkPref+"ethernet", r == linkPref+"mobile":
+		return r
+	}
+	if n, ok := strings.CutPrefix(r, tunnelPref); ok && e.tunnel(n) != nil {
+		return r
+	}
+	return RouteBlock
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network

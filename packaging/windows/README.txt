@@ -20,13 +20,14 @@ Files (C:\ProgramData\Shunt):
 What works: per-program routes by file name (app = ["firefox"] or
 exe:C:\path\app.exe), rules by address / port / domain, WireGuard and Tailscale/Headscale (.ts) tunnels,
 panic mode, 1-60 minute pass, leak test, link:wifi / link:ethernet routes,
-Wi-Fi profiles by name.
+Wi-Fi profiles by name, launchers (Start menu entries per browser profile,
+each in its own route) and "Start an app" in a route.
 Kill switch (optional, Configure -> General or [daemon] kill_switch = true):
 Windows Firewall then blocks everything that does not come through The Shunt,
 also while the service is down after a crash. Stopping the service on
 purpose lifts it. Emergency, as Administrator:
     "C:\Program Files\The Shunt\shuntd-win.exe" killswitch-off
 
-DNS filter: default level (blocklists), per-rule levels not yet. Not yet: OpenVPN, groups, "start an app in a route", app firewall.
+DNS filter: default level (blocklists), per-rule levels not yet. Not yet: OpenVPN, groups, app firewall.
 
 Uninstall: powershell -ExecutionPolicy Bypass -File uninstall.ps1  [-Purge]

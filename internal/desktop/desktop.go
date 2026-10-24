@@ -382,6 +382,9 @@ func cloneTo(id, srcID, name, args, route, shunt string) error {
 	return os.Rename(dst+".shunt-tmp", dst)
 }
 
+// Slug is the ID part of a launcher name ("Brave Bob" -> "brave-bob").
+func Slug(s string) string { return slug(s) }
+
 func slug(s string) string {
 	var b strings.Builder
 	dash := false

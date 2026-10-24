@@ -3,6 +3,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,44 @@ func TestChromiumProfilesAndInstance(t *testing.T) {
 	}
 	if ChromiumBrowserOf("brave_brave") != "brave" || ChromiumBrowserOf("firefox") != "" || ChromiumBrowserOf("opera-gx_opera-gx") != "opera-gx" {
 		t.Error("browser ids")
+	}
+}
+
+func TestChromiumWindows(t *testing.T) {
+	home := t.TempDir()
+	local, roaming := filepath.Join(home, "Local"), filepath.Join(home, "Roaming")
+	defer func(g string, a func() (string, string)) { goos, appData = g, a }(goos, appData)
+	goos, appData = "windows", func() (string, string) { return local, roaming }
+	for _, r := range []string{filepath.Join(local, "BraveSoftware", "Brave-Browser", "User Data"), filepath.Join(roaming, "Opera Software", "Opera GX Stable")} {
+		if err := os.MkdirAll(filepath.Join(r, "Default"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(r, "Local State"), []byte(`{"os_crypt":{"encrypted_key":"k"},"profile":{"info_cache":{"Default":{"name":"Bob"}}}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := chromiumProfilesIn(home)
+	if len(got) != 2 || got[0].Browser != "brave" || got[1].Browser != "opera-gx" || got[0].Name != "Bob" {
+		t.Fatalf("profiles %+v", got)
+	}
+	dir, err := ChromiumInstance(home, got[0], "Brave Bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "Local State")); err != nil || !strings.Contains(string(b), "encrypted_key") {
+		t.Errorf("key file not copied: %v", err)
+	}
+	for path, want := range map[string]string{
+		`C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`: "brave",
+		`C:\Program Files\Google\Chrome\Application\chrome.exe`:              "chrome",
+		`C:\Users\b\AppData\Local\Chromium\Application\chrome.exe`:           "chromium",
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`:       "edge",
+		`C:\Users\b\AppData\Local\Programs\Opera GX\opera.exe`:               "opera-gx",
+		`C:\Users\b\AppData\Local\Programs\Opera\launcher.exe`:               "opera",
+		`C:\Program Files\Mozilla Firefox\firefox.exe`:                       "",
+	} {
+		if got := ChromiumBrowserOfExe(path); got != want {
+			t.Errorf("%s: %q, want %q", path, got, want)
+		}
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"golang.zx2c4.com/wireguard/conn"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
@@ -199,9 +201,25 @@ func runCore(ctx context.Context, ready func()) error {
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
+	// processes started in a route (shunt-desktop run --via): kept across restarts
+	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
+	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
+	jobs.Load()
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				jobs.Cleanup()
+			}
+		}
+	}()
 	e, err := splitstack.New(splitstack.Options{
 		Link:       link,
-		Owner:      winsplit.NewOwners().Owner,
+		Owner:      winsplit.NewOwners(jobs).Owner,
 		Log:        func(s string) { log.Print(s) },
 		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {
@@ -249,7 +267,16 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}
 	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
-		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) }}
+		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
+		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		Procs: func(name string) ([]api.ProcRoute, error) {
+			ps, err := winsplit.Processes(name)
+			out := make([]api.ProcRoute, 0, len(ps))
+			for _, p := range ps {
+				out = append(out, api.ProcRoute{PID: int(p.PID), Name: strings.ToLower(p.Exe), Route: jobs.Route(p.PID)})
+			}
+			return out, err
+		}}
 	l, err := winsvc.Listen(sockPath())
 	if err != nil {
 		return err
