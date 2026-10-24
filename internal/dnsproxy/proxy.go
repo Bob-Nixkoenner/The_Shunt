@@ -28,6 +28,8 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/doh"
+
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
@@ -335,7 +337,7 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32) *dns.Msg {
 			src = own
 		}
 	}
-	if name == canaryDomain || (plan.BlockDoH && isDoHHost(name)) {
+	if doh.Unwanted(name, plan.BlockDoH) {
 		return fail(r, dns.RcodeNameError)
 	}
 
@@ -501,25 +503,3 @@ func stripECS(m *dns.Msg) {
 	}
 	opt.Option = kept
 }
-
-// canaryDomain tells Firefox that the network does not want DoH
-// (https://support.mozilla.org/kb/canary-domain-use-application-dnsnet).
-const canaryDomain = "use-application-dns.net"
-
-// Well-known public DoH endpoints. Answering NXDOMAIN for them makes
-// browsers fall back to the system resolver, i.e. to us.
-var dohHosts = []string{
-	"dns.google", "dns.google.com", "8888.google",
-	"cloudflare-dns.com", "mozilla.cloudflare-dns.com", "chrome.cloudflare-dns.com",
-	"one.one.one.one", "1dot1dot1dot1.cloudflare-dns.com", "security.cloudflare-dns.com", "family.cloudflare-dns.com",
-	"dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net", "dns12.quad9.net",
-	"doh.opendns.com", "doh.familyshield.opendns.com", "dns.umbrella.com",
-	"dns.nextdns.io", "doh.cleanbrowsing.org",
-	"dns.adguard.com", "dns.adguard-dns.com", "dns-unfiltered.adguard.com", "dns-family.adguard.com",
-	"doh.mullvad.net", "dns.mullvad.net", "adblock.dns.mullvad.net", "base.dns.mullvad.net",
-	"doh.dns.sb", "dns.controld.com", "freedns.controld.com",
-	"doh.libredns.gr", "doh.applied-privacy.net", "dns.digitale-gesellschaft.ch",
-	"dns.switch.ch", "doh.ffmuc.net", "dns3.digitalcourage.de", "dns.alidns.com", "doh.pub",
-}
-
-func isDoHHost(name string) bool { return matchDomain(name, dohHosts) }

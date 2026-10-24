@@ -23,6 +23,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 	"gvisor.dev/gvisor/pkg/waiter"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/doh"
 )
 
 const (
@@ -332,6 +334,17 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		}
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
+			e.mu.RLock()
+			noDoH := e.blockDoH
+			e.mu.RUnlock()
+			if doh.Unwanted(strings.TrimSuffix(strings.ToLower(q.Question[0].Name), "."), noDoH) {
+				r := new(dns.Msg)
+				r.SetRcode(&q, dns.RcodeNameError)
+				if b, err := r.Pack(); err == nil {
+					in.Write(b)
+				}
+				continue
+			}
 			if list := e.blockedName(f.app, q.Question[0].Name); list != "" {
 				e.dnsBlocked.Add(1)
 				r := new(dns.Msg)
