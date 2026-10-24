@@ -53,7 +53,8 @@ data class Settings(
     /** Leave the DNS of the tunnel files out (Tailscale's resolver stays). */
     val ignoreTunnelDns: Boolean = false,
 ) {
-    fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" }
+    /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
+    fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("tunnels", JSONArray(tunnels.map { it.toJson() }))
@@ -87,6 +88,9 @@ data class Settings(
             .put("blocklists", lists)
             .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
             .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
+            // as on the desktop: public DoH endpoints and Firefox's canary get NXDOMAIN,
+            // so browsers stay on our DNS (route + filter)
+            .put("block_doh", true)
             .apply {
                 // openvpn ships as lib/<abi>/libopenvpn.so (Android runs programs only from there)
                 val exe = File(ctx.applicationInfo.nativeLibraryDir, "libopenvpn.so")
