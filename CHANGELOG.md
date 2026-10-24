@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc11
 
 - Windows: launchers and "Start an app", as on Linux. A launcher is a Start menu entry (folder "The Shunt Launchers") that starts a program with extra arguments in a route; existing Firefox profiles get a launcher each. Chrome, Brave, Edge, Vivaldi and Opera launchers get a new profile folder of their own in `%USERPROFILE%\ShuntProfiles`; existing profiles of these browsers cannot be shared with a launcher on Windows (the browser binds cookies and saved passwords to its data folder: a second folder cannot read them and the browser deletes them from the profile, tested with Brave).
 - Windows: `shunt-desktop.exe run --via ROUTE -- PROGRAM ARGS` starts the program suspended, the service puts it into a job object of the route and only then lets it run; its children inherit the job, like a cgroup on Linux. The route wins over program rules (destination rules still come first), a route that does not exist blocks. Jobs survive a service restart (`state\jobs.json`). New service endpoint `POST /v1/run` (`pid`, `route`), `GET /v1/procs` lists processes and their route (launchers show "running via ...").
