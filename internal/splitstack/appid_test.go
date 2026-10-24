@@ -46,3 +46,36 @@ func TestPinned(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemDNS(t *testing.T) {
+	for _, tc := range []struct {
+		conf, want string
+	}{
+		{`{"default":"direct"}`, "192.168.178.1"},                  // no direct DNS set: the network's
+		{`{"default":"direct","direct_dns":"9.9.9.9"}`, "9.9.9.9"}, // set: kept
+	} {
+		c, err := parseConfig(tc.conf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := &Engine{}
+		if err := e.setRules(c); err != nil {
+			t.Fatal(err)
+		}
+		e.SetSystemDNS(netip.MustParseAddr("192.168.178.1"))
+		if e.direct.String() != tc.want {
+			t.Errorf("%s: direct %s, want %s", tc.conf, e.direct, tc.want)
+		}
+		e.SetSystemDNS(netip.Addr{}) // network gone
+		if want := map[bool]string{true: "1.1.1.1", false: "9.9.9.9"}[c.autoDirect]; e.direct.String() != want {
+			t.Errorf("%s: without network DNS %s, want %s", tc.conf, e.direct, want)
+		}
+		e.SetSystemDNS(netip.MustParseAddr("10.0.0.1"))
+		if err := e.setRules(c); err != nil { // a config reload keeps the network's server
+			t.Fatal(err)
+		}
+		if c.autoDirect && e.direct.String() != "10.0.0.1" {
+			t.Errorf("after reload: %s", e.direct)
+		}
+	}
+}

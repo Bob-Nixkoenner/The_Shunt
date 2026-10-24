@@ -60,3 +60,14 @@ func (nilAPI) Do(method, path string, in, out any) error {
 	}
 	return nil
 }
+
+// Firefox profiles as the UI lists them (also the new profile manager's).
+func TestLiveFirefoxProfiles(t *testing.T) {
+	ps := desktop.FirefoxProfiles()
+	for _, p := range ps {
+		t.Logf("firefox profile %q %s", p.Name, p.Path)
+	}
+	if len(ps) == 0 {
+		t.Skip("no Firefox profiles")
+	}
+}

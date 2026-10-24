@@ -19,6 +19,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -78,7 +79,8 @@ func main() {
 		err = control(func(s *mgr.Service) error { _, e := s.Control(svc.Stop); return e })
 	case "killswitch-off": // emergency: lift the firewall rules and policy
 		winsplit.DisableKillSwitch()
-		fmt.Println("kill switch lifted")
+		winsplit.DisableDNSGuard()
+		fmt.Println("kill switch and DNS guard lifted")
 	case "version":
 		fmt.Println(version)
 	default:
@@ -198,6 +200,9 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 	defer ad.Close()
 	log.Printf("shuntd-win %s: adapter %q up, uplink %s (%s, index %d)", version, winsplit.AdapterName, up.Name, up.Link, up.Index)
+	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
+		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
+	}
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
@@ -293,7 +298,8 @@ func runCore(ctx context.Context, ready func()) error {
 	select {
 	case <-ctx.Done():
 		log.Print("stopping")
-		if ksOn { // stopped on purpose: lift it. A crash or a restart keeps it.
+		winsplit.DisableDNSGuard() // stopped on purpose; a crash or a restart keeps it
+		if ksOn {                  // stopped on purpose: lift it. A crash or a restart keeps it.
 			winsplit.DisableKillSwitch()
 			log.Print("kill switch lifted (service stopped)")
 		}
@@ -340,6 +346,7 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
 	}
 	publish(up)
+	e.SetSystemDNS(up.DNS)
 	if name := e.SetNetwork(up.Link, up.SSID); name != "" {
 		log.Printf("network profile %q", name)
 	}
@@ -362,6 +369,7 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		}
 		if cur.Key() != up.Key() || cur.Link != up.Link {
 			publish(cur)
+			e.SetSystemDNS(cur.DNS)
 			if name := e.SetNetwork(cur.Link, cur.SSID); name != "" {
 				log.Printf("network profile %q", name)
 			}
@@ -413,6 +421,7 @@ func install() error {
 
 func uninstall() error {
 	winsplit.DisableKillSwitch()
+	winsplit.DisableDNSGuard()
 	return control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)

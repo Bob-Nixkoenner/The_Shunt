@@ -70,7 +70,10 @@ type config struct {
 	Default   string            `json:"default"`    // route for apps without a rule
 	Apps      map[string]string `json:"apps"`       // app ID (see Owner) -> route
 	DirectDNS string            `json:"direct_dns"` // DNS server for the direct route
-	MTU       int               `json:"mtu"`
+	// autoDirect: direct_dns was not set; the network's own server
+	// (SetSystemDNS) is used when the platform reports one
+	autoDirect bool
+	MTU        int `json:"mtu"`
 	// OnDemand: WireGuard tunnels that no app uses are closed and made
 	// again on the first connection (ondemand.go).
 	OnDemand bool `json:"on_demand"`
@@ -106,7 +109,7 @@ func parseConfig(js string) (*config, error) {
 		c.Default = RouteBlock
 	}
 	if c.DirectDNS == "" {
-		c.DirectDNS = "1.1.1.1"
+		c.DirectDNS, c.autoDirect = fallbackDirect, true
 	}
 	if _, err := netip.ParseAddr(c.DirectDNS); err != nil {
 		return nil, fmt.Errorf("direct_dns: %w", err)
@@ -224,6 +227,8 @@ type Engine struct {
 	direct     netip.Addr // DNS of the direct route now
 	baseDef    string     // from the config, without profile
 	baseDirect netip.Addr
+	autoDirect bool       // the config names no direct DNS
+	sysDNS     netip.Addr // the network's DNS server (SetSystemDNS), invalid = none
 	rules      []rule
 	// DNS servers after the route's own one, and whether the tunnels' own are left out
 	dnsExtra        []netip.Addr
@@ -402,6 +407,10 @@ func (e *Engine) setRules(c *config) error {
 	e.mu.Lock()
 	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
+	e.autoDirect = c.autoDirect
+	if c.autoDirect && e.sysDNS.IsValid() {
+		e.baseDirect = e.sysDNS
+	}
 	e.dnsExtra, e.ignoreTunnelDNS = nil, c.IgnoreTunnelDNS
 	for _, s := range c.DNSServers {
 		e.dnsExtra = append(e.dnsExtra, netip.MustParseAddr(s))
@@ -535,6 +544,33 @@ func (e *Engine) pinnedRoute(r string) string {
 		return r
 	}
 	return RouteBlock
+}
+
+// fallbackDirect is the direct route's DNS server when neither the config
+// nor the network names one.
+const fallbackDirect = "1.1.1.1"
+
+// SetSystemDNS tells the engine the DNS server the network hands out (DHCP;
+// invalid = none). When the config names no direct DNS, the direct route
+// asks it, as on Linux (the system's resolvers): names only the router
+// knows (fritz.box, the NAS) keep working.
+func (e *Engine) SetSystemDNS(a netip.Addr) {
+	e.mu.Lock()
+	if a == e.sysDNS {
+		e.mu.Unlock()
+		return
+	}
+	e.sysDNS = a
+	if e.autoDirect {
+		e.baseDirect = netip.MustParseAddr(fallbackDirect)
+		if a.IsValid() {
+			e.baseDirect = a
+		}
+	}
+	link, ssid := e.link, e.ssid
+	e.mu.Unlock()
+	e.logf("network DNS %s", a)
+	e.SetNetwork(link, ssid) // applies it, cuts direct DNS flows of the old server
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network
