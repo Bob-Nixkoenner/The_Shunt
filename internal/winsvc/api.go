@@ -8,10 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
@@ -51,6 +53,12 @@ type Server struct {
 	// Config returns the default route and the app rules of the config file
 	// in effect, for the status.
 	Config func() (def string, apps map[string]string)
+	// Pin puts a process that was just started (suspended) into route, for
+	// it and its children (POST /v1/run); nil: not supported.
+	Pin func(pid int, route string) error
+	// Procs lists running processes by file name with the route they were
+	// started in ("" = none; GET /v1/procs). nil: empty list.
+	Procs func(name string) ([]api.ProcRoute, error)
 }
 
 // engineStatus is the part of splitstack's Status JSON we map.
@@ -219,10 +227,42 @@ func (s *Server) Handler() http.Handler {
 		ok(w, map[string]bool{"ok": true})
 		go func() { time.Sleep(200 * time.Millisecond); s.Restart() }()
 	})
-	// Windows has no app firewall or process groups yet; the UI still asks.
+	// Windows has no app firewall yet; the UI still asks.
 	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) { ok(w, []string{}) })
 	mux.HandleFunc("GET /v1/firewall/apps", func(w http.ResponseWriter, r *http.Request) { ok(w, []string{}) })
-	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) { ok(w, []api.ProcRoute{}) })
+	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
+		if s.Procs == nil {
+			ok(w, []api.ProcRoute{})
+			return
+		}
+		ps, err := s.Procs(r.URL.Query().Get("name"))
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		s.fillRoutes(ps)
+		ok(w, ps)
+	})
+	mux.HandleFunc("POST /v1/run", func(w http.ResponseWriter, r *http.Request) {
+		var req api.RunRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		if s.Pin == nil || s.Cfg == nil {
+			fail(w, http.StatusNotImplemented, errors.New("starting an app in a route is not supported"))
+			return
+		}
+		route, err := s.Cfg.CheckRoute(req.Route)
+		if err != nil || req.PID <= 0 {
+			fail(w, http.StatusBadRequest, fmt.Errorf("run: %v (pid %d)", err, req.PID))
+			return
+		}
+		if err := s.Pin(req.PID, route); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		ok(w, map[string]string{"route": route})
+	})
 	if s.Cfg != nil {
 		s.configRoutes(mux)
 	}
@@ -311,6 +351,26 @@ func (s *Server) Serve(l net.Listener) error {
 		return nil
 	}
 	return err
+}
+
+// fillRoutes gives processes that were not started in a route the route of
+// their app rule, or the default route.
+func (s *Server) fillRoutes(ps []api.ProcRoute) {
+	def, apps := "block", map[string]string(nil)
+	if s.Cfg != nil {
+		def, apps = s.Cfg.Summary()
+	} else if s.Config != nil {
+		def, apps = s.Config()
+	}
+	for i := range ps {
+		if ps[i].Route != "" {
+			continue
+		}
+		ps[i].Route = def
+		if r, found := apps[strings.ToLower(ps[i].Name)]; found {
+			ps[i].Route = r
+		}
+	}
 }
 
 func ok(w http.ResponseWriter, v any) {

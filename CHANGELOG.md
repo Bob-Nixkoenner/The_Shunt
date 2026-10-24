@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Windows: launchers and "Start an app", as on Linux. A launcher is a Start menu entry (folder "The Shunt Launchers") that starts a program with extra arguments in a route; existing browser profiles are found (Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Opera GX, Firefox) and get a launcher each. Chromium-family profiles get a data folder of their own in `%USERPROFILE%\ShuntProfiles` with a junction to the profile and a copy of the browser's key file (`Local State`), so logins and saved passwords stay readable.
+- Windows: `shunt-desktop.exe run --via ROUTE -- PROGRAM ARGS` starts the program suspended, the service puts it into a job object of the route and only then lets it run; its children inherit the job, like a cgroup on Linux. The route wins over program rules (destination rules still come first), a route that does not exist blocks. Jobs survive a service restart (`state\jobs.json`). New service endpoint `POST /v1/run` (`pid`, `route`), `GET /v1/procs` lists processes and their route (launchers show "running via ...").
+- Uninstall removes the user's launcher shortcuts, never `ShuntProfiles`.
+
 ## v0.7.1-rc10
 
 - DNS filter: HaGeZi's DNS blocklists (https://github.com/hagezi/dns-blocklists, GPL-3.0, thank you) join RPiList as a source. A list is written `hagezi:<file>` (`hagezi:pro` is `adblock/pro.txt` there; the adblock format also blocks subdomains). New defaults (in `dnslists/defaults.toml`, page `docs/DNS-LISTS.md`): `low` = Multi LIGHT + Threat Intelligence mini (instead of easylist) and the RPiList phishing/malware lists, `normal` adds Multi PRO, `paranoid` adds Multi PRO++. Only configs without a `[dns_filter]` section get the new defaults; an existing section is left as it is. The DNS filter tab lists the HaGeZi lists (all-round, threats/scams/pop-ups, Windows) with their sizes.

@@ -42,3 +42,26 @@ func CheckConfig(configJSON string) error {
 	_, err := parseConfig(configJSON)
 	return err
 }
+
+// Pinned app IDs: a process started in a route (Windows: `shunt-desktop run`,
+// a job object of the service) is reported as PinnedPref + route + ">" + its
+// path. The route goes with the process and its children, like a cgroup on
+// Linux; the path still selects app rules, domain rules and the DNS filter.
+const PinnedPref = "run:"
+
+// Pinned makes the app ID of a process pinned to route.
+func Pinned(route, app string) string { return PinnedPref + route + ">" + app }
+
+// splitPinned returns the route a pinned ID carries ("" = not pinned) and
+// the app ID without it.
+func splitPinned(id string) (route, app string) {
+	rest, ok := strings.CutPrefix(id, PinnedPref)
+	if !ok {
+		return "", id
+	}
+	route, app, ok = strings.Cut(rest, ">")
+	if !ok || route == "" {
+		return "", id
+	}
+	return route, app
+}

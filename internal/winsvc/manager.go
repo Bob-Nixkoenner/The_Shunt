@@ -292,6 +292,22 @@ func (m *Manager) Summary() (string, map[string]string) {
 	return c.Daemon.DefaultRoute, apps
 }
 
+// CheckRoute checks a route for a process started in it (POST /v1/run) and
+// returns its canonical form.
+func (m *Manager) CheckRoute(route string) (string, error) {
+	m.mu.Lock()
+	c := m.cfg
+	m.mu.Unlock()
+	if c == nil {
+		return "", errors.New("no config")
+	}
+	r, err := c.ParseRoute(route)
+	if err != nil {
+		return "", err
+	}
+	return r.String(), nil
+}
+
 func fileVersion(b []byte) string { return fmt.Sprintf("%x", sha256.Sum256(b)) }
 
 // View returns the config for the UI; private keys never leave.
