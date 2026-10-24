@@ -68,11 +68,18 @@ if os.path.exists(p("trace.log")):
 
 
 def who(dst, dport):
-    hits = trace.get((dst, dport))
+    """Processes that sent to dst:dport outside the tunnels; "kernel" = no user socket."""
+    hits = [c for c, dev in trace.get((dst, dport), []) if not dev.startswith("sh-")]
     if not hits:
         return "?"
-    c = Counter(h[0] for h in hits)
-    return ", ".join(f"{k}" for k, _ in c.most_common(3))
+    named = [c for c in hits if c != "-"]
+    if not named:
+        return "kernel"
+    return ", ".join(k for k, _ in Counter(named).most_common(3))
+
+
+def allowed_comm(w):
+    return w not in ("?", "kernel") and {x.strip() for x in w.split(",")} <= allow_comms
 
 
 # --- Messpunkt 2: gateway ------------------------------------------------------
@@ -83,7 +90,28 @@ fp = defaultdict(set)  # fingerprint facts seen by the network
 gw_flows = Counter()  # (dst, port, proto, who) -> packets, for findings
 tunnel_pkts = Counter()
 gw_dns = []  # qnames asked through the untrusted network
+captive_checks = Counter()
 client_ips = set(meta.get("client_ips", []))
+names = {}  # ip -> name, from DNS answers seen anywhere
+inbound = set()  # (remote ip, remote port, client port) of connections opened towards the client
+outbound = set()  # (remote ip, remote port, client port) the client opened
+replies_lan = Counter()  # answers to the untrusted network's own probes
+http_fp = set()
+
+
+def learn_names(pkt):
+    if DNS in pkt and pkt[DNS].qr == 1:
+        for i in range(pkt[DNS].ancount or 0):
+            try:
+                rr = pkt[DNS].an[i]
+                if rr.type in (1, 28):
+                    names.setdefault(str(rr.rdata), rr.rrname.decode().rstrip("."))
+            except Exception:
+                pass
+
+
+def label(ip):
+    return f"{ip} ({names[ip]})" if ip in names else ip
 src_v6 = set()
 macs = set()
 
@@ -107,7 +135,11 @@ if os.path.exists(p("gw.pcap")):
     for pkt in PcapReader(p("gw.pcap")):
         if Ether not in pkt:
             continue
+        learn_names(pkt)
         if not is_client(pkt):
+            if TCP in pkt and (pkt[TCP].flags & 0x12) == 0x02:  # SYN towards the client
+                src = pkt[IP].src if IP in pkt else pkt[IPv6].src if IPv6 in pkt else ""
+                inbound.add((src, pkt[TCP].sport, pkt[TCP].dport))
             # learn the client's MAC from DHCP if run-test.sh did not know it
             if not client_mac and BOOTP in pkt and pkt[BOOTP].op == 1:
                 client_mac = pkt[Ether].src.lower()
@@ -174,21 +206,56 @@ if os.path.exists(p("gw.pcap")):
         if (dst, dport, proto) in endpoints:
             tunnel_pkts[(dst, dport, proto)] += 1
             continue
+        # answers instead of new connections
+        if TCP in pkt:
+            fl = int(pkt[TCP].flags)
+            if fl & 0x12 == 0x02:
+                outbound.add((dst, dport, sport))
+            if (dst, dport, sport) in inbound:
+                replies_lan[(dst, f"tcp/{sport}")] += 1
+                continue
+            if (fl & 0x04 or fl & 0x12 == 0x12) and (dst, dport, sport) not in outbound:
+                # RST/SYN-ACK for a connection that never came in through this network,
+                # e.g. one that arrived through the tunnel
+                gw_flows[(dst, dport, "tcp-Antwort", who(dst, dport))] += 1
+                continue
+        if proto in ("icmp", "icmp6") and IP in pkt and pkt[IP].proto == 1 and pkt.getlayer(3) is not None \
+                and getattr(pkt.getlayer(3), "type", None) in (0, 3):
+            replies_lan[(dst, "icmp")] += 1
+            continue
+        if TCP in pkt and dport == 80 and pkt[TCP].payload:
+            raw = bytes(pkt[TCP].payload)
+            if raw[:4] in (b"GET ", b"POST", b"HEAD"):
+                h = re.search(rb"\r\nHost: ([^\r]+)", raw)
+                ua = re.search(rb"\r\nUser-Agent: ([^\r]+)", raw)
+                http_fp.add(f"{h.group(1).decode() if h else '?'}, User-Agent: {ua.group(1).decode() if ua else '–'}"
+                            f" ({who(dst, dport)})")
         if proto in ("udp", "tcp") and dport == 53:
             if DNS in pkt and pkt[DNS].qr == 0 and pkt[DNS].qd:
                 q = pkt[DNS].qd[0].qname.decode(errors="replace").rstrip(".").lower()
                 gw_dns.append((q, dst, who(dst, 53) if who(dst, 53) != "?" else who(dst, sport)))
             continue
         w = who(dst, dport)
-        if (dst, dport, proto) in allow_dst or (w != "?" and set(x.strip() for x in w.split(",")) <= allow_comms):
+        if (dst, dport, proto) in allow_dst or allowed_comm(w):
+            continue
+        if w == "shuntd" and proto == "tcp" and dport == 80:
+            captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
             continue
         gw_flows[(dst, dport, proto, w)] += 1
 
 for k, n in gw_flows.items():
     dst, dport, proto, w = k
-    find("leak", "Klartext im fremden Netz", f"{proto} → {dst}:{dport} ({n} Pakete), Prozess: {w}")
+    if proto == "tcp-Antwort":
+        find("leak", "Antwort am Tunnel vorbei", f"tcp → {label(dst)}:{dport} ({n} Pakete), Prozess: {w}"
+             " – Verbindung kam nicht über dieses Netz, die Antwort geht aber hier raus")
+    else:
+        find("leak", "Klartext im fremden Netz", f"{proto} → {label(dst)}:{dport} ({n} Pakete), Prozess: {w}")
+for (dst, what), n in replies_lan.items():
+    find("info", "Antwort ans fremde Netz", f"{what} an {dst}: {n} Pakete (das Gerät reagiert auf Anfragen aus dem Netz)")
+for d, n in captive_checks.items():
+    find("info", "Portal-Prüfung von shuntd", f"HTTP an {d}: {n} Pakete (direkt, gewollt)")
 for q, dst, w in gw_dns:
-    if allow_dns or (w != "?" and set(x.strip() for x in w.split(",")) <= allow_comms):
+    if allow_dns or allowed_comm(w):
         continue
     find("leak", "DNS über das fremde Netz", f"{q} an {dst}, Prozess: {w}")
 
@@ -212,6 +279,8 @@ for a in sorted(src_v6):
         fp["IPv6 aus MAC abgeleitet (EUI-64)"].add(a)
     else:
         fp["IPv6-Adressen (Quelle)"].add(a)
+for h in sorted(http_fp):
+    fp["HTTP im Klartext (Host, User-Agent)"].add(h)
 for m in macs:
     first = int(m.split(":")[0], 16)
     fp["MAC"].add(f"{m} ({'zufällig/lokal' if first & 2 else 'Hersteller-MAC'})")
@@ -240,6 +309,7 @@ ct_dns, ct_flows = [], Counter()
 tun_ip = meta.get("tunnel_ip", "")
 if os.path.exists(p("ct130.pcap")):
     for pkt in PcapReader(p("ct130.pcap")):
+        learn_names(pkt)
         ip = pkt[IP] if IP in pkt else pkt[IPv6] if IPv6 in pkt else None
         if ip is None or (tun_ip and ip.src != tun_ip):
             continue

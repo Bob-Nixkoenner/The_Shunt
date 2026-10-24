@@ -128,10 +128,11 @@ delete table inet shuntlab
 table inet shuntlab {
 	chain forward {
 		type filter hook forward priority 0; policy accept;
-		ct state established,related accept
+		# mode rules first: they must also cut flows that are already established
+$fwd		ct state established,related accept
 		# no IPv6 uplink on purpose: anything v6 leaving the LAN is a finding
 		iifname "$LAN" meta nfproto ipv6 counter drop
-$fwd	}
+	}
 	chain prerouting {
 		type nat hook prerouting priority -100;
 $pre	}
