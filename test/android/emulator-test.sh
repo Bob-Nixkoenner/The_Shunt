@@ -186,11 +186,27 @@ PY3
 	fi
 done
 kill $WEB 2>/dev/null || true
+echo "== WireGuard through WireGuard (inner is reachable only inside home)"
+python3 - "$W/settings.json" "$W/inner.conf" <<'PY5'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+c["tunnels"] = [t for t in c["tunnels"] if t["name"] != "inner"] + [{"name": "inner", "conf": open(sys.argv[2]).read(), "via": "home"}]
+c["apps"] = {"com.android.shell": "tunnel:inner"}; c["networks"] = []
+json.dump(c, open(p, "w"))
+PY5
+$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 1
+toggle; wait_vpn down || true
+$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+toggle; wait_vpn up || true
+sleep 6
+check "adb shell -> tunnel inner (through home)" "tunnel=inner" "$(get || true)"
 echo "== network profile: on mobile data another default route"
 python3 - "$W/settings.json" <<'PY4'
 import json, sys
 p = sys.argv[1]; c = json.load(open(p))
-c["apps"] = {}; c["default"] = "tunnel:home"
+c["apps"] = {}; c["default"] = "tunnel:home"; c["tunnels"] = [t for t in c["tunnels"] if t["name"] != "inner"]
 c["networks"] = [{"name": "mobile", "link": "mobile", "default": "tunnel:work"}]
 json.dump(c, open(p, "w"))
 PY4
