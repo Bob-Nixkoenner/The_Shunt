@@ -117,6 +117,14 @@ func (w logWriter) Write(p []byte) (int, error) {
 // handler is the Service Control Manager side.
 type handler struct{}
 
+// resumed: the machine woke up (power event); runCore restarts the tunnel sessions.
+var resumed = make(chan struct{}, 1)
+
+const (
+	pbtResumeSuspend   = 7  // PBT_APMRESUMESUSPEND: woken by the user
+	pbtResumeAutomatic = 18 // PBT_APMRESUMEAUTOMATIC: woken (any reason, also from hibernation)
+)
+
 func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.Status) (bool, uint32) {
 	st <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -130,13 +138,20 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 		log.Printf("start failed: %v", err)
 		return false, 1
 	}
-	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown | svc.AcceptPowerEvent}
 	for {
 		select {
 		case c := <-req:
 			switch c.Cmd {
 			case svc.Interrogate:
 				st <- c.CurrentStatus
+			case svc.PowerEvent:
+				if c.EventType == pbtResumeSuspend || c.EventType == pbtResumeAutomatic {
+					select {
+					case resumed <- struct{}{}:
+					default:
+					}
+				}
 			case svc.Stop, svc.Shutdown:
 				st <- svc.Status{State: svc.StopPending}
 				cancel()
@@ -247,6 +262,16 @@ func runCore(ctx context.Context, ready func()) error {
 	watchStop := make(chan struct{})
 	defer close(watchStop)
 	go watchUplink(e, up, &phys, &netInfo, watchStop)
+	go func() {
+		for {
+			select {
+			case <-watchStop:
+				return
+			case <-resumed:
+				e.Resumed()
+			}
+		}
+	}()
 
 	// DNS filter: lists are downloaded straight over the real network
 	// (not through the TUN) and cached next to the config.
