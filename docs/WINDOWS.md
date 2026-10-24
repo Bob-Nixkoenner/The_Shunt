@@ -47,7 +47,9 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
 - DNS guard (always on): Windows Firewall blocks port 53 for the DNS client service (Dnscache)
   except towards the adapter's DNS address. Without it, "smart multi-homed name resolution"
   asked the router's DNS (on-link, past the routes) in parallel to The Shunt. Lifted on a
-  wanted stop, `shuntd-win killswitch-off` and uninstall. The direct route uses the network's
+  wanted stop, `shuntd-win killswitch-off` and uninstall. It also blocks LLMNR/mDNS of the DNS
+  client and NetBIOS name queries of the kernel (UDP 5355/5353/137), which broadcast names to the
+  local network. The direct route uses the network's
   DHCP DNS server unless `dns.direct` is set.
 - Kill switch (`[daemon] kill_switch = true`, off by default): Windows Firewall blocks all
   outgoing traffic except the service, the adapter's address (= apps whose packets entered

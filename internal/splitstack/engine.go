@@ -70,6 +70,9 @@ type config struct {
 	Default   string            `json:"default"`    // route for apps without a rule
 	Apps      map[string]string `json:"apps"`       // app ID (see Owner) -> route
 	DirectDNS string            `json:"direct_dns"` // DNS server for the direct route
+	// BlockDoH: well-known DNS-over-HTTPS endpoints get NXDOMAIN, so
+	// browsers stay on our DNS (Firefox's canary domain always does)
+	BlockDoH bool `json:"block_doh,omitempty"`
 	// autoDirect: direct_dns was not set; the network's own server
 	// (SetSystemDNS) is used when the platform reports one
 	autoDirect bool
@@ -227,6 +230,7 @@ type Engine struct {
 	direct     netip.Addr // DNS of the direct route now
 	baseDef    string     // from the config, without profile
 	baseDirect netip.Addr
+	blockDoH   bool       // see config.BlockDoH
 	autoDirect bool       // the config names no direct DNS
 	sysDNS     netip.Addr // the network's DNS server (SetSystemDNS), invalid = none
 	rules      []rule
@@ -407,7 +411,7 @@ func (e *Engine) setRules(c *config) error {
 	e.mu.Lock()
 	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
-	e.autoDirect = c.autoDirect
+	e.autoDirect, e.blockDoH = c.autoDirect, c.BlockDoH
 	if c.autoDirect && e.sysDNS.IsValid() {
 		e.baseDirect = e.sysDNS
 	}
