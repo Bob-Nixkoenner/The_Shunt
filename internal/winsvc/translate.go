@@ -69,7 +69,9 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 		Direct   string            `json:"direct_dns,omitempty"`
 		Networks []networkJS       `json:"networks"`
 		Rules    []ruleJS          `json:"rules"`
-	}{Apps: map[string]string{}, Tunnels: []tunnelJS{}, Networks: []networkJS{}, Rules: []ruleJS{}}
+		BlockDoH bool              `json:"block_doh,omitempty"`
+	}{Apps: map[string]string{}, Tunnels: []tunnelJS{}, Networks: []networkJS{}, Rules: []ruleJS{},
+		BlockDoH: !c.DNS.AllowDoH && !c.DNS.Disabled} // as on Linux
 
 	for _, name := range sortedKeys(c.Tunnels) {
 		t := c.Tunnels[name]

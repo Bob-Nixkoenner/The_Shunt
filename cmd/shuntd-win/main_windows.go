@@ -19,10 +19,12 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,6 +33,7 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 	"golang.zx2c4.com/wireguard/conn"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
@@ -76,7 +79,8 @@ func main() {
 		err = control(func(s *mgr.Service) error { _, e := s.Control(svc.Stop); return e })
 	case "killswitch-off": // emergency: lift the firewall rules and policy
 		winsplit.DisableKillSwitch()
-		fmt.Println("kill switch lifted")
+		winsplit.DisableDNSGuard()
+		fmt.Println("kill switch and DNS guard lifted")
 	case "version":
 		fmt.Println(version)
 	default:
@@ -113,6 +117,14 @@ func (w logWriter) Write(p []byte) (int, error) {
 // handler is the Service Control Manager side.
 type handler struct{}
 
+// resumed: the machine woke up (power event); runCore restarts the tunnel sessions.
+var resumed = make(chan struct{}, 1)
+
+const (
+	pbtResumeSuspend   = 7  // PBT_APMRESUMESUSPEND: woken by the user
+	pbtResumeAutomatic = 18 // PBT_APMRESUMEAUTOMATIC: woken (any reason, also from hibernation)
+)
+
 func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.Status) (bool, uint32) {
 	st <- svc.Status{State: svc.StartPending}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,13 +138,20 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 		log.Printf("start failed: %v", err)
 		return false, 1
 	}
-	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	st <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown | svc.AcceptPowerEvent}
 	for {
 		select {
 		case c := <-req:
 			switch c.Cmd {
 			case svc.Interrogate:
 				st <- c.CurrentStatus
+			case svc.PowerEvent:
+				if c.EventType == pbtResumeSuspend || c.EventType == pbtResumeAutomatic {
+					select {
+					case resumed <- struct{}{}:
+					default:
+					}
+				}
 			case svc.Stop, svc.Shutdown:
 				st <- svc.Status{State: svc.StopPending}
 				cancel()
@@ -196,12 +215,31 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 	defer ad.Close()
 	log.Printf("shuntd-win %s: adapter %q up, uplink %s (%s, index %d)", version, winsplit.AdapterName, up.Name, up.Link, up.Index)
+	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
+		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
+	}
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
+	// processes started in a route (shunt-desktop run --via): kept across restarts
+	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
+	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
+	jobs.Load()
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				jobs.Cleanup()
+			}
+		}
+	}()
 	e, err := splitstack.New(splitstack.Options{
 		Link:       link,
-		Owner:      winsplit.NewOwners().Owner,
+		Owner:      winsplit.NewOwners(jobs).Owner,
 		Log:        func(s string) { log.Print(s) },
 		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {
@@ -224,6 +262,16 @@ func runCore(ctx context.Context, ready func()) error {
 	watchStop := make(chan struct{})
 	defer close(watchStop)
 	go watchUplink(e, up, &phys, &netInfo, watchStop)
+	go func() {
+		for {
+			select {
+			case <-watchStop:
+				return
+			case <-resumed:
+				e.Resumed()
+			}
+		}
+	}()
 
 	// DNS filter: lists are downloaded straight over the real network
 	// (not through the TUN) and cached next to the config.
@@ -249,7 +297,16 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}
 	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
-		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) }}
+		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
+		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		Procs: func(name string) ([]api.ProcRoute, error) {
+			ps, err := winsplit.Processes(name)
+			out := make([]api.ProcRoute, 0, len(ps))
+			for _, p := range ps {
+				out = append(out, api.ProcRoute{PID: int(p.PID), Name: strings.ToLower(p.Exe), Route: jobs.Route(p.PID)})
+			}
+			return out, err
+		}}
 	l, err := winsvc.Listen(sockPath())
 	if err != nil {
 		return err
@@ -266,7 +323,8 @@ func runCore(ctx context.Context, ready func()) error {
 	select {
 	case <-ctx.Done():
 		log.Print("stopping")
-		if ksOn { // stopped on purpose: lift it. A crash or a restart keeps it.
+		winsplit.DisableDNSGuard() // stopped on purpose; a crash or a restart keeps it
+		if ksOn {                  // stopped on purpose: lift it. A crash or a restart keeps it.
 			winsplit.DisableKillSwitch()
 			log.Print("kill switch lifted (service stopped)")
 		}
@@ -313,6 +371,7 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
 	}
 	publish(up)
+	e.SetSystemDNS(up.DNS)
 	if name := e.SetNetwork(up.Link, up.SSID); name != "" {
 		log.Printf("network profile %q", name)
 	}
@@ -335,6 +394,7 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		}
 		if cur.Key() != up.Key() || cur.Link != up.Link {
 			publish(cur)
+			e.SetSystemDNS(cur.DNS)
 			if name := e.SetNetwork(cur.Link, cur.SSID); name != "" {
 				log.Printf("network profile %q", name)
 			}
@@ -386,6 +446,7 @@ func install() error {
 
 func uninstall() error {
 	winsplit.DisableKillSwitch()
+	winsplit.DisableDNSGuard()
 	return control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)

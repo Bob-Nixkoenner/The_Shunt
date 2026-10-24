@@ -34,6 +34,13 @@ type Source struct {
 	Installed func() []StartMenuProgram
 	// TTL keeps the process list for a while (listing is not free).
 	TTL time.Duration
+	// Self is shunt-desktop.exe: launchers start their program through it.
+	Self string
+	// LauncherDir holds launchers.json, MenuDir the launchers' shortcuts;
+	// "": %APPDATA%\Shunt and the user's Start menu.
+	LauncherDir, MenuDir string
+	// Shortcut writes a .lnk; nil: MakeShortcut.
+	Shortcut func(Shortcut) error
 
 	cached  []string
 	cachedT time.Time
@@ -106,8 +113,17 @@ func ruleID(r config.Rule) (string, bool) {
 	return strings.ToLower(r.App[0]), true
 }
 
-// List returns the programs, ruled ones first.
+// List returns the programs, then the launchers.
 func (s *Source) List() ([]desktop.Entry, error) {
+	list, err := s.programs()
+	if err != nil {
+		return nil, err
+	}
+	return append(list, s.launcherEntries()...), nil
+}
+
+// programs returns the programs (sorted by ID) with the route of their rule.
+func (s *Source) programs() ([]desktop.Entry, error) {
 	var v api.ConfigView
 	if err := s.Client.Do("GET", "/v1/config", nil, &v); err != nil {
 		return nil, err
@@ -149,14 +165,19 @@ func (s *Source) List() ([]desktop.Entry, error) {
 	list := make([]desktop.Entry, 0, len(byID))
 	for id, e := range byID {
 		e.Route = routes[id]
+		e.Chromium = desktop.ChromiumBrowserOfExe(e.Exec)
 		list = append(list, e)
 	}
 	slices.SortFunc(list, func(a, b desktop.Entry) int { return strings.Compare(a.ID, b.ID) })
 	return list, nil
 }
 
-// SetRoute sets (or, with "", removes) the rule of a program.
+// SetRoute sets (or, with "", removes) the rule of a program, or the route
+// of a launcher ("" removes the launcher).
 func (s *Source) SetRoute(id, route string) error {
+	if found, err := s.setLauncher(id, route); found || err != nil {
+		return err
+	}
 	id = strings.ToLower(strings.TrimSpace(id))
 	if id == "" || strings.ContainsAny(id, `\/:*?"<>|`) {
 		return errors.New("invalid program name")

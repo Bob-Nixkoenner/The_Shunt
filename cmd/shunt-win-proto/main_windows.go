@@ -89,7 +89,7 @@ func main() {
 
 	link, stop := splitstack.TunLink(dev, mtu)
 	cleanup = append(cleanup, stop)
-	owners := winsplit.NewOwners()
+	owners := winsplit.NewOwners(nil)
 	e, err := splitstack.New(splitstack.Options{
 		Link:       link,
 		Owner:      owners.Owner,

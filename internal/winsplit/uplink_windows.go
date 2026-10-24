@@ -2,6 +2,7 @@ package winsplit
 
 import (
 	"errors"
+	"net/netip"
 	"os/exec"
 	"syscall"
 	"unsafe"
@@ -17,10 +18,11 @@ type Uplink struct {
 	Link    string // wifi | ethernet | mobile
 	SSID    string // Wi-Fi name, "" if unknown
 	Gateway string
+	DNS     netip.Addr // first IPv4 DNS server the network hands out, invalid = none
 }
 
 // Key identifies the network for change detection.
-func (u Uplink) Key() string { return u.Name + "|" + u.SSID + "|" + u.Gateway }
+func (u Uplink) Key() string { return u.Name + "|" + u.SSID + "|" + u.Gateway + "|" + u.DNS.String() }
 
 const (
 	ifTypeEthernet = 6
@@ -37,7 +39,7 @@ func FindUplink() (Uplink, error) {
 	var buf []byte
 	for range 4 {
 		buf = make([]byte, size)
-		err := windows.GetAdaptersAddresses(windows.AF_INET, windows.GAA_FLAG_INCLUDE_GATEWAYS|windows.GAA_FLAG_SKIP_ANYCAST|windows.GAA_FLAG_SKIP_MULTICAST|windows.GAA_FLAG_SKIP_DNS_SERVER,
+		err := windows.GetAdaptersAddresses(windows.AF_INET, windows.GAA_FLAG_INCLUDE_GATEWAYS|windows.GAA_FLAG_SKIP_ANYCAST|windows.GAA_FLAG_SKIP_MULTICAST,
 			0, (*windows.IpAdapterAddresses)(unsafe.Pointer(&buf[0])), &size)
 		if err == nil {
 			break
@@ -69,6 +71,12 @@ func FindUplink() (Uplink, error) {
 		}
 		bestMetric = a.Ipv4Metric
 		best = Uplink{Index: a.IfIndex, Name: name, Link: link, Gateway: a.FirstGatewayAddress.Address.IP().String()}
+		for d := a.FirstDnsServerAddress; d != nil; d = d.Next {
+			if ip, ok := netip.AddrFromSlice(d.Address.IP()); ok && ip.Unmap().Is4() {
+				best.DNS = ip.Unmap()
+				break
+			}
+		}
 	}
 	if best.Index == 0 {
 		return Uplink{}, errors.New("no network connection")

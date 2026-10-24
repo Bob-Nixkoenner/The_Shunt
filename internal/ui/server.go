@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
-	"github.com/Bob-Nixkoenner/the_shunt/internal/argv"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
@@ -59,6 +58,19 @@ type Server struct {
 type AppSource interface {
 	List() ([]desktop.Entry, error)
 	SetRoute(id, route string) error
+}
+
+// Cloner is an AppSource with launchers of its own (Windows: Start menu
+// shortcuts); otherwise launchers are .desktop files (desktop.Clone).
+type Cloner interface {
+	Clone(app, name, args, route string) (string, error)
+}
+
+func (s *Server) clone(app, name, args, route string) (string, error) {
+	if c, ok := s.Apps.(Cloner); ok {
+		return c.Clone(app, name, args, route)
+	}
+	return desktop.Clone(app, name, args, route, s.Self)
 }
 
 // Listen binds 127.0.0.1:port (0 = random) and returns the URL to open.
@@ -133,7 +145,7 @@ func (s *Server) handler() http.Handler {
 		if !decode(w, r, &req) {
 			return
 		}
-		args, err := argv.Split(req.Cmd)
+		args, err := splitCmd(req.Cmd)
 		if err != nil || len(args) == 0 {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid command"))
 			return
@@ -157,7 +169,7 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		for i := range list {
-			if list[i].Clone == "" {
+			if list[i].Clone == "" && list[i].Chromium == "" {
 				list[i].Chromium = desktop.ChromiumBrowserOf(list[i].ID)
 			}
 		}
@@ -326,7 +338,7 @@ func (s *Server) handler() http.Handler {
 		if home, err := os.UserHomeDir(); err == nil {
 			req.Args = strings.ReplaceAll(req.Args, "{home}", home)
 		}
-		id, err := desktop.Clone(req.App, req.Name, req.Args, req.Route, s.Self)
+		id, err := s.clone(req.App, req.Name, req.Args, req.Route)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
@@ -356,7 +368,7 @@ func (s *Server) handler() http.Handler {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		id, err := desktop.Clone(req.App, req.Name, `--user-data-dir="`+dir+`"`, req.Route, s.Self)
+		id, err := s.clone(req.App, req.Name, `--user-data-dir="`+dir+`"`, req.Route)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return

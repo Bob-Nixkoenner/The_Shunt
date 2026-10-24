@@ -481,20 +481,23 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
-                            // multi-hop: openvpn reaches its server through a WireGuard tunnel
-                            val carriers = settings.tunnels.filter { !it.isOpenVPN }.map { "tunnel:${it.name}" }
-                            if (carriers.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("through", Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
-                                RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
-                                    val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
-                                    update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
-                                    say("tunnel:${t.name} now goes ${if (via.isEmpty()) "directly" else "through tunnel:$via"}. Restart the VPN to use it.")
-                                }
-                            }
                         } else {
                             KV("address", list("addresses"), mono = true)
                             KV("endpoint", list("endpoints"), mono = true)
                             list("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
+                        }
+                        // multi-hop: the tunnel reaches its server through a WireGuard tunnel
+                        // (one that goes direct itself and does not run through this one)
+                        val carriers = settings.tunnels.filter { !it.isOpenVPN && it.name != t.name && it.via.isEmpty() }
+                            .filter { t.isOpenVPN || settings.tunnels.none { o -> o.via == t.name } }
+                            .map { "tunnel:${it.name}" }
+                        if (carriers.isNotEmpty() || t.via.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("through", Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
+                            RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
+                                val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
+                                update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
+                                say("tunnel:${t.name} now goes ${if (via.isEmpty()) "directly" else "through tunnel:$via"}. Restart the VPN to use it.")
+                            }
                         }
                     }
                 }
@@ -567,6 +570,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         tunnels = settings.tunnels - t, // OpenVPN tunnels via t stay down (no silent fallback to direct)
                         defaultRoute = if (settings.defaultRoute == route) "block" else settings.defaultRoute,
                         apps = settings.apps.mapValues { (_, r) -> if (r == route) "block" else r },
+                        networks = settings.networks.map { if (it.route == route) it.copy(route = "block") else it },
                     ))
                     confirmDelete = null
                 }) { Text("Delete") }
@@ -664,6 +668,17 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("All other apps", Modifier.weight(1f), color = c.text)
                 RoutePicker(settings.defaultRoute, settings.routes()) { update(settings.copy(defaultRoute = it)) }
+            }
+            // network profiles: another default on Wi-Fi or on mobile data
+            for ((link, label) in listOf("wifi" to "… on Wi-Fi", "mobile" to "… on mobile data")) {
+                val p = settings.networks.find { it.link == link }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
+                    RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
+                        val rest = settings.networks.filter { it.link != link }
+                        update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile(link, r)))
+                    }
+                }
             }
             OutlinedTextField(
                 query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("filter…") }, singleLine = true,
@@ -769,6 +784,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
         )
     }
 }
+
+/** Network profile not set: the default route above applies. */
+private const val SAME = "same as above"
 
 @Composable
 private fun RoutePicker(current: String, choices: List<String>, onPick: (String) -> Unit) {

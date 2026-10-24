@@ -10,6 +10,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 )
 
 var (
@@ -68,10 +70,13 @@ func rows(proto int, v6 bool) ([]Row, error) {
 }
 
 // Owners finds the program behind a connection seen on the TUN. Its Owner
-// method fits splitstack.Options.Owner; app IDs are lower-case exe paths.
+// method fits splitstack.Options.Owner; app IDs are lower-case exe paths,
+// pinned (splitstack.Pinned) for processes started in a route.
 type Owners struct {
+	Jobs *Jobs // nil: no "run --via"
+
 	mu    sync.Mutex
-	paths map[uint32]cached // PID -> exe path
+	paths map[uint32]cached // PID -> app ID
 }
 
 type cached struct {
@@ -79,7 +84,7 @@ type cached struct {
 	at   time.Time
 }
 
-func NewOwners() *Owners { return &Owners{paths: map[uint32]cached{}} }
+func NewOwners(jobs *Jobs) *Owners { return &Owners{Jobs: jobs, paths: map[uint32]cached{}} }
 
 // Owner returns the exe path of the process owning src (the app's end of
 // the connection), or "".
@@ -102,6 +107,11 @@ func (o *Owners) path(pid uint32) string {
 		return c.path
 	}
 	p := exePath(pid)
+	if o.Jobs != nil {
+		if r := o.Jobs.Route(pid); r != "" {
+			p = splitstack.Pinned(r, p)
+		}
+	}
 	if len(o.paths) > 4096 {
 		clear(o.paths)
 	}

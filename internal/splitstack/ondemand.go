@@ -43,7 +43,7 @@ func (e *Engine) allTunnels() []*wgTunnel {
 
 // onDemandEligible: whether a tunnel may sleep at all.
 func onDemandEligible(t tunnelConf, all []tunnelConf) bool {
-	if t.Type != typeWireGuard {
+	if t.Type != typeWireGuard || t.Via != "" { // a tunnel inside another one keeps its socket there
 		return false
 	}
 	for _, o := range all {
