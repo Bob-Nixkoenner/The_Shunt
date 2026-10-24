@@ -3,7 +3,6 @@ package desktop
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -54,7 +53,7 @@ func TestChromiumWindows(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(r, "Default"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(r, "Local State"), []byte(`{"os_crypt":{"encrypted_key":"k"},"profile":{"info_cache":{"Default":{"name":"Bob"}}}}`), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(r, "Local State"), []byte(`{"profile":{"info_cache":{"Default":{"name":"Bob"}}}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -62,12 +61,8 @@ func TestChromiumWindows(t *testing.T) {
 	if len(got) != 2 || got[0].Browser != "brave" || got[1].Browser != "opera-gx" || got[0].Name != "Bob" {
 		t.Fatalf("profiles %+v", got)
 	}
-	dir, err := ChromiumInstance(home, got[0], "Brave Bob")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b, err := os.ReadFile(filepath.Join(dir, "Local State")); err != nil || !strings.Contains(string(b), "encrypted_key") {
-		t.Errorf("key file not copied: %v", err)
+	if _, err := ChromiumInstance(home, got[0], "Brave Bob"); err != ErrSharedProfile {
+		t.Errorf("shared profile on Windows: %v", err)
 	}
 	for path, want := range map[string]string{
 		`C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe`: "brave",
