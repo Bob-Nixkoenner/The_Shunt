@@ -311,6 +311,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
 		} else if t.Type == typeTailscale {
 			wt, err = e.newTSTunnel(t)
+		} else if t.Via != "" {
+			wt, err = e.newWGVia(t, c.MTU)
 		} else {
 			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
 			if wt != nil && onDemandEligible(t, c.Tunnels) {

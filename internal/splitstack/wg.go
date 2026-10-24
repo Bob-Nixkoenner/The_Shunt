@@ -26,16 +26,18 @@ import (
 // (wireguard-go) or OpenVPN (ovpn* fields, see ovpn.go). Use the methods
 // netw, dnsAddr, families and up rather than the WireGuard fields.
 type wgTunnel struct {
-	name   string
-	err    string // why it is not up
-	dev    *device.Device
-	net    *netstack.Net
-	dns    netip.Addr   // DNS server reached through this tunnel
-	dnsAll []netip.Addr // all DNS servers of the file
-	v4     bool
-	v6     bool
-	conf   *wgconf.Config // for re-resolving endpoints
-	mon    health.Monitor
+	name string
+	err  string // why it is not up
+	dev  *device.Device
+	net  *netstack.Net
+	// viaName: the WireGuard tunnel this one runs through ("" = direct)
+	viaName string
+	dns     netip.Addr   // DNS server reached through this tunnel
+	dnsAll  []netip.Addr // all DNS servers of the file
+	v4      bool
+	v6      bool
+	conf    *wgconf.Config // for re-resolving endpoints
+	mon     health.Monitor
 
 	// On demand (ondemand.go): lazy tunnels may sleep; a dormant one is only
 	// the stand-in (name and file) of a sleeping tunnel.
@@ -291,7 +293,7 @@ func (t *wgTunnel) status() (st tunnelStatus) {
 	if t.isTS() {
 		return t.tsStatus()
 	}
-	st = tunnelStatus{Name: t.name, Type: typeWireGuard, Up: t.dev != nil, Error: t.err}
+	st = tunnelStatus{Name: t.name, Type: typeWireGuard, Up: t.dev != nil, Error: t.err, Via: t.viaName}
 	if t.dev == nil {
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 		return st

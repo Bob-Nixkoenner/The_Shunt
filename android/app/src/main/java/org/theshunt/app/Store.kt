@@ -17,13 +17,13 @@ data class Tunnel(
     val type: String = WIREGUARD,
     val user: String = "",
     val pass: String = "",
-    /** OpenVPN only: name of the WireGuard tunnel that carries it (multi-hop), "" = direct. */
+    /** Name of the WireGuard tunnel that carries this one (multi-hop), "" = direct. */
     val via: String = "",
 ) {
     val isOpenVPN get() = type == OPENVPN
 
-    fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).apply {
-        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass).put("via", via)
+    fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).put("via", via).apply {
+        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
     }
 
     companion object {
