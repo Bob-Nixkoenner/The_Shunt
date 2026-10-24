@@ -18,6 +18,13 @@ func TestNewer(t *testing.T) {
 		{"v0.6.0", "v0.7.0", true},
 		{"dev", "v1.0.0", false},
 		{"v0.6.0", "", false},
+		// builds from git after a tag: at least that tag
+		{"v0.7.1-rc10-4-gf357390-dirty", "v0.7.1-rc10", false},
+		{"v0.7.1-rc10-4-gf357390", "v0.7.1-rc9", false},
+		{"v0.7.1-rc10-dirty", "v0.7.1-rc10", false},
+		{"v0.7.1-rc10-4-gf357390", "v0.7.1-rc11", true},
+		{"v0.7.1-rc10-4-gf357390", "v0.7.1", true},
+		{"v0.7.0-12-gabc1234", "v0.7.1-rc10", true},
 	} {
 		if got := newer(tc.cur, tc.latest); got != tc.want {
 			t.Errorf("%q vs %q: %v", tc.cur, tc.latest, got)
