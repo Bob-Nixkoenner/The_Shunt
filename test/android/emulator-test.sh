@@ -51,8 +51,12 @@ $ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || tr
 $ADB shell am start -W -n $PKG/.MainActivity >/dev/null
 sleep 2
 vpn_up() { $ADB shell dumpsys connectivity | grep -q 'VPN.*CONNECTED\|type: VPN\['; }
+dump_ui() { # uiautomator fails now and then ("could not get idle state"): try again
+	for _ in 1 2 3 4 5; do $ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null 2>&1 && return 0; sleep 2; done
+	return 1
+}
 toggle() { # tap the VPN switch on the status screen
-	$ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null
+	dump_ui
 	local bounds
 	bounds=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'class="android.view.View"[^>]*checkable="true"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | head -1 || true)
 	[[ -n $bounds ]] || { echo "VPN switch not found on screen (system dialog in front?)"; exit 1; }
@@ -106,7 +110,7 @@ wait_vpn down && echo "  ok   VPN off" || { echo "  FAIL VPN still up"; fails=$(
 toggle
 wait_vpn up && sleep 3 && check "VPN on again, tunnel works" "tunnel=work" "$(get)" || { echo "  FAIL VPN did not come back"; fails=$((fails + 1)); }
 tap_text() { # tap the first view whose text starts with $1
-	$ADB shell uiautomator dump /data/local/tmp/ui.xml >/dev/null
+	dump_ui
 	local b
 	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$1[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
 	[[ -n $b ]] || { echo "  FAIL no '$1' on screen"; fails=$((fails + 1)); return 1; }
@@ -140,8 +144,48 @@ for _ in $(seq 60); do
 done
 [[ -n $back ]] && echo "  ok   VPN back after the crash ($((SECONDS - t0)) s)" || { echo "  FAIL VPN did not come back after the crash"; fails=$((fails + 1)); }
 echo "== status notification"
-n=$($ADB shell dumpsys notification --noredact | grep -A30 "pkg=$PKG" | grep -o 'android.text=[^,]*' | head -1)
+n=
+for _ in $(seq 10); do # after the crash the service may still be starting
+	n=$($ADB shell dumpsys notification --noredact | grep -A30 "pkg=$PKG" | grep -o 'android.text=[^,]*' | head -1 || true)
+	[[ -n $n ]] && break
+	sleep 2
+done
 check "notification shows the state" "android.text=" "$n"
+echo "== DoH endpoints and Firefox's canary: NXDOMAIN, never asked upstream"
+check "dns.google is not resolved" "unknown host" "$($ADB shell ping -c1 -W2 dns.google 2>&1 | head -1)"
+check "canary is not resolved" "unknown host" "$($ADB shell ping -c1 -W2 use-application-dns.net 2>&1 | head -1)"
+grep -q 'DNS dns.google\|DNS use-application-dns' "$W/server.log" && { echo "  FAIL DoH name reached the upstream"; fails=$((fails + 1)); } || echo "  ok   DoH names never reached the upstream"
+echo "== link:wifi / link:mobile (direct, only over that kind of network)"
+# a server only reachable directly (the host's loopback, 10.0.2.2 from the emulator)
+python3 -m http.server 18080 --bind 127.0.0.1 --directory "$W" >/dev/null 2>&1 &
+WEB=$!
+direct() { $ADB shell "printf 'GET / HTTP/1.0\r\n\r\n' | nc -w 5 10.0.2.2 18080" 2>&1 | head -1 | tr -d '\r' || true; } # any HTTP answer = reachable
+for kind in wifi mobile; do
+	python3 - "$W/settings.json" "$kind" <<'PY3'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p)); c["apps"] = {"com.android.shell": "link:" + sys.argv[2]}; json.dump(c, open(p, "w"))
+PY3
+	$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+	$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+	sleep 1
+	toggle; wait_vpn down || true
+	$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+	toggle; wait_vpn up || true
+	sleep 4
+	$ADB shell svc wifi enable; sleep 8
+	on=$(direct)
+	$ADB shell svc wifi disable; sleep 8
+	off=$(direct)
+	$ADB shell svc wifi enable; sleep 6
+	if [[ $kind == wifi ]]; then
+		check "link:wifi on Wi-Fi: direct" "HTTP/" "$on"
+		[[ $off != *HTTP/* ]] && echo "  ok   link:wifi on mobile data: blocked" || { echo "  FAIL link:wifi on mobile data went out: $off"; fails=$((fails + 1)); }
+	else
+		[[ $on != *HTTP/* ]] && echo "  ok   link:mobile on Wi-Fi: blocked" || { echo "  FAIL link:mobile on Wi-Fi went out: $on"; fails=$((fails + 1)); }
+		check "link:mobile on mobile data: direct" "HTTP/" "$off"
+	fi
+done
+kill $WEB 2>/dev/null || true
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
