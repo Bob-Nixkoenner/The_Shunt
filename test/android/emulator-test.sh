@@ -186,6 +186,26 @@ PY3
 	fi
 done
 kill $WEB 2>/dev/null || true
+echo "== network profile: on mobile data another default route"
+python3 - "$W/settings.json" <<'PY4'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+c["apps"] = {}; c["default"] = "tunnel:home"
+c["networks"] = [{"name": "mobile", "link": "mobile", "default": "tunnel:work"}]
+json.dump(c, open(p, "w"))
+PY4
+$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 1
+toggle; wait_vpn down || true
+$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+toggle; wait_vpn up || true
+sleep 4
+check "on Wi-Fi: the default route (home)" "tunnel=home" "$(get || true)"
+$ADB shell svc wifi disable; sleep 8
+check "on mobile data: the profile's route (work)" "tunnel=work" "$(get || true)"
+$ADB shell svc wifi enable; sleep 8
+check "back on Wi-Fi: home again" "tunnel=home" "$(get || true)"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }

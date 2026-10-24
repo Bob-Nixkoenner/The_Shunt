@@ -567,6 +567,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         tunnels = settings.tunnels - t, // OpenVPN tunnels via t stay down (no silent fallback to direct)
                         defaultRoute = if (settings.defaultRoute == route) "block" else settings.defaultRoute,
                         apps = settings.apps.mapValues { (_, r) -> if (r == route) "block" else r },
+                        networks = settings.networks.map { if (it.route == route) it.copy(route = "block") else it },
                     ))
                     confirmDelete = null
                 }) { Text("Delete") }
@@ -664,6 +665,17 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("All other apps", Modifier.weight(1f), color = c.text)
                 RoutePicker(settings.defaultRoute, settings.routes()) { update(settings.copy(defaultRoute = it)) }
+            }
+            // network profiles: another default on Wi-Fi or on mobile data
+            for ((link, label) in listOf("wifi" to "… on Wi-Fi", "mobile" to "… on mobile data")) {
+                val p = settings.networks.find { it.link == link }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
+                    RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
+                        val rest = settings.networks.filter { it.link != link }
+                        update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile(link, r)))
+                    }
+                }
             }
             OutlinedTextField(
                 query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("filter…") }, singleLine = true,
@@ -769,6 +781,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
         )
     }
 }
+
+/** Network profile not set: the default route above applies. */
+private const val SAME = "same as above"
 
 @Composable
 private fun RoutePicker(current: String, choices: List<String>, onPick: (String) -> Unit) {
