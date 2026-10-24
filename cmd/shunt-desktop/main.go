@@ -39,6 +39,13 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if flag.Arg(0) == "run" { // Windows launchers: start an app in a route
+		if err := runIn(*sock, flag.Args()[1:]); err != nil {
+			runFailed(err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if os.Getenv("SHUNT_RESTART") != "" {
 		desktopapp.WaitFree()
@@ -57,7 +64,7 @@ func main() {
 		shunt = p
 	}
 	client := api.NewClient(*sock)
-	srv := &ui.Server{Socket: *sock, Self: shunt, Client: client, Apps: appSource(client)}
+	srv := &ui.Server{Socket: *sock, Self: launcher(self, shunt), Client: client, Apps: appSource(client, self)}
 	app := &trayApp{client: client, notifier: desktopapp.NewNotifier(), exe: self, shunt: shunt, sock: *sock}
 	srv.Update = &update.Checker{Current: version, OnAvailable: app.updateAvailable, Installed: func() string {
 		var st api.Status

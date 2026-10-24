@@ -17,13 +17,13 @@ data class Tunnel(
     val type: String = WIREGUARD,
     val user: String = "",
     val pass: String = "",
-    /** OpenVPN only: name of the WireGuard tunnel that carries it (multi-hop), "" = direct. */
+    /** Name of the WireGuard tunnel that carries this one (multi-hop), "" = direct. */
     val via: String = "",
 ) {
     val isOpenVPN get() = type == OPENVPN
 
-    fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).apply {
-        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass).put("via", via)
+    fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).put("via", via).apply {
+        if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
     }
 
     companion object {
@@ -37,6 +37,15 @@ data class Tunnel(
  * (by package name). Kept as JSON in the app's private files.
  * Routes are named as in shunt.toml: "direct", "block", "tunnel:<name>".
  */
+/** A network profile: on this kind of network (wifi | mobile) apps without a rule take [route]. */
+data class NetProfile(val link: String, val route: String) {
+    fun toJson(): JSONObject = JSONObject().put("name", link).put("link", link).put("default", route)
+
+    companion object {
+        val LINKS = listOf("wifi", "mobile")
+    }
+}
+
 data class Settings(
     val tunnels: List<Tunnel> = emptyList(),
     val defaultRoute: String = "block",
@@ -52,8 +61,11 @@ data class Settings(
     val dnsServers: List<String> = DEFAULT_DNS,
     /** Leave the DNS of the tunnel files out (Tailscale's resolver stays). */
     val ignoreTunnelDns: Boolean = false,
+    /** Another default route on Wi-Fi or mobile data (network profiles of the core). */
+    val networks: List<NetProfile> = emptyList(),
 ) {
-    fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" }
+    /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
+    fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("tunnels", JSONArray(tunnels.map { it.toJson() }))
@@ -65,6 +77,7 @@ data class Settings(
         put("on_demand", onDemand)
         put("dns_servers", JSONArray(dnsServers))
         put("ignore_tunnel_dns", ignoreTunnelDns)
+        put("networks", JSONArray(networks.map { it.toJson() }))
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -87,6 +100,9 @@ data class Settings(
             .put("blocklists", lists)
             .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
             .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
+            // as on the desktop: public DoH endpoints and Firefox's canary get NXDOMAIN,
+            // so browsers stay on our DNS (route + filter)
+            .put("block_doh", true)
             .apply {
                 // openvpn ships as lib/<abi>/libopenvpn.so (Android runs programs only from there)
                 val exe = File(ctx.applicationInfo.nativeLibraryDir, "libopenvpn.so")
@@ -113,6 +129,10 @@ data class Settings(
                 onDemand = o.optBoolean("on_demand", true),
                 dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
                 ignoreTunnelDns = o.optBoolean("ignore_tunnel_dns", false),
+                networks = o.optJSONArray("networks")?.let { a ->
+                    (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
+                        .map { NetProfile(it.getString("link"), it.optString("default", "block")) }
+                } ?: emptyList(),
             )
         }
 
@@ -163,6 +183,7 @@ object Store {
             tunnels = s.tunnels.map { t -> (if (t.name == from) t.copy(name = to) else t).let { if (it.via == from) it.copy(via = to) else it } },
             defaultRoute = r(s.defaultRoute),
             apps = s.apps.mapValues { (_, route) -> r(route) },
+            networks = s.networks.map { it.copy(route = r(it.route)) },
         )
     }
 

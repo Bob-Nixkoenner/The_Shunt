@@ -26,6 +26,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 
 var serverIP = netip.MustParseAddr("10.9.0.1")
@@ -81,7 +82,58 @@ func (b *loopBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 
 var listen = flag.String("listen", "", "listen on this address only (e.g. 127.0.0.1); default: all")
 
-func serve(name string, port int, host string) string {
+// netBind is a conn.Bind on a server tunnel's netstack: the "inner" tunnel
+// listens inside "home" and is reachable only through it (multi-hop test).
+type netBind struct {
+	tnet *netstack.Net
+	port int
+	c    *gonet.UDPConn
+}
+
+func (b *netBind) Open(uint16) ([]conn.ReceiveFunc, uint16, error) {
+	c, err := b.tnet.ListenUDPAddrPort(netip.AddrPortFrom(serverIP, uint16(b.port)))
+	if err != nil {
+		return nil, 0, err
+	}
+	b.c = c
+	recv := func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
+		n, a, err := c.ReadFrom(bufs[0])
+		if err != nil {
+			return 0, err
+		}
+		sizes[0], eps[0] = n, &conn.StdNetEndpoint{AddrPort: a.(*net.UDPAddr).AddrPort()}
+		return 1, nil
+	}
+	return []conn.ReceiveFunc{recv}, uint16(b.port), nil
+}
+func (b *netBind) Close() error {
+	if b.c != nil {
+		return b.c.Close()
+	}
+	return nil
+}
+func (b *netBind) SetMark(uint32) error { return nil }
+func (b *netBind) BatchSize() int       { return 1 }
+func (b *netBind) ParseEndpoint(s string) (conn.Endpoint, error) {
+	ap, err := netip.ParseAddrPort(s)
+	return &conn.StdNetEndpoint{AddrPort: ap}, err
+}
+func (b *netBind) Send(bufs [][]byte, ep conn.Endpoint) error {
+	to := net.UDPAddrFromAddrPort(ep.(*conn.StdNetEndpoint).AddrPort)
+	for _, buf := range bufs {
+		if _, err := b.c.WriteTo(buf, to); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func serve(name string, port int, host string) (string, *netstack.Net) {
+	return serveOn(name, port, host, nil)
+}
+
+// serveOn: bind nil = a UDP socket on this machine.
+func serveOn(name string, port int, host string, bind conn.Bind) (string, *netstack.Net) {
 	spriv, _ := wgtypes.GeneratePrivateKey()
 	cpriv, _ := wgtypes.GeneratePrivateKey()
 	cpub := cpriv.PublicKey()
@@ -89,9 +141,11 @@ func serve(name string, port int, host string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var bind conn.Bind = conn.NewDefaultBind()
-	if *listen != "" {
-		bind = &loopBind{ip: netip.MustParseAddr(*listen), port: port}
+	if bind == nil {
+		bind = conn.NewDefaultBind()
+		if *listen != "" {
+			bind = &loopBind{ip: netip.MustParseAddr(*listen), port: port}
+		}
 	}
 	dev := device.NewDevice(tdev, bind, device.NewLogger(device.LogLevelError, name+": "))
 	if err := dev.IpcSet(fmt.Sprintf("private_key=%x\nlisten_port=%d\npublic_key=%x\nallowed_ip=10.9.0.2/32\n", spriv[:], port, cpub[:])); err != nil {
@@ -125,7 +179,7 @@ func serve(name string, port int, host string) string {
 	}))
 	log.Printf("tunnel %s: udp/%d", name, port)
 	return fmt.Sprintf("[Interface]\nPrivateKey = %s\nAddress = 10.9.0.2/32\nDNS = 10.9.0.1\n\n[Peer]\nPublicKey = %s\nEndpoint = %s:%d\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = 25\n",
-		b64(cpriv), b64(spriv.PublicKey()), host, port)
+		b64(cpriv), b64(spriv.PublicKey()), host, port), tnet
 }
 
 func main() {
@@ -133,13 +187,23 @@ func main() {
 	host := flag.String("host", "10.0.2.2", "server address as the phone sees it")
 	flag.Parse()
 	var tunnels []map[string]string
+	var homeNet *netstack.Net
 	for i, name := range []string{"home", "work"} {
-		conf := serve(name, 51901+i, *host)
+		conf, tnet := serve(name, 51901+i, *host)
+		if name == "home" {
+			homeNet = tnet
+		}
 		tunnels = append(tunnels, map[string]string{"name": name, "conf": conf})
 		if *out != "" {
 			os.MkdirAll(*out, 0o755)
 			os.WriteFile(filepath.Join(*out, name+".conf"), []byte(conf), 0o600)
 		}
+	}
+	// "inner": reachable only through "home" (its endpoint is home's 10.9.0.1);
+	// not in settings.json, tests add it with "via": "home"
+	inner, _ := serveOn("inner", 51903, "10.9.0.1", &netBind{tnet: homeNet, port: 51903})
+	if *out != "" {
+		os.WriteFile(filepath.Join(*out, "inner.conf"), []byte(inner), 0o600)
 	}
 	if *out != "" {
 		// shell (adb) through "work", everything else through "home"

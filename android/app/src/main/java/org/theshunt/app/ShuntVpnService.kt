@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -115,7 +116,11 @@ class ShuntVpnService : VpnService() {
             tun = pfd
             runCatching { Mobile.setTimezone(java.util.TimeZone.getDefault().id) } // log times in local time
             VpnState.engine = Mobile.start(pfd.fd.toLong(), settings.coreJson(this), CorePlatform(cm))
-            netCallback = NetWatch(cm).also { cm.registerDefaultNetworkCallback(it) }
+            // every real network, not the default one: our own default network is this VPN,
+            // so a default network callback never saw Wi-Fi <-> mobile data
+            val real = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
+            netCallback = NetWatch(cm).also { cm.registerNetworkCallback(real, it) }
             VpnState.error.value = null
             VpnState.running.value = true
             VpnState.service = this
@@ -144,44 +149,52 @@ class ShuntVpnService : VpnService() {
      */
     private inner class NetWatch(private val cm: ConnectivityManager) : ConnectivityManager.NetworkCallback() {
         private val main = Handler(Looper.getMainLooper())
-        private var current: Network? = null
         private var applied: Network? = null
-        private var addrs: Set<String> = emptySet()
         private var appliedAddrs: Set<String> = emptySet()
+        private var appliedLink: String? = null
+        /** The network the system uses now (we are not in our own VPN, so it is a real one). */
+        private fun active(): Network? = cm.activeNetwork?.takeIf {
+            cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
+        }
+        private fun addrsOf(n: Network?): Set<String> =
+            n?.let { cm.getLinkProperties(it) }?.linkAddresses?.map { it.address.hostAddress ?: "" }?.toSet() ?: emptySet()
         private val settle = Runnable {
-            val n = current
+            val n = active()
+            val addrs = addrsOf(n)
             setUnderlyingNetworks(n?.let { arrayOf(it) })
-            if (applied != null && n != null && (n != applied || addrs != appliedAddrs)) VpnState.engine?.networkChanged()
+            if (applied != null && n != null && (n != applied || (appliedAddrs.isNotEmpty() && addrs != appliedAddrs))) VpnState.engine?.networkChanged()
             if (n != null) { applied = n; appliedAddrs = addrs }
+            VpnState.privateDns.value = n?.let { cm.getLinkProperties(it) }?.isPrivateDnsActive == true
+            // the kind of network for link:wifi / link:mobile routes (and network profiles)
+            val link = linkOf(n?.let { cm.getNetworkCapabilities(it) })
+            if (link != appliedLink) {
+                VpnState.engine?.let { it.setNetwork(link, ""); appliedLink = link }
+            }
             notifyStatus()
         }
 
+        private fun linkOf(caps: NetworkCapabilities?): String = when {
+            caps == null -> ""
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> ""
+        }
+
+        /** Any change of any real network: look again a moment later (changes come in bursts). */
         private fun later() {
             main.removeCallbacks(settle)
             main.postDelayed(settle, 1000)
         }
 
         override fun onAvailable(network: Network) {
-            current = network
-            if (applied == null) applied = network // the one the VPN started on
+            if (applied == null) applied = active() // the one the VPN started on
             later()
         }
 
-        override fun onLost(network: Network) {
-            if (network == current) { current = null; later() }
-        }
-
-        override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
-            if (network != current) return
-            VpnState.privateDns.value = lp.isPrivateDnsActive
-            addrs = lp.linkAddresses.map { it.address.hostAddress ?: "" }.toSet()
-            if (appliedAddrs.isEmpty() && applied == network) appliedAddrs = addrs
-            later()
-        }
-
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            if (network == current) later() // e.g. metered changed: underlying networks again
-        }
+        override fun onLost(network: Network) = later()
+        override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) = later()
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = later() // e.g. metered
 
         fun stop() = main.removeCallbacks(settle)
     }

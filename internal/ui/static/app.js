@@ -284,7 +284,9 @@ function routeSelect(value, onchange, withDefault) {
 const isChromium = (id) => !!(apps.find((a) => a.id === id) || {}).chromium;
 const chromiumApp = () => (apps.find((a) => !a.clone && a.chromium) || {}).id;
 const slug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox)$/.test(a.id)) || {}).id;
+const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox|firefox\.exe)$/.test(a.id)) || {}).id;
+const onWindows = () => !!status && status.platform === "windows";
+const menuWord = () => onWindows() ? "Start menu entry" : "Menu entry";
 
 // open/closed state of the browser groups survives a re-render
 const openBrowsers = new Set(JSON.parse((() => { try { return localStorage.getItem("shunt-open-browsers") || "[]"; } catch { return "[]"; } })()));
@@ -331,6 +333,8 @@ function renderLaunchers() {
         chips.push(el("span", { class: "chip", style: "padding:4px 8px;display:inline-flex;gap:6px;align-items:center", title: p.path }, p.name, sel,
           el("button", { onclick: () => createLauncher(ff, "Firefox " + p.name, profileArgs(p), sel.value) }, "+ launcher")));
       }
+    } else if (g.app && onWindows()) {
+      // Windows: an existing profile cannot be shared with a launcher (desktop.ErrSharedProfile)
     } else if (g.app) {
       // an existing profile gets a data folder of its own (a link to the profile) and a launcher
       for (const p of crProfiles.filter((p) => p.browser === g.key)) {
@@ -343,7 +347,9 @@ function renderLaunchers() {
       }
     }
     const note = g.app && isSnap(g.app) ? el("div", { class: "hint", style: "margin:6px 0" },
-      "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.") : "";
+      "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.")
+      : g.app && g.key !== "firefox" && onWindows() ? el("div", { class: "hint", style: "margin:6px 0" },
+      "Existing profiles of " + g.label + " cannot get a launcher of their own on Windows: the browser binds logins and saved passwords to its data folder and would delete them. Use a launcher with a new profile folder (below, arguments empty) and log in there once, or give the whole browser a route under Programs.") : "";
     const det = el("details", { class: "inner browser", ontoggle: (e) => { if (e.target.open) openBrowsers.add(g.key); else openBrowsers.delete(g.key); rememberOpen(); } },
       el("summary", {}, el("b", {}, g.label), " ", el("span", { class: "muted" }, mine.length + (mine.length === 1 ? " launcher" : " launchers") + (chips.length ? " · " + chips.length + " profile" + (chips.length === 1 ? "" : "s") + " found" : ""))),
       note,
@@ -372,7 +378,11 @@ function launcherCmd(a) {
   const i = words.indexOf("--");
   return words.slice(i + 1).filter((w) => !/^%[a-zA-Z%]$/.test(w)).join(" ");
 }
-const launcherProg = (a) => (launcherCmd(a).split(/\s+/)[0] || "").replace(/^"|"$/g, "").split("/").pop();
+function launcherProg(a) {
+  const c = launcherCmd(a);
+  const first = c.startsWith('"') ? c.slice(1, c.indexOf('"', 1) > 0 ? c.indexOf('"', 1) : undefined) : (c.split(/\s+/)[0] || "");
+  return first.split(/[\\/]/).pop();
+}
 
 async function startLauncher(a) {
   const cmd = launcherCmd(a);
@@ -408,14 +418,17 @@ async function updateLauncherState() {
 
 // By folder, not -P <name>: profiles of Firefox's newer profile manager are
 // not in profiles.ini, and names differ between machines anyway.
-function profileArgs(p) { return '--new-instance --profile "' + p.path.replace(/(["\\`$])/g, "\\$1") + '"'; }
+function profileArgs(p) {
+  if (onWindows()) return '--new-instance --profile "' + p.path + '"'; // Windows command line: backslashes stay
+  return '--new-instance --profile "' + p.path.replace(/(["\\`$])/g, "\\$1") + '"';
+}
 function legacyProfileArgs(n) { return "--new-instance -P " + (/\s/.test(n) ? '"' + n + '"' : n); }
 
 let crProfiles = [];
 async function createProfileLauncher(app, name, profile, route) {
   try {
     await api("POST", "/api/profile-launchers", { app, name, route, profile });
-    toast("Menu entry \u201c" + name + "\u201d created (" + route + "). Close the browser's own window of this profile first: one profile, one process.");
+    toast(menuWord() + " \u201c" + name + "\u201d created (" + route + "). Close the browser's own window of this profile first: one profile, one process.");
     await loadApps();
   } catch (e) { toast(e.message); }
 }
@@ -423,7 +436,7 @@ async function createProfileLauncher(app, name, profile, route) {
 async function createLauncher(app, name, args, route) {
   try {
     await api("POST", "/api/launchers", { app, name, args, route });
-    toast("Menu entry \u201c" + name + "\u201d created (" + route + ")");
+    toast(menuWord() + " \u201c" + name + "\u201d created (" + route + ")");
     await loadApps();
   } catch (e) { toast(e.message); }
 }
@@ -433,7 +446,9 @@ $("#lcreate").addEventListener("click", () => {
   if (!name) { toast("Give the launcher a menu name"); return; }
   const app = $("#lapp").value;
   let args = $("#largs").value.trim();
-  if (!args && isChromium(app)) args = '--user-data-dir="{home}/.local/share/shunt/profiles/' + (slug(name) || "profile") + '"'; // {home}: filled in by the app
+  if (!args && isChromium(app)) args = onWindows() // {home}: filled in by the app
+    ? '--user-data-dir="{home}\\ShuntProfiles\\' + (slug(name) || "profile") + '"'
+    : '--user-data-dir="{home}/.local/share/shunt/profiles/' + (slug(name) || "profile") + '"';
   createLauncher(app, name, args, $("#lroute").value).then(() => { $("#lname").value = ""; $("#largs").value = ""; });
 });
 

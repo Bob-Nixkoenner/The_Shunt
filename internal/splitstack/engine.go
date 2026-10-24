@@ -70,7 +70,13 @@ type config struct {
 	Default   string            `json:"default"`    // route for apps without a rule
 	Apps      map[string]string `json:"apps"`       // app ID (see Owner) -> route
 	DirectDNS string            `json:"direct_dns"` // DNS server for the direct route
-	MTU       int               `json:"mtu"`
+	// BlockDoH: well-known DNS-over-HTTPS endpoints get NXDOMAIN, so
+	// browsers stay on our DNS (Firefox's canary domain always does)
+	BlockDoH bool `json:"block_doh,omitempty"`
+	// autoDirect: direct_dns was not set; the network's own server
+	// (SetSystemDNS) is used when the platform reports one
+	autoDirect bool
+	MTU        int `json:"mtu"`
 	// OnDemand: WireGuard tunnels that no app uses are closed and made
 	// again on the first connection (ondemand.go).
 	OnDemand bool `json:"on_demand"`
@@ -106,7 +112,7 @@ func parseConfig(js string) (*config, error) {
 		c.Default = RouteBlock
 	}
 	if c.DirectDNS == "" {
-		c.DirectDNS = "1.1.1.1"
+		c.DirectDNS, c.autoDirect = fallbackDirect, true
 	}
 	if _, err := netip.ParseAddr(c.DirectDNS); err != nil {
 		return nil, fmt.Errorf("direct_dns: %w", err)
@@ -224,6 +230,9 @@ type Engine struct {
 	direct     netip.Addr // DNS of the direct route now
 	baseDef    string     // from the config, without profile
 	baseDirect netip.Addr
+	blockDoH   bool       // see config.BlockDoH
+	autoDirect bool       // the config names no direct DNS
+	sysDNS     netip.Addr // the network's DNS server (SetSystemDNS), invalid = none
 	rules      []rule
 	// DNS servers after the route's own one, and whether the tunnels' own are left out
 	dnsExtra        []netip.Addr
@@ -302,6 +311,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
 		} else if t.Type == typeTailscale {
 			wt, err = e.newTSTunnel(t)
+		} else if t.Via != "" {
+			wt, err = e.newWGVia(t, c.MTU)
 		} else {
 			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
 			if wt != nil && onDemandEligible(t, c.Tunnels) {
@@ -402,6 +413,10 @@ func (e *Engine) setRules(c *config) error {
 	e.mu.Lock()
 	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
+	e.autoDirect, e.blockDoH = c.autoDirect, c.BlockDoH
+	if c.autoDirect && e.sysDNS.IsValid() {
+		e.baseDirect = e.sysDNS
+	}
 	e.dnsExtra, e.ignoreTunnelDNS = nil, c.IgnoreTunnelDNS
 	for _, s := range c.DNSServers {
 		e.dnsExtra = append(e.dnsExtra, netip.MustParseAddr(s))
@@ -506,11 +521,14 @@ func (e *Engine) noteBlocked(app, name, level, list string) {
 // routeFor picks the route of a connection: destination rules, then the
 // app's rule, then the default (of the network profile).
 // byDefault: the route is the default, so it changes with the network.
-func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool) (route string, byDefault bool) {
+func (e *Engine) routeFor(app, pinned string, proto int, dst netip.AddrPort, isDNS bool) (route string, byDefault bool) {
 	if !isDNS {
 		if r, _ := e.ruleRoute(app, proto, dst); r != "" {
 			return r, false
 		}
+	}
+	if pinned != "" {
+		return e.pinnedRoute(pinned), false
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -518,6 +536,47 @@ func (e *Engine) routeFor(app string, proto int, dst netip.AddrPort, isDNS bool)
 		return r, false
 	}
 	return e.def, true
+}
+
+// pinnedRoute checks the route a process was started in: one that does not
+// exist (any more) blocks, never falls back to another route.
+func (e *Engine) pinnedRoute(r string) string {
+	switch {
+	case r == RouteDirect, r == RouteBlock,
+		r == linkPref+"wifi", r == linkPref+"ethernet", r == linkPref+"mobile":
+		return r
+	}
+	if n, ok := strings.CutPrefix(r, tunnelPref); ok && e.tunnel(n) != nil {
+		return r
+	}
+	return RouteBlock
+}
+
+// fallbackDirect is the direct route's DNS server when neither the config
+// nor the network names one.
+const fallbackDirect = "1.1.1.1"
+
+// SetSystemDNS tells the engine the DNS server the network hands out (DHCP;
+// invalid = none). When the config names no direct DNS, the direct route
+// asks it, as on Linux (the system's resolvers): names only the router
+// knows (fritz.box, the NAS) keep working.
+func (e *Engine) SetSystemDNS(a netip.Addr) {
+	e.mu.Lock()
+	if a == e.sysDNS {
+		e.mu.Unlock()
+		return
+	}
+	e.sysDNS = a
+	if e.autoDirect {
+		e.baseDirect = netip.MustParseAddr(fallbackDirect)
+		if a.IsValid() {
+			e.baseDirect = a
+		}
+	}
+	link, ssid := e.link, e.ssid
+	e.mu.Unlock()
+	e.logf("network DNS %s", a)
+	e.SetNetwork(link, ssid) // applies it, cuts direct DNS flows of the old server
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network
@@ -544,6 +603,40 @@ func (e *Engine) NetworkChanged() {
 			}
 		}
 	}
+}
+
+// Resumed starts the WireGuard sessions over after the machine slept. Go's
+// clock does not count the sleep on Windows, so wireguard-go takes its keys
+// for fresh while the server dropped them long ago: traffic stalls until a
+// timeout (15-30 s). Down/Up drops the keys; a new handshake follows at once
+// (keepalive) or with the first packet.
+func (e *Engine) Resumed() {
+	e.tunMu.RLock()
+	ts := make([]*wgTunnel, 0, len(e.tunnels))
+	for _, t := range e.tunnels {
+		ts = append(ts, t)
+	}
+	e.tunMu.RUnlock()
+	n := 0
+	for _, t := range ts {
+		if t.isOVPN() || t.dev == nil {
+			continue
+		}
+		if err := t.dev.Down(); err != nil {
+			e.logf("tunnel %s: down: %v", t.name, err)
+		}
+		if err := t.dev.Up(); err != nil {
+			e.logf("tunnel %s: up: %v", t.name, err)
+			continue
+		}
+		if e.o.BindUp != nil {
+			if err := e.o.BindUp(t.dev.Bind()); err != nil {
+				e.logf("tunnel %s: %v", t.name, err)
+			}
+		}
+		n++
+	}
+	e.logf("resumed from sleep: %d tunnel(s) start new sessions", n)
 }
 
 // SetPanic blocks everything at once, running connections included.

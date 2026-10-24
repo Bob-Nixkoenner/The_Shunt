@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -25,23 +26,74 @@ type chromiumBrowser struct {
 	label string
 	apps  *regexp.Regexp // menu entry ids of this browser
 	roots []string       // user data directories, relative to $HOME
+	// Windows: the program (lower-case path) and the user data directories,
+	// relative to %LOCALAPPDATA% or, with "roaming/", to %APPDATA%
+	winExe   *regexp.Regexp
+	winRoots []string
 }
 
 var chromiumBrowsers = []chromiumBrowser{
 	{"chrome", "Chrome", regexp.MustCompile(`^(google-chrome(-stable)?|com\.google\.Chrome)$`),
-		[]string{".config/google-chrome", ".var/app/com.google.Chrome/config/google-chrome"}},
+		[]string{".config/google-chrome", ".var/app/com.google.Chrome/config/google-chrome"},
+		regexp.MustCompile(`\\google\\chrome\\application\\chrome\.exe$`), []string{"Google/Chrome/User Data"}},
 	{"chromium", "Chromium", regexp.MustCompile(`^(chromium(-browser)?|chromium_chromium|org\.chromium\.Chromium)$`),
-		[]string{".config/chromium", "snap/chromium/current/.config/chromium", "snap/chromium/common/chromium", ".var/app/org.chromium.Chromium/config/chromium"}},
+		[]string{".config/chromium", "snap/chromium/current/.config/chromium", "snap/chromium/common/chromium", ".var/app/org.chromium.Chromium/config/chromium"},
+		regexp.MustCompile(`\\chromium\\application\\chrome\.exe$`), []string{"Chromium/User Data"}},
 	{"brave", "Brave", regexp.MustCompile(`^(brave(-browser)?|brave_brave|com\.brave\.Browser)$`),
-		[]string{".config/BraveSoftware/Brave-Browser", "snap/brave/current/.config/BraveSoftware/Brave-Browser", ".var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"}},
+		[]string{".config/BraveSoftware/Brave-Browser", "snap/brave/current/.config/BraveSoftware/Brave-Browser", ".var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"},
+		regexp.MustCompile(`\\brave\.exe$`), []string{"BraveSoftware/Brave-Browser/User Data"}},
 	{"vivaldi", "Vivaldi", regexp.MustCompile(`^(vivaldi(-stable)?|vivaldi_vivaldi-stable|com\.vivaldi\.Vivaldi)$`),
-		[]string{".config/vivaldi", "snap/vivaldi/current/.config/vivaldi", ".var/app/com.vivaldi.Vivaldi/config/vivaldi"}},
+		[]string{".config/vivaldi", "snap/vivaldi/current/.config/vivaldi", ".var/app/com.vivaldi.Vivaldi/config/vivaldi"},
+		regexp.MustCompile(`\\vivaldi\.exe$`), []string{"Vivaldi/User Data"}},
 	{"opera", "Opera", regexp.MustCompile(`^(opera(-stable)?|opera_opera|com\.opera\.Opera)$`),
-		[]string{".config/opera", "snap/opera/current/.config/opera", ".var/app/com.opera.Opera/config/opera"}},
+		[]string{".config/opera", "snap/opera/current/.config/opera", ".var/app/com.opera.Opera/config/opera"},
+		regexp.MustCompile(`\\opera\\(launcher|opera)\.exe$`), []string{"roaming/Opera Software/Opera Stable"}},
 	{"opera-gx", "Opera GX", regexp.MustCompile(`^(opera-gx|opera-gx_opera-gx)$`),
-		[]string{".config/opera-gx", "snap/opera-gx/current/.config/opera-gx"}},
+		[]string{".config/opera-gx", "snap/opera-gx/current/.config/opera-gx"},
+		regexp.MustCompile(`\\opera gx\\(launcher|opera)\.exe$`), []string{"roaming/Opera Software/Opera GX Stable"}},
 	{"edge", "Edge", regexp.MustCompile(`^(microsoft-edge(-stable)?|com\.microsoft\.Edge)$`),
-		[]string{".config/microsoft-edge", ".var/app/com.microsoft.Edge/config/microsoft-edge"}},
+		[]string{".config/microsoft-edge", ".var/app/com.microsoft.Edge/config/microsoft-edge"},
+		regexp.MustCompile(`\\microsoft\\edge\\application\\msedge\.exe$`), []string{"Microsoft/Edge/User Data"}},
+}
+
+// goos and appData are variables for the tests.
+var (
+	goos    = runtime.GOOS
+	appData = func() (local, roaming string) { return os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA") }
+)
+
+// dataDirs lists where the browser may keep its user data directory.
+func (b chromiumBrowser) dataDirs(home string) []string {
+	var out []string
+	if goos != "windows" {
+		for _, rel := range b.roots {
+			out = append(out, filepath.Join(home, filepath.FromSlash(rel)))
+		}
+		return out
+	}
+	local, roaming := appData()
+	for _, rel := range b.winRoots {
+		base := local
+		if r, ok := strings.CutPrefix(rel, "roaming/"); ok {
+			base, rel = roaming, r
+		}
+		if base != "" {
+			out = append(out, filepath.Join(base, filepath.FromSlash(rel)))
+		}
+	}
+	return out
+}
+
+// ChromiumBrowserOfExe returns the browser key of a Windows program path
+// ("" = not a Chromium-family browser).
+func ChromiumBrowserOfExe(path string) string {
+	p := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
+	for _, b := range chromiumBrowsers {
+		if b.winExe.MatchString(p) {
+			return b.key
+		}
+	}
+	return ""
 }
 
 // ChromiumBrowserOf returns the browser key of a menu entry id ("" = not a
@@ -69,8 +121,7 @@ func chromiumProfilesIn(home string) []ChromiumProfile {
 	var out []ChromiumProfile
 	for _, b := range chromiumBrowsers {
 		seen := map[string]bool{}
-		for _, rel := range b.roots {
-			root := filepath.Join(home, filepath.FromSlash(rel))
+		for _, root := range b.dataDirs(home) {
 			real, err := filepath.EvalSymlinks(root)
 			if err != nil || seen[real] {
 				continue
@@ -122,6 +173,9 @@ func localStateProfiles(root string) map[string]string {
 	return out
 }
 
+// ErrSharedProfile: an existing Chromium profile cannot get a launcher of its own on Windows.
+var ErrSharedProfile = errors.New("on Windows an existing Chrome/Brave/Edge profile cannot get a launcher of its own: the browser binds its logins to its data folder and would delete them. Create a launcher with a new profile folder (empty arguments) instead")
+
 // InstanceDir is where a profile launcher keeps its own user data directory.
 // It is not hidden: snap-confined browsers may only write to visible folders in $HOME.
 func InstanceDir(home, launcherName string) string {
@@ -132,7 +186,15 @@ func InstanceDir(home, launcherName string) string {
 // returns its path. A browser process serves every profile of its data
 // directory, so a profile can only get its own route when it runs in a
 // directory of its own: this one holds a link to the profile's folder.
+//
+// Not on Windows: there Chromium binds cookies and saved passwords to the
+// user data directory (tested with Brave, App-Bound Encryption). A second
+// directory cannot read them, and the browser then deletes them from the
+// shared profile, in the original too.
 func ChromiumInstance(home string, p ChromiumProfile, launcherName string) (string, error) {
+	if goos == "windows" {
+		return "", ErrSharedProfile
+	}
 	known := false
 	for _, k := range chromiumProfilesIn(home) {
 		if k == p {

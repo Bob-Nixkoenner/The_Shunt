@@ -23,6 +23,8 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 	"gvisor.dev/gvisor/pkg/waiter"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/doh"
 )
 
 const (
@@ -75,6 +77,7 @@ type flow struct {
 	proto    int // 6 TCP, 17 UDP
 	src, dst netip.AddrPort
 	app      string // owner, "" = unknown
+	pinned   string // route the owner was started in ("" = none, see Pinned)
 	route    string
 	pass     bool // direct only because of a pass (override): cut when it ends
 	// byDefault: on the default route (no app or destination rule); cut
@@ -90,9 +93,9 @@ type flow struct {
 func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 	f := &flow{proto: proto, src: addrPort(id.RemoteAddress, id.RemotePort), dst: addrPort(id.LocalAddress, id.LocalPort)}
 	if e.o.Owner != nil {
-		f.app = e.o.Owner(proto, f.src, f.dst)
+		f.pinned, f.app = splitPinned(e.o.Owner(proto, f.src, f.dst))
 	}
-	normal, byDefault := e.routeFor(f.app, proto, f.dst, f.isDNS(e))
+	normal, byDefault := e.routeFor(f.app, f.pinned, proto, f.dst, f.isDNS(e))
 	f.byDefault = byDefault
 	normal, f.viaLink = e.resolveLink(normal)
 	f.route = e.ov.Route(normal, time.Now())
@@ -331,6 +334,17 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		}
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
+			e.mu.RLock()
+			noDoH := e.blockDoH
+			e.mu.RUnlock()
+			if doh.Unwanted(strings.TrimSuffix(strings.ToLower(q.Question[0].Name), "."), noDoH) {
+				r := new(dns.Msg)
+				r.SetRcode(&q, dns.RcodeNameError)
+				if b, err := r.Pack(); err == nil {
+					in.Write(b)
+				}
+				continue
+			}
 			if list := e.blockedName(f.app, q.Question[0].Name); list != "" {
 				e.dnsBlocked.Add(1)
 				r := new(dns.Msg)
@@ -372,7 +386,7 @@ func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
 			in.Write(b)
 		}
 	}
-	rf := &flow{proto: 17, src: f.src, dst: f.dst, app: f.app, route: e.ov.Route(r.route, time.Now())}
+	rf := &flow{proto: 17, src: f.src, dst: f.dst, app: f.app, pinned: f.pinned, route: e.ov.Route(r.route, time.Now())}
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimout)
 	out, err := e.dial(ctx, rf)
 	cancel()

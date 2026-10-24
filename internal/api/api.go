@@ -102,6 +102,10 @@ type GroupStatus struct {
 // daemon takes the PID from the socket credentials, never from the request.
 type RunRequest struct {
 	Group string `json:"group"`
+	// Windows: the process (started suspended by the caller) and its route.
+	// shuntd on Linux ignores them.
+	PID   int    `json:"pid,omitempty"`
+	Route string `json:"route,omitempty"`
 }
 
 // AdoptRequest asks shuntd to move processes of the caller's own user into a

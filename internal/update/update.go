@@ -231,11 +231,31 @@ func newer(current, latest string) bool {
 	case localBuild(current):
 		return false
 	default:
+		if base, ok := describeBase(current); ok {
+			// a build from git (commits after a tag, or local changes): it
+			// is at least that tag, only a newer release is an update
+			c, ok := cmpVersion(latest, base)
+			return ok && c > 0
+		}
 		if c, ok := cmpVersion(latest, current); ok {
 			return c > 0
 		}
 		return latest != current
 	}
+}
+
+// describeRe matches `git describe --tags --dirty` versions of builds made
+// after a tag: "v0.7.1-rc10-4-gf357390", "v0.7.1-rc10-dirty".
+var describeRe = regexp.MustCompile(`^(v\d+\.\d+\.\d+(?:-[A-Za-z]+\.?\d*)?)(?:-(\d+)-g[0-9a-f]+)?(-dirty)?$`)
+
+// describeBase returns the tag a git build was made from; ok is false for
+// plain tags.
+func describeBase(v string) (base string, ok bool) {
+	m := describeRe.FindStringSubmatch(v)
+	if m == nil || m[2] == "" && m[3] == "" {
+		return "", false
+	}
+	return m[1], true
 }
 
 // localBuild: a test build with its own tag word ("v0.7.1-next", "-wgui3")

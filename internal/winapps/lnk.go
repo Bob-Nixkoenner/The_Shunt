@@ -89,6 +89,9 @@ func StartMenu() []StartMenuProgram {
 		filepath.Join(os.Getenv("AppData"), `Microsoft\Windows\Start Menu\Programs`),
 	} {
 		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err == nil && d.IsDir() && d.Name() == MenuFolder {
+				return filepath.SkipDir // our launchers start shunt-desktop
+			}
 			if err != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(p), ".lnk") {
 				return nil
 			}
