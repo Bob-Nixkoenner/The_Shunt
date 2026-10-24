@@ -148,12 +148,26 @@ class ShuntVpnService : VpnService() {
         private var applied: Network? = null
         private var addrs: Set<String> = emptySet()
         private var appliedAddrs: Set<String> = emptySet()
+        private var appliedLink: String? = null
         private val settle = Runnable {
             val n = current
             setUnderlyingNetworks(n?.let { arrayOf(it) })
             if (applied != null && n != null && (n != applied || addrs != appliedAddrs)) VpnState.engine?.networkChanged()
             if (n != null) { applied = n; appliedAddrs = addrs }
+            // the kind of network for link:wifi / link:mobile routes (and network profiles)
+            val link = linkOf(n?.let { cm.getNetworkCapabilities(it) })
+            if (link != appliedLink) {
+                VpnState.engine?.let { it.setNetwork(link, ""); appliedLink = link }
+            }
             notifyStatus()
+        }
+
+        private fun linkOf(caps: NetworkCapabilities?): String = when {
+            caps == null -> ""
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> ""
         }
 
         private fun later() {
