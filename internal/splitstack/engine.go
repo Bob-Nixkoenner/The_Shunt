@@ -603,6 +603,40 @@ func (e *Engine) NetworkChanged() {
 	}
 }
 
+// Resumed starts the WireGuard sessions over after the machine slept. Go's
+// clock does not count the sleep on Windows, so wireguard-go takes its keys
+// for fresh while the server dropped them long ago: traffic stalls until a
+// timeout (15-30 s). Down/Up drops the keys; a new handshake follows at once
+// (keepalive) or with the first packet.
+func (e *Engine) Resumed() {
+	e.tunMu.RLock()
+	ts := make([]*wgTunnel, 0, len(e.tunnels))
+	for _, t := range e.tunnels {
+		ts = append(ts, t)
+	}
+	e.tunMu.RUnlock()
+	n := 0
+	for _, t := range ts {
+		if t.isOVPN() || t.dev == nil {
+			continue
+		}
+		if err := t.dev.Down(); err != nil {
+			e.logf("tunnel %s: down: %v", t.name, err)
+		}
+		if err := t.dev.Up(); err != nil {
+			e.logf("tunnel %s: up: %v", t.name, err)
+			continue
+		}
+		if e.o.BindUp != nil {
+			if err := e.o.BindUp(t.dev.Bind()); err != nil {
+				e.logf("tunnel %s: %v", t.name, err)
+			}
+		}
+		n++
+	}
+	e.logf("resumed from sleep: %d tunnel(s) start new sessions", n)
+}
+
 // SetPanic blocks everything at once, running connections included.
 func (e *Engine) SetPanic(on bool) {
 	e.ov.SetPanic(on)
