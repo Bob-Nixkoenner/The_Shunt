@@ -40,12 +40,36 @@ func (c *Config) InboundFor(network string) (mode string, allow []PortSel) {
 	if mode != InboundLAN {
 		return mode, nil
 	}
+	return mode, parsePorts(list)
+}
+
+// TunnelInbound returns what may come in through tunnel name while the
+// protection is on; mode is "" while it is off.
+func (c *Config) TunnelInbound(name string) (mode string, allow []PortSel) {
+	if c.Inbound == nil || !c.Inbound.Enabled {
+		return "", nil
+	}
+	t := c.Tunnels[name]
+	mode, list := InboundClosed, c.Inbound.Allow
+	if t.Inbound != "" {
+		mode = t.Inbound
+	}
+	if t.InboundAllow != nil {
+		list = t.InboundAllow
+	}
+	if mode != InboundLAN {
+		return mode, nil
+	}
+	return mode, parsePorts(list)
+}
+
+func parsePorts(list []string) (allow []PortSel) {
 	for _, s := range list {
 		if p, err := ParsePort(s); err == nil {
 			allow = append(allow, p)
 		}
 	}
-	return mode, allow
+	return allow
 }
 
 func validInbound(m string) bool {
@@ -57,6 +81,16 @@ func (c *Config) validateInbound() error {
 		for _, s := range c.Inbound.Allow {
 			if _, err := ParsePort(s); err != nil {
 				return fmt.Errorf("inbound.allow: %w", err)
+			}
+		}
+	}
+	for name, t := range c.Tunnels {
+		if !validInbound(t.Inbound) {
+			return fmt.Errorf("tunnel %q: inbound %q (closed | lan | open)", name, t.Inbound)
+		}
+		for _, s := range t.InboundAllow {
+			if _, err := ParsePort(s); err != nil {
+				return fmt.Errorf("tunnel %q: inbound_allow: %w", name, err)
 			}
 		}
 	}

@@ -211,6 +211,12 @@ type Tunnel struct {
 	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 	// DNSFilter: filter level for this tunnel's route ("" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: what may come in through this tunnel while the inbound
+	// protection is on: closed | lan | open ("" = closed, the far end of a
+	// tunnel is not your network unless you say so, e.g. a tunnel home).
+	// InboundAllow: the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.

@@ -325,6 +325,10 @@ func TestInbound(t *testing.T) {
 	c, err := config.Parse(`
 [tunnel.vps]
 config = "vps.conf"
+[tunnel.heim]
+config = "heim.conf"
+inbound = "lan"
+inbound_allow = ["tcp/22"]
 [inbound]
 enabled = true
 allow = ["tcp/1716", "udp/1716"]
@@ -343,7 +347,7 @@ inbound = "open"
 	if err != nil {
 		t.Fatal(err)
 	}
-	ti := map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}}
+	ti := map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}, "heim": {Iface: "sh-heim", HasV4: true}}
 	render := func(network string) string {
 		p, err := engine.CompileOn(c, "shunt", ti, network, map[string]string{"wifi": "wlan0"})
 		if err != nil {
@@ -357,13 +361,16 @@ inbound = "open"
 	}
 	common := []string{
 		"type filter hook input priority filter; policy accept;",
-		`iifname != { "wlan0", "sh-vps" } return`,
+		`iifname != { "wlan0", "sh-heim", "sh-vps" } return`,
 		"ct state established,related accept",
 		"udp sport 67 udp dport 68 accept",
-		`iifname { "sh-vps" } counter drop`,
+		// tunnels keep their own mode on every network
+		`iifname "sh-vps" counter drop`,
+		`iifname "sh-heim" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } tcp dport 22 accept`,
+		`iifname "sh-heim" counter drop`,
 	}
 	for network, c := range map[string]struct{ want, not []string }{
-		"": {want: []string{"counter drop"}, not: []string{"echo-request accept", "dport 22", "dport 1716"}},
+		"": {want: []string{"\t\tcounter drop\n"}, not: []string{"\t\tip saddr", "dport 1716"}},
 		"home": {want: []string{
 			"ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } tcp dport 22 accept",
 			"ip6 saddr { fc00::/7, fe80::/10 } udp dport 47998-48000 accept",

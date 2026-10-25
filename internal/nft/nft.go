@@ -498,7 +498,10 @@ func quoteList(l []string) string {
 // (DHCP, IPv6 neighbour discovery, ICMP errors) pass, the rest per mode.
 // Dropped, not rejected: a closed machine does not answer scans.
 func inboundLines(in *engine.Inbound) ([]string, error) {
-	ifs := append(slices.Clone(in.Uplinks), in.Tunnels...)
+	ifs := slices.Clone(in.Uplinks)
+	for _, t := range in.Tunnels {
+		ifs = append(ifs, t.Iface)
+	}
 	if len(ifs) == 0 {
 		return nil, nil
 	}
@@ -515,26 +518,36 @@ func inboundLines(in *engine.Inbound) ([]string, error) {
 		"meta nfproto ipv4 udp sport 67 udp dport 68 accept",
 		"meta nfproto ipv6 udp sport 547 udp dport 546 accept",
 	}
-	if len(in.Tunnels) > 0 {
-		out = append(out, fmt.Sprintf("iifname { %s } counter drop", quoteList(in.Tunnels)))
+	// every tunnel ends here (accept or drop): what follows is the uplinks
+	for _, t := range in.Tunnels {
+		m := fmt.Sprintf("iifname %q ", t.Iface)
+		out = append(out, modeLines(m, t.Mode, t.Allow)...)
 	}
-	switch in.Mode {
-	case config.InboundOpen:
-		return append(out, "accept"), nil
-	case config.InboundLAN:
+	return append(out, modeLines("", in.Mode, in.Allow)...), nil
+}
+
+// modeLines lets in what mode allows (lan: ping and the ports in allow
+// from private addresses), the rest is dropped; prefix narrows them to
+// one interface.
+func modeLines(prefix, mode string, allow []config.PortSel) []string {
+	if mode == config.InboundOpen {
+		return []string{prefix + "accept"}
+	}
+	var out []string
+	if mode == config.InboundLAN {
 		v4, v6 := strings.Join(engine.LANv4, ", "), strings.Join(engine.LANv6, ", ")
 		out = append(out,
-			fmt.Sprintf("ip saddr { %s } icmp type echo-request accept", v4),
-			fmt.Sprintf("ip6 saddr { %s } icmpv6 type echo-request accept", v6))
-		for _, a := range in.Allow {
+			fmt.Sprintf("%sip saddr { %s } icmp type echo-request accept", prefix, v4),
+			fmt.Sprintf("%sip6 saddr { %s } icmpv6 type echo-request accept", prefix, v6))
+		for _, a := range allow {
 			port := strconv.Itoa(int(a.From))
 			if a.To != a.From {
 				port += "-" + strconv.Itoa(int(a.To))
 			}
 			out = append(out,
-				fmt.Sprintf("ip saddr { %s } %s dport %s accept", v4, a.Proto, port),
-				fmt.Sprintf("ip6 saddr { %s } %s dport %s accept", v6, a.Proto, port))
+				fmt.Sprintf("%sip saddr { %s } %s dport %s accept", prefix, v4, a.Proto, port),
+				fmt.Sprintf("%sip6 saddr { %s } %s dport %s accept", prefix, v6, a.Proto, port))
 		}
 	}
-	return append(out, "counter drop"), nil
+	return append(out, prefix+"counter drop")
 }

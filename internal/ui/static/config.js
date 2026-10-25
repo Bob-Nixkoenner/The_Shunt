@@ -132,7 +132,13 @@ function renderConfig() {
         el("input", { type: "checkbox", checked: t.allow_lan ? "" : null, onchange: (e) => { t.allow_lan = e.target.checked || undefined; markDirty(); } }), "local network direct"),
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
-      el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
+      el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t)),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on under General). LAN = e.g. a tunnel home." }, "incoming "), (() => {
+          const s = el("select", { onchange: (e) => { t.inbound = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
+          s.value = t.inbound === "closed" ? "" : t.inbound || "";
+          return s;
+        })())),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – add a WireGuard, OpenVPN, Tailscale or Headscale tunnel under “Add a tunnel” below."))]));
 
