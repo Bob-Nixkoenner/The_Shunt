@@ -232,6 +232,9 @@ No account, no telemetry.
 
 - **Kill switch**: with Android's "Always-on VPN" and "Block connections without VPN" the
   app tells you when it is missing; the status bar icon shows how many tunnels work.
+  Switch both on: without the block, Android itself lets a little past the VPN (DNS for a
+  moment while the VPN starts, apps whose connection was opened before it). With both on,
+  nothing of an app got past the tunnel in our tests (tunnel down, crash, force-stop).
 - **Tunnels on demand** (default): a WireGuard tunnel no app uses is closed after a few
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
