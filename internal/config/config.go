@@ -126,6 +126,16 @@ func (c *Config) MatchNetwork(ssid, gatewayMAC string) *Network {
 	return nil
 }
 
+// DHCP host name modes (daemon.dhcp_hostname, network dhcp_hostname).
+const (
+	HostnameNone = "none"
+	HostnameSend = "send"
+)
+
+func validHostname(m string) bool {
+	return m == "" || m == HostnameNone || m == HostnameSend
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -158,16 +168,6 @@ type Daemon struct {
 	// through the Shunt adapter or from the service itself, also while the
 	// service is down after a crash. Linux always has its own kill switch.
 	KillSwitch bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
-}
-
-// DHCP host name modes (daemon.dhcp_hostname, network dhcp_hostname).
-const (
-	HostnameNone = "none"
-	HostnameSend = "send"
-)
-
-func validHostname(m string) bool {
-	return m == "" || m == HostnameNone || m == HostnameSend
 }
 
 // DNS configures the per-route DNS proxy.
