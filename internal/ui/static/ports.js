@@ -24,7 +24,7 @@ function renderPorts() {
     p.reach === "all" ? "all interfaces" : (p.ifaces || []).join(", ") || p.addr;
   $("#ports").replaceChildren(...(shown.length ? shown.map((p) => el("tr", {},
     el("td", { class: "mono" }, p.proto + " " + (p.addr.includes(":") ? "[" + p.addr + "]" : p.addr) + ":" + p.port),
-    el("td", {}, el("b", {}, p.owner.name || "?"), p.owner.procs && p.owner.procs[0] !== p.owner.name ? el("span", { class: "muted" }, " " + p.owner.procs.join(", ")) : ""),
+    el("td", {}, el("b", {}, p.owner.name || "?"), p.owner.procs && p.owner.procs[0] !== p.owner.name && !p.owner.shared ? el("span", { class: "muted" }, " " + p.owner.procs.join(", ")) : ""),
     el("td", {}, reach(p)),
     el("td", {}, p.exposed ? el("span", { class: "pill " + (l.network ? "warn" : "bad") }, "network") : "",
       p.tunnel ? el("span", { class: "pill warn" }, "tunnel") : "")))

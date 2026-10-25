@@ -492,7 +492,7 @@ func ports(c *api.Client, args []string) error {
 			reach = strings.Join(p.Ifaces, ",")
 		}
 		prog := p.Owner.Name
-		if len(p.Owner.Procs) > 0 && p.Owner.Procs[0] != prog {
+		if len(p.Owner.Procs) > 0 && p.Owner.Procs[0] != prog && !p.Owner.Shared {
 			prog += " (" + strings.Join(p.Owner.Procs, ", ") + ")"
 		}
 		if prog == "" {
