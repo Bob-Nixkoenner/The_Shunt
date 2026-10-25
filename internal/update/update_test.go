@@ -112,6 +112,26 @@ func TestSourceBuildAhead(t *testing.T) {
 	}
 }
 
+// A source build that is behind gets the newest release as the thing to install.
+func TestSourceBuildReleaseTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/"+Repo+"/commits/HEAD":
+			w.Write([]byte(`{"sha":"ffff0000aaaa"}`))
+		case r.URL.Path == "/repos/"+Repo+"/releases":
+			w.Write([]byte(`[{"tag_name":"v0.7.1-rc11","prerelease":true}]`))
+		default:
+			w.Write([]byte(`{"status":"behind"}`))
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	c := &Checker{Current: "src-1234567", API: srv.URL}
+	if i := c.Check(context.Background()); !i.Available || i.Release != "v0.7.1-rc11" {
+		t.Errorf("%+v", i)
+	}
+}
+
 func TestCmpVersion(t *testing.T) {
 	for _, c := range []struct {
 		a, b string
