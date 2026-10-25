@@ -104,6 +104,16 @@ func ifaceAddrs() (map[netip.Addr]string, map[int]string, []string) {
 				if ip, ok := netip.AddrFromSlice(n.IP); ok {
 					byAddr[ip.Unmap()] = i.Name
 				}
+				// sockets bound to the subnet's broadcast address (nmbd)
+				if v4 := n.IP.To4(); v4 != nil && len(n.Mask) == net.IPv4len {
+					var b [4]byte
+					for k := range b {
+						b[k] = v4[k] | ^n.Mask[k]
+					}
+					if _, taken := byAddr[netip.AddrFrom4(b)]; !taken {
+						byAddr[netip.AddrFrom4(b)] = i.Name
+					}
+				}
 			}
 		}
 	}

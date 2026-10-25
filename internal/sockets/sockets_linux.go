@@ -271,7 +271,12 @@ func (r *Resolver) procs(rel string) []string {
 	return out
 }
 
-// youngest returns the name of the newest process in cgroup rel.
+// helpers are never the program that asks: a shell, a loop's sleep.
+var helpers = map[string]bool{"sleep": true, "sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "cat": true, "grep": true,
+	"sed": true, "awk": true, "head": true, "tail": true, "timeout": true, "tee": true, "xargs": true, "env": true, "sudo": true, "watch": true}
+
+// youngest returns the name of the newest process in cgroup rel that is
+// not a shell helper.
 func (r *Resolver) youngest(rel string) string {
 	r.mu.Lock()
 	m := r.mount
@@ -296,8 +301,12 @@ func (r *Resolver) youngest(rel string) string {
 		if len(fs) < 20 {
 			continue
 		}
+		name := string(st[j+1 : i])
+		if helpers[name] {
+			continue
+		}
 		if t, err := strconv.ParseUint(fs[19], 10, 64); err == nil && t >= start {
-			best, start = string(st[j+1:i]), t
+			best, start = name, t
 		}
 	}
 	return best

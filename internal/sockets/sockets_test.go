@@ -19,6 +19,7 @@ func TestNameOf(t *testing.T) {
 		"system.slice/ssh.service":                           "ssh",
 		"system.slice/systemd-resolved.service":              "systemd-resolved",
 		"system.slice/system-getty.slice/getty@tty1.service": "getty",
+		"user.slice/user-1000.slice/session-3.scope":         "login session",
 		"init.scope":              "systemd",
 		"system.slice/ssh.socket": "ssh",
 	} {

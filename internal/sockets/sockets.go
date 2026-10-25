@@ -97,7 +97,12 @@ func nameOf(cg string) (o Owner, generic bool) {
 	case n == "init":
 		o.Name = "systemd"
 		return o, false
-	case strings.HasPrefix(n, "session-") || strings.HasPrefix(n, "user@") || strings.HasPrefix(n, "user-runtime-dir@"):
+	case strings.HasPrefix(n, "session-"):
+		// a login session: on desktops that start apps without a scope of
+		// their own (COSMIC) the whole desktop lives here
+		o.Name = "login session"
+		return o, true
+	case strings.HasPrefix(n, "user@") || strings.HasPrefix(n, "user-runtime-dir@"):
 		return o, true
 	case strings.HasPrefix(n, "snap."):
 		// snap.firefox.firefox-<uuid>
