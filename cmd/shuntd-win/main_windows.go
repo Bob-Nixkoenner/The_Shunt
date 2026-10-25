@@ -273,14 +273,15 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}()
 
-	// DNS filter: lists are downloaded straight over the real network
-	// (not through the TUN) and cached next to the config.
+	// DNS filter: lists are downloaded the way apps without a rule go (the
+	// default route, through its tunnel and its DNS; direct only when the
+	// default is direct) and cached next to the config.
 	fm := &blocklist.Manager{
 		Dir: filepath.Join(dataDir, "blocklists"),
 		Log: slog.Default(),
 		Client: func() *http.Client {
 			return &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{
-				DialContext: winsplit.DialDirect(phys.Load), Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
+				DialContext: e.DialDefault, Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
 		},
 		OnChange: func(f *blocklist.Filter) { e.SetFilter(f, m.FilterLevel()) },
 	}

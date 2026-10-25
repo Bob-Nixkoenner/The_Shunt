@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -41,6 +42,10 @@ func TestLeakTest(t *testing.T) {
 		r.SetReply(q)
 		if q.Question[0].Qtype == dns.TypeTXT {
 			rr, _ := dns.NewRR(q.Question[0].Name + ` 60 IN TXT "198.51.100.53"`)
+			r.Answer = append(r.Answer, rr)
+		}
+		if q.Question[0].Qtype == dns.TypeA && q.Question[0].Name == "lists.test." {
+			rr, _ := dns.NewRR("lists.test. 60 IN A 10.9.0.1")
 			r.Answer = append(r.Answer, rr)
 		}
 		w.WriteMsg(r)
@@ -87,5 +92,18 @@ func TestLeakTest(t *testing.T) {
 	}
 	if r := got["direct"]; r.Result.IP != "" {
 		t.Errorf("direct reached the test internet: %+v", r)
+	}
+
+	// the service's own downloads take the default route, DNS included:
+	// lists.test is only known to the tunnel's resolver, direct is dead
+	cl := &http.Client{Transport: &http.Transport{DialContext: e.DialDefault}}
+	resp, err := cl.Get("http://lists.test/")
+	if err != nil {
+		t.Fatalf("download through the default route: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "203.0.113.7" {
+		t.Errorf("download: %q", body)
 	}
 }
