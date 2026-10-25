@@ -87,3 +87,17 @@ func (e *Engine) ProbeRoute(ctx context.Context, route string) ([]byte, error) {
 	}
 	return json.Marshal(probe.RunWith(ctx, dial, res))
 }
+
+// DialDefault dials the way an app without a rule goes (the default route
+// of the network profile, names resolved through it): the service's own
+// downloads (DNS filter lists) must not leave past the tunnel.
+func (e *Engine) DialDefault(ctx context.Context, network, addr string) (net.Conn, error) {
+	e.mu.RLock()
+	route := e.def
+	e.mu.RUnlock()
+	dial, _, err := e.routeNet(route)
+	if err != nil {
+		return nil, err
+	}
+	return dial(ctx, network, addr)
+}
