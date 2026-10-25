@@ -10,6 +10,9 @@ ARCH=${ARCH:-amd64}
 BIN=${BIN:?set BIN to the directory with the built binaries}
 OUT=${OUT:-dist}; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 DEBVER=${VERSION#v}; DEBVER=${DEBVER/-/\~} # 0.7.1-rc1 sorts before 0.7.1 as 0.7.1~rc1
+# file names keep the "-": GitHub turns "~" into "." in release asset names,
+# and SHA256SUMS (made before the upload) would no longer match them
+FILEVER=${VERSION#v}
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 
 # --- the-shunt
@@ -102,8 +105,8 @@ fi
 if [ "$1" = purge ]; then rm -rf /etc/shunt /var/lib/shunt; fi
 EOF
 chmod 755 "$P/DEBIAN/postinst" "$P/DEBIAN/prerm" "$P/DEBIAN/postrm"
-dpkg-deb --root-owner-group -Zxz -b "$P" "$OUT/the-shunt_${DEBVER}_${ARCH}.deb" >/dev/null
-echo "$OUT/the-shunt_${DEBVER}_${ARCH}.deb"
+dpkg-deb --root-owner-group -Zxz -b "$P" "$OUT/the-shunt_${FILEVER}_${ARCH}.deb" >/dev/null
+echo "$OUT/the-shunt_${FILEVER}_${ARCH}.deb"
 
 # --- the-shunt-desktop
 if [ -x "$BIN/shunt-desktop" ]; then
@@ -125,6 +128,6 @@ Homepage: https://github.com/Bob-Nixkoenner/The_Shunt
 Description: The Shunt tray icon and window
  Tray icon with status, notifications and the web UI in its own window.
 EOF
-	dpkg-deb --root-owner-group -Zxz -b "$D" "$OUT/the-shunt-desktop_${DEBVER}_${ARCH}.deb" >/dev/null
-	echo "$OUT/the-shunt-desktop_${DEBVER}_${ARCH}.deb"
+	dpkg-deb --root-owner-group -Zxz -b "$D" "$OUT/the-shunt-desktop_${FILEVER}_${ARCH}.deb" >/dev/null
+	echo "$OUT/the-shunt-desktop_${FILEVER}_${ARCH}.deb"
 fi
