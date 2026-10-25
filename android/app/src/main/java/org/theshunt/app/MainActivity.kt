@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
         UiPrefs.load(this)
         setContent {
             ShuntTheme(UiPrefs.dark()) {
-                Surface(Modifier.fillMaxSize(), color = LocalShunt.current.bg) { App() }
+                Surface(Modifier.fillMaxSize(), color = LocalShunt.current.bg) { ConsentGate(onDecline = { finish() }) { App() } }
             }
         }
     }
@@ -295,6 +295,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
 
         UpdateSection(say)
         AppearanceSection()
+        PrivacySection()
     }
     if (confirmPass) {
         AlertDialog(
