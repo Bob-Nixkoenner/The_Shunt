@@ -5,8 +5,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -45,6 +47,10 @@ commands:
              remember it unless --once
   firewall apps | forget KEY
              stored firewall decisions / forget one (asked again next time)
+  ports [--all] [--json]
+             open ports: who listens, reachable from where (--all: also
+             the ones only this machine can reach)
+  blocks     which programs asked for names the DNS filter blocked
   which NAME show running processes named like NAME and the route each one takes
   rename OLD NEW
              rename a tunnel (files, rules, default route, menu entries follow)
@@ -104,6 +110,10 @@ func main() {
 		err = firewallCmd(c, args[1:])
 	case "which":
 		err = which(c, args[1:])
+	case "ports":
+		err = ports(c, args[1:])
+	case "blocks":
+		err = blocks(c)
 	case "import":
 		err = importTunnel(c, args[1:])
 	case "remove":
@@ -435,6 +445,116 @@ func which(c *api.Client, args []string) error {
 		fmt.Println("(also from the tray / background) and start it again.")
 	}
 	return nil
+}
+
+func ports(c *api.Client, args []string) error {
+	all, asJSON := false, false
+	for _, a := range args {
+		switch a {
+		case "--all":
+			all = true
+		case "--json":
+			asJSON = true
+		default:
+			return fmt.Errorf("usage: shunt ports [--all] [--json]")
+		}
+	}
+	var l api.Listening
+	if err := c.Do("GET", "/v1/listening", nil, &l); err != nil {
+		return err
+	}
+	if asJSON {
+		e := json.NewEncoder(os.Stdout)
+		e.SetIndent("", "  ")
+		return e.Encode(l)
+	}
+	if l.Error != "" {
+		return errors.New(l.Error)
+	}
+	where := "unknown network (no [[network]] profile matches)"
+	if l.Network != "" {
+		where = "network profile " + strconv.Quote(l.Network)
+	}
+	fmt.Printf("%s · connected via %s · tunnels %s\n", where, orNone(l.Uplinks), orNone(l.Tunnels))
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "PROTO\tADDRESS\tREACH\tFROM NETWORK\tFROM TUNNEL\tPROGRAM\tUNIT")
+	exposed, hidden := 0, 0
+	for _, p := range l.Ports {
+		if p.Reach == "localhost" && !all {
+			hidden++
+			continue
+		}
+		if p.Exposed {
+			exposed++
+		}
+		reach := p.Reach
+		if reach == "iface" {
+			reach = strings.Join(p.Ifaces, ",")
+		}
+		prog := p.Owner.Name
+		if len(p.Owner.Procs) > 0 && p.Owner.Procs[0] != prog {
+			prog += " (" + strings.Join(p.Owner.Procs, ", ") + ")"
+		}
+		if prog == "" {
+			prog = "?"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Proto, net.JoinHostPort(p.Addr, strconv.Itoa(int(p.Port))), reach, yesNo(p.Exposed), yesNo(p.Tunnel), prog, p.Owner.Unit)
+	}
+	w.Flush()
+	if hidden > 0 {
+		fmt.Printf("\n%d more only reachable from this machine (--all shows them)\n", hidden)
+	}
+	if len(l.Firewalls) > 0 {
+		fmt.Printf("Other firewalls active: %s – they may block some of these already.\n", strings.Join(l.Firewalls, ", "))
+	}
+	if exposed > 0 && !l.Inbound {
+		fmt.Printf("%d port(s) can be reached from the network you are connected to; The Shunt does not filter incoming connections yet.\n", exposed)
+	}
+	return nil
+}
+
+func orNone(s []string) string {
+	if len(s) == 0 {
+		return "–"
+	}
+	return strings.Join(s, ",")
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "YES"
+	}
+	return "no"
+}
+
+func blocks(c *api.Client) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	if st.DNSFilter == nil {
+		fmt.Println("The DNS filter is not active.")
+		return nil
+	}
+	by := st.DNSFilter.Stats.ByApp
+	names := make([]string, 0, len(by))
+	for n := range by {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		return by[names[i]] > by[names[j]] || by[names[i]] == by[names[j]] && names[i] < names[j]
+	})
+	fmt.Printf("%d queries blocked since the service started\n", st.DNSFilter.Stats.Blocked)
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "BLOCKED\tPROGRAM")
+	for _, n := range names {
+		label := n
+		if label == "" {
+			label = "(unknown)"
+		}
+		fmt.Fprintf(w, "%d\t%s\n", by[n], label)
+	}
+	return w.Flush()
 }
 
 func status(c *api.Client, args []string) error {

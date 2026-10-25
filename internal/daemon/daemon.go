@@ -40,6 +40,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
@@ -64,10 +65,12 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
-	filter    *blocklist.Manager
-	watcher   AppWatcher
-	saveMu    sync.Mutex // serializes config writes
-	dnsUps    dnsproxy.RouteUpstreams
+	// sockets names the programs behind sockets (DNS blocks per app, open ports).
+	sockets sockets.Resolver
+	filter  *blocklist.Manager
+	watcher AppWatcher
+	saveMu  sync.Mutex // serializes config writes
+	dnsUps  dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
 	// tunnel name); read by the DNS proxy without d.mu.
 	pushed sync.Map
@@ -592,6 +595,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 	}
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
+		d.proxy.Owner = func(proto string, from netip.AddrPort) string {
+			o, _ := d.sockets.Of(proto, from)
+			return o.Name
+		}
 	}
 	ups := d.upstreams(p)
 	if err := d.proxy.Update(p.Plan, ups); err != nil {
@@ -1345,6 +1352,9 @@ func (d *Daemon) routes() http.Handler {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, d.listening())
 	})
 	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.ToLower(r.URL.Query().Get("name"))

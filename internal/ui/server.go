@@ -267,6 +267,14 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("DELETE /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/firewall/apps?key="+url.QueryEscape(r.URL.Query().Get("key")), nil)
 	})
+	mux.HandleFunc("GET /api/listening", func(w http.ResponseWriter, r *http.Request) {
+		var l api.Listening
+		if err := s.Client.Do("GET", "/v1/listening", nil, &l); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, l)
+	})
 	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
 		var ps []api.ProcRoute
 		if err := s.Client.Do("GET", "/v1/procs?name="+url.QueryEscape(r.URL.Query().Get("name")), nil, &ps); err != nil {

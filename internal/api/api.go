@@ -20,6 +20,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -274,4 +275,40 @@ func (c *Client) Probe(_ context.Context, route string) ([]byte, error) {
 	var raw json.RawMessage
 	err := c.Do("POST", "/v1/probe", ProbeRequest{Route: route}, &raw)
 	return raw, err
+}
+
+// Listening answers GET /v1/listening: what on this machine waits for
+// connections from outside, and from where it can be reached.
+type Listening struct {
+	// Network: the matched [[network]] profile, "" = an unknown network.
+	Network string `json:"network,omitempty"`
+	// Uplinks: the connected physical links (Wi-Fi, cable, mobile);
+	// Tunnels: the tunnel interfaces.
+	Uplinks []string   `json:"uplinks,omitempty"`
+	Tunnels []string   `json:"tunnels,omitempty"`
+	Ports   []OpenPort `json:"ports"`
+	// Firewalls: other packet filters that are active (ufw, firewalld,
+	// other nftables tables). They may block some of these ports already.
+	Firewalls []string `json:"firewalls,omitempty"`
+	// Inbound: whether The Shunt filters incoming connections (not yet).
+	Inbound bool   `json:"inbound"`
+	Error   string `json:"error,omitempty"`
+}
+
+// OpenPort is one listening socket.
+type OpenPort struct {
+	Proto string `json:"proto"` // tcp | udp
+	Addr  string `json:"addr"`  // the address it is bound to
+	Port  uint16 `json:"port"`
+	// Reach: "localhost" (only this machine), "all" (every interface) or
+	// "iface" (the interfaces in Ifaces).
+	Reach  string   `json:"reach"`
+	Ifaces []string `json:"ifaces,omitempty"`
+	// Exposed: reachable from the network you are connected to;
+	// Tunnel: reachable from the other side of a tunnel.
+	Exposed bool          `json:"exposed"`
+	Tunnel  bool          `json:"tunnel"`
+	Owner   sockets.Owner `json:"owner"`
+	UID     uint32        `json:"uid"`
+	V6Only  bool          `json:"v6only,omitempty"`
 }

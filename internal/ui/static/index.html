@@ -60,6 +60,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 tr:last-child td { border-bottom: none; }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .7; }
 .chip { display: inline-block; padding: 1px 8px; margin: 1px 3px 1px 0; border-radius: 6px; background: var(--panel2); font-size: 12.5px; }
 .route { font-family: var(--mono); font-size: 12.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel2); white-space: nowrap; }
 .route.direct { color: var(--info); } .route.block { color: var(--bad); } .route.tunnel { color: var(--accent); } .route.link { color: var(--warn); }
@@ -225,6 +226,16 @@ body.windows .win-only { display: block !important; }
     <div class="hint">Change them under <b>Configure</b> (or edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”).</div>
   </section>
 
+  <section id="sec-ports" data-fold hidden>
+    <h2>Open ports <span class="muted" style="text-transform:none;letter-spacing:0" id="ports-sum"></span><span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="ports-all"> also local only</label></h2>
+    <div id="ports-notes"></div>
+    <div data-rows="6"><table>
+      <thead><tr><th>Port</th><th>Program</th><th>Listens on</th><th>Reachable from</th></tr></thead>
+      <tbody id="ports"></tbody>
+    </table></div>
+    <div class="hint">Programs on this machine waiting for connections. “network”: others on the Wi-Fi or cable you are connected to can reach it; “tunnel”: the other side of a tunnel can.</div>
+  </section>
+
   <section data-fold>
     <h2>DNS</h2>
     <div data-rows="5"><table><tbody id="dns"></tbody></table></div>
@@ -267,6 +278,12 @@ body.windows .win-only { display: block !important; }
       <button id="run" class="primary">Start</button>
     </div>
     <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
+  </section>
+
+  <section class="half linux-only" data-fold>
+    <h2>Who asks for blocked names</h2>
+    <div data-rows="8"><table><tbody id="appblocks"></tbody></table></div>
+    <div class="hint">DNS queries the filter blocked, per program, since the service started. A program without a menu entry of its own (started in a terminal) is named by a best guess: the newest program in that terminal.</div>
   </section>
 
   <section class="half linux-only" data-fold>
@@ -477,5 +494,6 @@ body.windows .win-only { display: block !important; }
 <script src="chart.js"></script>
 <script src="config.js"></script>
 <script src="filter.js"></script>
+<script src="ports.js"></script>
 </body>
 </html>
