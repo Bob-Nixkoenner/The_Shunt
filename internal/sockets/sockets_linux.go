@@ -200,10 +200,10 @@ func (r *Resolver) Owner(cg uint64) Owner {
 		// NFS), owned by no process
 		return Owner{Name: "kernel", System: true}
 	}
-	o, generic := nameOf(p)
-	o.Shared = generic
+	o, shared := nameOf(p)
+	o.Shared = shared
 	o.Procs = r.procs(p)
-	if (generic || o.Name == "") && len(o.Procs) > 0 {
+	if o.Name == "" && len(o.Procs) > 0 {
 		o.Name = o.Procs[0]
 	}
 	if r.owners == nil || len(r.owners) > 4096 {
@@ -271,47 +271,6 @@ func (r *Resolver) procs(rel string) []string {
 	return out
 }
 
-// helpers are never the program that asks: a shell, a loop's sleep.
-var helpers = map[string]bool{"sleep": true, "sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "cat": true, "grep": true,
-	"sed": true, "awk": true, "head": true, "tail": true, "timeout": true, "tee": true, "xargs": true, "env": true, "sudo": true, "watch": true}
-
-// youngest returns the name of the newest process in cgroup rel that is
-// not a shell helper.
-func (r *Resolver) youngest(rel string) string {
-	r.mu.Lock()
-	m := r.mount
-	r.mu.Unlock()
-	raw, err := os.ReadFile(filepath.Join(m, rel, "cgroup.procs"))
-	if err != nil {
-		return ""
-	}
-	best, start := "", uint64(0)
-	for _, f := range strings.Fields(string(raw)) {
-		st, err := os.ReadFile("/proc/" + f + "/stat")
-		if err != nil {
-			continue
-		}
-		// pid (comm) state ppid ... starttime is field 22
-		i := strings.LastIndexByte(string(st), ')')
-		j := strings.IndexByte(string(st), '(')
-		if i < 0 || j < 0 {
-			continue
-		}
-		fs := strings.Fields(string(st[i+1:]))
-		if len(fs) < 20 {
-			continue
-		}
-		name := string(st[j+1 : i])
-		if helpers[name] {
-			continue
-		}
-		if t, err := strconv.ParseUint(fs[19], 10, 64); err == nil && t >= start {
-			best, start = name, t
-		}
-	}
-	return best
-}
-
 // Of finds the socket of proto whose local address is from (the source of
 // a packet that arrived here, e.g. a DNS query) and returns its owner. An
 // unconnected socket bound to the wildcard address matches too.
@@ -339,12 +298,5 @@ func (r *Resolver) Of(proto string, from netip.AddrPort) (Owner, bool) {
 		return Owner{}, false
 	}
 	o := r.Owner(ss[best].Cgroup)
-	if o.Shared {
-		// a query from a session or route group: the youngest program
-		// there (curl in a terminal) asks, not the session's first one
-		if n := r.youngest(o.Cgroup); n != "" {
-			o.Name = n
-		}
-	}
 	return o, o.Name != ""
 }
