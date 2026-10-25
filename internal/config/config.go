@@ -31,6 +31,8 @@ type Config struct {
 	Firewall *Firewall `toml:"firewall,omitempty" json:"firewall,omitempty"`
 	// DNSFilter: blocklists (nil = defaults, see DefaultDNSFilter).
 	DNSFilter *DNSFilter `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: protection against incoming connections (nil = off).
+	Inbound *Inbound `toml:"inbound,omitempty" json:"inbound,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -94,6 +96,10 @@ type Network struct {
 	// DNSFilter: filter level for traffic leaving directly into this
 	// network (direct and link routes; "" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: closed | lan | open while on this network ("" = closed),
+	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -384,6 +390,9 @@ func (c *Config) Validate() error {
 		if !validMode(n.Firewall) {
 			return fmt.Errorf("network %q: firewall %q (off | ask | block)", n.Name, n.Firewall)
 		}
+	}
+	if err := c.validateInbound(); err != nil {
+		return err
 	}
 	if err := c.checkHops(); err != nil {
 		return err

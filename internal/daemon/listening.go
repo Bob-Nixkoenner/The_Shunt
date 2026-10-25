@@ -8,6 +8,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 )
 
@@ -15,6 +16,13 @@ import (
 func (d *Daemon) listening() api.Listening {
 	d.mu.Lock()
 	out := api.Listening{Ports: []api.OpenPort{}}
+	var in *engine.Inbound
+	if d.plan != nil {
+		in = d.plan.Inbound
+	}
+	if in != nil {
+		out.Inbound = in.Mode
+	}
 	if d.prep != nil {
 		out.Network = d.prep.Network
 	}
@@ -69,6 +77,20 @@ func (d *Daemon) listening() api.Listening {
 			for _, i := range p.Ifaces {
 				p.Exposed = p.Exposed || slices.Contains(out.Uplinks, i)
 				p.Tunnel = p.Tunnel || slices.Contains(out.Tunnels, i)
+			}
+		}
+		if in != nil {
+			p.Tunnel = false // tunnels are closed in every mode
+		}
+		if in != nil && p.Exposed {
+			switch in.Mode {
+			case config.InboundClosed:
+				p.Blocked = true
+			case config.InboundLAN:
+				p.LANOnly = slices.ContainsFunc(in.Allow, func(a config.PortSel) bool {
+					return a.Proto == p.Proto && a.From <= p.Port && p.Port <= a.To
+				})
+				p.Blocked = !p.LANOnly
 			}
 		}
 		out.Ports = append(out.Ports, p)

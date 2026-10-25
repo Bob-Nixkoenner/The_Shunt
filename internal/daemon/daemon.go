@@ -1353,6 +1353,25 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/inbound/network", func(w http.ResponseWriter, r *http.Request) {
+		var req api.InboundDecision
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		// trusting a network opens ports: managing; keeping it closed is not
+		if req.Action != "closed" {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		if err := d.decideInbound(req); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.listening())
 	})
@@ -1471,6 +1490,10 @@ func (d *Daemon) status() api.Status {
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
+	}
+	if d.plan.Inbound != nil {
+		st.Inbound = d.plan.Inbound.Mode
+		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	if d.book != nil {

@@ -256,6 +256,13 @@ func (s *Server) handler() http.Handler {
 		}
 		s.forward(w, "POST", "/v1/pending/"+url.PathEscape(r.PathValue("id")), req)
 	})
+	mux.HandleFunc("POST /api/inbound/network", func(w http.ResponseWriter, r *http.Request) {
+		var req api.InboundDecision
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/inbound/network", req)
+	})
 	mux.HandleFunc("GET /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
 		var rs []firewall.Remembered
 		if err := s.Client.Do("GET", "/v1/firewall/apps", nil, &rs); err != nil {

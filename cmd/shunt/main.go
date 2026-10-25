@@ -51,6 +51,10 @@ commands:
              open ports: who listens, reachable from where (--all: also
              the ones only this machine can reach)
   blocks     which programs asked for names the DNS filter blocked
+  inbound [trust [NAME] | keep-closed]
+             incoming protection on this network; on an unknown one:
+             trust it as your LAN (adds a network profile, inbound = "lan")
+             or keep it closed and stop asking
   which NAME show running processes named like NAME and the route each one takes
   rename OLD NEW
              rename a tunnel (files, rules, default route, menu entries follow)
@@ -114,6 +118,8 @@ func main() {
 		err = ports(c, args[1:])
 	case "blocks":
 		err = blocks(c)
+	case "inbound":
+		err = inboundCmd(c, args[1:])
 	case "import":
 		err = importTunnel(c, args[1:])
 	case "remove":
@@ -484,7 +490,7 @@ func ports(c *api.Client, args []string) error {
 			hidden++
 			continue
 		}
-		if p.Exposed {
+		if p.Exposed && !p.Blocked {
 			exposed++
 		}
 		reach := p.Reach
@@ -498,7 +504,14 @@ func ports(c *api.Client, args []string) error {
 		if prog == "" {
 			prog = "?"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Proto, net.JoinHostPort(p.Addr, strconv.Itoa(int(p.Port))), reach, yesNo(p.Exposed), yesNo(p.Tunnel), prog, p.Owner.Unit)
+		fromNet := yesNo(p.Exposed)
+		switch {
+		case p.Blocked:
+			fromNet = "blocked"
+		case p.LANOnly:
+			fromNet = "LAN only"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Proto, net.JoinHostPort(p.Addr, strconv.Itoa(int(p.Port))), reach, fromNet, yesNo(p.Tunnel), prog, p.Owner.Unit)
 	}
 	w.Flush()
 	if hidden > 0 {
@@ -507,10 +520,68 @@ func ports(c *api.Client, args []string) error {
 	if len(l.Firewalls) > 0 {
 		fmt.Printf("Other firewalls active: %s – they may block some of these already.\n", strings.Join(l.Firewalls, ", "))
 	}
-	if exposed > 0 && !l.Inbound {
-		fmt.Printf("%d port(s) can be reached from the network you are connected to; The Shunt does not filter incoming connections yet.\n", exposed)
+	switch {
+	case l.Inbound == "":
+		if exposed > 0 {
+			fmt.Printf("%d port(s) can be reached from the network you are connected to. Incoming protection is off ([inbound] enabled = true).\n", exposed)
+		}
+	default:
+		fmt.Printf("Incoming protection: %s on this network, tunnels closed. %d port(s) still reachable from it.\n", l.Inbound, exposed)
 	}
 	return nil
+}
+
+func inboundCmd(c *api.Client, args []string) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		switch {
+		case st.Inbound == "":
+			fmt.Println("Incoming protection is off (enable: [inbound] enabled = true in the config).")
+		case st.Network != "":
+			fmt.Printf("Network profile %q: incoming %s, tunnels closed.\n", st.Network, st.Inbound)
+		default:
+			fmt.Printf("Unknown network: incoming %s, tunnels closed.\n", st.Inbound)
+		}
+		if a := st.InboundAsk; a != nil {
+			fmt.Printf("Not decided yet for %s (gateway %s): shunt inbound trust [NAME] | keep-closed\n", orDash(a.SSID), orDash(a.GatewayMAC))
+		}
+		return nil
+	}
+	a := st.InboundAsk
+	if a == nil {
+		return fmt.Errorf("nothing to decide: the network is known or already kept closed")
+	}
+	req := api.InboundDecision{SSID: a.SSID, GatewayMAC: a.GatewayMAC}
+	switch args[0] {
+	case "trust":
+		req.Action = "home"
+		if len(args) > 1 {
+			req.Name = args[1]
+		}
+	case "keep-closed":
+		req.Action = "closed"
+	default:
+		return fmt.Errorf("usage: shunt inbound [trust [NAME] | keep-closed]")
+	}
+	if err := c.Do("POST", "/v1/inbound/network", req, nil); err != nil {
+		return err
+	}
+	if req.Action == "home" {
+		fmt.Println("Trusted: added a network profile with inbound = \"lan\" (ports from [inbound] allow, private addresses only).")
+	} else {
+		fmt.Println("Kept closed; you will not be asked again on this network.")
+	}
+	return nil
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "–"
+	}
+	return s
 }
 
 func orNone(s []string) string {

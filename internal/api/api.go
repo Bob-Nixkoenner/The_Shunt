@@ -62,6 +62,11 @@ type Status struct {
 	NetInfo    netdetect.Info    `json:"net_info"`
 	// DNSFilter: blocklist levels in effect, lists and counters.
 	DNSFilter *DNSFilterStatus `json:"dns_filter,omitempty"`
+	// Inbound: the protection against incoming connections in effect
+	// (closed | lan | open, "" = off); InboundAsk is set while an unknown
+	// network waits for a decision.
+	Inbound    string      `json:"inbound,omitempty"`
+	InboundAsk *InboundAsk `json:"inbound_ask,omitempty"`
 }
 
 // DNSFilterStatus describes the DNS filter.
@@ -290,8 +295,9 @@ type Listening struct {
 	// Firewalls: other packet filters that are active (ufw, firewalld,
 	// other nftables tables). They may block some of these ports already.
 	Firewalls []string `json:"firewalls,omitempty"`
-	// Inbound: whether The Shunt filters incoming connections (not yet).
-	Inbound bool   `json:"inbound"`
+	// Inbound: the mode in effect (closed | lan | open, "" = The Shunt
+	// does not filter incoming connections).
+	Inbound string `json:"inbound,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
@@ -306,9 +312,31 @@ type OpenPort struct {
 	Ifaces []string `json:"ifaces,omitempty"`
 	// Exposed: reachable from the network you are connected to;
 	// Tunnel: reachable from the other side of a tunnel.
-	Exposed bool          `json:"exposed"`
-	Tunnel  bool          `json:"tunnel"`
+	Exposed bool `json:"exposed"`
+	Tunnel  bool `json:"tunnel"`
+	// Blocked: The Shunt drops new connections to it from the network
+	// (LANOnly: only private addresses get through).
+	Blocked bool          `json:"blocked,omitempty"`
+	LANOnly bool          `json:"lan_only,omitempty"`
 	Owner   sockets.Owner `json:"owner"`
 	UID     uint32        `json:"uid"`
 	V6Only  bool          `json:"v6only,omitempty"`
+}
+
+// InboundAsk: on a network without a profile, incoming connections are
+// blocked and the user is asked whether to trust it.
+type InboundAsk struct {
+	SSID       string `json:"ssid,omitempty"`
+	GatewayMAC string `json:"gateway_mac,omitempty"`
+}
+
+// InboundDecision answers an InboundAsk (POST /v1/inbound/network):
+// "home" adds a [[network]] profile for it with inbound = "lan",
+// "closed" keeps it closed and stops asking.
+type InboundDecision struct {
+	SSID       string `json:"ssid,omitempty"`
+	GatewayMAC string `json:"gateway_mac,omitempty"`
+	Action     string `json:"action"`
+	// Name of the new profile ("" = from the SSID).
+	Name string `json:"name,omitempty"`
 }

@@ -149,6 +149,8 @@ type Plan struct {
 	LinkIfaces []string
 	// FilterRoutes: all rules' FilterRoutes (one listener each).
 	FilterRoutes []*Route
+	// Inbound: incoming connections (nil = not filtered).
+	Inbound *Inbound
 }
 
 // Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
@@ -421,5 +423,28 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 
 	dr, _ := c.ParseRoute(c.Daemon.DefaultRoute)
 	p.DefaultRoute = p.RouteByName(dr.String())
+
+	if mode, allow := c.InboundFor(network); mode != "" {
+		in := &Inbound{Mode: mode, Allow: allow, Uplinks: slices.Clone(p.LinkIfaces)}
+		sort.Strings(in.Uplinks)
+		for _, r := range p.Routes {
+			if r.Kind == config.RouteTunnel && r.Iface != "" && !slices.Contains(in.Tunnels, r.Iface) {
+				in.Tunnels = append(in.Tunnels, r.Iface)
+			}
+		}
+		p.Inbound = in
+	}
 	return p, nil
+}
+
+// Inbound is the protection against incoming connections in effect.
+type Inbound struct {
+	Mode string // config.InboundClosed | InboundLAN | InboundOpen
+	// Allow: what InboundLAN lets in from private addresses.
+	Allow []config.PortSel
+	// Uplinks: the Wi-Fi/cable/mobile interfaces that are filtered;
+	// Tunnels: tunnel interfaces, closed in every mode (the far end of a
+	// tunnel is not your network). Bridges, containers and VMs are not
+	// touched.
+	Uplinks, Tunnels []string
 }

@@ -15,7 +15,7 @@ function renderPorts() {
   if (l.error) { $("#ports").replaceChildren(el("tr", {}, el("td", { style: "color:var(--bad)" }, l.error))); return; }
   const all = $("#ports-all").checked;
   const shown = l.ports.filter((p) => all || p.reach !== "localhost");
-  const exposed = l.ports.filter((p) => p.exposed);
+  const exposed = l.ports.filter((p) => p.exposed && !p.blocked);
   // the heading stays visible when the section is folded: warn there too
   const sum = $("#ports-sum");
   sum.textContent = exposed.length + " reachable from the network · " + l.ports.filter((p) => p.reach === "localhost").length + " only from this machine";
@@ -26,11 +26,14 @@ function renderPorts() {
     el("td", { class: "mono" }, p.proto + " " + (p.addr.includes(":") ? "[" + p.addr + "]" : p.addr) + ":" + p.port),
     el("td", {}, el("b", {}, p.owner.name || "?"), p.owner.procs && p.owner.procs[0] !== p.owner.name && !p.owner.shared ? el("span", { class: "muted" }, " " + p.owner.procs.join(", ")) : ""),
     el("td", {}, reach(p)),
-    el("td", {}, p.exposed ? el("span", { class: "pill " + (l.network ? "warn" : "bad") }, "network") : "",
+    el("td", {}, p.blocked ? el("span", { class: "pill ok", title: "The Shunt drops new connections from the network" }, "blocked") :
+      p.lan_only ? el("span", { class: "pill warn", title: "only private addresses of this network" }, "LAN only") :
+      p.exposed ? el("span", { class: "pill " + (l.network ? "warn" : "bad") }, "network") : "",
       p.tunnel ? el("span", { class: "pill warn" }, "tunnel") : "")))
     : [el("tr", {}, el("td", { class: "muted" }, "Nothing listens beyond this machine."))]));
   const notes = [];
-  if (exposed.length && !l.network) notes.push(el("div", { class: "banner bad" }, "⚠ Unknown network: " + exposed.length + " port(s) can be reached by everyone on it. The Shunt does not block incoming connections yet."));
+  if (exposed.length && !l.network && !l.inbound) notes.push(el("div", { class: "banner bad" }, "⚠ Unknown network: " + exposed.length + " port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → General to block them."));
+  if (l.inbound) notes.push(el("div", { class: "muted" }, "Incoming protection: " + l.inbound + (l.network ? " (network “" + l.network + "”)" : " (unknown network)") + ", tunnels closed."));
   if (l.firewalls && l.firewalls.length) notes.push(el("div", { class: "muted" }, "Other firewalls active: " + l.firewalls.join(", ") + " – they may already block some of these."));
   $("#ports-notes").replaceChildren(...notes);
 }

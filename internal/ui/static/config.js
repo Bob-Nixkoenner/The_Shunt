@@ -94,6 +94,8 @@ function renderConfig() {
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
+  $("#c-inbound").checked = !!(model.inbound && model.inbound.enabled);
+  $("#c-inallow").value = ((model.inbound && model.inbound.allow) || []).join(" ");
 
   $("#c-upstreams").replaceChildren(...(ups.length ? ups.map((u) => {
     const v = model.dns.upstream[u];
@@ -174,6 +176,13 @@ function defaultHint() {
 $("#c-direct").addEventListener("change", (e) => { model.dns.direct = e.target.value || undefined; markDirty(); renderConfig(); });
 $("#c-blockdoh").addEventListener("change", (e) => { model.dns.allow_doh = !e.target.checked; markDirty(); });
 $("#c-blockdot").addEventListener("change", (e) => { model.dns.allow_dot = !e.target.checked; markDirty(); });
+$("#c-inbound").addEventListener("change", (e) => { model.inbound = model.inbound || {}; model.inbound.enabled = e.target.checked; markDirty(); });
+$("#c-inallow").addEventListener("input", (e) => {
+  model.inbound = model.inbound || {};
+  model.inbound.allow = e.target.value.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  if (!model.inbound.allow.length) delete model.inbound.allow;
+  markDirty();
+});
 
 $("#u-add").addEventListener("click", () => {
   const name = $("#u-name").value.trim();
@@ -414,7 +423,13 @@ function renderNetworks() {
           d.value = n.dns_direct || "";
           return d;
         })()),
-        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n))),
+        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n)),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "Incoming connections on this network (when switched on under General)" }, "incoming "), (() => {
+          const s = el("select", { onchange: (e) => { n.inbound = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
+          s.value = n.inbound === "closed" ? "" : n.inbound || "";
+          return s;
+        })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
 }
