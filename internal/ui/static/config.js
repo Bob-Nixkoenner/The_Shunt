@@ -87,7 +87,6 @@ function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
   $("#c-killswitch").checked = !!model.daemon.kill_switch;
-  $("#c-hostname").value = model.daemon.dhcp_hostname || "";
   defaultHint();
   fillVia();
   renderNetworks();
@@ -95,6 +94,7 @@ function renderConfig() {
   fill("#c-direct", [["", "system resolvers (from resolv.conf)"], ...ups.map((u) => [u, u + " – " + model.dns.upstream[u].addr])], model.dns.direct || "");
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
+  $("#c-hostname").value = model.daemon.dhcp_hostname || "";
 
   $("#c-upstreams").replaceChildren(...(ups.length ? ups.map((u) => {
     const v = model.dns.upstream[u];

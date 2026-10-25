@@ -150,14 +150,14 @@ type Daemon struct {
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
-	// KillSwitch (Windows): block all outgoing traffic that does not come
-	// through the Shunt adapter or from the service itself, also while the
-	// service is down after a crash. Linux always has its own kill switch.
-	KillSwitch bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
 	// DHCPHostname (Linux, NetworkManager): whether your Wi-Fi and cable
 	// profiles send the host name in DHCP: none | send. "" leaves the
 	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
 	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// KillSwitch (Windows): block all outgoing traffic that does not come
+	// through the Shunt adapter or from the service itself, also while the
+	// service is down after a crash. Linux always has its own kill switch.
+	KillSwitch bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
 }
 
 // DHCP host name modes (daemon.dhcp_hostname, network dhcp_hostname).
