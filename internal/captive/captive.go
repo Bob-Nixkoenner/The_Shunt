@@ -46,6 +46,8 @@ func Probe(ctx context.Context, url string) (state, login string) {
 		Transport: &http.Transport{
 			Proxy:       nil, // the portal is in front of any proxy
 			DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+			// no "Accept-Encoding: gzip": NetworkManager does not send it
+			DisableCompression: true,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -53,7 +55,12 @@ func Probe(ctx context.Context, url string) (state, login string) {
 	if err != nil {
 		return Offline, ""
 	}
-	req.Header.Set("Cache-Control", "no-cache")
+	// The same request as NetworkManager's own check (libcurl defaults:
+	// no User-Agent, "Accept: */*", "Connection: close"), so the network
+	// cannot tell The Shunt from any other Linux machine.
+	req.Header.Set("User-Agent", "")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "close")
 	resp, err := cl.Do(req)
 	if err != nil {
 		return Offline, ""
