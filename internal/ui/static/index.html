@@ -291,7 +291,7 @@ body.windows .win-only { display: block !important; }
         <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
-        <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. Lifted when you stop the service on purpose. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
+        <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
       <label class="linux-only">Updates</label>
       <div class="linux-only"><div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updrel"> releases</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-updpre"> pre-releases (rc)</label>

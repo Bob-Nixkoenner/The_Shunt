@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Windows: the kill switch moved from Windows Firewall rules to the Windows Filtering Platform (new package `internal/winsplit/wfp`, derived from wireguard-windows, MIT). Windows' own allow rules (core networking DNS, push notifications, store apps; 124 on a fresh Windows 11) punched through the old "block outbound" policy, so DNS, push and telemetry left the network while the service was stopped, after a crash and at boot. The new filters sit in a sublayer above the firewall and permit only the service, the Shunt adapter, loopback, DHCP/NDP and private local networks (not their DNS); DNS goes only to The Shunt. They are persistent: they stay while the service is stopped, after a crash and across reboots. Measured in the test lab: 24 of 27 Windows tests pass (7 before); stop, crash, reboot, IPv6, TunnelCrack LocalNet and push connections no longer leak.
+- Windows: the kill switch is **on by default** (`[daemon] kill_switch = false` turns it off). Only turning it off, uninstalling or `shuntd-win killswitch-off` (emergency, as Administrator) lift it; stopping the service or shutting Windows down no longer does. The firewall rules of the old kill switch are removed at the next start.
+
 ## v0.7.1-rc12
 
 - Update button for source builds: a build made from source (`src-<sha>`) compares commits, so the app never offered to install the newest release itself and only showed the copy-command fallback. The update info now carries the release tag that "Update" installs (`internal/update`).
