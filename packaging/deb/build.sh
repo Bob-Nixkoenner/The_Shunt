@@ -50,6 +50,30 @@ if [ "$1" = configure ]; then
 		printf '# The Shunt configuration - see /usr/share/doc/the-shunt/shunt.toml.example\n\n[daemon]\nsocket_group = "shunt"\ndefault_route = "direct"\n' >/etc/shunt/shunt.toml
 		chmod 644 /etc/shunt/shunt.toml
 	fi
+	# Privacy on foreign networks, as install.sh offers it: on by default,
+	# written once (whoever deletes the file keeps it deleted on updates).
+	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
+	if [ -d /etc/NetworkManager/conf.d ] && [ ! -f "$NM_PRIVACY" ] && [ ! -e /var/lib/shunt/nm-privacy-offered ]; then
+		cat >"$NM_PRIVACY" <<'NMEOF'
+# The Shunt: privacy on foreign networks (removed with the package; delete
+# this file to switch it off, it is not written again).
+# Settings in a connection profile itself still take precedence.
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+# a different MAC on every Wi-Fi, but the same one each time you return
+# (keeps router reservations and hotel logins working)
+wifi.cloned-mac-address=stable
+ipv4.dhcp-send-hostname=false
+ipv6.dhcp-send-hostname=false
+ipv6.ip6-privacy=2
+NMEOF
+		nmcli general reload conf >/dev/null 2>&1 || true
+		echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"
+	fi
+	install -d -m755 /var/lib/shunt
+	touch /var/lib/shunt/nm-privacy-offered
 	systemctl daemon-reload >/dev/null 2>&1 || true
 	systemctl enable shuntd.service >/dev/null 2>&1 || true
 	systemctl restart shuntd.service >/dev/null 2>&1 || true
@@ -68,6 +92,13 @@ cat >"$P/DEBIAN/postrm" <<'EOF'
 #!/bin/sh
 set -e
 systemctl daemon-reload >/dev/null 2>&1 || true
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
+	if grep -q '^# The Shunt: privacy' "$NM_PRIVACY" 2>/dev/null; then
+		rm -f "$NM_PRIVACY" /var/lib/shunt/nm-privacy-offered
+		nmcli general reload conf >/dev/null 2>&1 || true
+	fi
+fi
 if [ "$1" = purge ]; then rm -rf /etc/shunt /var/lib/shunt; fi
 EOF
 chmod 755 "$P/DEBIAN/postinst" "$P/DEBIAN/prerm" "$P/DEBIAN/postrm"
