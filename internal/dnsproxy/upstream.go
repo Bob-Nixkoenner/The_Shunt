@@ -291,8 +291,11 @@ func (p *PushedUpstream) String() string {
 // listener (dnsPort): the daemon's own downloads (blocklists) go the same
 // way as your traffic, DNS included.
 func RouteHTTPClient(mark uint32, dnsPort int) *http.Client {
+	// The query carries the route's mark too: the proxy answers for the
+	// route of the packet's mark (SO_RCVMARK), no mark means direct, and
+	// the name would be asked on the local network.
 	resolver := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		var d net.Dialer
+		d := net.Dialer{Control: markControl(mark)}
 		return d.DialContext(ctx, network, net.JoinHostPort("127.0.0.1", fmt.Sprint(dnsPort)))
 	}}
 	dialer := &net.Dialer{Timeout: 15 * time.Second, Control: markControl(mark), Resolver: resolver}
