@@ -31,6 +31,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
@@ -470,6 +471,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
+	go d.applyHostname()
+	go func() {
+		if err := dhcphost.WatchNew(ctx, func() { go d.applyHostname() }); err != nil {
+			d.Log.Debug("dhcp host name: no NetworkManager signals", "err", err)
+		}
+	}()
 	// The plan is in place: lift the boot lockdown if it was set.
 	if err := d.Backend.LiftLockdown(); err != nil {
 		d.Log.Warn("could not remove lockdown table", "err", err)
@@ -530,6 +537,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if err := d.reload(self); err != nil {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
+			go d.applyHostname()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -721,6 +729,22 @@ func firewallSettings(p *Prepared) firewall.Settings {
 	return s
 }
 
+// applyHostname sets the NetworkManager profiles for daemon.dhcp_hostname;
+// the network we are on decides for the profile in use.
+func (d *Daemon) applyHostname() {
+	d.mu.Lock()
+	c, info := d.cfg, d.netInfo
+	d.mu.Unlock()
+	if c == nil || c.Daemon.DHCPHostname == "" {
+		return
+	}
+	pol := dhcphost.Policy{Config: c}
+	if n := c.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
+		pol.Current = n.Name
+	}
+	dhcphost.Apply(context.Background(), pol, d.Log)
+}
+
 // checkNetwork follows network changes (Wi-Fi roaming, cable plugged in)
 // and switches the default route when a [[network]] profile starts or stops
 // matching.
@@ -749,7 +773,8 @@ func (d *Daemon) checkNetwork() {
 	d.netInfo = info
 	if moved {
 		go d.probeCaptive()
-		if d.prep != nil { // allow_lan routes follow the attached networks
+		go d.applyHostname() // the profile in use may want another setting here
+		if d.prep != nil {   // allow_lan routes follow the attached networks
 			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after network change", "err", err)
 			}

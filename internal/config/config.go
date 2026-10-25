@@ -94,6 +94,11 @@ type Network struct {
 	// DNSFilter: filter level for traffic leaving directly into this
 	// network (direct and link routes; "" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// DHCPHostname overrides daemon.dhcp_hostname on this network ("" =
+	// keep). Without gateway_mac a Wi-Fi profile gets it before it
+	// connects; otherwise it applies once the network is recognised (the
+	// address is then renewed).
+	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -149,6 +154,20 @@ type Daemon struct {
 	// through the Shunt adapter or from the service itself, also while the
 	// service is down after a crash. Linux always has its own kill switch.
 	KillSwitch bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
+	// DHCPHostname (Linux, NetworkManager): whether your Wi-Fi and cable
+	// profiles send the host name in DHCP: none | send. "" leaves the
+	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
+	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+}
+
+// DHCP host name modes (daemon.dhcp_hostname, network dhcp_hostname).
+const (
+	HostnameNone = "none"
+	HostnameSend = "send"
+)
+
+func validHostname(m string) bool {
+	return m == "" || m == HostnameNone || m == HostnameSend
 }
 
 // DNS configures the per-route DNS proxy.
@@ -375,6 +394,12 @@ func (c *Config) Validate() error {
 		if !validFilterLevel(n.DNSFilter, true) {
 			return fmt.Errorf("%s: dns_filter %q (off | low | normal | paranoid)", where, n.DNSFilter)
 		}
+		if !validHostname(n.DHCPHostname) {
+			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
+		}
+	}
+	if !validHostname(c.Daemon.DHCPHostname) {
+		return fmt.Errorf("daemon.dhcp_hostname %q (none | send)", c.Daemon.DHCPHostname)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
