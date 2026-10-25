@@ -94,6 +94,11 @@ type Network struct {
 	// DNSFilter: filter level for traffic leaving directly into this
 	// network (direct and link routes; "" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// DHCPHostname overrides daemon.dhcp_hostname on this network ("" =
+	// keep). Without gateway_mac a Wi-Fi profile gets it before it
+	// connects; otherwise it applies once the network is recognised (the
+	// address is then renewed).
+	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -121,6 +126,16 @@ func (c *Config) MatchNetwork(ssid, gatewayMAC string) *Network {
 	return nil
 }
 
+// DHCP host name modes (daemon.dhcp_hostname, network dhcp_hostname).
+const (
+	HostnameNone = "none"
+	HostnameSend = "send"
+)
+
+func validHostname(m string) bool {
+	return m == "" || m == HostnameNone || m == HostnameSend
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -142,6 +157,10 @@ type Daemon struct {
 	// need root or polkit authorization; "group" – every socket_group
 	// member may do everything.
 	APIAuth string `toml:"api_auth,omitempty" json:"api_auth,omitempty"`
+	// DHCPHostname (Linux, NetworkManager): whether your Wi-Fi and cable
+	// profiles send the host name in DHCP: none | send. "" leaves the
+	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
+	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
@@ -380,6 +399,12 @@ func (c *Config) Validate() error {
 		if !validFilterLevel(n.DNSFilter, true) {
 			return fmt.Errorf("%s: dns_filter %q (off | low | normal | paranoid)", where, n.DNSFilter)
 		}
+		if !validHostname(n.DHCPHostname) {
+			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
+		}
+	}
+	if !validHostname(c.Daemon.DHCPHostname) {
+		return fmt.Errorf("daemon.dhcp_hostname %q (none | send)", c.Daemon.DHCPHostname)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
