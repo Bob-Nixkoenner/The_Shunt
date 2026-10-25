@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc13
 
 - Windows: the kill switch moved from Windows Firewall rules to the Windows Filtering Platform (new package `internal/winsplit/wfp`, derived from wireguard-windows, MIT). Windows' own allow rules (core networking DNS, push notifications, store apps; 124 on a fresh Windows 11) punched through the old "block outbound" policy, so DNS, push and telemetry left the network while the service was stopped, after a crash and at boot. The new filters sit in a sublayer above the firewall and permit only the service, the Shunt adapter, loopback, DHCP/NDP and private local networks (not their DNS); DNS goes only to The Shunt. They are persistent: they stay while the service is stopped, after a crash and across reboots. Measured in the test lab: 24 of 27 Windows tests pass (7 before); stop, crash, reboot, IPv6, TunnelCrack LocalNet and push connections no longer leak.
 - Windows: the kill switch is **on by default** (`[daemon] kill_switch = false` turns it off). Only turning it off, uninstalling or `shuntd-win killswitch-off` (emergency, as Administrator) lift it; stopping the service or shutting Windows down no longer does. The firewall rules of the old kill switch are removed at the next start.
+- Linux: answers to connections that came in through a tunnel (SYN-ACK, RST, ICMP, UDP replies) leave through that tunnel. They took the main routing table and showed the tunnel address on the local network.
+- DNS filter lists are downloaded the way apps without a rule go, DNS included. Linux asked the name on the local network (the lookup had no route mark); Windows downloaded them straight over the physical network.
+- No host name in DHCP (Linux, NetworkManager): `dhcp_hostname = "none"` under `[daemon]`, per network profile `"send"` (e.g. at home); also in Configure → General and per profile. The Shunt sets NetworkManager's profiles itself, because NetworkManager has no working global switch for it (1.46 none, 1.54 ignores the default for unset profiles). Off unless set.
+- Captive portal check: the same request as NetworkManager's own check (no Go User-Agent, no gzip), so a network cannot tell The Shunt apart.
+- .deb: writes the network privacy settings `install.sh` offers (own MAC per Wi-Fi, IPv6 privacy addresses), once; removing the package removes them.
+- App rules list the menu entries that start one of their apps outside the rule's route ("start in the route from the menu"): an app rule catches a program only after it started, so its first connection could go the old way.
+- Android docs: without "Block connections without VPN" Android itself lets a little past the VPN (DNS while it starts, sockets opened before it); with always-on and the block nothing of an app got past in the lab.
 
 ## v0.7.1-rc12
 
