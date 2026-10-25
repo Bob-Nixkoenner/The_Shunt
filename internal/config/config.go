@@ -145,11 +145,16 @@ type Daemon struct {
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
-	// KillSwitch (Windows): block all outgoing traffic that does not come
-	// through the Shunt adapter or from the service itself, also while the
-	// service is down after a crash. Linux always has its own kill switch.
-	KillSwitch bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
+	// KillSwitch (Windows, default on): block all outgoing traffic that does
+	// not come through the Shunt adapter or from the service itself, also
+	// while the service is stopped, crashed or not yet started at boot. Only
+	// kill_switch = false (or uninstalling) lifts it. Linux always has its
+	// own kill switch.
+	KillSwitch *bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
 }
+
+// KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
+func (d Daemon) KillSwitchOn() bool { return d.KillSwitch == nil || *d.KillSwitch }
 
 // DNS configures the per-route DNS proxy.
 type DNS struct {
