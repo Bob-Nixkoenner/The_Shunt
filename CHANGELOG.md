@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.1-rc12
+
+- Update button for source builds: a build made from source (`src-<sha>`) compares commits, so the app never offered to install the newest release itself and only showed the copy-command fallback. The update info now carries the release tag that "Update" installs (`internal/update`).
+- Android: first start shows what the VPN service can see (installed apps, destinations and DNS names of the routed apps, keys) and what happens with it (nothing leaves the phone; GitHub for filter lists and api.ipify.org for the leak test, only when used), with Accept and Decline. Nothing runs before Accept. A "Privacy" section on the Status tab links to the policy.
+- Website and privacy policy (English and German) and a legal notice on GitHub Pages: https://bob-nixkoenner.github.io/The_Shunt/
+
 ## v0.7.1-rc11
 
 - Windows: launchers and "Start an app", as on Linux. A launcher is a Start menu entry (folder "The Shunt Launchers") that starts a program with extra arguments in a route; existing Firefox profiles get a launcher each. Chrome, Brave, Edge, Vivaldi and Opera launchers get a new profile folder of their own in `%USERPROFILE%\ShuntProfiles`; existing profiles of these browsers cannot be shared with a launcher on Windows (the browser binds cookies and saved passwords to its data folder: a second folder cannot read them and the browser deletes them from the profile, tested with Brave).
