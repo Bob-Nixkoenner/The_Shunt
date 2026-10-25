@@ -226,7 +226,7 @@ body.windows .win-only { display: block !important; }
     <div class="hint">Change them under <b>Configure</b> (or edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”).</div>
   </section>
 
-  <section id="sec-ports" data-fold hidden>
+  <section id="sec-ports" data-fold="closed" hidden>
     <h2>Open ports <span class="muted" style="text-transform:none;letter-spacing:0" id="ports-sum"></span><span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="ports-all"> also local only</label></h2>
     <div id="ports-notes"></div>
     <div data-rows="6"><table>
@@ -236,7 +236,7 @@ body.windows .win-only { display: block !important; }
     <div class="hint">Programs on this machine waiting for connections. “network”: others on the Wi-Fi or cable you are connected to can reach it; “tunnel”: the other side of a tunnel can.</div>
   </section>
 
-  <section data-fold>
+  <section data-fold="closed">
     <h2>DNS</h2>
     <div data-rows="5"><table><tbody id="dns"></tbody></table></div>
     <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>

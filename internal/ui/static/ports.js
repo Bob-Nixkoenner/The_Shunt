@@ -16,7 +16,10 @@ function renderPorts() {
   const all = $("#ports-all").checked;
   const shown = l.ports.filter((p) => all || p.reach !== "localhost");
   const exposed = l.ports.filter((p) => p.exposed);
-  $("#ports-sum").textContent = exposed.length + " reachable from the network · " + l.ports.filter((p) => p.reach === "localhost").length + " only from this machine";
+  // the heading stays visible when the section is folded: warn there too
+  const sum = $("#ports-sum");
+  sum.textContent = exposed.length + " reachable from the network · " + l.ports.filter((p) => p.reach === "localhost").length + " only from this machine";
+  sum.style.color = exposed.length && !l.network ? "var(--bad)" : "";
   const reach = (p) => p.reach === "localhost" ? el("span", { class: "muted" }, "this machine") :
     p.reach === "all" ? "all interfaces" : (p.ifaces || []).join(", ") || p.addr;
   $("#ports").replaceChildren(...(shown.length ? shown.map((p) => el("tr", {},
