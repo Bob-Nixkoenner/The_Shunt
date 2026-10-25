@@ -148,13 +148,29 @@ function renderConfig() {
     // route on purpose (launcher, shunt run --via): they keep their route unless the rule says otherwise
     const skipped = r.route && !r.override_explicit && !r.app && !r.group && !r.dns_filter && typeof apps !== "undefined"
       ? apps.filter((a) => a.route && a.route !== r.route && (a.clone || a.route.startsWith("tunnel:"))).map((a) => a.name + " (" + a.route + ")") : [];
+    // an app rule catches the program only after it started: menu entries that start it
+    // outside the rule's route (#6: first DNS query/connection go the old way) can start
+    // it in the route instead. Entries started in a route of their own are left alone by
+    // the rule (unless override_explicit), so they are not listed.
+    const early = r.app && r.route && r.route !== "direct" && !r.args && typeof apps !== "undefined"
+      ? apps.filter((a) => !a.clone && a.route !== r.route && (!a.route || r.override_explicit) && r.app.some((sel) => menuStarts(a.exec, sel, a.chromium))) : [];
     const move = (d) => { const j = i + d; [model.rule[i], model.rule[j]] = [model.rule[j], model.rule[i]]; markDirty(); renderConfig(); };
     return el("tr", {},
       el("td", { class: "muted" }, i + 1 + "."),
       el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...sel.map((x) => el("span", { class: "chip" }, x))),
         skipped.length ? el("div", { class: "muted", style: "font-size:12px;margin-top:4px;color:var(--warn)" },
           "does not apply to: " + skipped.slice(0, 3).join(", ") + (skipped.length > 3 ? " …" : "") + " – they keep the route they were started with. ",
-          el("a", { href: "#", onclick: (e) => { e.preventDefault(); r.override_explicit = true; markDirty(); renderConfig(); } }, "apply to them too")) : ""),
+          el("a", { href: "#", onclick: (e) => { e.preventDefault(); r.override_explicit = true; markDirty(); renderConfig(); } }, "apply to them too")) : "",
+        early.length ? el("div", { class: "muted linux-only", style: "font-size:12px;margin-top:4px;color:var(--warn)" },
+          "from the menu, " + early.map((a) => a.name).join(", ") + " starts outside the route for a moment (its first connection can go the old way). ",
+          el("a", { href: "#", onclick: async (e) => {
+            e.preventDefault();
+            try {
+              for (const a of early) await api("POST", "/api/apps", { id: a.id, route: r.route });
+              toast(early.map((a) => a.name).join(", ") + " now start" + (early.length > 1 ? "" : "s") + " via " + r.route);
+            } catch (err) { toast(String(err.message || err)); }
+            await loadApps(); renderConfig();
+          } }, "start in the route from the menu")) : ""),
       el("td", {}, r.route ? routeTag(r.route) : el("span", { class: "muted" }, "route unchanged")),
       el("td", { style: "white-space:nowrap" },
         el("button", { class: "iconbtn", title: "up", onclick: () => i > 0 && move(-1) }, "↑"), " ",
@@ -494,4 +510,28 @@ for (const [t, other] of [["file", "ts"], ["ts", "file"]]) {
 {
   const t = location.hash.slice(1);
   if (["apps", "config", "filter"].includes(t)) setTab(t);
+}
+
+// menuStarts: does a menu entry's Exec line start the program an app selector names
+// ("firefox" process name, "exe:/path", "flatpak:<id>"), as appwatch matches it?
+// Chromium browsers start through a wrapper script (brave-browser-stable): their process name
+const CHROMIUM_COMM = { chrome: ["chrome"], chromium: ["chromium", "chromium-browse"], brave: ["brave"],
+  vivaldi: ["vivaldi-bin"], opera: ["opera"], "opera-gx": ["opera"], edge: ["msedge"] };
+function menuStarts(exec, sel, chromium) {
+  if (chromium && (CHROMIUM_COMM[chromium] || []).includes(sel)) return true;
+  let t = (exec || "").match(/"[^"]*"|\S+/g) || [];
+  t = t.map((x) => x.replace(/^"|"$/g, ""));
+  const base = (x) => x.split("/").pop();
+  // an entry The Shunt manages already: "shunt run --via R -- prog …"
+  if (t.length && base(t[0]) === "shunt" && t.includes("--")) t = t.slice(t.indexOf("--") + 1);
+  if (t[0] === "env" || base(t[0] || "") === "env") t = t.slice(1);
+  while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t = t.slice(1);
+  if (!t.length) return false;
+  if (base(t[0]) === "flatpak" && t[1] === "run") {
+    const id = t.slice(2).find((x) => !x.startsWith("-"));
+    return sel === "flatpak:" + id;
+  }
+  if (sel.startsWith("exe:")) return t[0] === sel.slice(4);
+  if (sel.startsWith("flatpak:")) return false;
+  return base(t[0]) === sel;
 }
