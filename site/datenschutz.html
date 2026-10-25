@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Shunt – Datenschutzerklärung</title><link rel="stylesheet" href="style.css"></head><body>
+<nav><a href="index.html">The Shunt</a><a href="privacy.html">Privacy policy</a><a href="datenschutz.html">Datenschutz</a><a href="impressum.html">Impressum</a></nav>
+<main>
+<h1>Datenschutzerklärung</h1>
+<p>Stand: 25. Oktober 2026. Gilt für die App <strong>The Shunt</strong> (Paket <code>org.theshunt.app</code>) sowie die Linux- und Windows-Version.</p>
+
+<h2>Kurz gesagt</h2>
+<p>The Shunt hat kein Benutzerkonto, keine eigenen Server, keine Werbung, keine Analyse und keine Absturzberichte. Der Entwickler erhält keine Daten aus deiner Nutzung. Einstellungen, Schlüssel und Statistik bleiben auf deinem Gerät.</p>
+
+<h2>Verantwortlicher</h2>
+<p>Bob Nixkoenner, Anschrift siehe <a href="impressum.html">Impressum</a>. Kontakt: <a href="mailto:KONTAKT@EXAMPLE.INVALID">KONTAKT@EXAMPLE.INVALID</a></p>
+
+<h2>Was die App mit der VPN-Berechtigung macht</h2>
+<p>Die App nutzt den VPN-Dienst von Android, um den Datenverkehr der von dir gewählten Apps durch Tunnel zu leiten, die du selbst einrichtest (WireGuard, OpenVPN, Tailscale/Headscale). Die Entscheidung, welcher Tunnel gilt, fällt pro App, Adresse, Port oder Domain auf deinem Gerät. Der Entwickler liest, speichert oder gibt den Inhalt des Verkehrs nicht weiter. Der Verkehr geht, vom Tunnelprotokoll verschlüsselt, an den Server, den <em>du</em> eingetragen hast. Dessen Betreiber (z. B. dein VPN-Anbieter) verarbeitet ihn nach seiner eigenen Datenschutzerklärung.</p>
+
+<h2>Auf dem Gerät gespeicherte Daten</h2>
+<ul>
+<li>Tunnel-Konfigurationen, private Schlüssel und Pre-Shared-Keys, die du hinzufügst.</li>
+<li>Regeln und App-Auswahl.</li>
+<li>Zähler: übertragene Bytes pro Tunnel und Anzahl blockierter DNS-Anfragen, in einer lokalen Datei für das Verlaufsdiagramm. Eine Liste besuchter Seiten wird nicht geführt.</li>
+</ul>
+<p>Nichts davon verlässt das Gerät, außer du exportierst es selbst. Beim Deinstallieren wird alles gelöscht.</p>
+
+<h2>Berechtigungen</h2>
+<table>
+<tr><th>Berechtigung</th><th>Wofür</th></tr>
+<tr><td>VPN-Dienst, Internet</td><td>Um die eingerichteten Tunnel zu betreiben.</td></tr>
+<tr><td>Vordergrunddienst</td><td>Damit der Tunnel läuft, auch wenn die App geschlossen ist. Wird als Benachrichtigung angezeigt.</td></tr>
+<tr><td>Benachrichtigungen</td><td>Tunnelstatus und Warnungen.</td></tr>
+<tr><td>Installierte Apps sehen (<code>QUERY_ALL_PACKAGES</code>)</td><td>Um deine Apps aufzulisten, damit du wählen kannst, welche welchen Tunnel nutzt. Die Liste wird nur auf dem Gerät verwendet und nirgends hin gesendet.</td></tr>
+<tr><td>Kamera</td><td>Nur zum Scannen eines QR-Codes mit einer Tunnel-Konfiguration. Es wird kein Bild gespeichert oder gesendet.</td></tr>
+<tr><td>Netzwerkstatus</td><td>Um auf WLAN- und Mobilfunk-Wechsel zu reagieren.</td></tr>
+</table>
+
+<h2>Verbindungen, die die App selbst aufbaut</h2>
+<p>Bei diesen Anfragen sieht die genannte Stelle deine IP-Adresse. Jede wird nur durch eine Funktion ausgelöst, die du nutzt.</p>
+<table>
+<tr><th>Ziel</th><th>Wann</th><th>Zweck</th></tr>
+<tr><td><code>raw.githubusercontent.com</code> (GitHub, USA)</td><td>Wenn du DNS-Filterlisten aktivierst</td><td>Download öffentlicher Sperrlisten. Datenschutz: <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</td></tr>
+<tr><td><code>api.ipify.org</code> und Google Public DNS</td><td>Nur beim Start des Leaktests</td><td>Zeigt, welche öffentliche IP-Adresse und welchen DNS-Server die Außenwelt über jede Route sieht.</td></tr>
+<tr><td><code>api.github.com</code></td><td>Nur in der Version außerhalb von Google Play, zur Update-Prüfung</td><td>Update-Prüfung. Die Google-Play-Version hat sie nicht.</td></tr>
+</table>
+<p>Außerdem verbindet sich die App mit den von dir eingetragenen Tunnel-Servern und DNS-Servern.</p>
+
+<h2>Protokolle</h2>
+<p>Die App schreibt kurze technische Meldungen in das Android-Systemprotokoll (z. B. „start failed“). Sie enthalten keinen Verkehrsinhalt. Die App sendet sie nirgends hin.</p>
+
+<h2>Keine Weitergabe, kein Verkauf</h2>
+<p>Der Entwickler verkauft oder teilt keine Daten mit Dritten. Es gibt keine Werbe- oder Analyse-SDKs.</p>
+
+<h2>Deine Rechte</h2>
+<p>Da der Entwickler keine Daten über dich speichert, gibt es dort nichts zu beauskunften oder zu löschen. Nach der DSGVO hast du dennoch Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung, Widerspruch und Datenübertragbarkeit sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde, z. B. der deines Bundeslandes.</p>
+
+<h2>Kinder</h2>
+<p>Die App richtet sich nicht an Kinder unter 16 Jahren.</p>
+
+<h2>Änderungen</h2>
+<p>Änderungen erscheinen auf dieser Seite mit neuem Datum. Der Verlauf ist im <a href="https://github.com/Bob-Nixkoenner/The_Shunt/commits/main/site">Repository</a> sichtbar.</p>
+</main><footer>Open source (Apache-2.0) · <a href="https://github.com/Bob-Nixkoenner/The_Shunt">GitHub</a></footer></body></html>
