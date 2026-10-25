@@ -25,6 +25,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -175,24 +176,36 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
-	exe, _ := os.Executable()
-	ksOn := false
-	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
-		// [daemon] kill_switch follows the config at once, also when edited in the window
-		OnConfig: func(c *config.Config) {
-			switch {
-			case c.Daemon.KillSwitch && !ksOn:
-				if err := winsplit.EnableKillSwitch(exe); err != nil {
-					log.Printf("kill switch: %v", err)
-					return
-				}
-				ksOn = true
-				log.Print("kill switch on")
-			case !c.Daemon.KillSwitch && ksOn:
-				winsplit.DisableKillSwitch()
-				ksOn = false
-				log.Print("kill switch off")
+	// The kill switch follows [daemon] kill_switch at once, also when edited
+	// in the window. It needs the adapter's LUID, so it goes on once the
+	// adapter is up; until then the persistent filters of an earlier run keep
+	// blocking (the service itself may send).
+	var ksMu sync.Mutex
+	ksOn, ksWant := false, false
+	var ksLUID uint64
+	applyKS := func() {
+		ksMu.Lock()
+		defer ksMu.Unlock()
+		switch {
+		case ksWant && !ksOn && ksLUID != 0:
+			if err := winsplit.EnableKillSwitch(ksLUID, netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
+				log.Printf("kill switch: %v", err)
+				return
 			}
+			ksOn = true
+			log.Print("kill switch on")
+		case !ksWant && ksOn:
+			winsplit.DisableKillSwitch()
+			ksOn = false
+			log.Print("kill switch off")
+		}
+	}
+	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
+		OnConfig: func(c *config.Config) {
+			ksMu.Lock()
+			ksWant = c.Daemon.KillSwitchOn()
+			ksMu.Unlock()
+			applyKS()
 		}}
 	cfg, warns, err := m.Load()
 	if err != nil {
@@ -215,6 +228,13 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 	defer ad.Close()
 	log.Printf("shuntd-win %s: adapter %q up, uplink %s (%s, index %d)", version, winsplit.AdapterName, up.Name, up.Link, up.Index)
+	ksMu.Lock()
+	ksLUID = ad.LUID()
+	if !ksWant {
+		winsplit.DisableKillSwitch() // left by an earlier run or version
+	}
+	ksMu.Unlock()
+	applyKS()
 	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
 		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
 	}
@@ -323,10 +343,18 @@ func runCore(ctx context.Context, ready func()) error {
 	select {
 	case <-ctx.Done():
 		log.Print("stopping")
-		winsplit.DisableDNSGuard() // stopped on purpose; a crash or a restart keeps it
-		if ksOn {                  // stopped on purpose: lift it. A crash or a restart keeps it.
-			winsplit.DisableKillSwitch()
-			log.Print("kill switch lifted (service stopped)")
+		// The kill switch and the DNS guard stay while the service is stopped,
+		// also at shutdown (otherwise everything leaks at the next boot until
+		// the service runs). Only kill_switch = false, "shuntd-win
+		// killswitch-off" or uninstalling lift them. Without the kill switch
+		// the DNS guard goes: it would only break name resolution.
+		ksMu.Lock()
+		on := ksOn
+		ksMu.Unlock()
+		if !on {
+			winsplit.DisableDNSGuard()
+		} else {
+			log.Print("kill switch stays (service stopped)")
 		}
 		return nil
 	case <-restart:

@@ -46,15 +46,18 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   and deletes them from the shared profile (tested with Brave, same `Local State` keys).
 - DNS guard (always on): Windows Firewall blocks port 53 for the DNS client service (Dnscache)
   except towards the adapter's DNS address. Without it, "smart multi-homed name resolution"
-  asked the router's DNS (on-link, past the routes) in parallel to The Shunt. Lifted on a
-  wanted stop, `shuntd-win killswitch-off` and uninstall. It also blocks LLMNR/mDNS of the DNS
+  asked the router's DNS (on-link, past the routes) in parallel to The Shunt. With the kill
+  switch it stays while the service is stopped; without it a stop lifts it. Also lifted by
+  `shuntd-win killswitch-off` and uninstall. It also blocks LLMNR/mDNS of the DNS
   client and NetBIOS name queries of the kernel (UDP 5355/5353/137), which broadcast names to the
   local network. The direct route uses the network's
   DHCP DNS server unless `dns.direct` is set.
-- Kill switch (`[daemon] kill_switch = true`, off by default): Windows Firewall blocks all
-  outgoing traffic except the service, the adapter's address (= apps whose packets entered
-  the split), the local network and DHCP. Stays after a crash, lifted when the service is
-  stopped on purpose. Emergency: `shuntd-win killswitch-off` as Administrator.
+- Kill switch (`[daemon] kill_switch`, **on by default** since 0.7.1; `false` turns it off):
+  Windows Firewall blocks all outgoing traffic except the service, the adapter's address
+  (= apps whose packets entered the split), the local network (without its DNS, ports 53/853)
+  and DHCP. It stays while the service is stopped, after a crash and across a reboot, so nothing
+  leaks before the service runs; only `kill_switch = false` (Configure), uninstalling or
+  `shuntd-win killswitch-off` as Administrator (emergency) lift it.
 
 ## Install
 

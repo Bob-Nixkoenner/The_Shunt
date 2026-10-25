@@ -86,7 +86,7 @@ function upstreamUsers(name) {
 function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
-  $("#c-killswitch").checked = !!model.daemon.kill_switch;
+  $("#c-killswitch").checked = model.daemon.kill_switch !== false; // unset = on
   defaultHint();
   fillVia();
   renderNetworks();
