@@ -18,6 +18,14 @@ type Adapter struct {
 	Dev tun.Device
 }
 
+// LUID is the adapter's interface LUID (0 if unknown), for the kill switch.
+func (a *Adapter) LUID() uint64 {
+	if n, ok := a.Dev.(*tun.NativeTun); ok {
+		return n.LUID()
+	}
+	return 0
+}
+
 // Close removes the adapter and with it its addresses and routes.
 func (a *Adapter) Close() error { return a.Dev.Close() }
 
