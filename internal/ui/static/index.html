@@ -289,6 +289,9 @@ body.windows .win-only { display: block !important; }
       <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
         <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
+      <label class="linux-only" for="c-hostname">Host name in DHCP</label>
+      <div class="linux-only"><select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
+        <div class="muted" style="font-size:12px">Every network you join sees your machine's name unless it is switched off in NetworkManager's profiles. The Shunt sets them; a network profile below can say "send" (e.g. at home).</div></div>
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
         <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. Lifted when you stop the service on purpose. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>

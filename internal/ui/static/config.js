@@ -87,6 +87,7 @@ function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
   $("#c-killswitch").checked = !!model.daemon.kill_switch;
+  $("#c-hostname").value = model.daemon.dhcp_hostname || "";
   defaultHint();
   fillVia();
   renderNetworks();
@@ -165,6 +166,7 @@ function renderConfig() {
 }
 
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
+$("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
   const d = model.daemon.default_route || "direct";
@@ -414,7 +416,13 @@ function renderNetworks() {
           d.value = n.dns_direct || "";
           return d;
         })()),
-        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n))),
+        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n)),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "Host name in DHCP on this network (when set under General)" }, "host name "), (() => {
+          const s = el("select", { onchange: (e) => { n.dhcp_hostname = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "as under General"), el("option", { value: "none" }, "don't send"), el("option", { value: "send" }, "send"));
+          s.value = n.dhcp_hostname || "";
+          return s;
+        })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
 }
