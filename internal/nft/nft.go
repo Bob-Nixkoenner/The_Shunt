@@ -55,6 +55,11 @@ func Render(p *engine.Plan) (string, error) {
 	// inherit that flow's route – a way out of block or a tunnel. UDP is
 	// classified by its socket, every packet.
 	w("\t\tmeta l4proto tcp ct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
+	// Answers to a connection that came in through a tunnel (UDP, ICMP
+	// errors, echo replies) leave through it; mark_in marked the flow.
+	// Unmarked they would take the main table: the tunnel address on the
+	// local network.
+	w("\t\tct direction reply oifname != \"lo\" ct mark and %#x == %#x meta mark set ct mark return", engine.MarkMask, engine.MarkBase)
 	w("\t\tct direction reply return")
 	if p.DNS {
 		// DNS to a local stub (127.0.0.53) is classified too, so it can be
@@ -91,6 +96,16 @@ func Render(p *engine.Plan) (string, error) {
 	// its own route there (the proxy reads it, SO_RCVMARK); the conntrack
 	// entry it joined may belong to another route's query
 	w("\t\tiifname \"lo\" return")
+	// A connection started from the far side of a tunnel belongs to that
+	// tunnel: its answers (SYN-ACK, RST, ICMP) go back through it.
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteTunnel && !r.Forward && r.Iface != "" {
+			if err := checkIdent(r.Iface); err != nil {
+				return "", err
+			}
+			w("\t\tiifname %q ct state new ct mark set %#x", r.Iface, r.Mark)
+		}
+	}
 	w("\t\tct mark and %#x == %#x meta mark set ct mark", engine.MarkMask, engine.MarkBase)
 	// Tailscale tunnels: what tailscaled (in its own namespace) sends
 	// arrives on the veth. It leaves like Shunt's own encrypted packets:
