@@ -52,6 +52,7 @@ func TestParseInvalid(t *testing.T) {
 		"long name":      "[tunnel.abcdefghijk]\nconfig=\"x\"\n",
 		"bad driver":     "[tunnel.a]\nconfig=\"x\"\ndriver=\"tap\"\n",
 		"bad default":    "[daemon]\ndefault_route=\"somewhere\"\n",
+		"bad lockdown":   "[daemon]\nboot_lockdown=\"yes\"\n",
 		"auth on wg":     "[tunnel.a]\nconfig=\"x\"\nauth=\"p\"\n",
 		"via direct":     "[tunnel.a]\nconfig=\"x\"\nvia=\"direct\"\n",
 		"via self":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:a\"\n",
@@ -167,6 +168,27 @@ func TestFirewallMode(t *testing.T) {
 	c, _ = Parse("")
 	if c.FirewallMode("") != "off" {
 		t.Error("default not off")
+	}
+}
+
+func TestBootLockdown(t *testing.T) {
+	const tun = "[tunnel.vps]\nconfig=\"x\"\n"
+	for in, want := range map[string]bool{
+		"": false,
+		"[daemon]\ndefault_route=\"link:wifi\"\n":                                        false,
+		"[daemon]\ndefault_route=\"block\"\n":                                            true,
+		tun + "[daemon]\ndefault_route=\"tunnel:vps\"\n":                                 true,
+		tun + "[daemon]\ndefault_route=\"tunnel:vps\"\nboot_lockdown=\"off\"\n":          false,
+		"[daemon]\nboot_lockdown=\"on\"\n":                                               true,
+		tun + "[[network]]\nname=\"cafe\"\nssid=[\"c\"]\ndefault_route=\"tunnel:vps\"\n": true,
+	} {
+		c, err := Parse(in)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got := c.BootLockdownOn(); got != want {
+			t.Errorf("%q: got %v", in, got)
+		}
 	}
 }
 

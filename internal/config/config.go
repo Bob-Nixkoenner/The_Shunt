@@ -170,10 +170,37 @@ type Daemon struct {
 	// kill_switch = false (or uninstalling) lifts it. Linux always has its
 	// own kill switch.
 	KillSwitch *bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
+	// BootLockdown (Linux): block the network from early boot until shuntd
+	// has applied its rules (shunt-lockdown.service): auto | on | off.
+	// "" = auto: on when a default route (daemon or a network profile)
+	// does not go out directly, i.e. what is meant for a tunnel must not
+	// leave in clear text before shuntd runs.
+	BootLockdown string `toml:"boot_lockdown,omitempty" json:"boot_lockdown,omitempty"`
 }
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
 func (d Daemon) KillSwitchOn() bool { return d.KillSwitch == nil || *d.KillSwitch }
+
+// BootLockdownOn reports whether shunt-lockdown should block the network at
+// boot (see Daemon.BootLockdown).
+func (c *Config) BootLockdownOn() bool {
+	switch c.Daemon.BootLockdown {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	routes := []string{c.Daemon.DefaultRoute}
+	for _, n := range c.Networks {
+		routes = append(routes, n.DefaultRoute)
+	}
+	for _, r := range routes {
+		if r != "" && r != "direct" && !strings.HasPrefix(r, "link:") {
+			return true
+		}
+	}
+	return false
+}
 
 // DNS configures the per-route DNS proxy.
 type DNS struct {
@@ -405,6 +432,9 @@ func (c *Config) Validate() error {
 	}
 	if !validHostname(c.Daemon.DHCPHostname) {
 		return fmt.Errorf("daemon.dhcp_hostname %q (none | send)", c.Daemon.DHCPHostname)
+	}
+	if b := c.Daemon.BootLockdown; b != "" && b != "auto" && b != "on" && b != "off" {
+		return fmt.Errorf("daemon.boot_lockdown %q (auto | on | off)", b)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
