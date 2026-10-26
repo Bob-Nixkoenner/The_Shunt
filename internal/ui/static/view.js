@@ -29,6 +29,7 @@ function expertInUse() {
   n(Object.values(model.tunnel).filter((t) => t.via).length, "multi-hop tunnel", "multi-hop tunnels");
   n((model.dns.allow_doh ? 1 : 0) + (model.dns.allow_dot ? 1 : 0), "encrypted DNS allowed", "encrypted DNS kinds allowed");
   n(model.daemon.dhcp_hostname ? 1 : 0, "host name setting", "host name settings");
+  n(model.daemon.mac ? 1 : 0, "MAC setting", "MAC settings");
   n(apps.filter((a) => a.clone).length, "launcher", "launchers");
   return out;
 }

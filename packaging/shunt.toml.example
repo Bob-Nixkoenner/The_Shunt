@@ -5,6 +5,11 @@ socket_group = "shunt"      # members may use the `shunt` CLI
 default_route = "direct"    # direct | block | tunnel:<name>
 # boot_lockdown = "auto"     # block the network at boot until shuntd runs:
 #                            # auto (when a default route is not direct) | on | off
+# dhcp_hostname = "none"     # NetworkManager profiles: none | send (a [[network]] may override)
+# mac = "random"             # MAC on Wi-Fi and cable: random (new each connection) | stable
+#                            # (own per network) | permanent; random/stable also derive the
+#                            # DHCPv6 DUID, DHCP client ID and IPv6 addresses from it, not
+#                            # from the device. A [[network]] may override (mac = "permanent").
 
 # wg-quick style file, mode 0600. PostUp/PreUp/Table/FwMark are ignored.
 [tunnel.vps]

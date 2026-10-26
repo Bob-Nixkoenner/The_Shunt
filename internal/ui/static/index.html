@@ -433,6 +433,9 @@ body.normal .expert { display: none !important; }
       <label class="linux-only expert" for="c-hostname">Host name in DHCP</label>
       <div class="linux-only expert"><select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
         <div class="muted" style="font-size:12px">Every network you join sees your machine's name unless it is switched off in NetworkManager's profiles. The Shunt sets them; a network profile below can say "send" (e.g. at home).</div></div>
+      <label class="linux-only expert" for="c-mac">MAC address</label>
+      <div class="linux-only expert"><select id="c-mac"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
+        <div class="muted" style="font-size:12px">Wi-Fi and cable. “New” and “own per network” also keep the device's IDs out of DHCP and IPv6 addresses. A new MAC applies from the next connection; a network login page may then ask again. A network profile below can say “the real one” (e.g. at home).</div></div>
       <label class="linux-only" for="c-bootlock">Network at boot</label>
       <div class="linux-only"><select id="c-bootlock"><option value="">auto: blocked if everything else goes through a tunnel</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
         <div class="muted" style="font-size:12px">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
