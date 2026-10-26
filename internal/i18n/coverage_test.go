@@ -57,3 +57,57 @@ func TestGermanCoversGoTexts(t *testing.T) {
 		t.Error("found no texts: is the pattern right?")
 	}
 }
+
+var (
+	ktStr     = `"((?:[^"\\\n]|\\.)*)"`
+	ktT       = regexp.MustCompile(`\bT\(\s*` + ktStr)
+	ktTn      = regexp.MustCompile(`\bTn\([^,]+,\s*` + ktStr + `\s*,\s*` + ktStr)
+	ktCentral = regexp.MustCompile(`\b(?:Section|Hint|Pill|ShuntButton|KV)\(\s*` + ktStr)
+	ktBanner  = regexp.MustCompile(`\bBanner\(\s*` + ktStr + `\s*,\s*` + ktStr)
+	ktKpi     = regexp.MustCompile(`\bKpi\([^,]+,\s*` + ktStr)
+	ktUnesc   = strings.NewReplacer(`\"`, `"`, `\\`, `\`, `\n`, "\n", `\$`, "$", `\'`, "'")
+)
+
+// The Android app uses the same catalog (packed as assets): every T()/Tn()
+// text and every text handed to the shared composables (Section, Hint, Pill,
+// Banner, KV, ShuntButton, Kpi) has a German translation. A Kotlin template
+// ("${x}") in such a text would never find one: use {placeholders}.
+func TestGermanCoversAndroidTexts(t *testing.T) {
+	de := Dict("de")
+	seen := map[string]bool{}
+	root := filepath.Join(goRoot, "android", "app", "src")
+	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".kt") {
+			return nil
+		}
+		b, _ := os.ReadFile(p)
+		src := string(b)
+		var texts []string
+		for _, re := range []*regexp.Regexp{ktT, ktTn, ktCentral, ktBanner, ktKpi} {
+			for _, m := range re.FindAllStringSubmatch(src, -1) {
+				texts = append(texts, m[1:]...)
+			}
+		}
+		for _, raw := range texts {
+			s := ktUnesc.Replace(raw)
+			if raw == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			if strings.Contains(raw, "${") || (strings.Contains(raw, "$") && !strings.Contains(raw, `\$`)) {
+				t.Errorf("%s: %q has a Kotlin template: use T(\"... {name} ...\", \"name\" to x)", p, s)
+				continue
+			}
+			v, ok := de[s]
+			if !ok {
+				t.Errorf("%s: no German for %q", p, s)
+			} else if len(goKV.FindAllString(s, -1)) != len(goKV.FindAllString(v, -1)) {
+				t.Errorf("%s: placeholders differ in %q", p, s)
+			}
+		}
+		return nil
+	})
+	if len(seen) < 50 {
+		t.Errorf("found only %d texts: is the pattern right?", len(seen))
+	}
+}

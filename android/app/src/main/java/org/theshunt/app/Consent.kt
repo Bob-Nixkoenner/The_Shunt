@@ -38,24 +38,28 @@ fun ConsentGate(onDecline: () -> Unit, content: @Composable () -> Unit) {
     val c = LocalShunt.current
     Column(Modifier.fillMaxSize().systemBarsPadding().padding(20.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Before you start", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = c.text)
-            Text("The Shunt uses Android's VPN service. Through it the app handles the network traffic of the apps you choose, to send it through the tunnels you set up.", color = c.text)
-            Text("What the app can see", fontWeight = FontWeight.Bold, color = c.text)
+            Text(T("Before you start"), fontWeight = FontWeight.Bold, fontSize = 22.sp, color = c.text)
+            Text(T("The Shunt uses Android's VPN service. Through it the app handles the network traffic of the apps you choose, to send it through the tunnels you set up."), color = c.text)
+            Text(T("What the app can see"), fontWeight = FontWeight.Bold, color = c.text)
             Text(
-                "• The list of apps installed on this phone, to let you pick which app uses which tunnel.\n" +
-                    "• The network connections of those apps: destination addresses, ports and DNS names, to apply your rules and the DNS filter.\n" +
-                    "• Your tunnel keys and settings.",
+                listOf(
+                    T("• The list of apps installed on this phone, to let you pick which app uses which tunnel."),
+                    T("• The network connections of those apps: destination addresses, ports and DNS names, to apply your rules and the DNS filter."),
+                    T("• Your tunnel keys and settings."),
+                ).joinToString("\n"),
                 color = c.text,
             )
-            Text("What happens with it", fontWeight = FontWeight.Bold, color = c.text)
+            Text(T("What happens with it"), fontWeight = FontWeight.Bold, color = c.text)
             Text(
-                "• All of this is processed on this phone only. The developer receives nothing: no account, no analytics, no advertising.\n" +
-                    "• Traffic is sent, encrypted by the tunnel, to the server you entered. Its operator then handles it under their own policy.\n" +
-                    "• The app itself contacts GitHub (DNS filter lists, only if you switch them on) and api.ipify.org (only when you start the leak test).\n" +
-                    "• Nothing is sold or shared.",
+                listOf(
+                    T("• All of this is processed on this phone only. The developer receives nothing: no account, no analytics, no advertising."),
+                    T("• Traffic is sent, encrypted by the tunnel, to the server you entered. Its operator then handles it under their own policy."),
+                    T("• The app itself contacts GitHub (DNS filter lists, only if you switch them on) and api.ipify.org (only when you start the leak test)."),
+                    T("• Nothing is sold or shared."),
+                ).joinToString("\n"),
                 color = c.text,
             )
-            TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text("Read the privacy policy") }
+            TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text(T("Read the privacy policy")) }
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ShuntButton("Decline", onDecline, modifier = Modifier.weight(1f))
@@ -70,6 +74,6 @@ fun PrivacySection() {
     val ctx = LocalContext.current
     Section("Privacy") {
         Hint("No account, no analytics. Settings, keys and statistics stay on this phone.")
-        TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text("Privacy policy") }
+        TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text(T("Privacy policy")) }
     }
 }

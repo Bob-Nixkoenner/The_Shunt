@@ -36,13 +36,13 @@ fun UpdateSection(say: (String) -> Unit) {
     var pre by remember { mutableStateOf(Updater.prereleases(ctx)) }
 
     Section("Update", action = {
-        ShuntButton(if (busy) "Working…" else "Check", {
+        ShuntButton(if (busy) T("Working…") else T("Check"), {
             busy = true
             note = null
             scope.launch {
                 runCatching { withContext(Dispatchers.IO) { Updater.check(ctx) } }
-                    .onSuccess { found = it; note = if (it == null) "You have the newest version." else null }
-                    .onFailure { found = null; note = "Check failed: ${it.message}" }
+                    .onSuccess { found = it; note = if (it == null) T("You have the newest version.") else null }
+                    .onFailure { found = null; note = T("Check failed: {error}", "error" to it.message) }
                 busy = false
             }
         }, enabled = !busy)
@@ -55,7 +55,7 @@ fun UpdateSection(say: (String) -> Unit) {
         }
         note?.let { Hint(it) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Include pre-releases (rc)", fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(T("Include pre-releases (rc)"), fontSize = 14.sp, modifier = Modifier.weight(1f))
             Switch(pre, { pre = it; Updater.setPrereleases(ctx, it) })
         }
         Hint("Only asks GitHub which version is the newest when you press Check. Nothing runs in the background.")
