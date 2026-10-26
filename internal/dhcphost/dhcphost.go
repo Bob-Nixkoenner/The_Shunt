@@ -8,6 +8,7 @@
 package dhcphost
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -120,12 +121,35 @@ func (pol Policy) Changes(p Profile) (now, next []string) {
 		set(&now, "ipv6.ip6-privacy", p.Privacy, "2")
 		set(&next, macProp, p.MAC, mac)
 	case config.MACPermanent:
-		// a trusted network: the real MAC, NetworkManager's own IDs
-		set(&now, "ipv6.dhcp-duid", p.DUID, "")
-		set(&now, "ipv4.dhcp-client-id", p.ClientID, "")
+		// a trusted network: the real MAC; a DUID of this profile's own
+		// (unset would take the runtime default, see Defaults)
+		set(&now, "ipv6.dhcp-duid", p.DUID, "stable-uuid")
+		set(&now, "ipv4.dhcp-client-id", p.ClientID, "mac")
 		set(&next, macProp, p.MAC, "permanent")
 	}
 	return now, next
+}
+
+// Defaults returns NetworkManager connection defaults for profiles that do
+// not set these values: a network joined for the first time connects at
+// once, before its new profile can be set. "" = none needed.
+func Defaults(c *config.Config) string {
+	var b strings.Builder
+	switch c.Daemon.MAC {
+	case config.MACRandom, config.MACStable:
+		mac, duid := "random", "ll"
+		if c.Daemon.MAC == config.MACStable {
+			mac, duid = "stable", "stable-ll"
+		}
+		fmt.Fprintf(&b, "wifi.cloned-mac-address=%s\nethernet.cloned-mac-address=%s\nipv6.dhcp-duid=%s\nipv4.dhcp-client-id=mac\nipv6.addr-gen-mode=stable-privacy\nipv6.ip6-privacy=2\n", mac, mac, duid)
+	}
+	if c.Daemon.DHCPHostname == config.HostnameNone {
+		b.WriteString("ipv4.dhcp-send-hostname=false\nipv6.dhcp-send-hostname=false\n")
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "# Written by shuntd at start (daemon.mac, daemon.dhcp_hostname): defaults for\n# profiles that do not set these, so a new network is covered from its first\n# connection. Runtime only; shuntd removes it when the settings are off.\n[connection]\n" + b.String()
 }
 
 // normSend maps nmcli's spellings (1.46: yes/no; 1.52+: -1/0/1, "default")

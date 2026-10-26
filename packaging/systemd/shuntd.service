@@ -30,7 +30,8 @@ RestartSec=2
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/run/shunt /etc/shunt
+# -/run/NetworkManager: connection defaults for new networks (daemon.mac)
+ReadWritePaths=/run/shunt /etc/shunt -/run/NetworkManager
 ProtectHome=yes
 ProtectKernelLogs=yes
 ProtectProc=default

@@ -740,7 +740,7 @@ func (d *Daemon) applyNetPrivacy() {
 	d.mu.Lock()
 	c, info := d.cfg, d.netInfo
 	d.mu.Unlock()
-	if c == nil || (c.Daemon.DHCPHostname == "" && c.Daemon.MAC == "") {
+	if c == nil {
 		return
 	}
 	pol := dhcphost.Policy{Config: c}
