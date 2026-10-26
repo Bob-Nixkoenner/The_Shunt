@@ -100,6 +100,7 @@ func (s *Server) handler() http.Handler {
 	sub, _ := fs.Sub(static, "static")
 	files := http.FileServer(http.FS(sub))
 	mux.Handle("GET /", files)
+	mux.HandleFunc("GET /i18n-data.js", serveI18N)
 
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		var st api.Status

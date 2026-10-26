@@ -60,7 +60,7 @@ const RPILIST_GROUPS = [
     ["gambling", "gambling", 40],
     ["DatingSites", "dating sites", 7.3],
     ["proxies", "proxy and anonymiser services", 3.6],
-    ...[1, 2, 3, 4, 5, 6].map((i) => ["pornblock" + i, "adult content " + i, i === 6 ? 7.2 : 33]),
+    ...[1, 2, 3, 4, 5, 6].map((i) => ["pornblock" + i, T("adult content {n}", { n: i }), i === 6 ? 7.2 : 33]),
   ]],
   ["Other", [
     ["SupportingRussia", "companies supporting Russia", 0],
@@ -98,7 +98,7 @@ function renderFilter() {
   if (!model || !cfgView) return;
   const f = fview();
   const used = usedLevels();
-  fill("#f-default", [["off", "off"], ...LEVELS.map((l) => [l, l + (used.has(l) || l === (f.default || "normal") ? "" : " (unused)")])], f.default || "normal");
+  fill("#f-default", [["off", "off"], ...LEVELS.map((l) => [l, T(l) + (used.has(l) || l === (f.default || "normal") ? "" : T(" (unused)"))])], f.default || "normal");
 
   const offered = offeredGroups();
   const known = new Set(offered.flatMap(([, l]) => l).map((x) => x[0]));
@@ -109,7 +109,7 @@ function renderFilter() {
     if (typeof row === "string") return el("tr", { class: "grouprow" }, el("th", { colspan: 6, style: "text-align:left;padding-top:14px" }, row));
     const [name, desc, mb] = row;
     const cells = LEVELS.map((l, i) => el("td", {}, el("input", {
-      type: "checkbox", title: l + (used.has(l) ? "" : " – level not in use, nothing is downloaded"),
+      type: "checkbox", title: T(l) + (used.has(l) ? "" : T(" – level not in use, nothing is downloaded")),
       // a level has the lists of the levels below it
       checked: LEVELS.slice(0, i + 1).some((k) => (f[k] || []).includes(name)) ? "" : null,
       onchange: (e) => {
@@ -127,7 +127,7 @@ function renderFilter() {
     })));
     return el("tr", {},
       el("td", { class: name.startsWith("https://") ? "mono" : "" }, el("b", {}, name)),
-      el("td", { class: "muted" }, desc + (mb ? " · " + mb + " MB" : ""), mb >= 30 ? el("span", { style: "color:var(--warn)" }, " – big") : ""),
+      el("td", { class: "muted" }, T(desc) + (mb ? " · " + mb + " MB" : ""), mb >= 30 ? el("span", { style: "color:var(--warn)" }, " – big") : ""),
       ...cells,
       el("td", {}, mb === null ? el("button", { class: "iconbtn", title: "remove", onclick: () => {
         const m = fm();
@@ -142,13 +142,13 @@ function renderFilter() {
 }
 
 function ago(t) {
-  if (!t || String(t).startsWith("0001")) return "never"; // Go's zero time
+  if (!t || String(t).startsWith("0001")) return T("never"); // Go's zero time
   const s = (Date.now() - new Date(t)) / 1000;
-  if (s < 10) return "just now";
-  if (s < 90) return Math.round(s) + " s ago";
-  if (s < 5400) return Math.round(s / 60) + " min ago";
-  if (s < 129600) return Math.round(s / 3600) + " h ago";
-  return Math.round(s / 86400) + " days ago";
+  if (s < 10) return T("just now");
+  if (s < 90) return T("{n} s ago", { n: Math.round(s) });
+  if (s < 5400) return T("{n} min ago", { n: Math.round(s / 60) });
+  if (s < 129600) return T("{n} h ago", { n: Math.round(s / 3600) });
+  return T("{n} days ago", { n: Math.round(s / 86400) });
 }
 
 // the parts that come from the daemon's status
@@ -162,18 +162,18 @@ function renderFilterStatus() {
     return;
   }
   const lvl = (l) => el("span", { class: "chip" }, l || "off");
-  $("#f-now").replaceChildren(el("div", { class: "muted", style: "margin-bottom:4px" }, "In effect now" + (status.network ? " (network “" + status.network + "”)" : "") + ":"),
+  $("#f-now").replaceChildren(el("div", { class: "muted", style: "margin-bottom:4px" }, status.network ? T("In effect now (network “{name}”):", { name: status.network }) : T("In effect now:")),
     el("table", {}, el("tbody", {},
       ...Object.entries(fs.routes).map(([r, l]) => el("tr", {}, el("td", {}, routeTag(r)), el("td", {}, lvl(l)))),
       ...Object.entries(fs.rules || {}).map(([r, l]) => el("tr", {}, el("td", {}, "rule ", el("b", {}, r)), el("td", {}, lvl(l)))))));
   const st = fs.stats || {};
   const by = Object.entries(st.by_level || {}).map(([l, n]) => l + " " + n).join(" · ");
-  $("#f-stats").textContent = (st.blocked || 0) + " queries blocked since the service started" + (by ? " (" + by + ")" : "");
+  $("#f-stats").textContent = T("{n} queries blocked since the service started", { n: st.blocked || 0 }) + (by ? " (" + by + ")" : "");
   const lists = fs.lists || [];
   $("#f-loaded").replaceChildren(...(lists.length ? lists.map((l) => el("tr", {},
     el("td", {}, el("b", {}, l.name.replace(/^https:\/\//, "")), el("div", { class: "muted" }, (l.levels || []).join(", "))),
-    el("td", {}, l.entries ? l.entries.toLocaleString() + " names" : el("span", { class: "muted" }, l.error ? "not loaded" : "loading…")),
-    el("td", { class: "muted" }, "updated " + ago(l.updated)),
+    el("td", {}, l.entries ? T("{n} names", { n: l.entries.toLocaleString() }) : el("span", { class: "muted" }, l.error ? "not loaded" : "loading…")),
+    el("td", { class: "muted" }, T("updated {ago}", { ago: ago(l.updated) })),
     el("td", { style: "color:var(--bad)" }, l.error || ""))) :
     [el("tr", {}, el("td", { class: "muted" }, "No list in use."))]));
   const recent = st.recent || [];
@@ -190,7 +190,7 @@ function allow(name) {
   if (!m.allow.includes(name)) m.allow.push(name);
   markDirty();
   renderFilter();
-  toast(name + " allowed – press “Save & apply”");
+  toast(T("{name} allowed – press “Save & apply”", { name }));
 }
 
 $("#f-default").addEventListener("change", (e) => { fm().default = e.target.value; markDirty(); renderFilter(); });
@@ -233,7 +233,7 @@ $("#f-add").addEventListener("click", () => {
     if (!have.has(u)) added++;
   }
   $("#f-paste").value = "";
-  $("#f-paste-info").textContent = urls.length + " lists read, " + added + " new" + (skipped ? ", " + skipped + " lines ignored (not https://)" : "") + " – put into “" + lvl + "” (the levels above include it)";
+  $("#f-paste-info").textContent = T("{n} lists read, {added} new", { n: urls.length, added }) + (skipped ? T(", {n} lines ignored (not https://)", { n: skipped }) : "") + T(" – put into “{level}” (the levels above include it)", { level: lvl });
   markDirty();
   renderFilter();
 });
@@ -248,7 +248,7 @@ $("#f-tidy").addEventListener("click", () => {
   for (const l of LEVELS) {
     m[l] = m[l].filter((n) => { const k = listKey(n); if (seen.has(k)) { removed++; return false; } seen.add(k); return true; });
   }
-  $("#f-paste-info").textContent = removed ? removed + " redundant entries removed" : "nothing to tidy";
+  $("#f-paste-info").textContent = removed ? T("{n} redundant entries removed", { n: removed }) : T("nothing to tidy");
   if (removed) { markDirty(); renderFilter(); }
 });
 $("#f-alists").addEventListener("input", (e) => {

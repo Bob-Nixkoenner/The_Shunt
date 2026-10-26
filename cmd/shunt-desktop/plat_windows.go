@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winapps"
 )
@@ -68,6 +69,8 @@ func appSource(c *api.Client, self string) ui.AppSource {
 	return &winapps.Source{Client: c, Self: self}
 }
 
-var restartHint = "Check: " + filepath.Join(os.Getenv("ProgramData"), "Shunt", "shuntd.log")
+func restartHint() string {
+	return i18n.T("Check: {file}", "file", filepath.Join(os.Getenv("ProgramData"), "Shunt", "shuntd.log"))
+}
 
 const updatesSupported = true // the window's "Install update" downloads and starts the signed setup

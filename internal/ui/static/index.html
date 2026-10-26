@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Shunt</title>
+<script src="i18n-data.js"></script>
+<script src="i18n.js"></script>
 <script src="state.js"></script>
 <script src="theme.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2310b981'/%3E%3Cpath d='M6 22h4.5l6-9.5h6M10.5 22H26' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
@@ -144,6 +146,8 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .iconbtn { padding: 3px 9px; }
 .savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); }
 .savebar.dirty { border-color: var(--accent); }
+.savebar button { white-space: nowrap; flex: none; }
+.savebar .msg { min-width: 0; }
 .msg.err { color: var(--bad); } .msg.ok { color: var(--accent); } .msg.warn { color: var(--warn); }
 .editor { background: var(--panel2); border-radius: 9px; padding: 14px; margin-top: 10px; }
 .drop { border: 2px dashed var(--line); border-radius: 9px; padding: 14px; text-align: center; color: var(--muted); }
@@ -271,7 +275,7 @@ body.normal .expert { display: none !important; }
         <input id="t-user" placeholder="username" autocomplete="off" style="width:180px">
         <input id="t-pass" type="password" placeholder="password" autocomplete="new-password" style="width:180px">
       </div>
-      <div class="muted" style="margin-top:8px">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
+      <div class="muted" style="margin-top:8px" data-i18n="html">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
       <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
     </div>
     <div class="editor" id="add-ts" hidden>
@@ -301,7 +305,7 @@ body.normal .expert { display: none !important; }
       <tbody id="apps"></tbody>
     </table></div>
     <div class="hint win-only">Programs that run or have a rule. A rule applies by the program’s file name to every new connection – no restart of the program needed. “system default” removes the rule (the default route applies).</div>
-    <div class="hint linux-only">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
+    <div class="hint linux-only" data-i18n="html">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
   </section>
   <section class="half" data-fold>
     <h2>Start an app</h2>
@@ -310,7 +314,7 @@ body.normal .expert { display: none !important; }
       <select id="runroute"></select>
       <button id="run" class="primary">Start</button>
     </div>
-    <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
+    <div class="hint" data-i18n="html">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
   </section>
 
   <section class="half linux-only" data-fold>
@@ -328,7 +332,7 @@ body.normal .expert { display: none !important; }
   </section>
 
   <section id="sec-launchers" class="expert" data-fold hidden>
-    <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0"><span class="linux-only">extra menu entries</span><span class="win-only" style="display:none">extra Start menu entries (folder “The Shunt Launchers”)</span>, e.g. one per browser profile</span></h2>
+    <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="html"><span class="linux-only">extra menu entries</span><span class="win-only" style="display:none">extra Start menu entries (folder “The Shunt Launchers”)</span>, e.g. one per browser profile</span></h2>
     <div id="browsers"></div>
     <div class="row" style="margin-top:12px">
       <select id="lapp" title="app to start"></select>
@@ -337,10 +341,10 @@ body.normal .expert { display: none !important; }
       <select id="lroute"></select>
       <button id="lcreate" class="primary">Create</button>
     </div>
-    <div class="hint linux-only" style="margin-top:10px"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
-    <div class="hint win-only" style="margin-top:10px;display:none"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process. The browser’s updater runs as a service of its own and takes the program rule or the default route, and so does a browser started by a link from another program. Edge with “Startup boost” runs already at login: give Edge launchers a data folder of their own. Check with the leak test.</div>
-    <div class="hint win-only" style="display:none">Each launcher starts its own instance with its own route; the program and everything it starts stay in that route. Firefox: <span class="mono">--new-instance --profile "&lt;folder&gt;"</span>. Chrome/Brave/Edge/Vivaldi/Opera: leave the arguments empty and the launcher gets its own, new profile folder in <span class="mono">%USERPROFILE%\ShuntProfiles</span> (log in there once; browser sync brings bookmarks over). Existing profiles of these browsers cannot be shared with a launcher on Windows. Removing a launcher keeps its folder.</div>
-    <div class="hint linux-only">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
+    <div class="hint linux-only" style="margin-top:10px" data-i18n="html"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
+    <div class="hint win-only" style="margin-top:10px;display:none" data-i18n="html"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process. The browser’s updater runs as a service of its own and takes the program rule or the default route, and so does a browser started by a link from another program. Edge with “Startup boost” runs already at login: give Edge launchers a data folder of their own. Check with the leak test.</div>
+    <div class="hint win-only" style="display:none" data-i18n="html">Each launcher starts its own instance with its own route; the program and everything it starts stay in that route. Firefox: <span class="mono">--new-instance --profile "&lt;folder&gt;"</span>. Chrome/Brave/Edge/Vivaldi/Opera: leave the arguments empty and the launcher gets its own, new profile folder in <span class="mono">%USERPROFILE%\ShuntProfiles</span> (log in there once; browser sync brings bookmarks over). Existing profiles of these browsers cannot be shared with a launcher on Windows. Removing a launcher keeps its folder.</div>
+    <div class="hint linux-only" data-i18n="html">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
   <section class="linux-only">
@@ -357,7 +361,7 @@ body.normal .expert { display: none !important; }
       <label class="expert" for="c-fwtimeout">Timeout</label><div class="row expert"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
       <label class="expert">Terminal programs</label><label class="row expert" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
     </div>
-    <div class="hint">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
+    <div class="hint" data-i18n="html">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
   </section>
 
   <section class="linux-only expert" data-fold>
@@ -372,7 +376,7 @@ body.normal .expert { display: none !important; }
     <div class="form">
       <label for="f-default">Everything else</label><select id="f-default"></select>
     </div>
-    <div class="hint">Which level applies, most specific first: a <b>rule</b> for the app (or group) → the <b>tunnel</b> the query goes through → the <b>network</b> you are in (direct and Wi-Fi/cable routes) → “Everything else”. Set them under <b>VPN</b> (tunnels) and <b>Configure</b> (networks, rules). Names you routed with a domain rule and the Wi-Fi login browser are never filtered.</div>
+    <div class="hint" data-i18n="html">Which level applies, most specific first: a <b>rule</b> for the app (or group) → the <b>tunnel</b> the query goes through → the <b>network</b> you are in (direct and Wi-Fi/cable routes) → “Everything else”. Set them under <b>VPN</b> (tunnels) and <b>Configure</b> (networks, rules). Names you routed with a domain rule and the Wi-Fi login browser are never filtered.</div>
     <div id="f-now" style="margin-top:10px"></div>
   </section>
 
@@ -389,13 +393,13 @@ body.normal .expert { display: none !important; }
       <textarea id="f-paste" spellcheck="false" placeholder="more lists: paste one https:// URL or a whole block, one per line (Pi-hole adlists, AdGuard Home lists, hosts files, domain lists)" style="min-height:70px"></textarea>
       <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><button id="f-tidy" title="Remove entries that a lower level already includes, or that are listed twice">Tidy lists</button><span id="f-paste-info" class="muted"></span></div>
     </div>
-    <div class="hint">Lists: <a href="https://github.com/hagezi/dns-blocklists" target="_blank" rel="noopener">HaGeZi</a> and <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to both projects for building and maintaining them; they are downloaded when used, not part of The Shunt. Big lists cost memory (roughly 3× their size).</div>
+    <div class="hint" data-i18n="html">Lists: <a href="https://github.com/hagezi/dns-blocklists" target="_blank" rel="noopener">HaGeZi</a> and <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to both projects for building and maintaining them; they are downloaded when used, not part of The Shunt. Big lists cost memory (roughly 3× their size).</div>
   </section>
 
   <section class="half">
     <h2>Never block</h2>
     <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:100px"></textarea>
-    <div class="hint" style="margin:10px 0 4px">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
+    <div class="hint" style="margin:10px 0 4px" data-i18n="html">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
     <textarea id="f-alists" spellcheck="false" placeholder="https://…/whitelist.txt" style="min-height:60px"></textarea>
   </section>
 
@@ -437,7 +441,7 @@ body.normal .expert { display: none !important; }
   <section>
     <h2>Port rules <span class="muted" style="text-transform:none;letter-spacing:0">rules that match ports · first match wins</span><span class="spacer"></span><button id="p-new">+ New port rule</button></h2>
     <table><tbody id="p-rules"></tbody></table>
-    <div class="hint">Edited in the rule list under <b>Configure</b>, where their order with the other rules shows.</div>
+    <div class="hint" data-i18n="html">Edited in the rule list under <b>Configure</b>, where their order with the other rules shows.</div>
   </section>
   <section id="sec-ports" data-fold hidden>
     <h2>Open ports <span class="muted" style="text-transform:none;letter-spacing:0" id="ports-sum"></span><span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="ports-all"> also local only</label></h2>
@@ -462,14 +466,14 @@ body.normal .expert { display: none !important; }
         <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
-        <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
+        <div class="muted" style="font-size:12px" data-i18n="html">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
     </div>
   </section>
 
   <section class="half">
     <h2>Service</h2>
     <div class="row"><button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button></div>
-    <div class="hint">Reload after editing <span class="mono">/etc/shunt/shunt.toml</span> by hand. Both are in the tray menu as well.</div>
+    <div class="hint" data-i18n="html">Reload after editing <span class="mono">/etc/shunt/shunt.toml</span> by hand. Both are in the tray menu as well.</div>
   </section>
 
   <section class="linux-only">
@@ -487,7 +491,7 @@ body.normal .expert { display: none !important; }
         <div class="muted">Answers to your own connections always pass. Tunnels are closed unless the tunnel says otherwise. A trusted profile (incoming = LAN) lets in only these ports, from private addresses. On a server this blocks SSH from outside too.</div></div>
       <div><label class="t" for="c-bootlock">Network at boot</label>
         <select id="c-bootlock"><option value="">auto: blocked if everything else goes through a tunnel</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
-        <div class="muted">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
+        <div class="muted" data-i18n="html">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
     </div>
   </section>
 
@@ -545,6 +549,7 @@ body.normal .expert { display: none !important; }
   <section class="half">
     <h2>Look</h2>
     <div class="form">
+      <label for="v-lang">Language</label><select id="v-lang"></select>
       <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
       <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" class="expert">Ports</option><option value="config">Configure</option><option value="view">View</option></select>
     </div>

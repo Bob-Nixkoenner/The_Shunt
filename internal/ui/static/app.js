@@ -90,9 +90,9 @@ function bytes(n) {
 function ago(ts) {
   if (!ts || ts.startsWith("0001")) return "never";
   const s = Math.max(0, Math.round((Date.now() - Date.parse(ts)) / 1000));
-  if (s < 90) return s + "s ago";
-  if (s < 5400) return Math.round(s / 60) + " min ago";
-  return Math.round(s / 3600) + " h ago";
+  if (s < 90) return T("{n}s ago", { n: s });
+  if (s < 5400) return T("{n} min ago", { n: Math.round(s / 60) });
+  return T("{n} h ago", { n: Math.round(s / 3600) });
 }
 
 function render() {
@@ -111,14 +111,14 @@ function render() {
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (st.pass_left) { state.className = "pill bad"; state.textContent = "PASS – unprotected"; }
   else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
-  else if (st.pending) { state.className = "pill warn"; state.textContent = st.pending + " app(s) waiting for a route"; }
-  else if (down.length) { state.className = "pill warn"; state.textContent = down.length + " tunnel(s) without connection – their apps are blocked"; }
-  else if (st.dns_failing && Object.keys(st.dns_failing).length) { state.className = "pill warn"; state.textContent = "DNS not working: " + Object.keys(st.dns_failing).sort().join(", "); }
+  else if (st.pending) { state.className = "pill warn"; state.textContent = Tn(st.pending, "{n} app waiting for a route", "{n} apps waiting for a route"); }
+  else if (down.length) { state.className = "pill warn"; state.textContent = Tn(down.length, "{n} tunnel without connection – its apps are blocked", "{n} tunnels without connection – their apps are blocked"); }
+  else if (st.dns_failing && Object.keys(st.dns_failing).length) { state.className = "pill warn"; state.textContent = T("DNS not working: {list}", { list: Object.keys(st.dns_failing).sort().join(", ") }); }
   else { state.className = "pill ok"; state.textContent = "protected"; }
-  $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, " (network “" + st.network + "”)")] : []));
+  $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, T(" (network “{name}”)", { name: st.network }))] : []));
 
   const pass = $("#pass");
-  pass.textContent = st.pass_left ? "End pass (" + Math.floor(st.pass_left / 60) + ":" + String(st.pass_left % 60).padStart(2, "0") + ")" : "Pass 5 min";
+  pass.textContent = st.pass_left ? T("End pass ({time})", { time: Math.floor(st.pass_left / 60) + ":" + String(st.pass_left % 60).padStart(2, "0") }) : "Pass 5 min";
   pass.classList.toggle("on", !!st.pass_left);
   const panic = $("#panic");
   panic.textContent = st.panic ? "Release panic" : "PANIC";
@@ -126,13 +126,11 @@ function render() {
 
   const inq = st.inbound_ask;
   $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", w)),
-    ...(inq ? [el("div", { class: "banner" }, "🛡 Unknown network " + (inq.ssid ? "“" + inq.ssid + "”" : "(gateway " + inq.gateway_mac + ")") +
-      ": incoming connections are blocked. Is this your own network? ",
+    ...(inq ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
       el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
     ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
-    ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, "Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another " +
-      Math.ceil(st.pass_left / 60) + " min. Connections opened meanwhile are cut when it ends.")] : []));
+    ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, T("Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another {n} min. Connections opened meanwhile are cut when it ends.", { n: Math.ceil(st.pass_left / 60) }))] : []));
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
@@ -143,24 +141,21 @@ function render() {
       el("div", { class: "kv" },
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
-        ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, "through " + t.via)] : []),
+        ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, T("through {via}", { via: t.via }))] : []),
         el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
         el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
         ...(st.traffic && st.traffic[t.name] ? [el("span", {}, "this month"), el("span", {},
-          "↓ " + bytes(st.traffic[t.name].month.rx) + "  ↑ " + bytes(st.traffic[t.name].month.tx) +
-          "  (total ↓ " + bytes(st.traffic[t.name].total.rx) + "  ↑ " + bytes(st.traffic[t.name].total.tx) + ")")] : []),
+          T("↓ {mrx}  ↑ {mtx}  (total ↓ {trx}  ↑ {ttx})", { mrx: bytes(st.traffic[t.name].month.rx), mtx: bytes(st.traffic[t.name].month.tx), trx: bytes(st.traffic[t.name].total.rx), ttx: bytes(st.traffic[t.name].total.tx) }))] : []),
         ...(t.up && t.health && t.health.state !== "unknown" ? [el("span", {}, "health"), el("span", {},
           el("span", { class: "pill verdict " + ({ ok: "ok", idle: "", stale: "warn", down: "bad" }[t.health.state] || "") },
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
-          t.health.loss > 0 ? " · " + Math.round(t.health.loss * 100) + " % lost" : "")] : []),
+          t.health.loss > 0 ? T(" · {n} % lost", { n: Math.round(t.health.loss * 100) }) : "")] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
       ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
     ...(st.traffic && st.traffic.total && st.traffic.total.total.rx + st.traffic.total.total.tx > 0 ? [el("div", { class: "muted", style: "grid-column:1/-1" },
-      "All tunnels: this month ↓ " + bytes(st.traffic.total.month.rx) + " ↑ " + bytes(st.traffic.total.month.tx) +
-      " · last month ↓ " + bytes(st.traffic.total.last_month.rx) + " ↑ " + bytes(st.traffic.total.last_month.tx) +
-      " · total ↓ " + bytes(st.traffic.total.total.rx) + " ↑ " + bytes(st.traffic.total.total.tx))] : []));
+      T("All tunnels: this month ↓ {m1} ↑ {m2} · last month ↓ {l1} ↑ {l2} · total ↓ {t1} ↑ {t2}", { m1: bytes(st.traffic.total.month.rx), m2: bytes(st.traffic.total.month.tx), l1: bytes(st.traffic.total.last_month.rx), l2: bytes(st.traffic.total.last_month.tx), t1: bytes(st.traffic.total.total.rx), t2: bytes(st.traffic.total.total.tx) }))] : []));
 
   // Selects are rebuilt only when the routes change: rebuilding closes a
   // dropdown the user has open.
@@ -176,7 +171,7 @@ function render() {
 
   $("#groups").replaceChildren(...st.groups.filter((g) => g.procs > 0 || !g.name.startsWith("via:")).map((g) =>
     el("tr", {},
-      el("td", {}, g.name.replace(/^via:/, "started via ").replace(/^app:/, "app rule: ")),
+      el("td", {}, g.name.replace(/^via:/, T("started via ")).replace(/^app:/, T("app rule: "))),
       el("td", {}, routeTag(g.route)),
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
@@ -188,7 +183,7 @@ function render() {
 }
 
 async function inboundDecide(q, action) {
-  if (action === "home" && !(await ask("Trust " + (q.ssid || "this network") + "?\n\nA network profile is added: the ports under Configure → Incoming connections become reachable from private addresses on it. Your default route stays as it is.", { ok: "Trust" }))) return;
+  if (action === "home" && !(await ask(T("Trust {name}?\n\nA network profile is added: the ports under Configure → Privacy and protection → Incoming connections become reachable from private addresses on it. Your default route stays as it is.", { name: q.ssid || T("this network") }), { ok: "Trust" }))) return;
   try {
     await api("POST", "/api/inbound/network", { ssid: q.ssid, gateway_mac: q.gateway_mac, action });
     toast(action === "home" ? "Trusted – network profile added" : "Kept closed – you will not be asked again here");
@@ -212,13 +207,13 @@ function renderApps() {
         try {
           await api("POST", "/api/apps", { id: a.id, route: e.target.value });
           a.route = e.target.value;
-          toast(a.name + (a.route ? " now starts via " + a.route : " restored to its original entry") + " – close all its windows and start it again");
+          toast(a.route ? T("{name} now starts via {route} – close all its windows and start it again", { name: a.name, route: a.route }) : T("{name} restored to its original entry – close all its windows and start it again", { name: a.name }));
           warnRunning(a);
         } catch (err) { toast(err.message); e.target.value = a.route || ""; }
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
     // a route that no longer exists (tunnel removed) stays visible instead of an empty box
-    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, a.route + " (gone)"));
+    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, T("{route} (gone)", { route: a.route })));
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s), el("td", { class: "linux-only" }, appFilterSelect(a)));
   }));
@@ -238,7 +233,7 @@ const isLevelRule = (r, proc) => r.dns_filter && !r.route && !(r.cidr || []).len
 const appLevel = (a) => (appRules.find((r) => isLevelRule(r, processName(a.id))) || {}).dns_filter || "";
 
 function appFilterSelect(a) {
-  const s = el("select", { title: "DNS filter for " + a.name + ", whatever route it takes", onchange: async (e) => {
+  const s = el("select", { title: T("DNS filter for {name}, whatever route it takes", { name: a.name }), onchange: async (e) => {
     try {
       // fresh copy of the config: never overwrite what changed meanwhile
       const v = await api("GET", "/api/config");
@@ -250,7 +245,7 @@ function appFilterSelect(a) {
       else if (level) c.rule.push({ name: "DNS filter: " + proc, app: [proc], dns_filter: level });
       await api("PUT", "/api/config", { config: c, version: v.version });
       appRules = c.rule;
-      toast(a.name + (level ? ": DNS filter " + level : ": DNS filter as everything else"));
+      toast(level ? T("{name}: DNS filter {level}", { name: a.name, level: T(level) }) : T("{name}: DNS filter as everything else", { name: a.name }));
     } catch (err) { toast(err.message); s.value = appLevel(a); }
   } }, ...LEVEL_OPTS.map(([v, l]) => el("option", { value: v }, l)));
   s.value = appLevel(a);
@@ -274,7 +269,7 @@ async function warnRunning(a) {
   const wrong = ps.filter((p) => p.route.replace(/ \(default\)$/, "") !== want);
   if (!wrong.length) return;
   const routes = [...new Set(wrong.map((p) => p.route))].join(", ");
-  await ask(a.name + " is still running (" + wrong.length + " processes in " + routes + ").\n\nNew windows open in that old process and keep its route. Quit it completely – also from the tray or background mode (Brave/Chrome: Settings → System → “Continue running background apps” off) – then start it again.\n\nCheck with: shunt which " + processName(a.id), { ok: "Got it" });
+  await ask(T("{name} is still running ({n} processes in {routes}).\n\nNew windows open in that old process and keep its route. Quit it completely – also from the tray or background mode (Brave/Chrome: Settings → System → “Continue running background apps” off) – then start it again.\n\nCheck with: shunt which {process}", { name: a.name, n: wrong.length, routes, process: processName(a.id) }), { ok: "Got it" });
 }
 
 function routeSelect(value, onchange, withDefault) {
@@ -291,7 +286,7 @@ const chromiumApp = () => (apps.find((a) => !a.clone && a.chromium) || {}).id;
 const slug = (n) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const firefoxApp = () => (apps.find((a) => /^(firefox-esr|firefox|org\.mozilla\.firefox|firefox_firefox|firefox\.exe)$/.test(a.id)) || {}).id;
 const onWindows = () => !!status && status.platform === "windows";
-const menuWord = () => onWindows() ? "Start menu entry" : "Menu entry";
+const menuWord = () => T(onWindows() ? "Start menu entry" : "Menu entry");
 
 // open/closed state of the browser groups survives a re-render
 const openBrowsers = new Set(JSON.parse((() => { try { return localStorage.getItem("shunt-open-browsers") || "[]"; } catch { return "[]"; } })()));
@@ -303,13 +298,13 @@ function launcherRow(a) {
   return el("tr", {},
     el("td", {}, a.name, " ", el("span", { class: "muted mono" }, (a.args || ""))),
     el("td", {}, routeSelect(a.route, async (e) => {
-      try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(a.name + " now via " + a.route); }
+      try { await api("POST", "/api/apps", { id: a.id, route: e.target.value }); a.route = e.target.value; toast(T("{name} now via {route}", { name: a.name, route: a.route })); }
       catch (err) { toast(err.message); e.target.value = a.route; }
     })),
     el("td", {}, el("span", { class: "muted lstate", "data-id": a.id }, "…")),
     el("td", {}, el("button", { onclick: () => startLauncher(a) }, "Start")),
     el("td", {}, el("button", { onclick: async () => {
-      try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(a.name + " removed"); await loadApps(); }
+      try { await api("POST", "/api/apps", { id: a.id, route: "" }); toast(T("{name} removed", { name: a.name })); await loadApps(); }
       catch (err) { toast(err.message); }
     } }, "Remove")));
 }
@@ -354,9 +349,9 @@ function renderLaunchers() {
     const note = g.app && isSnap(g.app) ? el("div", { class: "hint", style: "margin:6px 0" },
       "Snap version: it starts in two steps, so the first window can take a moment longer, and routing it is best effort, not guaranteed. The .deb or Flatpak version of the browser is more reliable.")
       : g.app && g.key !== "firefox" && onWindows() ? el("div", { class: "hint", style: "margin:6px 0" },
-      "Existing profiles of " + g.label + " cannot get a launcher of their own on Windows: the browser binds logins and saved passwords to its data folder and would delete them. Use a launcher with a new profile folder (below, arguments empty) and log in there once, or give the whole browser a route under Programs.") : "";
+      T("Existing profiles of {label} cannot get a launcher of their own on Windows: the browser binds logins and saved passwords to its data folder and would delete them. Use a launcher with a new profile folder (below, arguments empty) and log in there once, or give the whole browser a route under Programs.", { label: g.label })) : "";
     const det = el("details", { class: "inner browser", ontoggle: (e) => { if (e.target.open) openBrowsers.add(g.key); else openBrowsers.delete(g.key); rememberOpen(); } },
-      el("summary", {}, el("b", {}, g.label), " ", el("span", { class: "muted" }, mine.length + (mine.length === 1 ? " launcher" : " launchers") + (chips.length ? " · " + chips.length + " profile" + (chips.length === 1 ? "" : "s") + " found" : ""))),
+      el("summary", {}, el("b", {}, g.label), " ", el("span", { class: "muted" }, Tn(mine.length, "{n} launcher", "{n} launchers") + (chips.length ? " · " + Tn(chips.length, "{n} profile found", "{n} profiles found") : ""))),
       note,
       chips.length ? el("div", { class: "row", style: "margin:8px 0;flex-wrap:wrap" }, el("span", { class: "muted" }, "Profiles found:"), ...chips) : "",
       mine.length ? el("table", {}, el("tbody", {}, ...mine.map(launcherRow))) : "");
@@ -391,14 +386,13 @@ function launcherProg(a) {
 
 async function startLauncher(a) {
   const cmd = launcherCmd(a);
-  if (!cmd) return toast("Cannot read the command of " + a.name);
+  if (!cmd) return toast(T("Cannot read the command of {name}", { name: a.name }));
   try {
     const p = await api("GET", "/api/procs?name=" + encodeURIComponent(launcherProg(a)));
     const other = (p || []).find((x) => x.route && x.route !== a.route);
-    if (other && !(await ask(a.name + ": " + launcherProg(a) + " already runs via " + other.route + " (PID " + other.pid +
-      "). A second start usually joins that running copy and then keeps ITS route, not " + a.route + ". Start anyway?", { ok: "Start anyway" }))) return;
+    if (other && !(await ask(T("{name}: {prog} already runs via {other} (PID {pid}). A second start usually joins that running copy and then keeps ITS route, not {route}. Start anyway?", { name: a.name, prog: launcherProg(a), other: other.route, pid: other.pid, route: a.route }), { ok: "Start anyway" }))) return;
     await api("POST", "/api/run", { route: a.route, cmd });
-    toast(a.name + " started via " + a.route);
+    toast(T("{name} started via {route}", { name: a.name, route: a.route }));
   } catch (e) { toast(e.message); }
   setTimeout(updateLauncherState, 1500);
 }
@@ -415,9 +409,9 @@ async function updateLauncherState() {
     try { ps = (await api("GET", "/api/procs?name=" + encodeURIComponent(launcherProg(a)))) || []; } catch { continue; }
     const wrong = ps.filter((x) => x.route && x.route !== a.route);
     c.className = "lstate " + (wrong.length ? "bad" : ps.length ? "ok" : "muted");
-    c.textContent = !ps.length ? "not running" : wrong.length
-      ? "running via " + wrong[0].route + " – not " + a.route + "!"
-      : "running via " + a.route;
+    c.textContent = !ps.length ? T("not running") : wrong.length
+      ? T("running via {route} – not {wanted}!", { route: wrong[0].route, wanted: a.route })
+      : T("running via {route}", { route: a.route });
   }
 }
 
@@ -433,7 +427,7 @@ let crProfiles = [];
 async function createProfileLauncher(app, name, profile, route) {
   try {
     await api("POST", "/api/profile-launchers", { app, name, route, profile });
-    toast(menuWord() + " \u201c" + name + "\u201d created (" + route + "). Close the browser's own window of this profile first: one profile, one process.");
+    toast(T("{what} “{name}” created ({route}). Close the browser's own window of this profile first: one profile, one process.", { what: menuWord(), name, route }));
     await loadApps();
   } catch (e) { toast(e.message); }
 }
@@ -441,7 +435,7 @@ async function createProfileLauncher(app, name, profile, route) {
 async function createLauncher(app, name, args, route) {
   try {
     await api("POST", "/api/launchers", { app, name, args, route });
-    toast(menuWord() + " \u201c" + name + "\u201d created (" + route + ")");
+    toast(T("{what} “{name}” created ({route})", { what: menuWord(), name, route }));
     await loadApps();
   } catch (e) { toast(e.message); }
 }
@@ -478,25 +472,25 @@ async function refresh() {
 $("#pass").addEventListener("click", async () => {
   const on = !(status && status.pass_left);
   if (on && !(await ask("Let everything through for 5 minutes – your real IP, no tunnels, no blocks, no DNS filter?", { ok: "Pass 5 min", danger: true }))) return;
-  try { await api("POST", "/api/pass", { minutes: on ? 5 : 0 }); toast(on ? "Pass for 5 minutes" : "Pass ended"); } catch (e) { toast(e.message); }
+  try { await api("POST", "/api/pass", { minutes: on ? 5 : 0 }); toast(T(on ? "Pass for 5 minutes" : "Pass ended")); } catch (e) { toast(e.message); }
   refresh();
 });
 
 $("#panic").addEventListener("click", async () => {
   const on = !(status && status.panic);
   if (on && !(await ask("Drop ALL traffic now (except loopback)?", { ok: "PANIC", danger: true }))) return toast("Panic mode not switched on");
-  try { await api("POST", "/api/panic", { on }); toast(on ? "Panic mode on" : "Panic mode off"); } catch (e) { toast(e.message); }
+  try { await api("POST", "/api/panic", { on }); toast(T(on ? "Panic mode on" : "Panic mode off")); } catch (e) { toast(e.message); }
   refresh();
 });
 
 $("#restart").addEventListener("click", async () => {
   if (!(await ask("Restart the service? Tunnels reconnect; apps in a tunnel are blocked for a few seconds.", { ok: "Restart" }))) return;
-  try { await api("POST", "/api/restart"); toast("Service restarts…"); } catch (e) { toast("Restart failed: " + e.message); }
+  try { await api("POST", "/api/restart"); toast("Service restarts…"); } catch (e) { toast(T("Restart failed: {error}", { error: e.message })); }
   setTimeout(refresh, 3000);
 });
 
 $("#reload").addEventListener("click", async () => {
-  try { await api("POST", "/api/reload"); toast("Configuration reloaded"); } catch (e) { toast("Reload failed: " + e.message); }
+  try { await api("POST", "/api/reload"); toast("Configuration reloaded"); } catch (e) { toast(T("Reload failed: {error}", { error: e.message })); }
   refresh();
 });
 
@@ -504,7 +498,7 @@ async function runApp() {
   const cmd = $("#cmd").value.trim();
   if (!cmd) return;
   const route = $("#runroute").value;
-  try { await api("POST", "/api/run", { route, cmd }); toast("Started via " + route); $("#cmd").value = ""; } catch (e) { toast(e.message); }
+  try { await api("POST", "/api/run", { route, cmd }); toast(T("Started via {route}", { route })); $("#cmd").value = ""; } catch (e) { toast(e.message); }
   setTimeout(refresh, 800);
 }
 $("#run").addEventListener("click", runApp);
@@ -530,7 +524,7 @@ async function runLeak(auto) {
         el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || "–")),
       r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, r.note) : ""))));
     showLeakPill(res);
-  } catch (e) { $("#leakres").textContent = "Leak test failed: " + e.message; }
+  } catch (e) { $("#leakres").textContent = T("Leak test failed: {error}", { error: e.message }); }
   b.disabled = false;
   b.textContent = "Run again";
   leakBusy = false;
@@ -544,8 +538,8 @@ function showLeakPill(res) {
   const odd = res.filter((r) => r.verdict === "warn" || r.verdict === "error").length;
   p.hidden = false;
   p.className = "pill " + (leaks ? "bad" : odd ? "warn" : "ok");
-  p.textContent = leaks ? "leak test: " + leaks + " LEAK" : odd ? "leak test: check" : "leak test: ok";
-  p.title = "Last leak test " + new Date().toLocaleTimeString() + " – click for details";
+  p.textContent = leaks ? T("leak test: {n} LEAK", { n: leaks }) : odd ? T("leak test: check") : T("leak test: ok");
+  p.title = T("Last leak test {time} – click for details", { time: new Date().toLocaleTimeString() });
 }
 $("#leakpill").addEventListener("click", () => { setTab("overview"); $("#leakres").scrollIntoView({ block: "center" }); });
 
@@ -589,22 +583,22 @@ async function loadUpdate() {
   $("#upd-now").textContent = updInstalling ? "Installing…" : "Install update";
   if (updInstalling) $("#updbar").hidden = false;
   if (stale && !upd.available) {
-    $("#updbar").firstElementChild.textContent = "Updated to " + status.version;
-    $("#upd-ver").textContent = "– this window still runs " + upd.app + ".";
+    $("#updbar").firstElementChild.textContent = T("Updated to {version}", { version: status.version });
+    $("#upd-ver").textContent = T("– this window still runs {version}.", { version: upd.app });
     $("#updbar").children[2].textContent = "Restart the app: tray → “Restart service and app”.";
   } else if (upd.available) {
     $("#updbar").firstElementChild.textContent = "Update available";
     $("#updbar").children[2].textContent = upd.can_apply ? "Checked against the release signature, then installed:" : "Run this in a terminal:";
     $("#upd-cmd").textContent = upd.command;
-    $("#upd-ver").textContent = "(installed " + (status && status.version || upd.current) + ")";
+    $("#upd-ver").textContent = T("(installed {version})", { version: status && status.version || upd.current });
   }
   const cb = $("#c-updrel");
   if (cb) {
     cb.checked = upd.releases;
     $("#c-updpre").checked = upd.prereleases;
-    $("#c-updinfo").textContent = upd.disabled ? "off – no requests to GitHub" :
-      "installed " + upd.current + (upd.checked && !upd.checked.startsWith("0001") ? " · last check " + ago(upd.checked) : "") +
-      (upd.error ? " · last check failed: " + upd.error : upd.available ? " · update available" : upd.checked && !upd.checked.startsWith("0001") ? " · up to date" : "");
+    $("#c-updinfo").textContent = upd.disabled ? T("off – no requests to GitHub") :
+      T("installed {version}", { version: upd.current }) + (upd.checked && !upd.checked.startsWith("0001") ? T(" · last check {ago}", { ago: ago(upd.checked) }) : "") +
+      (upd.error ? T(" · last check failed: {error}", { error: upd.error }) : upd.available ? T(" · update available") : upd.checked && !upd.checked.startsWith("0001") ? T(" · up to date") : "");
   }
 }
 let updInstalling = 0; // time the install was started; the bar goes away by itself when it worked
@@ -625,9 +619,9 @@ async function pollUpdate() {
     prog.hidden = step.hidden = false;
     prog.value = p.step;
     step.className = "muted";
-    step.textContent = (p.step ? p.step + "/" + p.total + " " : "") + (p.text || "starting…") +
-      (p.quiet ? " – no news for 5 min, still running? Log: " + p.log : "");
-    $("#upd-now").textContent = "Installing… " + (p.step || 0) + "/" + p.total;
+    step.textContent = (p.step ? p.step + "/" + p.total + " " : "") + (p.text || T("starting…")) +
+      (p.quiet ? T(" – no news for 5 min, still running? Log: {log}", { log: p.log }) : "");
+    $("#upd-now").textContent = T("Installing… {step}/{total}", { step: p.step || 0, total: p.total });
     $("#upd-now").disabled = true;
     $("#updbar").hidden = false;
     updTimer = setTimeout(pollUpdate, 2000);
@@ -638,7 +632,7 @@ async function pollUpdate() {
     updInstalling = 0;
     step.hidden = false;
     step.className = "bad";
-    step.textContent = "Update failed: " + p.error + " – log: " + p.log;
+    step.textContent = T("Update failed: {error} – log: {log}", { error: p.error, log: p.log });
   } else if (p.state === "done" && updInstalling) {
     updInstalling = 0;
     step.hidden = false;
@@ -695,8 +689,8 @@ async function checkCaptive(st) {
   const key = JSON.stringify(st.net_info || {});
   if (captiveAsked === key || !$("#modal").hidden) return;
   captiveAsked = key;
-  const ssid = st.net_info && st.net_info.ssid ? "“" + st.net_info.ssid + "”" : "This network";
-  const go = await ask(ssid + " wants you to log in on a web page first – until then no VPN can connect (apps in a tunnel stay blocked, nothing leaks).\n\nOpen the login page in a throwaway browser that goes past the tunnels? Close it when you are online; the tunnels connect by themselves.", { ok: "Open login page" });
+  const ssid = st.net_info && st.net_info.ssid ? "“" + st.net_info.ssid + "”" : T("This network");
+  const go = await ask(T("{name} wants you to log in on a web page first – until then no VPN can connect (apps in a tunnel stay blocked, nothing leaks).\n\nOpen the login page in a throwaway browser that goes past the tunnels? Close it when you are online; the tunnels connect by themselves.", { name: ssid }), { ok: "Open login page" });
   if (!go) return toast("OK – later: tray → “Wi-Fi login page…” or `shunt captive`");
   try { await api("POST", "/api/captive"); toast("Login browser starting…"); } catch (e) { toast(e.message); }
 }
@@ -716,10 +710,10 @@ async function checkPending(st) {
 function showFw(p, st) {
   fwCurrent = p;
   $("#fw-title").textContent = p.name;
-  $("#fw-key").textContent = p.key + (p.procs > 1 ? " · " + p.procs + " processes" : "");
+  $("#fw-key").textContent = p.key + (p.procs > 1 ? T(" · {n} processes", { n: p.procs }) : "");
   const routes = st.routes.filter((r) => r !== "block");
   $("#fw-routes").replaceChildren(
-    ...routes.map((r) => el("button", { class: r === st.default_route ? "primary" : "", onclick: () => decideFw(r) }, r === "direct" ? "direct (real IP)" : r.replace(/^tunnel:/, "tunnel ") )),
+    ...routes.map((r) => el("button", { class: r === st.default_route ? "primary" : "", onclick: () => decideFw(r) }, r === "direct" ? T("direct (real IP)") : r.replace(/^tunnel:/, T("tunnel ")) )),
     el("button", { class: "danger", onclick: () => decideFw("block") }, "block"));
   $("#fw-remember").checked = true;
   $("#fwmodal").hidden = false;
@@ -729,8 +723,8 @@ function tickFw() {
   if (!fwCurrent) return;
   const d = fwCurrent.deadline && !fwCurrent.deadline.startsWith("0001") ? new Date(fwCurrent.deadline) : null;
   $("#fw-count").textContent = d
-    ? "No answer: default route (" + (status ? status.default_route : "") + ") in " + Math.max(0, Math.round((d - Date.now()) / 1000)) + " s"
-    : "Blocked until you decide.";
+    ? T("No answer: default route ({route}) in {n} s", { route: status ? status.default_route : "", n: Math.max(0, Math.round((d - Date.now()) / 1000)) })
+    : T("Blocked until you decide.");
   setTimeout(tickFw, 1000);
 }
 function closeFw() { fwCurrent = null; $("#fwmodal").hidden = true; }
@@ -740,7 +734,7 @@ async function decideFw(route) {
   closeFw();
   try {
     await api("POST", "/api/pending/" + encodeURIComponent(p.id), { route, remember: $("#fw-remember").checked });
-    toast(p.name + " → " + route + ($("#fw-remember").checked ? " (remembered)" : ""));
+    toast($("#fw-remember").checked ? T("{name} → {route} (remembered)", { name: p.name, route }) : T("{name} → {route}", { name: p.name, route }));
   } catch (e) { toast(e.message); }
 }
 $("#fw-later").addEventListener("click", () => { if (fwCurrent) fwLater.add(fwCurrent.id); closeFw(); });

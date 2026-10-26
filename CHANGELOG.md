@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Languages: the window, the tray menu and the notifications speak the language of the system – German now, English otherwise – and a language picked under View → Language applies to all three (the tray follows within seconds). A language is one file (`internal/i18n/lang/<code>.json`: the English text is the key, a missing translation shows the English text), so more can follow. `SHUNT_LANG=en` overrides both for a single run. The command line, Android, the installer and the Windows setup are still English; so are logs, JSON output and config keys. A check in the tests lists texts that have no translation yet.
 - Configure tab tidied up: "General" is split into Routing and a new "Privacy and protection" card (host name, MAC, incoming connections, network at boot in two columns, shorter explanations); a network profile is one compact card with its settings in a grid, and what the profile sets itself is marked with a coloured bar, so the few overrides stand out from "as under General". Same settings, same keys.
 
 ## v0.7.1-rc16
