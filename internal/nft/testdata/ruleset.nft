@@ -18,6 +18,7 @@ table inet shunt {
 		meta mark 0x5300ff return
 		udp sport 68 udp dport 67 return
 		udp sport 546 udp dport 547 return
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } return
 		meta mark and 0xffff00 == 0x530000 ct mark set meta mark return
 		meta l4proto tcp ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
 		ct direction reply oifname != "lo" ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
