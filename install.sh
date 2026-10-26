@@ -10,7 +10,8 @@
 #   --dry-run               check the system and show what would happen; changes nothing
 #   --uninstall [--purge]   remove Shunt (--purge also deletes /etc/shunt)
 #   --from-source           build from git even if a release exists
-#   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
+#   SHUNT_REF=<tag|branch> a release tag to install, or a branch to build from source
+#                           (default: the newest signed release, pre-releases included)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
 #   --dns-level=0|1|2|3     DNS filter level: 0 off, 1 low, 2 normal, 3 paranoid
 #                           (default: see dnslists/defaults.toml; also SHUNT_DNS_LEVEL)
@@ -271,9 +272,12 @@ fi
 WORK=$(mktemp -d)
 
 # ---------------------------------------------------------------- releases
-# The newest release (pre-releases included) whose build has finished - but
-# only if it is the current code (an older release would miss features this
-# installer expects) and if it is signed. Otherwise: build from source.
+# The newest signed release (pre-releases included), installed by the
+# installer of its own tag: an older release may lack what a newer installer
+# expects, and code merged after the release stays out until it is released.
+# A branch (the raw URL of the default branch) hands over to that installer.
+# Build from source only with --from-source, from a checkout or without a
+# signed release.
 find_release() { # -> sets tag (empty: build from source) and why
 	tag='' why=''
 	if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
@@ -285,26 +289,35 @@ find_release() { # -> sets tag (empty: build from source) and why
 		return
 	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
-	sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
-	local head_sha t
-	head_sha=$(sha "$REF") || true
-	why="no finished release yet"
-	# GitHub lists releases as text ("rc9" before "rc10"), so look at all of
-	# them for the one that is exactly the current code.
-	for t in $(api "releases?per_page=15" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
-		if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
-			why="release $t is not the current code (or GitHub did not answer)"
-			continue
-		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS.sig" 2>/dev/null; then
+	asset() { curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$1/$2" 2>/dev/null; }
+	local t
+	why="no signed release found (or GitHub did not answer)"
+	[[ $REF == HEAD || $REF =~ ^(main|master)$ ]] || why="SHUNT_REF=$REF is not a signed release"
+	# GitHub does not list releases strictly by date (rc9 after rc10): sort by
+	# published_at (drafts are not listed for anonymous requests)
+	for t in $(api "releases?per_page=15" |
+		sed -n 's/^    "\(tag_name\|published_at\)": *"\([^"]*\)".*/\2/p' | paste - - |
+		awk -F'\t' '$2 ~ /^[0-9]/ {print $2, $1}' | sort -r | cut -d' ' -f2); do
+		# SHUNT_REF=<tag>: exactly that release (another ref: source build)
+		[[ $REF == HEAD || $REF =~ ^(main|master)$ || $REF == "$t" ]] || continue
+		if asset "$t" SHA256SUMS.sig; then
 			tag=$t
 			return
 		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
-			why="release $t is not signed"
-			return
-		fi
+		# no checksums yet: the release build is still running
+		asset "$t" SHA256SUMS && warn "release $t is not signed - skipping it"
 	done
+}
+# use_release_installer: run the installer of release $tag (same arguments)
+use_release_installer() {
+	[[ $REF == "$tag" || -n ${SHUNT_RELEASE_INSTALLER:-} ]] && return
+	local f
+	f=$(mktemp)
+	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
+		die "could not download the installer of release $tag"
+	ok "release $tag: continuing with its own installer"
+	rm -rf "$WORK"
+	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
 }
 # fetch_sums: download and check the signed checksum list of release $tag
 fetch_sums() {
@@ -317,6 +330,10 @@ fetch_sums() {
 		die "release $tag: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)"
 }
 
+# before any question: a release is installed by its own installer
+find_release
+((DRY)) || [[ -z $tag ]] || use_release_installer
+
 # ---------------------------------------------------------------- dry run
 if ((DRY)); then
 	say "Dry run - this is what the installer would do (nothing is changed)"
@@ -324,7 +341,6 @@ if ((DRY)); then
 	[[ -n $(pkg_names polkit) ]] && pk+=" $(pkg_names polkit)" || pk+=" (no polkit package: config changes would need sudo)"
 	echo "  packages ($PM):   $pk"
 	echo "    asks for:        $(pkg_names openvpn) (OpenVPN)$( ((GRAPHICAL)) && echo ", $(pkg_names desktop) (desktop app)")"
-	find_release
 	if [[ -n $tag ]]; then
 		if command -v ssh-keygen >/dev/null; then
 			fetch_sums
@@ -352,7 +368,7 @@ if ((DRY)); then
 	if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]]; then
 		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY)"
 	fi
-	echo "  service:          installs shuntd.service, shunt-lockdown.service (off), polkit policy; enables and (re)starts shuntd"
+	echo "  service:          installs shuntd.service, shunt-lockdown.service (boot_lockdown = auto), polkit policy; enables and (re)starts shuntd"
 	[[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && echo "  user:             adds $SUDO_USER to the group 'shunt'"
 	echo "  log:              $([[ $LOG == /dev/null ]] && echo "/var/log/shunt-install.log (not written in a dry run without root)" || echo "$LOG")"
 	exit 0
@@ -399,7 +415,6 @@ build_from() { # source dir
 	fi
 }
 
-find_release
 if [[ -n $tag ]]; then
 	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
 	say "Downloading release $tag"
@@ -544,6 +559,12 @@ if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
 fi
 
 # Opsec on foreign networks; NetworkManager applies it on the next connect.
+# Older versions wrote "false", which NetworkManager 1.52+ ignores.
+if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
+	sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+	nmcli general reload conf >/dev/null 2>&1 || true
+	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ ($NM_PRIVACY)"
+fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
 	echo "  Foreign Wi-Fi networks see your laptop's MAC address and host name."
 	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
@@ -557,8 +578,9 @@ wifi.scan-rand-mac-address=yes
 # a different MAC on every Wi-Fi, but the same one each time you return
 # (keeps router reservations and hotel logins working)
 wifi.cloned-mac-address=stable
-ipv4.dhcp-send-hostname=false
-ipv6.dhcp-send-hostname=false
+# 0, not false: NetworkManager 1.52+ ignores "false" here
+ipv4.dhcp-send-hostname=0
+ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
@@ -602,6 +624,9 @@ else
 fi
 systemctl daemon-reload
 systemctl enable -q shuntd.service
+# boot lockdown: shuntd lockdown decides at boot from daemon.boot_lockdown
+# (auto: only when the default route is not direct), so it is always enabled
+systemctl enable -q shunt-lockdown.service
 systemctl restart shuntd.service
 step "waiting for shuntd" bash -c 'for _ in $(seq 50); do [[ -S /run/shunt/shuntd.sock ]] && exit 0; sleep 0.2; done; exit 1' || true
 if ! systemctl is-active -q shuntd.service; then
@@ -628,8 +653,9 @@ Changing the config, reloading or lifting panic asks for your admin password
 ${c_yel}Stopping shuntd keeps the kill switch for tunnels (on purpose); direct traffic goes on.${c_off}
 Emergency exit:  sudo shuntd cleanup
 Uninstall:       sudo bash install.sh --uninstall
-Paranoid mode (block network at boot until shuntd runs):
-                 sudo systemctl enable shunt-lockdown
+Boot lockdown:   when "everything else" goes through a tunnel, the network stays
+                 blocked at boot until shuntd runs (daemon.boot_lockdown = auto | on | off).
+                 Offline after boot because shuntd fails? sudo shuntd cleanup
 EOF
 if [[ -n ${NEW_MEMBER:-} ]]; then
 	echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"

@@ -25,10 +25,14 @@ RestartSec=2
 
 # Hardening. Root uid is needed to own the delegated cgroups and to move
 # other users' processes into them, but capabilities are cut to networking.
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN
+# CAP_BPF + CAP_PERFMON (reading a process name in eBPF) + bpf(): the start
+# guard (internal/racebpf), optional.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/run/shunt /etc/shunt
+# -/run/NetworkManager: connection defaults for new networks (daemon.mac);
+# -/var/lib/NetworkManager: forget old DHCP leases with mac = "random"
+ReadWritePaths=/run/shunt /etc/shunt -/run/NetworkManager -/var/lib/NetworkManager
 ProtectHome=yes
 ProtectKernelLogs=yes
 ProtectProc=default
@@ -49,6 +53,7 @@ MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
+SystemCallFilter=bpf
 # Not set on purpose: ProtectKernelTunables (needs /proc/sys/net),
 # ProtectControlGroups (needs to write its cgroups), PrivateDevices (/dev/net/tun).
 

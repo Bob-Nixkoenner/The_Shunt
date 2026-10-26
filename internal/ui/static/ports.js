@@ -51,6 +51,6 @@ function renderAppBlocks() {
 }
 
 $("#ports-all").addEventListener("change", renderPorts);
-setInterval(() => { if (!document.hidden && !$("#page-overview").hidden) loadPorts(); }, 10000);
+setInterval(() => { if (!document.hidden && !$("#page-ports").hidden) loadPorts(); }, 10000);
 setInterval(() => { if (!document.hidden && !$("#page-apps").hidden) renderAppBlocks(); }, 3000);
 setTimeout(() => { loadPorts(); renderAppBlocks(); }, 500);
