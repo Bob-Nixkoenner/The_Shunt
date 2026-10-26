@@ -94,7 +94,7 @@ fun AppearanceSection() {
     val ctx = LocalContext.current
     Section("Appearance") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (m in ThemeMode.entries) ShuntButton(m.label, { UiPrefs.set(ctx, m) }, kind = if (UiPrefs.mode == m) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
+            for (m in ThemeMode.entries) ShuntButton(T(m.label), { UiPrefs.set(ctx, m) }, kind = if (UiPrefs.mode == m) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
         }
         Hint("System follows the phone's dark mode.")
     }
@@ -156,7 +156,7 @@ fun Section(title: String, modifier: Modifier = Modifier, action: (@Composable (
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                title.uppercase(), Modifier.weight(1f), color = c.muted,
+                T(title).uppercase(), Modifier.weight(1f), color = c.muted,
                 style = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp),
             )
             action?.invoke()
@@ -182,7 +182,7 @@ fun Pill(text: String, tone: Tone = Tone.Neutral) {
     val fg = toneColor(tone)
     val bg = if (tone == Tone.Neutral) c.panel2 else fg.copy(alpha = .18f)
     Text(
-        text, Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 10.dp, vertical = 3.dp),
+        T(text), Modifier.clip(RoundedCornerShape(50)).background(bg).padding(horizontal = 10.dp, vertical = 3.dp),
         color = fg, style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
     )
 }
@@ -200,7 +200,7 @@ fun routeTone(route: String): Tone = when {
 fun RouteTag(route: String, modifier: Modifier = Modifier) {
     val c = LocalShunt.current
     Text(
-        route, modifier.clip(RoundedCornerShape(6.dp)).background(c.panel2).padding(horizontal = 7.dp, vertical = 2.dp),
+        T(route), modifier.clip(RoundedCornerShape(6.dp)).background(c.panel2).padding(horizontal = 7.dp, vertical = 2.dp),
         color = if (route == "default") c.muted else toneColor(routeTone(route)),
         style = TextStyle(fontFamily = Mono, fontSize = 12.5.sp),
         maxLines = 1,
@@ -226,7 +226,7 @@ fun EdgeCard(tone: Tone, modifier: Modifier = Modifier, content: @Composable Col
 fun KV(key: String, value: String, mono: Boolean = false, valueColor: Color? = null) {
     val c = LocalShunt.current
     Row {
-        Text(key, Modifier.width(92.dp), color = c.muted, style = TextStyle(fontSize = 13.sp))
+        Text(T(key), Modifier.width(92.dp), color = c.muted, style = TextStyle(fontSize = 13.sp))
         Text(
             value, color = valueColor ?: c.text,
             style = if (mono) TextStyle(fontFamily = Mono, fontSize = 12.5.sp) else TextStyle(fontSize = 13.sp),
@@ -244,15 +244,15 @@ fun Banner(title: String, text: String, bad: Boolean = false, action: (@Composab
             .border(BorderStroke(1.dp, col.copy(alpha = .5f)), RoundedCornerShape(10.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(title, fontWeight = FontWeight.Bold, color = c.text)
-        Text(text, color = c.text, style = TextStyle(fontSize = 13.sp))
+        Text(T(title), fontWeight = FontWeight.Bold, color = c.text)
+        Text(T(text), color = c.text, style = TextStyle(fontSize = 13.sp))
         action?.invoke()
     }
 }
 
 @Composable
 fun Hint(text: String) {
-    Text(text, color = LocalShunt.current.muted, style = TextStyle(fontSize = 12.5.sp))
+    Text(T(text), color = LocalShunt.current.muted, style = TextStyle(fontSize = 12.5.sp))
 }
 
 /** Buttons of the web UI: plain, primary (accent) and danger (red). */
@@ -269,5 +269,5 @@ fun ShuntButton(text: String, onClick: () -> Unit, kind: Tone = Tone.Neutral, en
         colors = ButtonDefaults.buttonColors(containerColor = bg, contentColor = fg),
         border = if (kind == Tone.Neutral) BorderStroke(1.dp, c.line) else null,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-    ) { Text(text, fontWeight = if (kind == Tone.Neutral) FontWeight.Normal else FontWeight.Bold) }
+    ) { Text(T(text), fontWeight = if (kind == Tone.Neutral) FontWeight.Normal else FontWeight.Bold) }
 }
