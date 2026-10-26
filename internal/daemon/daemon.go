@@ -472,9 +472,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
-	go d.applyHostname()
+	go d.applyNetPrivacy()
 	go func() {
-		if err := dhcphost.WatchNew(ctx, func() { go d.applyHostname() }); err != nil {
+		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
 			d.Log.Debug("dhcp host name: no NetworkManager signals", "err", err)
 		}
 	}()
@@ -538,7 +538,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if err := d.reload(self); err != nil {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
-			go d.applyHostname()
+			go d.applyNetPrivacy()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -734,13 +734,13 @@ func firewallSettings(p *Prepared) firewall.Settings {
 	return s
 }
 
-// applyHostname sets the NetworkManager profiles for daemon.dhcp_hostname;
-// the network we are on decides for the profile in use.
-func (d *Daemon) applyHostname() {
+// applyNetPrivacy sets the NetworkManager profiles for daemon.dhcp_hostname
+// and daemon.mac; the network we are on decides for the profile in use.
+func (d *Daemon) applyNetPrivacy() {
 	d.mu.Lock()
 	c, info := d.cfg, d.netInfo
 	d.mu.Unlock()
-	if c == nil || c.Daemon.DHCPHostname == "" {
+	if c == nil || (c.Daemon.DHCPHostname == "" && c.Daemon.MAC == "") {
 		return
 	}
 	pol := dhcphost.Policy{Config: c}
@@ -778,8 +778,8 @@ func (d *Daemon) checkNetwork() {
 	d.netInfo = info
 	if moved {
 		go d.probeCaptive()
-		go d.applyHostname() // the profile in use may want another setting here
-		if d.prep != nil {   // allow_lan routes follow the attached networks
+		go d.applyNetPrivacy() // the profile in use may want another setting here
+		if d.prep != nil {     // allow_lan routes follow the attached networks
 			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after network change", "err", err)
 			}

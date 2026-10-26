@@ -99,6 +99,9 @@ type Network struct {
 	// connects; otherwise it applies once the network is recognised (the
 	// address is then renewed).
 	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// MAC overrides daemon.mac on this network ("" = keep); recognised
+	// like dhcp_hostname. A new MAC takes effect from the next connection.
+	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -136,6 +139,17 @@ func validHostname(m string) bool {
 	return m == "" || m == HostnameNone || m == HostnameSend
 }
 
+// MAC address modes (daemon.mac, network mac).
+const (
+	MACRandom    = "random"    // new on every connection
+	MACStable    = "stable"    // own per network, the same each time
+	MACPermanent = "permanent" // the device's real one
+)
+
+func validMAC(m string) bool {
+	return m == "" || m == MACRandom || m == MACStable || m == MACPermanent
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -161,6 +175,13 @@ type Daemon struct {
 	// profiles send the host name in DHCP: none | send. "" leaves the
 	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
 	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// MAC (Linux, NetworkManager): the MAC address Wi-Fi and cable profiles
+	// show a network: random | stable | permanent; "" leaves the profiles
+	// alone. random and stable also keep the device's own IDs out of DHCP
+	// (DHCPv6 DUID and DHCPv4 client ID follow the MAC) and out of IPv6
+	// addresses (stable-privacy). A [[network]] can say otherwise (e.g.
+	// permanent at home).
+	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
@@ -429,9 +450,15 @@ func (c *Config) Validate() error {
 		if !validHostname(n.DHCPHostname) {
 			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
 		}
+		if !validMAC(n.MAC) {
+			return fmt.Errorf("%s: mac %q (random | stable | permanent)", where, n.MAC)
+		}
 	}
 	if !validHostname(c.Daemon.DHCPHostname) {
 		return fmt.Errorf("daemon.dhcp_hostname %q (none | send)", c.Daemon.DHCPHostname)
+	}
+	if !validMAC(c.Daemon.MAC) {
+		return fmt.Errorf("daemon.mac %q (random | stable | permanent)", c.Daemon.MAC)
 	}
 	if b := c.Daemon.BootLockdown; b != "" && b != "auto" && b != "on" && b != "off" {
 		return fmt.Errorf("daemon.boot_lockdown %q (auto | on | off)", b)

@@ -32,9 +32,11 @@ var nmcli = func(ctx context.Context, args ...string) (string, error) {
 var mu sync.Mutex // one pass at a time (start, network change, new profile)
 
 // Apply sets every Wi-Fi and cable profile as pol wants it. A profile in
-// use gets the change at once (reapply: the address is renewed).
+// use gets the change at once (reapply: the address is renewed), except a
+// new MAC: that one waits for the next connection rather than cut the
+// current one.
 func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
-	if pol.Config.Daemon.DHCPHostname == "" {
+	if pol.Config.Daemon.DHCPHostname == "" && pol.Config.Daemon.MAC == "" {
 		return
 	}
 	if _, err := exec.LookPath("nmcli"); err != nil {
@@ -48,19 +50,27 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 		return
 	}
 	for _, p := range ps {
-		v := pol.Change(p)
-		if v == "" {
-			continue
-		}
-		if _, err := nmcli(ctx, "connection", "modify", p.UUID, "ipv4.dhcp-send-hostname", v, "ipv6.dhcp-send-hostname", v); err != nil {
-			log.Warn("dhcp host name: cannot change profile", "uuid", p.UUID, "err", err)
-			continue
-		}
-		log.Info("dhcp host name", "uuid", p.UUID, "send", v)
-		if p.Device != "" {
-			if _, err := nmcli(ctx, "device", "reapply", p.Device); err != nil {
-				log.Warn("dhcp host name: applies from the next connection", "device", p.Device, "err", err)
+		now, next := pol.Changes(p)
+		// reapply before the MAC is in the profile: a changed MAC cannot
+		// be reapplied and would fail the whole reapply
+		if len(now) > 0 {
+			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, now...)...); err != nil {
+				log.Warn("network privacy: cannot change profile", "uuid", p.UUID, "err", err)
+				continue
 			}
+			log.Info("network privacy", "uuid", p.UUID, "set", strings.Join(now, " "))
+			if p.Device != "" {
+				if _, err := nmcli(ctx, "device", "reapply", p.Device); err != nil {
+					log.Warn("network privacy: applies from the next connection", "device", p.Device, "err", err)
+				}
+			}
+		}
+		if len(next) > 0 {
+			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, next...)...); err != nil {
+				log.Warn("network privacy: cannot change the MAC", "uuid", p.UUID, "err", err)
+				continue
+			}
+			log.Info("network privacy: MAC from the next connection", "uuid", p.UUID, "set", strings.Join(next, " "), "in_use", p.Device != "")
 		}
 	}
 }
@@ -77,21 +87,25 @@ func list(ctx context.Context) ([]Profile, error) {
 			continue
 		}
 		p := Profile{UUID: f[0], Wifi: f[1] == "802-11-wireless", Device: f[2]}
-		fields := "ipv4.dhcp-send-hostname,ipv6.dhcp-send-hostname"
+		macProp := "802-3-ethernet.cloned-mac-address"
 		if p.Wifi {
-			fields += ",802-11-wireless.ssid"
+			macProp = "802-11-wireless.cloned-mac-address"
+		}
+		fields := "ipv4.dhcp-send-hostname,ipv6.dhcp-send-hostname," + macProp + ",ipv6.dhcp-duid,ipv4.dhcp-client-id,ipv6.addr-gen-mode,ipv6.ip6-privacy"
+		if p.Wifi {
+			fields += ",802-11-wireless.ssid" // last: a name may contain newlines
 		}
 		v, err := nmcli(ctx, "-g", fields, "connection", "show", p.UUID)
 		if err != nil {
 			return nil, err
 		}
 		vs := strings.Split(strings.TrimRight(v, "\n"), "\n")
-		if len(vs) < 2 {
+		if len(vs) < 7 {
 			continue
 		}
-		p.Send4, p.Send6 = vs[0], vs[1]
-		if p.Wifi && len(vs) > 2 {
-			p.SSID = unescape(strings.Join(vs[2:], "\n"))
+		p.Send4, p.Send6, p.MAC, p.DUID, p.ClientID, p.AddrGen, p.Privacy = vs[0], vs[1], unescape(vs[2]), vs[3], vs[4], vs[5], vs[6]
+		if p.Wifi && len(vs) > 7 {
+			p.SSID = unescape(strings.Join(vs[7:], "\n"))
 		}
 		ps = append(ps, p)
 	}
