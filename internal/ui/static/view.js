@@ -50,7 +50,7 @@ $("#v-start").addEventListener("change", (e) => viewSet("shunt-start-tab", e.tar
 applyViewMode();
 {
   // a reload (or a link with #apps) opens the same tab again, otherwise the chosen start tab
-  const t = location.hash.slice(1) || viewGet("shunt-start-tab");
+  const t = location.hash.replace(/^#\/?/, "") || viewGet("shunt-start-tab");
   if (t) setTab(t);
 }
 // First start of this version: a fresh install begins in Normal, a config
