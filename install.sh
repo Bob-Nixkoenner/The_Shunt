@@ -10,7 +10,8 @@
 #   --dry-run               check the system and show what would happen; changes nothing
 #   --uninstall [--purge]   remove Shunt (--purge also deletes /etc/shunt)
 #   --from-source           build from git even if a release exists
-#   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
+#   SHUNT_REF=<tag|branch> a release tag to install, or a branch to build from source
+#                           (default: the newest signed release, pre-releases included)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
 #   --dns-level=0|1|2|3     DNS filter level: 0 off, 1 low, 2 normal, 3 paranoid
 #                           (default: see dnslists/defaults.toml; also SHUNT_DNS_LEVEL)
@@ -271,9 +272,12 @@ fi
 WORK=$(mktemp -d)
 
 # ---------------------------------------------------------------- releases
-# The newest release (pre-releases included) whose build has finished - but
-# only if it is the current code (an older release would miss features this
-# installer expects) and if it is signed. Otherwise: build from source.
+# The newest signed release (pre-releases included), installed by the
+# installer of its own tag: an older release may lack what a newer installer
+# expects, and code merged after the release stays out until it is released.
+# A branch (the raw URL of the default branch) hands over to that installer.
+# Build from source only with --from-source, from a checkout or without a
+# signed release.
 find_release() { # -> sets tag (empty: build from source) and why
 	tag='' why=''
 	if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
@@ -285,26 +289,35 @@ find_release() { # -> sets tag (empty: build from source) and why
 		return
 	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
-	sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
-	local head_sha t
-	head_sha=$(sha "$REF") || true
-	why="no finished release yet"
-	# GitHub lists releases as text ("rc9" before "rc10"), so look at all of
-	# them for the one that is exactly the current code.
-	for t in $(api "releases?per_page=15" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
-		if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
-			why="release $t is not the current code (or GitHub did not answer)"
-			continue
-		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS.sig" 2>/dev/null; then
+	asset() { curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$1/$2" 2>/dev/null; }
+	local t
+	why="no signed release found (or GitHub did not answer)"
+	[[ $REF == HEAD || $REF =~ ^(main|master)$ ]] || why="SHUNT_REF=$REF is not a signed release"
+	# GitHub does not list releases strictly by date (rc9 after rc10): sort by
+	# published_at (drafts are not listed for anonymous requests)
+	for t in $(api "releases?per_page=15" |
+		sed -n 's/^    "\(tag_name\|published_at\)": *"\([^"]*\)".*/\2/p' | paste - - |
+		awk -F'\t' '$2 ~ /^[0-9]/ {print $2, $1}' | sort -r | cut -d' ' -f2); do
+		# SHUNT_REF=<tag>: exactly that release (another ref: source build)
+		[[ $REF == HEAD || $REF =~ ^(main|master)$ || $REF == "$t" ]] || continue
+		if asset "$t" SHA256SUMS.sig; then
 			tag=$t
 			return
 		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
-			why="release $t is not signed"
-			return
-		fi
+		# no checksums yet: the release build is still running
+		asset "$t" SHA256SUMS && warn "release $t is not signed - skipping it"
 	done
+}
+# use_release_installer: run the installer of release $tag (same arguments)
+use_release_installer() {
+	[[ $REF == "$tag" || -n ${SHUNT_RELEASE_INSTALLER:-} ]] && return
+	local f
+	f=$(mktemp)
+	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
+		die "could not download the installer of release $tag"
+	ok "release $tag: continuing with its own installer"
+	rm -rf "$WORK"
+	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
 }
 # fetch_sums: download and check the signed checksum list of release $tag
 fetch_sums() {
@@ -317,6 +330,10 @@ fetch_sums() {
 		die "release $tag: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)"
 }
 
+# before any question: a release is installed by its own installer
+find_release
+((DRY)) || [[ -z $tag ]] || use_release_installer
+
 # ---------------------------------------------------------------- dry run
 if ((DRY)); then
 	say "Dry run - this is what the installer would do (nothing is changed)"
@@ -324,7 +341,6 @@ if ((DRY)); then
 	[[ -n $(pkg_names polkit) ]] && pk+=" $(pkg_names polkit)" || pk+=" (no polkit package: config changes would need sudo)"
 	echo "  packages ($PM):   $pk"
 	echo "    asks for:        $(pkg_names openvpn) (OpenVPN)$( ((GRAPHICAL)) && echo ", $(pkg_names desktop) (desktop app)")"
-	find_release
 	if [[ -n $tag ]]; then
 		if command -v ssh-keygen >/dev/null; then
 			fetch_sums
@@ -399,7 +415,6 @@ build_from() { # source dir
 	fi
 }
 
-find_release
 if [[ -n $tag ]]; then
 	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
 	say "Downloading release $tag"
