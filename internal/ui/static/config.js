@@ -27,7 +27,8 @@ function setTab(t) {
   bar.hidden = !CFG_TABS.includes(t) || (t === "apps" && document.body.classList.contains("windows"));
   if (!bar.hidden) $("#page-" + t).append(bar);
   if (CFG_TABS.includes(t) && !model) loadConfig();
-  try { history.replaceState(null, "", t === "overview" ? location.pathname : "#" + t); } catch (e) { /* file: or sandbox */ }
+  // "#/dns", not "#dns": a reload would scroll to the element with id="dns"
+  try { history.replaceState(null, "", t === "overview" ? location.pathname : "#/" + t); } catch (e) { /* file: or sandbox */ }
   if (t === "apps") loadApps(); // installed programs and the config may have changed since the last visit
   if (typeof viewChanged === "function") viewChanged();
 }
