@@ -134,6 +134,46 @@ func (pol Policy) Changes(p Profile) (now, next []string) {
 	return now, next
 }
 
+// Covered tells whether the connection in use already runs with now: each
+// of these properties was unset in p and the runtime defaults (Defaults)
+// gave it the same value. Then now only goes into the profile; a reapply
+// would restart DHCP for nothing (its answers then hit a closed socket and
+// the network gets ICMP errors back).
+func (pol Policy) Covered(p Profile, now []string) bool {
+	d := pol.Config.Daemon
+	def := map[string]string{}
+	switch d.MAC {
+	case config.MACRandom, config.MACStable:
+		def["ipv6.dhcp-duid"] = "ll"
+		if d.MAC == config.MACStable {
+			def["ipv6.dhcp-duid"] = "stable-ll"
+		}
+		def["ipv4.dhcp-client-id"] = "mac"
+		def["ipv6.addr-gen-mode"] = "stable-privacy"
+		def["ipv6.ip6-privacy"] = "2"
+	}
+	if d.DHCPHostname == config.HostnameNone {
+		def["ipv4.dhcp-send-hostname"] = "no"
+		def["ipv6.dhcp-send-hostname"] = "no"
+	}
+	had := map[string]string{
+		"ipv4.dhcp-send-hostname": p.Send4, "ipv6.dhcp-send-hostname": p.Send6,
+		"ipv6.dhcp-duid": p.DUID, "ipv4.dhcp-client-id": p.ClientID,
+		"ipv6.addr-gen-mode": p.AddrGen, "ipv6.ip6-privacy": p.Privacy,
+	}
+	for i := 0; i+1 < len(now); i += 2 {
+		v, ok := had[now[i]]
+		if !ok || !unsetValue(v) || def[now[i]] != now[i+1] {
+			return false
+		}
+	}
+	return len(now) > 0
+}
+
+// unsetValue: nmcli's spellings of "not set in the profile" (1.52+:
+// -1/default; 1.46 always shows yes/no for dhcp-send-hostname).
+func unsetValue(v string) bool { return v == "" || v == "-1" || v == "default" }
+
 // Defaults returns NetworkManager connection defaults for profiles that do
 // not set these values: a network joined for the first time connects at
 // once, before its new profile can be set. "" = none needed.
@@ -148,7 +188,9 @@ func Defaults(c *config.Config) string {
 		fmt.Fprintf(&b, "wifi.cloned-mac-address=%s\nethernet.cloned-mac-address=%s\nipv6.dhcp-duid=%s\nipv4.dhcp-client-id=mac\nipv6.addr-gen-mode=stable-privacy\nipv6.ip6-privacy=2\n", mac, mac, duid)
 	}
 	if c.Daemon.DHCPHostname == config.HostnameNone {
-		b.WriteString("ipv4.dhcp-send-hostname=false\nipv6.dhcp-send-hostname=false\n")
+		// 0, not false: NetworkManager 1.52+ reads the default as a number
+		// (-1/0/1) and ignores "false"; 1.46 reads 0 as no as well
+		b.WriteString("ipv4.dhcp-send-hostname=0\nipv6.dhcp-send-hostname=0\n")
 	}
 	if b.Len() == 0 {
 		return ""

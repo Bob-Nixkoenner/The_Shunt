@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -46,6 +47,10 @@ var (
 // config again.
 var defaultsFile = "/run/NetworkManager/conf.d/95-shunt-network-privacy.conf"
 
+// defaultsLive: NetworkManager has read defaultsFile as it is now; only
+// then a connection in use may already run with its values (Covered).
+var defaultsLive atomic.Bool
+
 // leaseDir: where NetworkManager keeps the last DHCP lease per profile.
 var leaseDir = "/var/lib/NetworkManager"
 
@@ -71,8 +76,9 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 	want := Defaults(c)
 	have, _ := os.ReadFile(defaultsFile)
 	if string(have) == want {
-		return
+		return // read already (or retryReload still at it)
 	}
+	defaultsLive.Store(false)
 	var err error
 	if want == "" {
 		err = os.Remove(defaultsFile)
@@ -83,9 +89,33 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		log.Warn("network privacy: cannot write NetworkManager defaults", "err", err)
 		return
 	}
-	if _, err := nmcli(ctx, "general", "reload", "conf"); err != nil {
-		log.Warn("network privacy: NetworkManager did not reload its configuration", "err", err)
+	_, err = nmcli(ctx, "general", "reload", "conf")
+	defaultsLive.Store(err == nil && want != "")
+	if err != nil {
+		// at boot shuntd starts next to NetworkManager: it may have read
+		// its configuration already and not answer yet; the file is in
+		// place, so later passes would not try again
+		log.Warn("network privacy: NetworkManager did not reload its configuration, trying again", "err", err)
+		go retryReload(log)
 	}
+}
+
+// reloadRetries, reloadEvery: how long retryReload keeps trying.
+var (
+	reloadRetries = 30
+	reloadEvery   = 2 * time.Second
+)
+
+func retryReload(log *slog.Logger) {
+	for i := 0; i < reloadRetries; i++ {
+		time.Sleep(reloadEvery)
+		if _, err := nmcli(context.Background(), "general", "reload", "conf"); err == nil {
+			defaultsLive.Store(true)
+			log.Info("network privacy: NetworkManager read the defaults")
+			return
+		}
+	}
+	log.Warn("network privacy: NetworkManager never read the defaults; new networks get them only after the next change")
 }
 
 // Apply writes the defaults for new profiles and sets every Wi-Fi and
@@ -127,6 +157,9 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 			continue
 		}
 		now, next := pol.Changes(p)
+		if len(now)+len(next) > 0 && !unchanged(ctx, p) {
+			continue // the next pass, after the connection, sets it
+		}
 		// reapply before the MAC is in the profile: a changed MAC cannot
 		// be reapplied and would fail the whole reapply
 		if len(now) > 0 {
@@ -135,7 +168,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 				continue
 			}
 			log.Info("network privacy", "uuid", p.UUID, "set", strings.Join(now, " "))
-			if p.Device != "" && p.Activated {
+			if p.Device != "" && p.Activated && !(defaultsLive.Load() && pol.Covered(p, now)) {
 				if _, err := nmcli(ctx, "device", "reapply", p.Device); err != nil {
 					log.Warn("network privacy: applies from the next connection", "device", p.Device, "err", err)
 				}
@@ -149,6 +182,30 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 			log.Info("network privacy: MAC from the next connection", "uuid", p.UUID, "set", strings.Join(next, " "), "in_use", p.Device != "")
 		}
 	}
+}
+
+// unchanged tells whether p is still in the state list saw. Listing all
+// profiles takes a moment, and a profile that started to connect since
+// must not be changed: NetworkManager then never finishes its DHCP (seen
+// with NM 1.54 for any property, a new profile connected at once).
+func unchanged(ctx context.Context, p Profile) bool {
+	out, err := nmcli(ctx, "-t", "-f", "UUID,STATE", "connection", "show", "--active")
+	if err != nil {
+		return false
+	}
+	state := ""
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if f := splitTerse(l); len(f) == 2 && f[0] == p.UUID {
+			state = f[1]
+		}
+	}
+	switch {
+	case p.Activated:
+		return state == "activated"
+	case p.Device == "":
+		return state == ""
+	}
+	return false // deactivating: wait for the next pass
 }
 
 func list(ctx context.Context) ([]Profile, error) {
@@ -213,6 +270,9 @@ func unescape(s string) string {
 	return strings.NewReplacer(`\:`, ":", `\\`, `\`).Replace(s)
 }
 
+// newProfileWait: how long WatchNew waits after a new profile.
+var newProfileWait = 2 * time.Second
+
 // WatchNew calls f when NetworkManager adds a profile (a Wi-Fi joined for
 // the first time), so it is set before it connects the next time, and if
 // it is connecting already, reapplied. When a device disconnects or fails
@@ -247,7 +307,10 @@ func WatchNew(ctx context.Context, f func()) error {
 				return errors.New("system bus closed")
 			}
 			if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
-				f()
+				// a profile added and connected at once (nmcli connection
+				// add + up, joining a Wi-Fi): let it start connecting
+				// first, so the pass leaves it alone
+				time.AfterFunc(newProfileWait, f)
 				continue
 			}
 			// NM_DEVICE_STATE_DISCONNECTED = 30, _FAILED = 120

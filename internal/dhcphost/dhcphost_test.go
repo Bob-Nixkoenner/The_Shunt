@@ -125,7 +125,7 @@ mac = "stable"
 func TestDefaults(t *testing.T) {
 	c, _ := config.Parse("[daemon]\nmac = \"stable\"\ndhcp_hostname = \"none\"\n")
 	d := Defaults(c)
-	for _, want := range []string{"[connection-shunt-privacy]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=false"} {
+	for _, want := range []string{"[connection-shunt-privacy]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=0"} {
 		if !strings.Contains(d, want+"\n") && want != "[connection-shunt-privacy]" || !strings.Contains(d, want) {
 			t.Errorf("defaults lack %q:\n%s", want, d)
 		}
@@ -133,5 +133,31 @@ func TestDefaults(t *testing.T) {
 	c.Daemon.MAC, c.Daemon.DHCPHostname = config.MACPermanent, ""
 	if d := Defaults(c); d != "" {
 		t.Errorf("permanent/off wrote defaults:\n%s", d)
+	}
+}
+
+func TestCovered(t *testing.T) {
+	c := &config.Config{}
+	c.Daemon.MAC = config.MACRandom
+	c.Daemon.DHCPHostname = config.HostnameNone
+	pol := Policy{Config: c}
+	fresh := Profile{UUID: "u", Device: "eth0", Activated: true, Send4: "-1", Send6: "-1", AddrGen: "default", Privacy: "-1"}
+	now, _ := pol.Changes(fresh)
+	if !pol.Covered(fresh, now) {
+		t.Errorf("fresh profile with the runtime defaults: want covered, now=%v", now)
+	}
+	set := fresh
+	set.Send4, set.Send6 = "yes", "yes" // set in the profile: the defaults did not apply
+	now, _ = pol.Changes(set)
+	if pol.Covered(set, now) {
+		t.Errorf("profile that sends the host name: want reapply, now=%v", now)
+	}
+	c2 := *c
+	c2.Daemon.MAC = config.MACStable // defaults stable, the network wants random
+	c2.Networks = []config.Network{{Name: "cafe", MAC: config.MACRandom}}
+	pol2 := Policy{Config: &c2, Current: "cafe"}
+	now, _ = pol2.Changes(fresh)
+	if pol2.Covered(fresh, now) {
+		t.Errorf("network overrides the defaults: want reapply, now=%v", now)
 	}
 }
