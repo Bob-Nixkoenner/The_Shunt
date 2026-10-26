@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 )
 
 // launcher is the program that starts apps in a route: this one (`run`),
@@ -70,7 +71,7 @@ func runIn(sock string, args []string) error {
 // runFailed tells the user: a launcher from the Start menu has no console.
 func runFailed(err error) {
 	title, _ := windows.UTF16PtrFromString("The Shunt")
-	msg, _ := windows.UTF16PtrFromString("Could not start the app in its route:\n\n" + err.Error())
+	msg, _ := windows.UTF16PtrFromString(i18n.T("Could not start the app in its route:\n\n{error}", "error", err.Error()))
 	const iconError = 0x10
 	procMessageBox.Call(0, uintptr(unsafe.Pointer(msg)), uintptr(unsafe.Pointer(title)), iconError)
 }

@@ -42,7 +42,7 @@ document.querySelectorAll("section[data-fold]").forEach((sec) => {
   h.prepend(btn);
   const set = (folded) => {
     sec.classList.toggle("folded", folded);
-    btn.title = btn.ariaLabel = folded ? "Unfold" : "Fold";
+    btn.title = btn.ariaLabel = T(folded ? "Unfold" : "Fold");
     btn.setAttribute("aria-expanded", String(!folded));
   };
   // data-fold="closed": folded until you open it once

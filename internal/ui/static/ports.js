@@ -18,7 +18,7 @@ function renderPorts() {
   const exposed = l.ports.filter((p) => p.exposed && !p.blocked);
   // the heading stays visible when the section is folded: warn there too
   const sum = $("#ports-sum");
-  sum.textContent = exposed.length + " reachable from the network · " + l.ports.filter((p) => p.reach === "localhost").length + " only from this machine";
+  sum.textContent = T("{n} reachable from the network · {m} only from this machine", { n: exposed.length, m: l.ports.filter((p) => p.reach === "localhost").length });
   sum.style.color = exposed.length && !l.network ? "var(--bad)" : "";
   const reach = (p) => p.reach === "localhost" ? el("span", { class: "muted" }, "this machine") :
     p.reach === "all" ? "all interfaces" : (p.ifaces || []).join(", ") || p.addr;
@@ -32,9 +32,9 @@ function renderPorts() {
       p.tunnel ? el("span", { class: "pill warn" }, "tunnel") : "")))
     : [el("tr", {}, el("td", { class: "muted" }, "Nothing listens beyond this machine."))]));
   const notes = [];
-  if (exposed.length && !l.network && !l.inbound) notes.push(el("div", { class: "banner bad" }, "⚠ Unknown network: " + exposed.length + " port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → General to block them."));
-  if (l.inbound) notes.push(el("div", { class: "muted" }, "Incoming protection: " + l.inbound + (l.network ? " (network “" + l.network + "”)" : " (unknown network)") + ", tunnels closed."));
-  if (l.firewalls && l.firewalls.length) notes.push(el("div", { class: "muted" }, "Other firewalls active: " + l.firewalls.join(", ") + " – they may already block some of these."));
+  if (exposed.length && !l.network && !l.inbound) notes.push(el("div", { class: "banner bad" }, T("⚠ Unknown network: {n} port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → Privacy and protection to block them.", { n: exposed.length })));
+  if (l.inbound) notes.push(el("div", { class: "muted" }, (l.network ? T("Incoming protection: {mode} (network “{network}”), tunnels closed.", { mode: l.inbound, network: l.network }) : T("Incoming protection: {mode} (unknown network), tunnels closed.", { mode: l.inbound }))));
+  if (l.firewalls && l.firewalls.length) notes.push(el("div", { class: "muted" }, T("Other firewalls active: {list} – they may already block some of these.", { list: l.firewalls.join(", ") })));
   $("#ports-notes").replaceChildren(...notes);
 }
 

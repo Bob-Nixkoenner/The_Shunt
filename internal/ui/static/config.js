@@ -50,7 +50,7 @@ async function loadConfig() {
   try {
     cfgView = await api("GET", "/api/config");
   } catch (e) {
-    cmsg("Cannot load the config: " + e.message, "err");
+    cmsg(T("Cannot load the config: {error}", { error: e.message }), "err");
     return;
   }
   model = structuredClone(cfgView.config);
@@ -87,8 +87,8 @@ function filterSel(o) {
 
 function upstreamUsers(name) {
   const users = [];
-  if (model.dns.direct === name) users.push("direct DNS");
-  for (const [t, v] of Object.entries(model.tunnel)) if (v.dns === name) users.push("tunnel " + t);
+  if (model.dns.direct === name) users.push(T("direct DNS"));
+  for (const [t, v] of Object.entries(model.tunnel)) if (v.dns === name) users.push(T("tunnel {name}", { name: t }));
   return users;
 }
 
@@ -124,7 +124,7 @@ function renderConfig() {
   $("#c-tunnels").replaceChildren(...(names.length ? names.map((n) => {
     const t = model.tunnel[n];
     const i = info[n] || {};
-    const fromFile = i.type === "openvpn" ? "DNS pushed by the server" : "DNS from its file" + (i.dns && i.dns.length ? " (" + i.dns.join(", ") + ")" : " (none!)");
+    const fromFile = i.type === "openvpn" ? T("DNS pushed by the server") : i.dns && i.dns.length ? T("DNS from its file ({list})", { list: i.dns.join(", ") }) : T("DNS from its file (none!)");
     const dnsSel = el("select", { onchange: (e) => { t.dns = e.target.value || undefined; markDirty(); } },
       el("option", { value: "" }, fromFile),
       ...ups.map((u) => el("option", { value: u }, u)));
@@ -134,8 +134,8 @@ function renderConfig() {
     const loops = (m) => { for (let c = m, k = 0; c && k < 20; k++) { if (c === n) return true; c = ((model.tunnel[c] || {}).via || "").replace(/^tunnel:/, ""); } return false; };
     const viaSel = el("select", { title: "multi-hop", class: "expert", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
       el("option", { value: "" }, "direct to its server"),
-      ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)),
-      ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
+      ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, T("via {tunnel}", { tunnel: m }))),
+      ...LINKS.map(([v, l]) => el("option", { value: v }, T("over {link} only", { link: T(l) }))));
     viaSel.value = t.via || "";
     return el("tr", {},
       el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
@@ -145,7 +145,7 @@ function renderConfig() {
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
       el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t)),
-        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on under General). LAN = e.g. a tunnel home." }, "incoming "), (() => {
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on above). LAN = e.g. a tunnel home." }, "incoming "), (() => {
           const s = el("select", { onchange: (e) => { t.inbound = e.target.value || undefined; markDirty(); } },
             el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
           s.value = t.inbound === "closed" ? "" : t.inbound || "";
@@ -156,14 +156,14 @@ function renderConfig() {
 
   $("#c-rules").replaceChildren(...(model.rule.length ? model.rule.map((r, i) => {
     const sel = [];
-    if (r.app) sel.push("apps: " + joinList(r.app) + (r.args ? " [" + joinList(r.args) + "]" : ""));
-    if (r.domain) sel.push("domains: " + joinList(r.domain));
-    if (r.cidr) sel.push("IPs: " + joinList(r.cidr));
-    if (r.port) sel.push("ports: " + joinList(r.port));
-    if (r.group) sel.push("groups: " + joinList(r.group));
-    if (r.network) sel.push("only on: " + joinList(r.network));
+    if (r.app) sel.push(T("apps: {list}", { list: joinList(r.app) + (r.args ? " [" + joinList(r.args) + "]" : "") }));
+    if (r.domain) sel.push(T("domains: {list}", { list: joinList(r.domain) }));
+    if (r.cidr) sel.push(T("IPs: {list}", { list: joinList(r.cidr) }));
+    if (r.port) sel.push(T("ports: {list}", { list: joinList(r.port) }));
+    if (r.group) sel.push(T("groups: {list}", { list: joinList(r.group) }));
+    if (r.network) sel.push(T("only on: {list}", { list: joinList(r.network) }));
     if (r.override_explicit) sel.push("also for apps started in a route");
-    if (r.dns_filter) sel.push("DNS filter: " + r.dns_filter);
+    if (r.dns_filter) sel.push(T("DNS filter: {level}", { level: T(r.dns_filter) }));
     // a rule that matches addresses/domains/ports does not reach programs that were started in a
     // route on purpose (launcher, shunt run --via): they keep their route unless the rule says otherwise
     const skipped = r.route && !r.override_explicit && !r.app && !r.group && !r.dns_filter && typeof apps !== "undefined"
@@ -179,15 +179,15 @@ function renderConfig() {
       el("td", { class: "muted" }, i + 1 + "."),
       el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...sel.map((x) => el("span", { class: "chip" }, x))),
         skipped.length ? el("div", { class: "muted", style: "font-size:12px;margin-top:4px;color:var(--warn)" },
-          "does not apply to: " + skipped.slice(0, 3).join(", ") + (skipped.length > 3 ? " …" : "") + " – they keep the route they were started with. ",
+          T("does not apply to: {list} – they keep the route they were started with. ", { list: skipped.slice(0, 3).join(", ") + (skipped.length > 3 ? " …" : "") }),
           el("a", { href: "#", onclick: (e) => { e.preventDefault(); r.override_explicit = true; markDirty(); renderConfig(); } }, "apply to them too")) : "",
         early.length ? el("div", { class: "muted linux-only", style: "font-size:12px;margin-top:4px;color:var(--warn)" },
-          "from the menu, " + early.map((a) => a.name).join(", ") + " starts outside the route for a moment (its first connection can go the old way). ",
+          T("from the menu, {list} starts outside the route for a moment (its first connection can go the old way). ", { list: early.map((a) => a.name).join(", ") }),
           el("a", { href: "#", onclick: async (e) => {
             e.preventDefault();
             try {
               for (const a of early) await api("POST", "/api/apps", { id: a.id, route: r.route });
-              toast(early.map((a) => a.name).join(", ") + " now start" + (early.length > 1 ? "" : "s") + " via " + r.route);
+              toast(Tn(early.length, "{list} now starts via {route}", "{list} now start via {route}", { list: early.map((a) => a.name).join(", "), route: r.route }));
             } catch (err) { toast(String(err.message || err)); }
             await loadApps(); renderConfig();
           } }, "start in the route from the menu")) : ""),
@@ -207,7 +207,7 @@ function renderPorts() {
   $("#p-rules").replaceChildren(...(rs.length ? rs.map(([r, i]) => el("tr", {},
     el("td", { class: "muted" }, i + 1 + "."),
     el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...r.port.map((x) => el("span", { class: "chip mono" }, x)),
-      ...(r.app ? [el("span", { class: "chip" }, "apps: " + joinList(r.app))] : []), ...(r.cidr ? [el("span", { class: "chip" }, "IPs: " + joinList(r.cidr))] : []))),
+      ...(r.app ? [el("span", { class: "chip" }, T("apps: {list}", { list: joinList(r.app) }))] : []), ...(r.cidr ? [el("span", { class: "chip" }, T("IPs: {list}", { list: joinList(r.cidr) }))] : []))),
     el("td", {}, routeTag(r.route)),
     el("td", {}, el("button", { class: "iconbtn", title: "edit", onclick: () => editRuleFromPorts(i) }, "✎")))) :
     [el("tr", {}, el("td", { class: "muted" }, "No port rules – e.g. send SSH (tcp/22) or a game's UDP ports through a tunnel."))]));
@@ -305,12 +305,12 @@ async function checkOrSave(save, body, msgFn) {
   try {
     const res = await api(save ? "PUT" : "POST", save ? "/api/config" : "/api/config/check", body);
     if (!res.ok) { msgFn(res.error, "err"); return false; }
-    const w = (res.warnings || []).length ? " Warnings: " + res.warnings.join(" · ") : "";
-    msgFn((save ? "Saved and applied." : "Looks good – nothing written yet.") + w, w ? "warn" : "ok");
+    const w = (res.warnings || []).length ? " " + T("Warnings: {list}", { list: res.warnings.join(" · ") }) : "";
+    msgFn(T(save ? "Saved and applied." : "Looks good – nothing written yet.") + w, w ? "warn" : "ok");
     return true;
   } catch (e) {
     msgFn(e.message, "err");
-    if (/changed meanwhile/.test(e.message) && await ask("The config file was changed outside this editor since you opened it.\nLoad the current version? (your unsaved changes here are lost – nothing was overwritten)", { ok: "Load current" })) {
+    if (/changed meanwhile/.test(e.message) && await ask(T("The config file was changed outside this editor since you opened it.\nLoad the current version? (your unsaved changes here are lost – nothing was overwritten)"), { ok: "Load current" })) {
       await loadConfig();
       msgFn("Loaded the current config – please make your change again.", "warn");
     }
@@ -354,7 +354,7 @@ function needsLogin(t) {
 function updateImportForm() {
   const t = $("#t-conf").value;
   const type = confType(t);
-  $("#t-type").textContent = type === "wireguard" ? "WireGuard config" : type === "openvpn" ? "OpenVPN config" + (needsLogin(t) ? " – needs a login" : "") : t.trim() ? "not a WireGuard or OpenVPN config?" : "";
+  $("#t-type").textContent = type === "wireguard" ? T("WireGuard config") : type === "openvpn" ? T(needsLogin(t) ? "OpenVPN config – needs a login" : "OpenVPN config") : t.trim() ? T("not a WireGuard or OpenVPN config?") : "";
   $("#t-auth").hidden = !(type === "openvpn" && needsLogin(t));
 }
 // same rules as `shunt import`: "Mullvad-DE_fra 001.conf" -> "mullvad-de"
@@ -369,14 +369,14 @@ function takeFile(f) {
     $("#t-conf").value = t;
     if (!$("#t-name").value) $("#t-name").value = nameFromFile(f.name);
     updateImportForm();
-    if (!confType(t)) toast(f.name + " doesn't look like a WireGuard, OpenVPN or Tailscale/Headscale config");
-  }).catch((e) => toast("Cannot read " + f.name + ": " + e.message + " (root-only files: sudo shunt import FILE)"));
+    if (!confType(t)) toast(T("{name} doesn't look like a WireGuard, OpenVPN or Tailscale/Headscale config", { name: f.name }));
+  }).catch((e) => toast(T("Cannot read {name}: {error} (root-only files: sudo shunt import FILE)", { name: f.name, error: e.message })));
 }
 function fillVia() {
   const tunnels = Object.keys(model.tunnel || {}).sort();
   const cur = $("#t-via").value;
-  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, "through tunnel " + n + " (multi-hop)"]),
-    ...LINKS.map(([v, l]) => [v, "over " + l + " only"])], cur);
+  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, T("through tunnel {name} (multi-hop)", { name: n })]),
+    ...LINKS.map(([v, l]) => [v, T("over {link} only", { link: T(l) })])], cur);
 }
 $("#t-conf").addEventListener("input", updateImportForm);
 $("#t-file").addEventListener("change", (e) => { takeFile(e.target.files[0]); e.target.value = ""; });
@@ -394,7 +394,7 @@ $("#t-import").addEventListener("click", async () => {
   const type = confType(conf);
   if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
   if (!type) return toast("Paste or drop a WireGuard (.conf), OpenVPN (.ovpn) or Tailscale/Headscale (.ts) config first");
-  if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
+  if (model.tunnel && model.tunnel[name]) return toast(T("There is a tunnel {name} already – pick another name", { name }));
   const req = { name, conf, via: $("#t-via").value || undefined };
   if (type === "openvpn" && needsLogin(conf)) {
     req.username = $("#t-user").value.trim();
@@ -404,20 +404,20 @@ $("#t-import").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Importing reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Import" }))) return toast("Import cancelled");
   try {
     const res = await api("POST", "/api/tunnels", req);
-    toast("Tunnel " + name + " imported" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
+    toast((res.warnings || []).length ? T("Tunnel {name} imported – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} imported", { name }));
     for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
     $("#t-via").value = "";
     updateImportForm();
     await loadConfig();
     refresh();
-  } catch (e) { toast("Import failed: " + e.message); }
+  } catch (e) { toast(T("Import failed: {error}", { error: e.message })); }
 });
 
 $("#ts-add").addEventListener("click", async () => {
   const name = $("#ts-name").value.trim();
   const v = (id) => $(id).value.trim();
   if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
-  if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
+  if (model.tunnel && model.tunnel[name]) return toast(T("There is a tunnel {name} already – pick another name", { name }));
   if (!v("#ts-key")) return toast("An auth key is needed");
   if ([v("#ts-server"), v("#ts-key"), v("#ts-host"), v("#ts-exit")].some((x) => /[\r\n]/.test(x))) return toast("No line breaks, please");
   const conf = ["login_server = " + v("#ts-server"), "auth_key = " + v("#ts-key"),
@@ -425,19 +425,19 @@ $("#ts-add").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Adding reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Add" }))) return toast("Cancelled");
   try {
     const res = await api("POST", "/api/tunnels", { name, conf, driver: "tailscale" });
-    toast("Tunnel " + name + " added" + ((res.warnings || []).length ? " – " + res.warnings.join(" · ") : ""));
+    toast((res.warnings || []).length ? T("Tunnel {name} added – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} added", { name }));
     for (const id of ["#ts-name", "#ts-server", "#ts-key", "#ts-host", "#ts-exit"]) $(id).value = "";
     await loadConfig();
     refresh();
-  } catch (e) { toast("Adding failed: " + e.message); }
+  } catch (e) { toast(T("Adding failed: {error}", { error: e.message })); }
 });
 
 async function deleteTunnel(n) {
   if ($("#savebar").classList.contains("dirty")) return toast("Save or discard your other changes first");
-  if (!(await ask("Delete tunnel " + n + " and its config file?", { ok: "Delete", danger: true }))) return;
+  if (!(await ask(T("Delete tunnel {name} and its config file?", { name: n }), { ok: "Delete", danger: true }))) return;
   try {
     await api("DELETE", "/api/tunnels/" + encodeURIComponent(n));
-    toast("Tunnel " + n + " deleted");
+    toast(T("Tunnel {name} deleted", { name: n }));
     await loadConfig();
     refresh();
   } catch (e) { toast(e.message); }
@@ -448,12 +448,12 @@ function netNow() { return (status && status.net_info) || {}; }
 function updateNetNow() {
   const now = netNow();
   $("#n-now").textContent = now.iface
-    ? "Now: " + now.iface + (now.ssid ? " · Wi-Fi “" + now.ssid + "”" : "") + (now.gateway_mac ? " · router " + now.gateway_mac : " · router MAC unknown") +
-      (status && status.network ? " → profile “" + status.network + "” active" : " → no profile: “Everything else goes” applies")
-    : "Not connected to a network right now.";
+    ? T("Now: {iface}", { iface: now.iface }) + (now.ssid ? T(" · Wi-Fi “{ssid}”", { ssid: now.ssid }) : "") + (now.gateway_mac ? T(" · router {mac}", { mac: now.gateway_mac }) : T(" · router MAC unknown")) +
+      (status && status.network ? T(" → profile “{name}” active", { name: status.network }) : T(" → no profile: “Everything else goes” applies"))
+    : T("Not connected to a network right now.");
 }
 // field: a labelled select in a profile card; the left bar marks what the
-// profile sets itself, so the few overrides stand out from "as under General"
+// profile sets itself, so the few overrides stand out from "as set above"
 function netField(text, title, options, get, set, o = {}) {
   const s = el("select", {}, ...options.map(([v, t]) => el("option", { value: v }, t)));
   s.value = get();
@@ -469,10 +469,10 @@ function renderNetworks() {
   const ups = Object.keys((model.dns || {}).upstream || {}).sort();
   $("#c-networks").replaceChildren(...(nets.length ? nets.map((n, i) => {
     const crit = [];
-    if (n.ssid) crit.push("Wi-Fi: " + joinList(n.ssid));
-    if (n.gateway_mac) crit.push("router: " + joinList(n.gateway_mac));
+    if (n.ssid) crit.push(T("Wi-Fi: {list}", { list: joinList(n.ssid) }));
+    if (n.gateway_mac) crit.push(T("router: {list}", { list: joinList(n.gateway_mac) }));
     const weak = n.ssid && !n.gateway_mac && n.default_route !== "block" && n.default_route !== model.daemon.default_route;
-    const General = "as under General";
+    const General = "as set above";
     const fs = filterSel(n);
     return el("div", { class: "netcard" },
       el("div", { class: "nethead" }, el("b", {}, n.name), ...crit.map((x) => el("span", { class: "chip" }, x)),
@@ -491,11 +491,11 @@ function renderNetworks() {
           fs.addEventListener("change", () => l.classList.toggle("set", !!fs.value));
           return l;
         })(),
-        netField("host name in DHCP", "Host name in DHCP on this network (when set under General)",
+        netField("host name in DHCP", "Host name in DHCP on this network (when set above)",
           [["", General], ["none", "don't send"], ["send", "send"]], () => n.dhcp_hostname || "", (v) => { n.dhcp_hostname = v || undefined; }, { linux: true }),
-        netField("MAC address", "MAC address on this network (when set under General); applies from the next connection",
+        netField("MAC address", "MAC address on this network (when set above); applies from the next connection",
           [["", General], ["random", "new each time"], ["stable", "own per network"], ["permanent", "the real one"]], () => n.mac || "", (v) => { n.mac = v || undefined; }, { linux: true }),
-        netField("incoming connections", "Incoming connections on this network (when switched on under General)",
+        netField("incoming connections", "Incoming connections on this network (when switched on above)",
           [["", "closed"], ["lan", "LAN: allowed ports"], ["open", "open (no filter)"]], () => (n.inbound === "closed" ? "" : n.inbound || ""), (v) => { n.inbound = v || undefined; }, { linux: true })));
   }) : [el("div", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel.")]));
 }
@@ -505,7 +505,7 @@ $("#n-add").addEventListener("click", async () => {
   const name = ((await ask("Name for this network", { input: now.ssid || "home", ok: "Add" })) || "").trim();
   if (!name) return;
   model.network = model.network || [];
-  if (model.network.some((n) => n.name === name)) return toast("There is a network called " + name + " already");
+  if (model.network.some((n) => n.name === name)) return toast(T("There is a network called {name} already", { name }));
   const n = { name, default_route: "direct" };
   if (now.ssid) n.ssid = [now.ssid];
   if (now.gateway_mac) n.gateway_mac = [now.gateway_mac];
@@ -541,7 +541,7 @@ async function loadFwApps() {
     el("td", {}, el("b", {}, r.name), el("div", { class: "muted mono", style: "font-size:12px" }, r.key)),
     el("td", {}, routeTag(r.route || (status ? status.default_route : "default"))),
     el("td", {}, el("button", { class: "iconbtn", title: "forget – asked again next start", onclick: async () => {
-      try { await api("DELETE", "/api/firewall/apps?key=" + encodeURIComponent(r.key)); toast(r.name + " forgotten"); loadFwApps(); } catch (e) { toast(e.message); }
+      try { await api("DELETE", "/api/firewall/apps?key=" + encodeURIComponent(r.key)); toast(T("{name} forgotten", { name: r.name })); loadFwApps(); } catch (e) { toast(e.message); }
     } }, "✕")))) : [el("tr", {}, el("td", { class: "muted" }, "None yet – answers with “remember” show up here."))]));
 }
 $("#c-fwmode").addEventListener("change", (e) => { fwModel().mode = e.target.value; markDirty(); renderFirewall(); });

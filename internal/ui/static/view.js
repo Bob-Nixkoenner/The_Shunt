@@ -23,14 +23,14 @@ function applyViewMode() {
 function expertInUse() {
   if (!model) return [];
   const out = [];
-  const n = (k, one, many) => { if (k) out.push(k + " " + (k === 1 ? one : many)); };
-  n(model.rule.length, "rule", "rules");
-  n(Object.keys(model.dns.upstream).length, "own DNS server", "own DNS servers");
-  n(Object.values(model.tunnel).filter((t) => t.via).length, "multi-hop tunnel", "multi-hop tunnels");
-  n((model.dns.allow_doh ? 1 : 0) + (model.dns.allow_dot ? 1 : 0), "encrypted DNS allowed", "encrypted DNS kinds allowed");
-  n(model.daemon.dhcp_hostname ? 1 : 0, "host name setting", "host name settings");
-  n(model.daemon.mac ? 1 : 0, "MAC setting", "MAC settings");
-  n(apps.filter((a) => a.clone).length, "launcher", "launchers");
+  const n = (k, one, many) => { if (k) out.push(Tn(k, one, many)); };
+  n(model.rule.length, "{n} rule", "{n} rules");
+  n(Object.keys(model.dns.upstream).length, "{n} own DNS server", "{n} own DNS servers");
+  n(Object.values(model.tunnel).filter((t) => t.via).length, "{n} multi-hop tunnel", "{n} multi-hop tunnels");
+  n((model.dns.allow_doh ? 1 : 0) + (model.dns.allow_dot ? 1 : 0), "{n} encrypted DNS allowed", "{n} encrypted DNS kinds allowed");
+  n(model.daemon.dhcp_hostname ? 1 : 0, "{n} host name setting", "{n} host name settings");
+  n(model.daemon.mac ? 1 : 0, "{n} MAC setting", "{n} MAC settings");
+  n(apps.filter((a) => a.clone).length, "{n} launcher", "{n} launchers");
   return out;
 }
 
@@ -39,7 +39,7 @@ function viewChanged() {
   const used = viewMode() === "normal" && curTab !== "overview" ? expertInUse() : [];
   h.hidden = !used.length;
   if (!used.length) return;
-  h.replaceChildren("Expert settings in use: " + used.join(", ") + ". Hidden in Normal view, they keep working.",
+  h.replaceChildren(T("Expert settings in use: {list}. Hidden in Normal view, they keep working.", { list: used.join(", ") }),
     el("a", { href: "#", onclick: (e) => { e.preventDefault(); setViewMode("expert"); } }, "Show them"));
   $("#page-" + curTab).prepend(h);
 }
@@ -60,3 +60,17 @@ if (!model) loadConfig().then(() => {
   if (!viewMode() && model) setViewMode(expertInUse().length ? "expert" : "normal");
   viewChanged();
 });
+
+// Language: automatic (the system's), or one of the languages on offer. The
+// choice goes to the ui-state file, where the window, tray and CLI read it too.
+(() => {
+  const sel = $("#v-lang");
+  const name = (code) => (i18n.langs.find((l) => l.code === code) || { name: "English" }).name;
+  sel.replaceChildren(el("option", { value: "" }, T("Automatic ({language})", { language: name(i18n.auto) })),
+    ...i18n.langs.map((l) => el("option", { value: l.code }, l.name)));
+  sel.value = i18n.choice;
+  sel.addEventListener("change", () => {
+    try { if (sel.value) localStorage.setItem("shunt-lang", sel.value); else localStorage.removeItem("shunt-lang"); } catch (e) { /* private window */ }
+    setTimeout(() => location.reload(), 900); // after state.js has sent it to the machine
+  });
+})();

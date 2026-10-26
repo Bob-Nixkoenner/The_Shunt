@@ -28,6 +28,10 @@ android {
         versionName = gitVersion
     }
 
+    // the texts of the desktop apps are the texts of this app (one catalog,
+    // internal/i18n/lang/<code>.json): packed as assets, read by I18n
+    sourceSets.getByName("main").assets.srcDir("../../internal/i18n/lang")
+
     // Fixed release key (CI secret): without it every build gets a random debug key
     // and Android refuses to update an installed app. Local builds keep the debug key.
     val releaseKeystore = System.getenv("SHUNT_KEYSTORE")?.takeIf { file(it).exists() }
