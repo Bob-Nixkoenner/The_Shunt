@@ -184,6 +184,41 @@ func (p *Plan) AppRules() []*Rule {
 	return out
 }
 
+// StartMarks returns, per process name (comm, at most 15 bytes), the route
+// mark a program gets for its sockets until the app watcher has moved it
+// into its rule's group (the start race, see package racebpf). Only rules
+// that take a program as a whole qualify: app names, no arguments, no
+// destination or port selectors. Rules that apply to every program
+// (destination or port rules without a group) end the list, because a
+// program not yet in its group could match them first.
+func (p *Plan) StartMarks() map[string]uint32 {
+	out := map[string]uint32{}
+	for _, r := range p.Rules {
+		if len(r.Groups) == 0 {
+			if r.Route != nil {
+				break
+			}
+			continue // only a DNS filter level
+		}
+		if len(r.Apps) == 0 || r.Route == nil || len(r.Args) > 0 || !r.AnyFamily || len(r.Ports) > 0 {
+			continue
+		}
+		for _, a := range r.Apps {
+			if a.Kind != "name" {
+				continue
+			}
+			n := a.Value
+			if len(n) > 15 {
+				n = n[:15]
+			}
+			if _, seen := out[n]; !seen {
+				out[n] = r.Route.Mark
+			}
+		}
+	}
+	return out
+}
+
 // DomainRules returns the rules with domain selectors, in order.
 func (p *Plan) DomainRules() []*Rule {
 	var out []*Rule
