@@ -55,20 +55,21 @@ type Daemon struct {
 	// Backend enforces plans on this platform (nil: DefaultBackend).
 	Backend Backend
 
-	mu        sync.Mutex
-	cfg       *config.Config
-	plan      *engine.Plan
-	prep      *Prepared
-	cg        firewall.CGroups
-	tunnels   map[string]tunnel.Device
-	specHash  map[string]string
-	tunErrors map[string]string
-	panic     bool
-	proxy     *dnsproxy.Proxy
-	filter    *blocklist.Manager
-	watcher   AppWatcher
-	saveMu    sync.Mutex // serializes config writes
-	dnsUps    dnsproxy.RouteUpstreams
+	mu          sync.Mutex
+	cfg         *config.Config
+	plan        *engine.Plan
+	prep        *Prepared
+	cg          firewall.CGroups
+	tunnels     map[string]tunnel.Device
+	specHash    map[string]string
+	tunErrors   map[string]string
+	panic       bool
+	proxy       *dnsproxy.Proxy
+	filter      *blocklist.Manager
+	watcher     AppWatcher
+	startWarned bool       // the eBPF start guard failed (logged once)
+	saveMu      sync.Mutex // serializes config writes
+	dnsUps      dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
 	// tunnel name); read by the DNS proxy without d.mu.
 	pushed sync.Map
@@ -643,6 +644,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
+	if err := d.Backend.StartMarks(p.Plan.CgroupRoot, p.Plan.StartMarks()); err != nil && !d.startWarned {
+		d.startWarned = true
+		d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
 	for _, g := range append(p.Plan.Groups, engine.Group{Path: path.Join(p.Plan.CgroupRoot, "apps", "free")}) {
