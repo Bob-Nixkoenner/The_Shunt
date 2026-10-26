@@ -75,8 +75,14 @@ func parseLine(s string, allow bool) (string, bool) {
 	if s == "" || s[0] == '#' || s[0] == '!' || s[0] == '@' {
 		return "", false
 	}
-	if i := strings.IndexByte(s, '#'); i > 0 {
-		s = strings.TrimSpace(s[:i])
+	// inline comments only after white space ("0.0.0.0 name # note"): a '#'
+	// inside a word is a cosmetic or scriptlet rule ("site.example##.ad",
+	// uBlock Origin/EasyList) and must not turn into a block of the site
+	for i := 1; i < len(s); i++ {
+		if s[i] == '#' && (s[i-1] == ' ' || s[i-1] == '\t') {
+			s = strings.TrimSpace(s[:i])
+			break
+		}
 	}
 	if rest, ok := strings.CutPrefix(s, "||"); ok {
 		rest, opts, _ := strings.Cut(rest, "$")
