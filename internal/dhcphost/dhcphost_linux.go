@@ -34,10 +34,36 @@ var nmcli = func(ctx context.Context, args ...string) (string, error) {
 
 var mu sync.Mutex // one pass at a time (start, network change, new profile)
 
+// randomUUIDs: profiles with a new MAC on every connection, as of the last
+// pass; their leases are forgotten whenever a device disconnects.
+var (
+	randomMu    sync.Mutex
+	randomUUIDs []string
+)
+
 // defaultsFile: NetworkManager reads /run/NetworkManager/conf.d as well;
 // a file there is gone after a reboot, before shuntd has looked at the
 // config again.
 var defaultsFile = "/run/NetworkManager/conf.d/95-shunt-network-privacy.conf"
+
+// leaseDir: where NetworkManager keeps the last DHCP lease per profile.
+var leaseDir = "/var/lib/NetworkManager"
+
+// forgetLease removes the DHCP leases NetworkManager kept for a profile.
+// With a new MAC on every connection the old lease would give it away: the
+// next connection asks for the address it had (DHCP option 50), which
+// links the new MAC to the old one, and waits for it in vain.
+func forgetLease(uuid string) (removed int) {
+	for _, pat := range []string{"internal-" + uuid + "-*.lease", "internal6-" + uuid + "-*.lease", "dhclient-" + uuid + "-*.lease", "dhclient6-" + uuid + "-*.lease"} {
+		fs, _ := filepath.Glob(filepath.Join(leaseDir, pat))
+		for _, f := range fs {
+			if os.Remove(f) == nil {
+				removed++
+			}
+		}
+	}
+	return removed
+}
 
 // writeDefaults puts Defaults in place (or removes them) and has
 // NetworkManager read its configuration again if that changed anything.
@@ -82,7 +108,21 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 		log.Warn("dhcp host name: cannot read the NetworkManager profiles", "err", err)
 		return
 	}
+	var random []string
 	for _, p := range ps {
+		if pol.MACMode(p) == config.MACRandom {
+			random = append(random, p.UUID)
+		}
+	}
+	randomMu.Lock()
+	randomUUIDs = random
+	randomMu.Unlock()
+	for _, p := range ps {
+		if p.Device == "" && pol.MACMode(p) == config.MACRandom {
+			if n := forgetLease(p.UUID); n > 0 {
+				log.Info("network privacy: forgot the last DHCP lease", "uuid", p.UUID)
+			}
+		}
 		now, next := pol.Changes(p)
 		// reapply before the MAC is in the profile: a changed MAC cannot
 		// be reapplied and would fail the whole reapply
@@ -170,7 +210,9 @@ func unescape(s string) string {
 
 // WatchNew calls f when NetworkManager adds a profile (a Wi-Fi joined for
 // the first time), so it is set before it connects the next time, and if
-// it is connecting already, reapplied.
+// it is connecting already, reapplied. When a device disconnects or fails
+// to connect, the leases of the profiles with mac = "random" are forgotten
+// at once, before the next connection could ask for the old address.
 func WatchNew(ctx context.Context, f func()) error {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
@@ -183,17 +225,37 @@ func WatchNew(ctx context.Context, f func()) error {
 	); err != nil {
 		return err
 	}
+	if err := conn.AddMatchSignal(
+		dbus.WithMatchInterface("org.freedesktop.NetworkManager.Device"),
+		dbus.WithMatchMember("StateChanged"),
+	); err != nil {
+		return err
+	}
 	ch := make(chan *dbus.Signal, 8)
 	conn.Signal(ch)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case _, ok := <-ch:
+		case s, ok := <-ch:
 			if !ok {
 				return errors.New("system bus closed")
 			}
-			f()
+			if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
+				f()
+				continue
+			}
+			// NM_DEVICE_STATE_DISCONNECTED = 30, _FAILED = 120
+			if len(s.Body) == 0 {
+				continue
+			}
+			if st, ok := s.Body[0].(uint32); ok && (st == 30 || st == 120) {
+				randomMu.Lock()
+				for _, u := range randomUUIDs {
+					forgetLease(u)
+				}
+				randomMu.Unlock()
+			}
 		}
 	}
 }
