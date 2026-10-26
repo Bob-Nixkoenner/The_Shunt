@@ -38,6 +38,16 @@ fetch "https://github.com/OpenVPN/openvpn/releases/download/v$OPENVPN_VER/openvp
 build() { # abi openssl-target clang-triple ("" = this machine)
 	local abi=$1 ossl=$2 triple=$3
 	local W=$CACHE/build-$abi
+	local dst=$OUT/$abi/libopenvpn.so
+	[[ -n $triple ]] || dst=$CACHE/host/openvpn
+	# built before with the same versions and NDK (the CI cache is keyed on
+	# this script): reuse it, OpenSSL + OpenVPN take minutes per ABI
+	local done=$CACHE/done/$abi-openssl$OPENSSL_VER-openvpn$OPENVPN_VER-${NDK##*/}-api$API
+	if [[ -f $done ]]; then
+		mkdir -p "$(dirname "$dst")" && cp "$done" "$dst"
+		echo "cached $dst"
+		return
+	fi
 	rm -rf "$W" && mkdir -p "$W/prefix"
 	local host=() osslapi=()
 	if [[ -n $triple ]]; then
@@ -68,10 +78,9 @@ build() { # abi openssl-target clang-triple ("" = this machine)
 		sed -i -e 's|^#define TARGET_LINUX 1|#define TARGET_ANDROID 1|' -e 's|^#define HAVE_LIBCAPNG 1|/* no libcap-ng */|' config.h &&
 		grep -q '^#define TARGET_ANDROID 1' config.h &&
 		make -s -j"$JOBS" >/dev/null)
-	local dst=$OUT/$abi/libopenvpn.so
-	[[ -n $triple ]] || dst=$CACHE/host/openvpn
-	mkdir -p "$(dirname "$dst")"
+	mkdir -p "$(dirname "$dst")" "$(dirname "$done")"
 	"$STRIP" -o "$dst" "$W/openvpn-$OPENVPN_VER/src/openvpn/openvpn"
+	cp "$dst" "$done"
 	echo "built $dst ($(du -h "$dst" | cut -f1))"
 }
 
