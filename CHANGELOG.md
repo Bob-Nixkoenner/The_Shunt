@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- MAC address per network (Linux, NetworkManager): `mac = "random" | "stable" | "permanent"` under `[daemon]`, per network profile as well (e.g. the real one at home); also in Configure → General and per profile. Wi-Fi and cable. With random or stable the device's own IDs leave DHCP and IPv6 too: the DHCPv6 DUID was the same on every network (derived from the machine ID), now it follows the MAC (random) or the profile (stable); the DHCPv4 client ID follows the MAC; IPv6 addresses use stable-privacy instead of EUI-64 (MAC inside). A new MAC applies from the next connection, a connection in use is not cut. Off unless set.
+
 ## v0.7.1-rc13
 
 - Windows: the kill switch moved from Windows Firewall rules to the Windows Filtering Platform (new package `internal/winsplit/wfp`, derived from wireguard-windows, MIT). Windows' own allow rules (core networking DNS, push notifications, store apps; 124 on a fresh Windows 11) punched through the old "block outbound" policy, so DNS, push and telemetry left the network while the service was stopped, after a crash and at boot. The new filters sit in a sublayer above the firewall and permit only the service, the Shunt adapter, loopback, DHCP/NDP and private local networks (not their DNS); DNS goes only to The Shunt. They are persistent: they stay while the service is stopped, after a crash and across reboots. Measured in the test lab: 24 of 27 Windows tests pass (7 before); stop, crash, reboot, IPv6, TunnelCrack LocalNet and push connections no longer leak.
