@@ -55,8 +55,9 @@ h2 .spacer { flex: 1; }
 .card.up { border-left-color: var(--accent); }
 .card.down { border-left-color: var(--bad); }
 .card .name { font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 8px; font-size: 13px; }
-.kv span:nth-child(odd) { color: var(--muted); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin-top: 8px; font-size: 13px; }
+.kv span:nth-child(odd) { color: var(--muted); white-space: nowrap; }
+.kv span:nth-child(even) { overflow-wrap: anywhere; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
