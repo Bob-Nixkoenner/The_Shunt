@@ -171,6 +171,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .chart .a-up { fill: color-mix(in srgb, var(--info) 25%, transparent); } .chart .l-up { stroke: var(--info); fill: none; }
 .chart .l-down, .chart .l-up { stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .chart .bar { fill: var(--warn); }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .7; }
 .chart .cursor { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .axis { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 .axis #t-hover { flex: 1; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -299,6 +300,12 @@ body.normal .expert { display: none !important; }
     <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
   </section>
 
+  <section class="half linux-only" data-fold>
+    <h2>Who asks for blocked names</h2>
+    <div data-rows="8"><table><tbody id="appblocks"></tbody></table></div>
+    <div class="hint">DNS queries the filter blocked, per program, since the service started. Programs without a scope of their own (started in a terminal, or on desktops like COSMIC that keep many programs together) count as “login session”.</div>
+  </section>
+
   <section class="half linux-only expert" data-fold>
     <h2>Where traffic goes</h2>
     <table>
@@ -419,9 +426,14 @@ body.normal .expert { display: none !important; }
     <table><tbody id="p-rules"></tbody></table>
     <div class="hint">Edited in the rule list under <b>Configure</b>, where their order with the other rules shows.</div>
   </section>
-  <section>
-    <h2>Open ports</h2>
-    <div class="muted">Coming next: which app listens on which port, and what each tunnel lets in.</div>
+  <section id="sec-ports" data-fold hidden>
+    <h2>Open ports <span class="muted" style="text-transform:none;letter-spacing:0" id="ports-sum"></span><span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="ports-all"> also local only</label></h2>
+    <div id="ports-notes"></div>
+    <div data-rows="6"><table>
+      <thead><tr><th>Port</th><th>Program</th><th>Listens on</th><th>Reachable from</th></tr></thead>
+      <tbody id="ports"></tbody>
+    </table></div>
+    <div class="hint">Programs on this machine waiting for connections. “network”: others on the Wi-Fi or cable you are connected to can reach it; “tunnel”: the other side of a tunnel can.</div>
   </section>
 </main>
 
@@ -436,6 +448,10 @@ body.normal .expert { display: none !important; }
       <label class="linux-only expert" for="c-mac">MAC address</label>
       <div class="linux-only expert"><select id="c-mac"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
         <div class="muted" style="font-size:12px">Wi-Fi and cable. “New” and “own per network” also keep the device's IDs out of DHCP and IPv6 addresses. A new MAC applies from the next connection; a network login page may then ask again. A network profile below can say “the real one” (e.g. at home).</div></div>
+      <label class="linux-only" for="c-inbound">Incoming connections</label>
+      <div class="linux-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
+        <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242" style="width:100%;margin-top:6px">
+        <div class="muted" style="font-size:12px">Answers to your own connections always get through. Tunnels are closed for incoming connections unless the tunnel says otherwise (Tunnels → incoming). A trusted network (profile with inbound = lan) lets in only these ports, and only from private addresses. Careful on a server: SSH from outside is blocked too.</div></div>
       <label class="linux-only" for="c-bootlock">Network at boot</label>
       <div class="linux-only"><select id="c-bootlock"><option value="">auto: blocked if everything else goes through a tunnel</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
         <div class="muted" style="font-size:12px">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
@@ -539,5 +555,6 @@ body.normal .expert { display: none !important; }
 <script src="config.js"></script>
 <script src="filter.js"></script>
 <script src="view.js"></script>
+<script src="ports.js"></script>
 </body>
 </html>

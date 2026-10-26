@@ -179,7 +179,7 @@ function renderFilterStatus() {
   const recent = st.recent || [];
   $("#f-recent").replaceChildren(...(recent.length ? recent.map((b) => el("tr", {},
     el("td", { class: "mono" }, b.name),
-    el("td", { class: "muted" }, b.level + " · " + b.list + " · " + b.route + " · " + ago(b.time)),
+    el("td", { class: "muted" }, (b.app ? b.app + " · " : "") + b.level + " · " + b.list + " · " + b.route + " · " + ago(b.time)),
     el("td", {}, el("button", { title: "never block this name", onclick: () => allow(b.name) }, "Allow")))) :
     [el("tr", {}, el("td", { class: "muted" }, "Nothing blocked yet."))]));
 }

@@ -41,6 +41,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
@@ -55,16 +56,18 @@ type Daemon struct {
 	// Backend enforces plans on this platform (nil: DefaultBackend).
 	Backend Backend
 
-	mu          sync.Mutex
-	cfg         *config.Config
-	plan        *engine.Plan
-	prep        *Prepared
-	cg          firewall.CGroups
-	tunnels     map[string]tunnel.Device
-	specHash    map[string]string
-	tunErrors   map[string]string
-	panic       bool
-	proxy       *dnsproxy.Proxy
+	mu        sync.Mutex
+	cfg       *config.Config
+	plan      *engine.Plan
+	prep      *Prepared
+	cg        firewall.CGroups
+	tunnels   map[string]tunnel.Device
+	specHash  map[string]string
+	tunErrors map[string]string
+	panic     bool
+	proxy     *dnsproxy.Proxy
+	// sockets names the programs behind sockets (DNS blocks per app, open ports).
+	sockets     sockets.Resolver
 	filter      *blocklist.Manager
 	watcher     AppWatcher
 	startWarned bool       // the eBPF start guard failed (logged once)
@@ -601,6 +604,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 	}
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
+		d.proxy.Owner = func(proto string, from netip.AddrPort) string {
+			o, _ := d.sockets.Of(proto, from)
+			return o.Name
+		}
 	}
 	ups := d.upstreams(p)
 	if err := d.proxy.Update(p.Plan, ups); err != nil {
@@ -1376,6 +1383,28 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/inbound/network", func(w http.ResponseWriter, r *http.Request) {
+		var req api.InboundDecision
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		// trusting a network opens ports: managing; keeping it closed is not
+		if req.Action != "closed" {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		if err := d.decideInbound(req); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, d.listening())
+	})
 	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.ToLower(r.URL.Query().Get("name"))
 		if name == "" {
@@ -1491,6 +1520,10 @@ func (d *Daemon) status() api.Status {
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
+	}
+	if d.plan.Inbound != nil {
+		st.Inbound = d.plan.Inbound.Mode
+		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	if d.book != nil {
