@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -145,6 +147,19 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t\ttype filter hook forward priority filter; policy accept;")
 		w("\t\tct status dnat return")
 		w("\t\tiifname { %s } ct state new counter drop", quoteList(ups))
+		w("\t}")
+	}
+
+	if p.Inbound != nil {
+		lines, err := inboundLines(p.Inbound)
+		if err != nil {
+			return "", err
+		}
+		w("\tchain inbound {")
+		w("\t\ttype filter hook input priority filter; policy accept;")
+		for _, l := range lines {
+			w("\t\t%s", l)
+		}
 		w("\t}")
 	}
 
@@ -502,4 +517,63 @@ func quoteList(l []string) string {
 		q[i] = fmt.Sprintf("%q", s)
 	}
 	return strings.Join(q, ", ")
+}
+
+// inboundLines filters what arrives on the uplinks and tunnels: answers to
+// your own connections and what the network needs to keep you connected
+// (DHCP, IPv6 neighbour discovery, ICMP errors) pass, the rest per mode.
+// Dropped, not rejected: a closed machine does not answer scans.
+func inboundLines(in *engine.Inbound) ([]string, error) {
+	ifs := slices.Clone(in.Uplinks)
+	for _, t := range in.Tunnels {
+		ifs = append(ifs, t.Iface)
+	}
+	if len(ifs) == 0 {
+		return nil, nil
+	}
+	for _, i := range ifs {
+		if err := checkIdent(i); err != nil {
+			return nil, err
+		}
+	}
+	out := []string{
+		fmt.Sprintf("iifname != { %s } return", quoteList(ifs)),
+		"ct state established,related accept",
+		"meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept",
+		"meta l4proto icmp icmp type { destination-unreachable, time-exceeded, parameter-problem } accept",
+		"meta nfproto ipv4 udp sport 67 udp dport 68 accept",
+		"meta nfproto ipv6 udp sport 547 udp dport 546 accept",
+	}
+	// every tunnel ends here (accept or drop): what follows is the uplinks
+	for _, t := range in.Tunnels {
+		m := fmt.Sprintf("iifname %q ", t.Iface)
+		out = append(out, modeLines(m, t.Mode, t.Allow)...)
+	}
+	return append(out, modeLines("", in.Mode, in.Allow)...), nil
+}
+
+// modeLines lets in what mode allows (lan: ping and the ports in allow
+// from private addresses), the rest is dropped; prefix narrows them to
+// one interface.
+func modeLines(prefix, mode string, allow []config.PortSel) []string {
+	if mode == config.InboundOpen {
+		return []string{prefix + "accept"}
+	}
+	var out []string
+	if mode == config.InboundLAN {
+		v4, v6 := strings.Join(engine.LANv4, ", "), strings.Join(engine.LANv6, ", ")
+		out = append(out,
+			fmt.Sprintf("%sip saddr { %s } icmp type echo-request accept", prefix, v4),
+			fmt.Sprintf("%sip6 saddr { %s } icmpv6 type echo-request accept", prefix, v6))
+		for _, a := range allow {
+			port := strconv.Itoa(int(a.From))
+			if a.To != a.From {
+				port += "-" + strconv.Itoa(int(a.To))
+			}
+			out = append(out,
+				fmt.Sprintf("%sip saddr { %s } %s dport %s accept", prefix, v4, a.Proto, port),
+				fmt.Sprintf("%sip6 saddr { %s } %s dport %s accept", prefix, v6, a.Proto, port))
+		}
+	}
+	return append(out, prefix+"counter drop")
 }

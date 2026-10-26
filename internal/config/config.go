@@ -31,6 +31,8 @@ type Config struct {
 	Firewall *Firewall `toml:"firewall,omitempty" json:"firewall,omitempty"`
 	// DNSFilter: blocklists (nil = defaults, see DefaultDNSFilter).
 	DNSFilter *DNSFilter `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: protection against incoming connections (nil = off).
+	Inbound *Inbound `toml:"inbound,omitempty" json:"inbound,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -102,6 +104,10 @@ type Network struct {
 	// MAC overrides daemon.mac on this network ("" = keep); recognised
 	// like dhcp_hostname. A new MAC takes effect from the next connection.
 	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
+	// Inbound: closed | lan | open while on this network ("" = closed),
+	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -277,6 +283,12 @@ type Tunnel struct {
 	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 	// DNSFilter: filter level for this tunnel's route ("" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: what may come in through this tunnel while the inbound
+	// protection is on: closed | lan | open ("" = closed, the far end of a
+	// tunnel is not your network unless you say so, e.g. a tunnel home).
+	// InboundAllow: the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
@@ -471,6 +483,9 @@ func (c *Config) Validate() error {
 		if !validMode(n.Firewall) {
 			return fmt.Errorf("network %q: firewall %q (off | ask | block)", n.Name, n.Firewall)
 		}
+	}
+	if err := c.validateInbound(); err != nil {
+		return err
 	}
 	if err := c.checkHops(); err != nil {
 		return err
