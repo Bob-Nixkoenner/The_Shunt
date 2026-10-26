@@ -49,6 +49,27 @@ if [ "$1" = configure ]; then
 	getent group shunt >/dev/null || groupadd --system shunt
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
+	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+	# [daemon] when they are not set there; prints what it added.
+	daemon_privacy() {
+		_f=$1
+		_have=$(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/) }
+			d && /^[[:space:]]*dhcp_hostname[[:space:]]*=/ { h = 1 }
+			d && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+			/^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { s = 1 }
+			END { printf "%d%d%d", s, h, m }' "$_f")
+		_h='' _m=''
+		case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
+		case $_have in ??0) _m='mac = "stable"' ;; esac
+		[ -n "$_h$_m" ] || return 0
+		_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
+		case $_have in
+		0??) printf '\n[daemon]\n%s\n' "$_add" >>"$_f" ;;
+		*) ADD=$_add awk '{ print } !done && /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { print ENVIRON["ADD"]; done = 1 }' "$_f" >"$_f.tmp" &&
+			cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp" ;;
+		esac
+		echo "$_add" | tr '\n' ' '
+	}
 	if [ ! -f /etc/shunt/shunt.toml ]; then
 		printf '# The Shunt configuration - see /usr/share/doc/the-shunt/shunt.toml.example\n\n[daemon]\nsocket_group = "shunt"\ndefault_route = "direct"\n' >/etc/shunt/shunt.toml
 		chmod 644 /etc/shunt/shunt.toml
@@ -80,6 +101,10 @@ ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true
 		echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"
+		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
+		# an update never changes the MAC at home unasked)
+		added=$(daemon_privacy /etc/shunt/shunt.toml)
+		[ -z "$added" ] || echo "The Shunt: /etc/shunt/shunt.toml: $added(at home: set the network profile's MAC to \"the real one\")"
 	fi
 	install -d -m755 /var/lib/shunt
 	touch /var/lib/shunt/nm-privacy-offered
