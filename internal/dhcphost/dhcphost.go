@@ -21,6 +21,10 @@ type Profile struct {
 	Wifi   bool   // else cable
 	SSID   string // Wi-Fi only
 	Device string // in use on this interface right now ("" = not active)
+	// Activated: fully up. Connecting: on its way; such a profile is left
+	// alone (a change restarts the connection with yet another MAC), the
+	// defaults for new profiles cover it and the next pass sets it.
+	Activated, Connecting bool
 	// Send4/Send6: ipv4/ipv6.dhcp-send-hostname.
 	Send4, Send6 string
 	MAC          string // 802-11-wireless/802-3-ethernet.cloned-mac-address

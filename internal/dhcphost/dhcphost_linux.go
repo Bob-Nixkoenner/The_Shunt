@@ -123,6 +123,9 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 				log.Info("network privacy: forgot the last DHCP lease", "uuid", p.UUID)
 			}
 		}
+		if p.Connecting {
+			continue
+		}
 		now, next := pol.Changes(p)
 		// reapply before the MAC is in the profile: a changed MAC cannot
 		// be reapplied and would fail the whole reapply
@@ -132,7 +135,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 				continue
 			}
 			log.Info("network privacy", "uuid", p.UUID, "set", strings.Join(now, " "))
-			if p.Device != "" {
+			if p.Device != "" && p.Activated {
 				if _, err := nmcli(ctx, "device", "reapply", p.Device); err != nil {
 					log.Warn("network privacy: applies from the next connection", "device", p.Device, "err", err)
 				}
@@ -149,7 +152,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 }
 
 func list(ctx context.Context) ([]Profile, error) {
-	out, err := nmcli(ctx, "-t", "-f", "UUID,TYPE,DEVICE", "connection", "show")
+	out, err := nmcli(ctx, "-t", "-f", "UUID,TYPE,DEVICE,STATE", "connection", "show")
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +163,8 @@ func list(ctx context.Context) ([]Profile, error) {
 			continue
 		}
 		p := Profile{UUID: f[0], Wifi: f[1] == "802-11-wireless", Device: f[2]}
+		p.Activated = len(f) > 3 && f[3] == "activated"
+		p.Connecting = len(f) > 3 && f[3] == "activating"
 		macProp := "802-3-ethernet.cloned-mac-address"
 		if p.Wifi {
 			macProp = "802-11-wireless.cloned-mac-address"
