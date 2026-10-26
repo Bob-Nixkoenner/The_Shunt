@@ -45,6 +45,13 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain route_out {")
 	w("\t\ttype route hook output priority mangle; policy accept;")
 	w("\t\tmeta mark %#x return", engine.MarkBypass)
+	// DHCP client traffic belongs to the local network: renewals go over
+	// UDP (only the first DHCPv4 packets use raw sockets, which never get
+	// here) and so does all of DHCPv6. Marked with a tunnel default route
+	// it was dropped: leases ran out, DHCPv6 networks had no IPv6.
+	// Unmarked it takes the main table; only root can bind these ports.
+	w("\t\tudp sport 68 udp dport 67 return")
+	w("\t\tudp sport 546 udp dport 547 return")
 	// Marked by shuntd itself (only CAP_NET_ADMIN can set a mark): a second
 	// hop's encrypted packets entering the first tunnel, DNS upstream
 	// queries. Remember it, so replies pass reverse path filtering.
