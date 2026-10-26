@@ -292,6 +292,9 @@ body.windows .win-only { display: block !important; }
       <label class="linux-only" for="c-hostname">Host name in DHCP</label>
       <div class="linux-only"><select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
         <div class="muted" style="font-size:12px">Every network you join sees your machine's name unless it is switched off in NetworkManager's profiles. The Shunt sets them; a network profile below can say "send" (e.g. at home).</div></div>
+      <label class="linux-only" for="c-bootlock">Network at boot</label>
+      <div class="linux-only"><select id="c-bootlock"><option value="">blocked until The Shunt runs, if everything else goes through a tunnel (auto)</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
+        <div class="muted" style="font-size:12px">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
         <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>

@@ -368,7 +368,7 @@ if ((DRY)); then
 	if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]]; then
 		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY)"
 	fi
-	echo "  service:          installs shuntd.service, shunt-lockdown.service (off), polkit policy; enables and (re)starts shuntd"
+	echo "  service:          installs shuntd.service, shunt-lockdown.service (boot_lockdown = auto), polkit policy; enables and (re)starts shuntd"
 	[[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && echo "  user:             adds $SUDO_USER to the group 'shunt'"
 	echo "  log:              $([[ $LOG == /dev/null ]] && echo "/var/log/shunt-install.log (not written in a dry run without root)" || echo "$LOG")"
 	exit 0
@@ -617,6 +617,9 @@ else
 fi
 systemctl daemon-reload
 systemctl enable -q shuntd.service
+# boot lockdown: shuntd lockdown decides at boot from daemon.boot_lockdown
+# (auto: only when the default route is not direct), so it is always enabled
+systemctl enable -q shunt-lockdown.service
 systemctl restart shuntd.service
 step "waiting for shuntd" bash -c 'for _ in $(seq 50); do [[ -S /run/shunt/shuntd.sock ]] && exit 0; sleep 0.2; done; exit 1' || true
 if ! systemctl is-active -q shuntd.service; then
@@ -643,8 +646,9 @@ Changing the config, reloading or lifting panic asks for your admin password
 ${c_yel}Stopping shuntd keeps the kill switch for tunnels (on purpose); direct traffic goes on.${c_off}
 Emergency exit:  sudo shuntd cleanup
 Uninstall:       sudo bash install.sh --uninstall
-Paranoid mode (block network at boot until shuntd runs):
-                 sudo systemctl enable shunt-lockdown
+Boot lockdown:   when "everything else" goes through a tunnel, the network stays
+                 blocked at boot until shuntd runs (daemon.boot_lockdown = auto | on | off).
+                 Offline after boot because shuntd fails? sudo shuntd cleanup
 EOF
 if [[ -n ${NEW_MEMBER:-} ]]; then
 	echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"
