@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.1-rc16
+
+- Installer and .deb: when the privacy option switches the MAC on, networks you trust already (a profile with `inbound = "lan"`/`"open"` or `dhcp_hostname = "send"`, e.g. home) get `mac = "permanent"` and keep the real MAC, so router reservations at home keep working; the installer names them. Profiles that set a MAC themselves are left alone.
+
 ## v0.7.1-rc15
 
 - Installer and .deb: the privacy option now covers the cable and the device IDs too. Saying yes (the .deb on its first install) also puts `dhcp_hostname = "none"` and `mac = "stable"` under `[daemon]` in `shunt.toml` (only keys that are not set yet), so the cable MAC, the DHCPv6 DUID and the client ID differ per network and a network's first connection is covered. An install from before is asked once, only in a terminal: an update from the app or a .deb update never changes the MAC at home unasked. At home: network profile → MAC "the real one".
