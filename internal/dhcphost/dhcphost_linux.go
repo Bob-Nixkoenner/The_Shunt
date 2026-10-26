@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/godbus/dbus/v5"
 )
 
@@ -31,19 +34,49 @@ var nmcli = func(ctx context.Context, args ...string) (string, error) {
 
 var mu sync.Mutex // one pass at a time (start, network change, new profile)
 
-// Apply sets every Wi-Fi and cable profile as pol wants it. A profile in
+// defaultsFile: NetworkManager reads /run/NetworkManager/conf.d as well;
+// a file there is gone after a reboot, before shuntd has looked at the
+// config again.
+var defaultsFile = "/run/NetworkManager/conf.d/95-shunt-network-privacy.conf"
+
+// writeDefaults puts Defaults in place (or removes them) and has
+// NetworkManager read its configuration again if that changed anything.
+func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
+	want := Defaults(c)
+	have, _ := os.ReadFile(defaultsFile)
+	if string(have) == want {
+		return
+	}
+	var err error
+	if want == "" {
+		err = os.Remove(defaultsFile)
+	} else if err = os.MkdirAll(filepath.Dir(defaultsFile), 0o755); err == nil {
+		err = os.WriteFile(defaultsFile, []byte(want), 0o644)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		log.Warn("network privacy: cannot write NetworkManager defaults", "err", err)
+		return
+	}
+	if _, err := nmcli(ctx, "general", "reload", "conf"); err != nil {
+		log.Warn("network privacy: NetworkManager did not reload its configuration", "err", err)
+	}
+}
+
+// Apply writes the defaults for new profiles and sets every Wi-Fi and
+// cable profile as pol wants it. A profile in
 // use gets the change at once (reapply: the address is renewed), except a
 // new MAC: that one waits for the next connection rather than cut the
 // current one.
 func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
-	if pol.Config.Daemon.DHCPHostname == "" && pol.Config.Daemon.MAC == "" {
-		return
-	}
 	if _, err := exec.LookPath("nmcli"); err != nil {
 		return // no NetworkManager
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	writeDefaults(ctx, pol.Config, log) // also removes them when switched off
+	if pol.Config.Daemon.DHCPHostname == "" && pol.Config.Daemon.MAC == "" {
+		return
+	}
 	ps, err := list(ctx)
 	if err != nil {
 		log.Warn("dhcp host name: cannot read the NetworkManager profiles", "err", err)

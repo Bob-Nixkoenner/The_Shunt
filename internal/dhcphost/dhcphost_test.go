@@ -98,7 +98,7 @@ mac = "stable"
 		{"cable too", Profile{Device: "eth0", MAC: "", DUID: "ll", ClientID: "mac", AddrGen: "stable-privacy", Privacy: "2"}, "",
 			"", "802-3-ethernet.cloned-mac-address random"},
 		{"home wifi by name: real MAC, NM's own IDs", Profile{Wifi: true, SSID: "Home", MAC: "random", DUID: "ll", ClientID: "mac", AddrGen: "stable-privacy"}, "",
-			"ipv6.dhcp-duid  ipv4.dhcp-client-id ", "802-11-wireless.cloned-mac-address permanent"},
+			"ipv6.dhcp-duid stable-uuid", "802-11-wireless.cloned-mac-address permanent"},
 		{"office once recognised", func() Profile { p := tidy; p.Device = "eth0"; return p }(), "office",
 			"ipv6.dhcp-duid stable-ll", "802-3-ethernet.cloned-mac-address stable"},
 	} {
@@ -119,5 +119,19 @@ mac = "stable"
 	}
 	if _, err := config.Parse("[daemon]\nmac = \"spoof\"\n"); err == nil {
 		t.Error("mac = spoof accepted")
+	}
+}
+
+func TestDefaults(t *testing.T) {
+	c, _ := config.Parse("[daemon]\nmac = \"stable\"\ndhcp_hostname = \"none\"\n")
+	d := Defaults(c)
+	for _, want := range []string{"[connection]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=false"} {
+		if !strings.Contains(d, want+"\n") && want != "[connection]" || !strings.Contains(d, want) {
+			t.Errorf("defaults lack %q:\n%s", want, d)
+		}
+	}
+	c.Daemon.MAC, c.Daemon.DHCPHostname = config.MACPermanent, ""
+	if d := Defaults(c); d != "" {
+		t.Errorf("permanent/off wrote defaults:\n%s", d)
 	}
 }
