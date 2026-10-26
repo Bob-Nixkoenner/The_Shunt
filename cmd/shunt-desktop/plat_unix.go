@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
 )
 
@@ -25,7 +26,7 @@ func trayIcon(png []byte) []byte { return png }
 // appSource: nil = the menu of the desktop (.desktop files).
 func appSource(*api.Client, string) ui.AppSource { return nil }
 
-const restartHint = "Check: journalctl -u shuntd -e"
+func restartHint() string { return i18n.T("Check: journalctl -u shuntd -e") }
 
 const updatesSupported = true
 
