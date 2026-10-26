@@ -106,6 +106,8 @@ function renderConfig() {
   $("#c-hostname").value = model.daemon.dhcp_hostname || "";
   $("#c-mac").value = model.daemon.mac || "";
   $("#c-bootlock").value = model.daemon.boot_lockdown === "auto" ? "" : model.daemon.boot_lockdown || "";
+  $("#c-inbound").checked = !!(model.inbound && model.inbound.enabled);
+  $("#c-inallow").value = ((model.inbound && model.inbound.allow) || []).join(" ");
 
   $("#c-upstreams").replaceChildren(...(ups.length ? ups.map((u) => {
     const v = model.dns.upstream[u];
@@ -142,7 +144,13 @@ function renderConfig() {
         el("input", { type: "checkbox", checked: t.allow_lan ? "" : null, onchange: (e) => { t.allow_lan = e.target.checked || undefined; markDirty(); } }), "local network direct"),
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
-      el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
+      el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t)),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on under General). LAN = e.g. a tunnel home." }, "incoming "), (() => {
+          const s = el("select", { onchange: (e) => { t.inbound = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
+          s.value = t.inbound === "closed" ? "" : t.inbound || "";
+          return s;
+        })())),
       el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No tunnels yet – add a WireGuard, OpenVPN, Tailscale or Headscale tunnel under “Add a tunnel” below."))]));
 
@@ -225,6 +233,13 @@ function defaultHint() {
 $("#c-direct").addEventListener("change", (e) => { model.dns.direct = e.target.value || undefined; markDirty(); renderConfig(); });
 $("#c-blockdoh").addEventListener("change", (e) => { model.dns.allow_doh = !e.target.checked; markDirty(); });
 $("#c-blockdot").addEventListener("change", (e) => { model.dns.allow_dot = !e.target.checked; markDirty(); });
+$("#c-inbound").addEventListener("change", (e) => { model.inbound = model.inbound || {}; model.inbound.enabled = e.target.checked; markDirty(); });
+$("#c-inallow").addEventListener("input", (e) => {
+  model.inbound = model.inbound || {};
+  model.inbound.allow = e.target.value.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+  if (!model.inbound.allow.length) delete model.inbound.allow;
+  markDirty();
+});
 
 $("#u-add").addEventListener("click", () => {
   const name = $("#u-name").value.trim();
@@ -476,6 +491,12 @@ function renderNetworks() {
           const s = el("select", { onchange: (e) => { n.mac = e.target.value || undefined; markDirty(); } },
             el("option", { value: "" }, "as under General"), el("option", { value: "random" }, "new each time"), el("option", { value: "stable" }, "own per network"), el("option", { value: "permanent" }, "the real one"));
           s.value = n.mac || "";
+          return s;
+        })()),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "Incoming connections on this network (when switched on under General)" }, "incoming "), (() => {
+          const s = el("select", { onchange: (e) => { n.inbound = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
+          s.value = n.inbound === "closed" ? "" : n.inbound || "";
           return s;
         })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
