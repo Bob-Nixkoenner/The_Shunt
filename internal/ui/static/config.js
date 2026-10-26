@@ -95,6 +95,7 @@ function renderConfig() {
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
   $("#c-hostname").value = model.daemon.dhcp_hostname || "";
+  $("#c-bootlock").value = model.daemon.boot_lockdown === "auto" ? "" : model.daemon.boot_lockdown || "";
 
   $("#c-upstreams").replaceChildren(...(ups.length ? ups.map((u) => {
     const v = model.dns.upstream[u];
@@ -183,6 +184,7 @@ function renderConfig() {
 
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
+$("#c-bootlock").addEventListener("change", (e) => { model.daemon.boot_lockdown = e.target.value || undefined; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
   const d = model.daemon.default_route || "direct";
