@@ -125,8 +125,8 @@ mac = "stable"
 func TestDefaults(t *testing.T) {
 	c, _ := config.Parse("[daemon]\nmac = \"stable\"\ndhcp_hostname = \"none\"\n")
 	d := Defaults(c)
-	for _, want := range []string{"[connection]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=false"} {
-		if !strings.Contains(d, want+"\n") && want != "[connection]" || !strings.Contains(d, want) {
+	for _, want := range []string{"[connection-shunt-privacy]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=false"} {
+		if !strings.Contains(d, want+"\n") && want != "[connection-shunt-privacy]" || !strings.Contains(d, want) {
 			t.Errorf("defaults lack %q:\n%s", want, d)
 		}
 	}

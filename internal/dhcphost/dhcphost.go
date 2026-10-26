@@ -149,7 +149,7 @@ func Defaults(c *config.Config) string {
 	if b.Len() == 0 {
 		return ""
 	}
-	return "# Written by shuntd at start (daemon.mac, daemon.dhcp_hostname): defaults for\n# profiles that do not set these, so a new network is covered from its first\n# connection. Runtime only; shuntd removes it when the settings are off.\n[connection]\n" + b.String()
+	return "# Written by shuntd at start (daemon.mac, daemon.dhcp_hostname): defaults for\n# profiles that do not set these, so a new network is covered from its first\n# connection. Runtime only; shuntd removes it when the settings are off.\n# A section of its own: NetworkManager checks named [connection-…] sections\n# before the plain [connection] (e.g. 90-shunt-privacy.conf in /etc).\n[connection-shunt-privacy]\n" + b.String()
 }
 
 // normSend maps nmcli's spellings (1.46: yes/no; 1.52+: -1/0/1, "default")
