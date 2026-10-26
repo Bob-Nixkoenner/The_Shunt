@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Configure tab tidied up: "General" is split into Routing and a new "Privacy and protection" card (host name, MAC, incoming connections, network at boot in two columns, shorter explanations); a network profile is one compact card with its settings in a grid, and what the profile sets itself is marked with a coloured bar, so the few overrides stand out from "as under General". Same settings, same keys.
+
 ## v0.7.1-rc16
 
 - Installer and .deb: when the privacy option switches the MAC on, networks you trust already (a profile with `inbound = "lan"`/`"open"` or `dhcp_hostname = "send"`, e.g. home) get `mac = "permanent"` and keep the real MAC, so router reservations at home keep working; the installer names them. Profiles that set a MAC themselves are left alone.
