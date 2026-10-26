@@ -37,6 +37,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle   # Gradle itself and the app's dependencies
       - name: SDK and NDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
