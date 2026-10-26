@@ -452,55 +452,52 @@ function updateNetNow() {
       (status && status.network ? " → profile “" + status.network + "” active" : " → no profile: “Everything else goes” applies")
     : "Not connected to a network right now.";
 }
+// field: a labelled select in a profile card; the left bar marks what the
+// profile sets itself, so the few overrides stand out from "as under General"
+function netField(text, title, options, get, set, o = {}) {
+  const s = el("select", {}, ...options.map(([v, t]) => el("option", { value: v }, t)));
+  s.value = get();
+  const mark = (v) => o.mark !== false && !!v;
+  const l = el("label", { title, class: (o.linux ? "linux-only " : "") + (mark(s.value) ? "set" : "") }, text, s);
+  s.addEventListener("change", () => { set(s.value); l.classList.toggle("set", mark(s.value)); markDirty(); });
+  return l;
+}
+
 function renderNetworks() {
   updateNetNow();
   const nets = model.network || [];
+  const ups = Object.keys((model.dns || {}).upstream || {}).sort();
   $("#c-networks").replaceChildren(...(nets.length ? nets.map((n, i) => {
-    const route = el("select", { onchange: (e) => { n.default_route = e.target.value; markDirty(); } }, ...modelRoutes().map((r) => el("option", { value: r }, r)));
-    route.value = n.default_route;
     const crit = [];
     if (n.ssid) crit.push("Wi-Fi: " + joinList(n.ssid));
     if (n.gateway_mac) crit.push("router: " + joinList(n.gateway_mac));
     const weak = n.ssid && !n.gateway_mac && n.default_route !== "block" && n.default_route !== model.daemon.default_route;
-    return el("tr", {},
-      el("td", {}, el("b", {}, n.name)),
-      el("td", {}, ...crit.map((x) => el("span", { class: "chip" }, x)),
-        weak ? el("div", { style: "color:var(--warn)" }, "Wi-Fi names are easy to fake: add the router MAC") : ""),
-      el("td", {}, el("span", { class: "muted" }, "everything else goes "), route,
-        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted" }, "app firewall "), (() => {
-          const f = el("select", { onchange: (e) => { n.firewall = e.target.value || undefined; markDirty(); } },
-            el("option", { value: "" }, "as set below"), el("option", { value: "off" }, "off"), el("option", { value: "ask" }, "ask"), el("option", { value: "block" }, "block"));
-          f.value = n.firewall || "";
-          return f;
-        })()),
-        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS for direct and Wi-Fi/cable routes on this network" }, "DNS direct "), (() => {
-          const d = el("select", { onchange: (e) => { n.dns_direct = e.target.value || undefined; markDirty(); } },
-            el("option", { value: "" }, "as set in DNS"), el("option", { value: "system" }, "the network's own"),
-            ...Object.keys((model.dns || {}).upstream || {}).sort().map((u) => el("option", { value: u }, u)));
-          d.value = n.dns_direct || "";
-          return d;
-        })()),
-        el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)" }, "DNS filter "), filterSel(n)),
-        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "Host name in DHCP on this network (when set under General)" }, "host name "), (() => {
-          const s = el("select", { onchange: (e) => { n.dhcp_hostname = e.target.value || undefined; markDirty(); } },
-            el("option", { value: "" }, "as under General"), el("option", { value: "none" }, "don't send"), el("option", { value: "send" }, "send"));
-          s.value = n.dhcp_hostname || "";
-          return s;
-        })()),
-        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "MAC address on this network (when set under General); applies from the next connection" }, "MAC "), (() => {
-          const s = el("select", { onchange: (e) => { n.mac = e.target.value || undefined; markDirty(); } },
-            el("option", { value: "" }, "as under General"), el("option", { value: "random" }, "new each time"), el("option", { value: "stable" }, "own per network"), el("option", { value: "permanent" }, "the real one"));
-          s.value = n.mac || "";
-          return s;
-        })()),
-        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "Incoming connections on this network (when switched on under General)" }, "incoming "), (() => {
-          const s = el("select", { onchange: (e) => { n.inbound = e.target.value || undefined; markDirty(); } },
-            el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
-          s.value = n.inbound === "closed" ? "" : n.inbound || "";
-          return s;
-        })())),
-      el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
-  }) : [el("tr", {}, el("td", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel."))]));
+    const General = "as under General";
+    const fs = filterSel(n);
+    return el("div", { class: "netcard" },
+      el("div", { class: "nethead" }, el("b", {}, n.name), ...crit.map((x) => el("span", { class: "chip" }, x)),
+        weak ? el("span", { style: "color:var(--warn);font-size:12px" }, "Wi-Fi names are easy to fake: add the router MAC") : "",
+        el("span", { class: "spacer" }),
+        el("button", { class: "iconbtn", title: "remove this profile", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")),
+      el("div", { class: "netgrid" },
+        netField("everything else goes", "Route for apps without a rule on this network", modelRoutes().map((r) => [r, r]),
+          () => n.default_route, (v) => { n.default_route = v; }, { mark: false }),
+        netField("app firewall", "What happens to programs without a rule on this network",
+          [["", "as set below"], ["off", "off"], ["ask", "ask"], ["block", "block"]], () => n.firewall || "", (v) => { n.firewall = v || undefined; }),
+        netField("DNS direct", "DNS for direct and Wi-Fi/cable routes on this network",
+          [["", "as set in DNS"], ["system", "the network's own"], ...ups.map((u) => [u, u])], () => n.dns_direct || "", (v) => { n.dns_direct = v || undefined; }),
+        (() => {
+          const l = el("label", { title: "DNS filter for direct and Wi-Fi/cable routes on this network (tunnels keep their own)", class: n.dns_filter ? "set" : "" }, "DNS filter", fs);
+          fs.addEventListener("change", () => l.classList.toggle("set", !!fs.value));
+          return l;
+        })(),
+        netField("host name in DHCP", "Host name in DHCP on this network (when set under General)",
+          [["", General], ["none", "don't send"], ["send", "send"]], () => n.dhcp_hostname || "", (v) => { n.dhcp_hostname = v || undefined; }, { linux: true }),
+        netField("MAC address", "MAC address on this network (when set under General); applies from the next connection",
+          [["", General], ["random", "new each time"], ["stable", "own per network"], ["permanent", "the real one"]], () => n.mac || "", (v) => { n.mac = v || undefined; }, { linux: true }),
+        netField("incoming connections", "Incoming connections on this network (when switched on under General)",
+          [["", "closed"], ["lan", "LAN: allowed ports"], ["open", "open (no filter)"]], () => (n.inbound === "closed" ? "" : n.inbound || ""), (v) => { n.inbound = v || undefined; }, { linux: true })));
+  }) : [el("div", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel.")]));
 }
 $("#n-add").addEventListener("click", async () => {
   const now = netNow();
