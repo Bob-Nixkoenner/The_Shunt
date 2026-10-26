@@ -1,5 +1,5 @@
 "use strict";
-// Light/dark: follows the system unless chosen under Configure → General → Appearance.
+// Light/dark: follows the system unless chosen under View → Look.
 // Loaded in <head> so the page does not flash in the wrong theme.
 (() => {
   const root = document.documentElement;
