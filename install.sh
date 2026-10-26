@@ -56,7 +56,9 @@ die() {
 
 # Questions go to the terminal even when the script itself is piped in.
 TTY=/dev/tty
-[[ -r $TTY && -z ${SHUNT_YES:-} ]] || TTY=
+# /dev/tty exists without a controlling terminal too (ssh without -t,
+# guest control, a service): only opening it tells
+[[ -r $TTY && -z ${SHUNT_YES:-} ]] && { : <"$TTY"; } 2>/dev/null || TTY=
 ask() { # ask "question" default -> echoes answer
 	local q=$1 def=${2:-} a=
 	if [[ -n $TTY ]]; then
@@ -197,6 +199,28 @@ on_exit() {
 trap on_exit EXIT
 
 NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
+
+# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+# [daemon] when they are not set there; prints what it added.
+daemon_privacy() {
+	_f=$1
+	_have=$(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/) }
+		d && /^[[:space:]]*dhcp_hostname[[:space:]]*=/ { h = 1 }
+		d && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+		/^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { s = 1 }
+		END { printf "%d%d%d", s, h, m }' "$_f")
+	_h='' _m=''
+	case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
+	case $_have in ??0) _m='mac = "stable"' ;; esac
+	[ -n "$_h$_m" ] || return 0
+	_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
+	case $_have in
+	0??) printf '\n[daemon]\n%s\n' "$_add" >>"$_f" ;;
+	*) ADD=$_add awk '{ print } !done && /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { print ENVIRON["ADD"]; done = 1 }' "$_f" >"$_f.tmp" &&
+		cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp" ;;
+	esac
+	echo "$_add" | tr '\n' ' '
+}
 
 # ---------------------------------------------------------------- uninstall
 if [[ $MODE == uninstall ]]; then
@@ -366,7 +390,7 @@ if ((DRY)); then
 		echo "  nsswitch.conf:    offers to drop 'resolve' (backup kept)"
 	fi
 	if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]]; then
-		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY)"
+		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY), and per network MAC + no host name in $ETC/shunt.toml"
 	fi
 	echo "  service:          installs shuntd.service, shunt-lockdown.service (boot_lockdown = auto), polkit policy; enables and (re)starts shuntd"
 	[[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && echo "  user:             adds $SUDO_USER to the group 'shunt'"
@@ -585,7 +609,23 @@ ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
 		ok "privacy settings active from the next Wi-Fi connection ($NM_PRIVACY)"
+		# the rest NetworkManager's defaults cannot do: the cable MAC, the
+		# DHCPv6 DUID and client ID (same on every network), a network's
+		# first connection; shuntd sets the profiles
+		added=$(daemon_privacy "$ETC/shunt.toml")
+		[[ -z $added ]] || ok "$ETC/shunt.toml: $added(at home: network profile → MAC \"the real one\")"
 	fi
+elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[ -n $TTY && ! -e /var/lib/shunt/daemon-privacy-offered ]] &&
+	[[ $(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\]/) } d && /^[[:space:]]*(mac|dhcp_hostname)[[:space:]]*=/ { n++ } END { print n + 0 }' "$ETC/shunt.toml") -lt 2 ]]; then
+	# an install from before: Wi-Fi privacy is on, the cable and the
+	# device IDs are not (asked once, only in a terminal: an update from
+	# the app must not change the MAC at home unasked)
+	echo "  Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
+	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
+		added=$(daemon_privacy "$ETC/shunt.toml")
+		[[ -z $added ]] || ok "$ETC/shunt.toml: $added(at home: network profile → MAC \"the real one\")"
+	fi
+	install -d -m755 /var/lib/shunt && touch /var/lib/shunt/daemon-privacy-offered
 fi
 
 say "Dry run"
