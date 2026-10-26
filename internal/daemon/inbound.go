@@ -114,8 +114,8 @@ func appendNetwork(raw []byte, name, ssid, mac, route string) []byte {
 
 var notName = regexp.MustCompile(`[^a-z0-9-]+`)
 
-// profileName makes a profile name from the SSID ("Weifi_5G" ->
-// "weifi-5g"), unique among the existing ones.
+// profileName makes a profile name from the SSID ("Cafe_5G" ->
+// "cafe-5g"), unique among the existing ones.
 func profileName(ssid, mac string, c *config.Config) string {
 	base := strings.Trim(notName.ReplaceAllString(strings.ToLower(ssid), "-"), "-")
 	if base == "" {

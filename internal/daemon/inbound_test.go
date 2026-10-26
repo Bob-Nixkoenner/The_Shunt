@@ -7,13 +7,13 @@ import (
 )
 
 func TestAppendNetwork(t *testing.T) {
-	raw := []byte("[daemon]\ndefault_route = \"direct\"\n[inbound]\nenabled = true\nallow = [\"tcp/1716\"]\n[[network]]\nname = \"weifi-5g\"\nssid = [\"x\"]\ndefault_route = \"direct\"")
+	raw := []byte("[daemon]\ndefault_route = \"direct\"\n[inbound]\nenabled = true\nallow = [\"tcp/1716\"]\n[[network]]\nname = \"cafe-5g\"\nssid = [\"x\"]\ndefault_route = \"direct\"")
 	c, err := config.Parse(string(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := profileName("Weifi_5G", "AA:BB:CC:DD:EE:FF", c)
-	if name != "weifi-5g-2" {
+	name := profileName("Cafe_5G", "AA:BB:CC:DD:EE:FF", c)
+	if name != "cafe-5g-2" {
 		t.Errorf("name %q", name)
 	}
 	if n := profileName("", "AA:BB:CC:DD:EE:FF", c); n != "lan-aabbccddeeff" {
