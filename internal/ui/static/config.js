@@ -9,22 +9,31 @@ let editIdx = -1; // rule being edited (-1 = new)
 const splitList = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const joinList = (a) => (a || []).join(", ");
 
-// "config" and "filter" share the config page (and its save bar): the
-// filter sections are marked .pf.
+// One page per tab. The tabs that edit the config share one copy of it and
+// one save bar, which moves along to the page that is shown.
+const TABS = ["overview", "vpn", "apps", "dns", "ports", "config", "view"];
+const CFG_TABS = ["vpn", "apps", "dns", "ports", "config"];
+let curTab = "overview";
 function setTab(t) {
-  $("#page-overview").hidden = t !== "overview";
-  $("#page-apps").hidden = t !== "apps";
-  $("#page-config").hidden = t === "overview" || t === "apps";
-  for (const s of document.querySelectorAll("#page-config > section")) s.hidden = s.classList.contains("pf") !== (t === "filter");
-  for (const n of ["overview", "apps", "config", "filter"]) $("#tab-" + n).classList.toggle("active", t === n);
-  if ((t === "config" || t === "filter") && !model) loadConfig();
-  try { history.replaceState(null, "", t === "overview" ? location.pathname : "#" + t); } catch (e) { /* file: or sandbox */ }
+  if (t === "filter") t = "dns"; // old links
+  if (!TABS.includes(t) || $("#tab-" + t).offsetParent === null) t = "overview"; // e.g. Ports in Normal view
+  curTab = t;
+  for (const n of TABS) {
+    $("#page-" + n).hidden = t !== n;
+    $("#tab-" + n).classList.toggle("active", t === n);
+  }
+  // the app firewall (Linux only) is the config part of the Apps page
+  const bar = $("#savebar");
+  bar.hidden = !CFG_TABS.includes(t) || (t === "apps" && document.body.classList.contains("windows"));
+  if (!bar.hidden) $("#page-" + t).append(bar);
+  if (CFG_TABS.includes(t) && !model) loadConfig();
+  // "#/dns", not "#dns": a reload would scroll to the element with id="dns"
+  try { history.replaceState(null, "", t === "overview" ? location.pathname : "#/" + t); } catch (e) { /* file: or sandbox */ }
   if (t === "apps") loadApps(); // installed programs and the config may have changed since the last visit
+  if (typeof viewChanged === "function") viewChanged();
 }
-$("#tab-overview").addEventListener("click", () => setTab("overview"));
-$("#tab-apps").addEventListener("click", () => setTab("apps"));
-$("#tab-config").addEventListener("click", () => setTab("config"));
-$("#tab-filter").addEventListener("click", () => setTab("filter"));
+const cfgShown = () => CFG_TABS.includes(curTab);
+for (const n of TABS) $("#tab-" + n).addEventListener("click", () => setTab(n));
 
 function cmsg(text, cls) {
   const m = $("#c-msg");
@@ -121,7 +130,7 @@ function renderConfig() {
     // multi-hop: a tunnel may run through any other tunnel (not through
     // itself or one that already runs through it)
     const loops = (m) => { for (let c = m, k = 0; c && k < 20; k++) { if (c === n) return true; c = ((model.tunnel[c] || {}).via || "").replace(/^tunnel:/, ""); } return false; };
-    const viaSel = el("select", { title: "multi-hop", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
+    const viaSel = el("select", { title: "multi-hop", class: "expert", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
       el("option", { value: "" }, "direct to its server"),
       ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)),
       ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
@@ -181,7 +190,27 @@ function renderConfig() {
         el("button", { class: "iconbtn", title: "edit", onclick: () => openRule(i) }, "✎"), " ",
         el("button", { class: "iconbtn", title: "delete", onclick: () => { model.rule.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No rules – apps follow the route they were started with, everything else the default."))]));
+  renderPorts();
+  if (typeof viewChanged === "function") viewChanged();
 }
+
+function renderPorts() {
+  const rs = model.rule.map((r, i) => [r, i]).filter(([r]) => r.port);
+  $("#p-rules").replaceChildren(...(rs.length ? rs.map(([r, i]) => el("tr", {},
+    el("td", { class: "muted" }, i + 1 + "."),
+    el("td", {}, el("b", {}, r.name || "(unnamed)"), el("div", {}, ...r.port.map((x) => el("span", { class: "chip mono" }, x)),
+      ...(r.app ? [el("span", { class: "chip" }, "apps: " + joinList(r.app))] : []), ...(r.cidr ? [el("span", { class: "chip" }, "IPs: " + joinList(r.cidr))] : []))),
+    el("td", {}, routeTag(r.route)),
+    el("td", {}, el("button", { class: "iconbtn", title: "edit", onclick: () => editRuleFromPorts(i) }, "✎")))) :
+    [el("tr", {}, el("td", { class: "muted" }, "No port rules – e.g. send SSH (tcp/22) or a game's UDP ports through a tunnel."))]));
+}
+function editRuleFromPorts(i) {
+  setTab("config");
+  openRule(i);
+  if (i < 0) $("#r-port").focus();
+  $("#r-editor").scrollIntoView({ block: "center" });
+}
+$("#p-new").addEventListener("click", () => editRuleFromPorts(-1));
 
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
@@ -470,7 +499,7 @@ $("#n-add").addEventListener("click", async () => {
 // Follow changes made elsewhere (editor, `shunt import`, another window)
 // while nothing is being edited here.
 setInterval(async () => {
-  if (!model || $("#page-config").hidden || $("#savebar").classList.contains("dirty")) return;
+  if (!model || !cfgShown() || $("#savebar").classList.contains("dirty")) return;
   try {
     const v = await api("GET", "/api/config");
     if (v.version !== cfgView.version) await loadConfig();
@@ -524,11 +553,6 @@ for (const [t, other] of [["file", "ts"], ["ts", "file"]]) {
   });
 }
 
-// a reload (or a link with #apps) opens the same tab again
-{
-  const t = location.hash.slice(1);
-  if (["apps", "config", "filter"].includes(t)) setTab(t);
-}
 
 // menuStarts: does a menu entry's Exec line start the program an app selector names
 // ("firefox" process name, "exe:/path", "flatpak:<id>"), as appwatch matches it?
