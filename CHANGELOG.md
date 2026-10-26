@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc14
 
 - Open ports and DNS blocks per app (Linux): shuntd lists the listening sockets and names their program by its cgroup (`shunt ports`, Ports tab), with where each can be reached from (this machine, the network, a tunnel). The DNS filter names the program behind each blocked query (`shunt blocks`, Apps → "Who asks for blocked names").
 - Inbound protection (Linux): `[inbound] enabled = true` closes incoming connections on networks you have not trusted (answers, DHCP, neighbour discovery and ICMP errors still pass). A `[[network]]` profile can say `inbound = "lan"` (the ports in `inbound_allow` / `inbound.allow` from private addresses) or `"open"`; each tunnel too (closed unless it says otherwise). On an unknown network the status asks whether to trust it. `shunt inbound`, settings under Configure → General, per network and per tunnel. Off by default (on a server it would close SSH).
