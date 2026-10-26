@@ -3,6 +3,8 @@
 socket       = "/run/shunt/shuntd.sock"
 socket_group = "shunt"      # members may use the `shunt` CLI
 default_route = "direct"    # direct | block | tunnel:<name>
+# boot_lockdown = "auto"     # block the network at boot until shuntd runs:
+#                            # auto (when a default route is not direct) | on | off
 
 # wg-quick style file, mode 0600. PostUp/PreUp/Table/FwMark are ignored.
 [tunnel.vps]
