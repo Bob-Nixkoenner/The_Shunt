@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.7.1-rc15
 
 - Installer and .deb: the privacy option now covers the cable and the device IDs too. Saying yes (the .deb on its first install) also puts `dhcp_hostname = "none"` and `mac = "stable"` under `[daemon]` in `shunt.toml` (only keys that are not set yet), so the cable MAC, the DHCPv6 DUID and the client ID differ per network and a network's first connection is covered. An install from before is asked once, only in a terminal: an update from the app or a .deb update never changes the MAC at home unasked. At home: network profile → MAC "the real one".
 - Installer: questions count as asked only with a real terminal (`/dev/tty` exists without one too, e.g. ssh without `-t`); without one the defaults apply, as before.
