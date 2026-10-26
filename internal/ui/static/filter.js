@@ -260,4 +260,4 @@ $("#f-alists").addEventListener("input", (e) => {
 $("#f-refresh").addEventListener("click", async () => {
   try { await api("POST", "/api/dnsfilter/refresh"); toast("Downloading the lists again…"); } catch (e) { toast(e.message); }
 });
-setInterval(() => { if (!$("#page-config").hidden && model) renderFilterStatus(); }, 3000);
+setInterval(() => { if (curTab === "dns" && model) renderFilterStatus(); }, 3000);

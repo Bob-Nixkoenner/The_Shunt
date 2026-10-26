@@ -176,15 +176,6 @@ function render() {
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
 
-  // The overview shows your first rules only (all of them are under Configure);
-  // the built-in ones (captive, via:...) are not rules you made.
-  const SHOWN_RULES = 4;
-  const mine = st.rules.map((r, i) => [i + 1, ...r.split(" -> ")]).filter(([, name]) => name !== "captive" && !name.startsWith("via:"));
-  $("#rules").replaceChildren(...mine.slice(0, SHOWN_RULES).map(([n, name, route]) =>
-    el("tr", {}, el("td", { class: "muted" }, n + "."), el("td", {}, name), el("td", {}, routeTag(route)))),
-    el("tr", {}, el("td", { class: "muted" }, "→"), el("td", { class: "muted" }, "everything else"), el("td", {}, routeTag(st.default_route))));
-  $("#rules-more").replaceChildren(...(mine.length > SHOWN_RULES ? [mine.length - SHOWN_RULES + " more rules – ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); setTab("config"); } }, "show all under Configure")] : []));
-
   $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
 
