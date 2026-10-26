@@ -72,10 +72,10 @@ fun Updater.install(ctx: Context, apk: File, done: (String) -> Unit) {
                     else i.getParcelableExtra(Intent.EXTRA_INTENT)
                     confirm?.let { c.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
-                PackageInstaller.STATUS_SUCCESS -> { c.unregisterReceiver(this); done("Updated.") }
+                PackageInstaller.STATUS_SUCCESS -> { c.unregisterReceiver(this); done(T("Updated.")) }
                 else -> {
                     c.unregisterReceiver(this)
-                    done("Install failed: " + (i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "unknown error"))
+                    done(T("Install failed: {error}", "error" to (i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: T("unknown error"))))
                 }
             }
         }
@@ -100,13 +100,13 @@ fun UpdateSection(say: (String) -> Unit) {
     var pre by remember { mutableStateOf(Updater.prereleases(ctx)) }
 
     Section("Update", action = {
-        ShuntButton(if (busy) "Working…" else "Check", {
+        ShuntButton(if (busy) T("Working…") else T("Check"), {
             busy = true
             note = null
             scope.launch {
                 runCatching { withContext(Dispatchers.IO) { Updater.check(ctx) } }
-                    .onSuccess { found = it; note = if (it == null) "You have the newest version." else null }
-                    .onFailure { found = null; note = "Check failed: ${it.message}" }
+                    .onSuccess { found = it; note = if (it == null) T("You have the newest version.") else null }
+                    .onFailure { found = null; note = T("Check failed: {error}", "error" to it.message) }
                 busy = false
             }
         }, enabled = !busy)
@@ -114,16 +114,16 @@ fun UpdateSection(say: (String) -> Unit) {
         KV("Installed", Updater.current(ctx), mono = true)
         found?.let { r ->
             KV("Available", r.tag, mono = true)
-            ShuntButton(if (busy) "Working…" else "Download and install", {
+            ShuntButton(if (busy) T("Working…") else T("Download and install"), {
                 if (!Updater.canInstall(ctx)) {
-                    say("Allow \"Install unknown apps\" for The Shunt, then press the button again.")
+                    say(T("Allow \"Install unknown apps\" for The Shunt, then press the button again."))
                     Updater.askInstallPermission(ctx)
                 } else {
                     busy = true
                     scope.launch {
                         runCatching { withContext(Dispatchers.IO) { Updater.fetch(ctx, r) } }
-                            .onSuccess { apk -> runCatching { Updater.install(ctx, apk, say) }.onFailure { say("Install failed: ${it.message}") } }
-                            .onFailure { say("Update stopped: ${it.message}") }
+                            .onSuccess { apk -> runCatching { Updater.install(ctx, apk, say) }.onFailure { say(T("Install failed: {error}", "error" to it.message)) } }
+                            .onFailure { say(T("Update stopped: {error}", "error" to it.message)) }
                         busy = false
                     }
                 }
@@ -132,7 +132,7 @@ fun UpdateSection(say: (String) -> Unit) {
         }
         note?.let { Hint(it) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Include pre-releases (rc)", fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(T("Include pre-releases (rc)"), fontSize = 14.sp, modifier = Modifier.weight(1f))
             Switch(pre, { pre = it; Updater.setPrereleases(ctx, it) })
         }
         Hint("Only asks GitHub when you press Check. Nothing runs in the background.")

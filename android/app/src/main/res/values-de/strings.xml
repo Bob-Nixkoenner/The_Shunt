@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android and Google Play list a language from its resources; the texts of the
+     app itself come from internal/i18n/lang/de.json (see I18n.kt). -->
+<resources>
+    <string name="app_name">The Shunt</string>
+    <string name="panic_tile">Shunt Panik</string>
+</resources>

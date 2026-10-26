@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The languages of the app (Android 13+: Settings → Apps → The Shunt → Language).
+     Add one here when internal/i18n/lang/<code>.json has it. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="de" />
+</locale-config>

@@ -85,7 +85,7 @@ class ShuntVpnService : VpnService() {
         // a foreground service with a status notification: Android does not
         // stop it to save memory, and the user sees that the VPN runs
         VpnState.startRequested = true
-        goForeground("Starting…")
+        goForeground(T("Starting…"))
         // null intent: restarted by the system or always-on VPN. On the
         // worker: endpoint lookups and list downloads take a moment, and
         // start/stop must not overlap.
@@ -210,11 +210,11 @@ class ShuntVpnService : VpnService() {
         val e = VpnState.engine
         val ov = e?.status()?.let { org.json.JSONObject(it).optJSONObject("override") }
         val text = when {
-            e == null -> VpnState.error.value?.let { "Error: $it" } ?: "Off"
-            ov?.optBoolean("panic") == true -> "PANIC – everything blocked"
-            (ov?.optLong("pass_left") ?: 0) > 0 -> "PASS – unprotected"
-            !VpnState.lockdown.value -> "On – no kill switch (Android VPN settings)"
-            else -> "Protected"
+            e == null -> VpnState.error.value?.let { T("Error: {error}", "error" to it) } ?: T("Off")
+            ov?.optBoolean("panic") == true -> T("PANIC – everything blocked")
+            (ov?.optLong("pass_left") ?: 0) > 0 -> T("PASS – unprotected")
+            !VpnState.lockdown.value -> T("On – no kill switch (Android VPN settings)")
+            else -> T("Protected")
         }
         getSystemService(NotificationManager::class.java).notify(NOTIFY_ID, notification(text, if (e == null) 0 else activeTunnels(e)))
     }
@@ -234,7 +234,7 @@ class ShuntVpnService : VpnService() {
     private fun notification(text: String, active: Int = 0): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "VPN status", NotificationManager.IMPORTANCE_LOW))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, T("VPN status"), NotificationManager.IMPORTANCE_LOW))
         }
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), flags)
@@ -247,8 +247,8 @@ class ShuntVpnService : VpnService() {
             .setContentIntent(open)
             .setOngoing(true)
             .setShowWhen(false)
-            .addAction(Notification.Action.Builder(null, "Panic", panic).build())
-            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
+            .addAction(Notification.Action.Builder(null, T("Panic"), panic).build())
+            .addAction(Notification.Action.Builder(null, T("Stop"), stop).build())
             .build()
     }
 
