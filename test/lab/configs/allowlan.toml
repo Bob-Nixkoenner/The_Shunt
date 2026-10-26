@@ -1,5 +1,6 @@
 # Like base, with allow_lan on the tunnel (LAN stays reachable for tunnelled apps).
 [daemon]
+socket_group = "shunt"
 default_route = "tunnel:intern"
 
 [tunnel.intern]

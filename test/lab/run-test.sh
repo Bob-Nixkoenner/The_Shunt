@@ -6,7 +6,8 @@
 #   CONFIG [base]             configs/<CONFIG>.toml becomes the client's shunt.toml
 #   EXPECT_CANARY [tunnel]    where the canary name may show up: tunnel|gw|none|any
 #   ALLOW=()                  extra things the café network may see:
-#                             comm:<name> (packets of that process), dst:ip:port/proto, dns
+#                             comm:<name> (packets of that process), dst:ip:port/proto,
+#                             net:<cidr>:port/proto (rotating addresses), dns
 #   CHECKS=()                 fingerprint = DHCP name, EUI-64, real MAC … count as findings
 #   RENEW [0]                 1 = reconnect the client's network while capturing
 #   SCAN [0]                  1 = nmap the client from the gateway while it runs
@@ -19,6 +20,16 @@
 #   during()                  optional function run on the laptop alongside CLIENT
 #                             (e.g. `sleep 5; gw labctl mode tunnelkill`)
 
+# Platform hooks (Linux client); winclient.sh replaces them for CLIENT_OS=windows.
+client_trace() { # start | stop | fetch <dir>
+	case $1 in
+	start) client "sudo -n /usr/local/lib/shuntlab/trace.sh start /tmp/shuntlab-trace.log" ;;
+	stop) client "sudo -n /usr/local/lib/shuntlab/trace.sh stop /tmp/shuntlab-trace.log" ;;
+	fetch) client_cp_from /tmp/shuntlab-trace.log "$2/trace.log" || true ;;
+	esac
+}
+client_version() { client 'shunt version 2>/dev/null' | tr -d '\r'; }
+
 jarr() { local o='' x; for x in "$@"; do o+="\"$x\","; done; echo "${o%,}"; }
 
 PASSED=()
@@ -29,7 +40,7 @@ TUNNEL_IP=${TUNNEL_IP:-10.66.0.12}
 resolve_test() {
 	local t=$1
 	[[ -f $t ]] && { echo "$t"; return; }
-	compgen -G "$HERE/tests/$t*.sh" | head -1
+	compgen -G "${TESTS_DIR:-$HERE/tests}/$t*.${TEST_EXT:-sh}" | head -1
 }
 
 apply_config() { # $1 = config name; restarts shuntd only when it changed
@@ -56,6 +67,8 @@ run_test() {
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
+	# CONFIG_FORCE: run a test with another config (e.g. ks = Windows kill switch on)
+	[[ -z ${CONFIG_FORCE:-} ]] || CONFIG=$CONFIG_FORCE
 
 	local stamp run out canary cur
 	stamp=$(date +%Y%m%d-%H%M%S)
@@ -65,8 +78,15 @@ run_test() {
 	canary="${ID,,}-$(date +%s).shuntlab.test"
 	echo "== $ID $TITLE  (mode $MODE, config $CONFIG)"
 
-	apply_config "$CONFIG"
+	# a special mode left over from the previous test (tunnelkill!) would let the
+	# config change below start with a dead tunnel: back to normal first
 	cur=$(gw cat /etc/shuntlab/mode)
+	if [[ $cur != normal && $cur != "$MODE" ]]; then
+		gw labctl mode normal >/dev/null
+		renew_client
+		cur=normal
+	fi
+	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
 
 	# captures first, so DHCP after a mode change is in them
@@ -77,7 +97,7 @@ run_test() {
 	else
 		echo "   (CT130 not reachable: no capture at the tunnel exit)"
 	fi
-	client "sudo -n /usr/local/lib/shuntlab/trace.sh start /tmp/shuntlab-trace.log"
+	client_trace start
 
 	if [[ $cur != "$MODE" ]]; then
 		gw labctl mode "$MODE" >/dev/null
@@ -99,17 +119,17 @@ run_test() {
 	((SCAN)) && wait "$spid" 2>/dev/null
 	sleep 2
 
-	client "sudo -n /usr/local/lib/shuntlab/trace.sh stop /tmp/shuntlab-trace.log"
+	client_trace stop
 	gw labctl netem off >/dev/null
 	gw labctl cap stop "$run" >/dev/null
-	client_cp_from /tmp/shuntlab-trace.log "$out/trace.log" || true
+	client_trace fetch "$out"
 	if [[ -n $ct_pid ]]; then
 		ct130 "kill $ct_pid; sleep 1" || true
-		scp -q -o BatchMode=yes "$CT130:/tmp/shuntlab-$run.pcap" "$out/ct130.pcap" && ct130 "rm -f /tmp/shuntlab-$run.pcap"
+		ct130 "cat /tmp/shuntlab-$run.pcap" >"$out/ct130.pcap" && ct130 "rm -f /tmp/shuntlab-$run.pcap"
 	fi
 
 	local ver lease mac ip4
-	ver=$(client 'shunt version 2>/dev/null' | tr -d '\r')
+	ver=$(client_version)
 	lease=$(gw labctl client 2>/dev/null || true)
 	read -r mac ip4 _ <<<"$lease"
 	python3 - "$out/meta.json" <<EOF
@@ -139,3 +159,5 @@ summary() {
 	echo "OK:   ${PASSED[*]:-–}"
 	echo "FUND: ${FOUND[*]:-–}"
 }
+
+if [[ ${CLIENT_OS:-linux} == windows ]]; then source "$HERE/winclient.sh"; fi

@@ -2,14 +2,23 @@
 # Prepares the lab client (run as root inside it): Shunt from a .deb, the lab
 # apps, bpftrace. The tunnel config comes separately (test keys stay out of git).
 #
-#   prep.sh <the-shunt_*.deb>
+#   prep.sh <the-shunt_*.deb>   Debian/Ubuntu/Kali
+#   prep.sh pacman [--from-source]   Arch/CachyOS: tools via pacman, Shunt via install.sh
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 export DEBIAN_FRONTEND=noninteractive
 
-apt-get update -q
-apt-get install -yq --no-install-recommends bpftrace dnsutils netcat-openbsd curl
-apt-get install -yq "$1"
+if [[ $1 == pacman ]]; then
+	pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump
+	curl -fsSLo /tmp/install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
+	bash /tmp/install.sh "${@:2}"
+else
+	apt-get update -q
+	apt-get install -yq --no-install-recommends bpftrace dnsutils netcat-openbsd curl
+	apt-get install -yq "$1"
+fi
+# the lab user runs shunt run/desktop/ui: socket_group = "shunt" in the lab configs
+[[ -n ${SUDO_USER:-} ]] && usermod -aG shunt "$SUDO_USER"
 
 # lab apps: copies so their comm is the rule name (rules match on comm)
 for n in labtun labdir labfree; do install -m755 /usr/bin/curl /usr/local/bin/$n; done

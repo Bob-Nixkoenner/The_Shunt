@@ -8,19 +8,20 @@ bpftrace), ct130.pcap (tunnel exit), scan-*.txt (nmap). Writes report.md and
 result.json next to them. Runs on the gateway (needs scapy, p0f).
 
 Rule at the gateway: the untrusted network may see tunnel transport to the
-configured endpoints, link housekeeping (ARP, ND, DHCP) and what the test
+configured endpoints, link housekeeping (ARP, ND, DHCP, IGMP/MLD) and what the test
 explicitly allows. Everything else from the client is a finding.
 """
 import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 from collections import Counter, defaultdict
 
 from scapy.all import (ARP, DHCP, DNS, DNSQR, ICMPv6ND_NS, IP, TCP, UDP, BOOTP, IPv6, Ether,
-                       PcapReader)
+                       PcapReader, Raw)
 from scapy.layers.dhcp6 import DHCP6, DHCP6OptClientId, DHCP6OptClientFQDN
 
 D = sys.argv[1]
@@ -28,10 +29,19 @@ meta = json.load(open(os.path.join(D, "meta.json")))
 CANARY = meta.get("canary", "").lower().rstrip(".")
 client_mac = (meta.get("client_mac") or "").lower()
 endpoints = set()
+# Shunt's portal check (internal/captive), direct by design
+CAPTIVE_HOSTS = {b"nmcheck.gnome.org"}
+captive_dsts = set()
+for _h in CAPTIVE_HOSTS:  # also SYNs that never got an answer (IPv6 in the lab)
+    try:
+        captive_dsts.update(a[4][0] for a in socket.getaddrinfo(_h.decode(), 80, proto=socket.IPPROTO_TCP))
+    except OSError:
+        pass
 for e in meta.get("endpoints", []):  # ip:port/proto
     ip, rest = e.rsplit(":", 1)
     port, proto = rest.split("/")
     endpoints.add((ip, int(port), proto))
+endpoint_ips = {e[0] for e in endpoints}
 allow = meta.get("allow", [])
 allow_comms = {a[5:] for a in allow if a.startswith("comm:")}
 allow_dst = set()
@@ -40,6 +50,24 @@ for a in allow:
         ip, rest = a[4:].rsplit(":", 1)
         port, proto = rest.split("/")
         allow_dst.add((ip, int(port), proto))
+# net:<cidr>:<port>/<proto>: a whole network (addresses that rotate, e.g. a
+# distribution's connectivity check)
+allow_net = []
+for a in allow:
+    if a.startswith("net:"):
+        cidr, rest = a[4:].rsplit(":", 1)
+        port, proto = rest.split("/")
+        allow_net.append((ipaddress.ip_network(cidr, strict=False), int(port), proto))
+
+
+def allowed_net(dst, dport, proto):
+    try:
+        ip = ipaddress.ip_address(dst)
+    except ValueError:
+        return False
+    return any(ip in n and dport == p and proto == pr for n, p, pr in allow_net)
+
+
 allow_dns = "dns" in allow
 strict_fp = "fingerprint" in meta.get("checks", [])
 
@@ -79,13 +107,17 @@ def who(dst, dport):
 
 
 def allowed_comm(w):
+    if "*" in allow_comms:  # no process trace (Windows client): allow whatever the test allows
+        return True
     return w not in ("?", "kernel") and {x.strip() for x in w.split(",")} <= allow_comms
 
 
 # --- Messpunkt 2: gateway ------------------------------------------------------
 PROTO = {6: "tcp", 17: "udp", 1: "icmp", 58: "icmp6"}
 BROADCAST_NAMES = {5353: "mDNS", 5355: "LLMNR", 137: "NetBIOS-NS", 138: "NetBIOS-DGM", 1900: "SSDP",
-                   3702: "WS-Discovery"}
+                   3702: "WS-Discovery", 1716: "KDE Connect", 21027: "Syncthing-Discovery"}
+# their payload carries the device name / a device ID that follows you across networks
+PAYLOAD_IDS = re.compile(rb'"(deviceName|deviceId|id)"\s*:\s*"([^"]{1,64})"|(SYNC|deviceID)[^\x00]{0,8}')
 fp = defaultdict(set)  # fingerprint facts seen by the network
 gw_flows = Counter()  # (dst, port, proto, who) -> packets, for findings
 tunnel_pkts = Counter()
@@ -184,6 +216,9 @@ if os.path.exists(p("gw.pcap")):
             client_ips.add(pkt[IP].src)
         else:
             continue
+        # IGMP and MLD (behind a hop-by-hop header) group reports: link housekeeping too
+        if proto_n == 2 or (proto_n == 0 and dst.startswith("ff02")):
+            continue
         proto = PROTO.get(proto_n, str(proto_n))
         dport = pkt[TCP].dport if TCP in pkt else pkt[UDP].dport if UDP in pkt else 0
         sport = pkt[TCP].sport if TCP in pkt else pkt[UDP].sport if UDP in pkt else 0
@@ -201,10 +236,18 @@ if os.path.exists(p("gw.pcap")):
                         fp[f"{name}-Antwort (eigener Name)"].add(pkt[DNS].an[i].rrname.decode().rstrip("."))
                     except Exception:
                         pass
+            if Raw in pkt and DNS not in pkt:
+                for m in PAYLOAD_IDS.finditer(bytes(pkt[Raw].load)):
+                    if m.group(2):
+                        fp[f"{name}: {m.group(1).decode()}"].add(m.group(2).decode(errors="replace"))
             fp["Rundrufe"].add(name)
             continue
         if (dst, dport, proto) in endpoints:
             tunnel_pkts[(dst, dport, proto)] += 1
+            continue
+        if proto == "icmp" and dst in endpoint_ips:
+            # e.g. port unreachable for a tunnel packet that arrives after a restart
+            tunnel_pkts[(dst, 0, proto)] += 1
             continue
         # answers instead of new connections
         if TCP in pkt:
@@ -230,19 +273,23 @@ if os.path.exists(p("gw.pcap")):
                 ua = re.search(rb"\r\nUser-Agent: ([^\r]+)", raw)
                 http_fp.add(f"{h.group(1).decode() if h else '?'}, User-Agent: {ua.group(1).decode() if ua else '–'}"
                             f" ({who(dst, dport)})")
+                if h and h.group(1) in CAPTIVE_HOSTS:
+                    captive_dsts.add(dst)  # recognised by content too: no process trace across a reboot
         if proto in ("udp", "tcp") and dport == 53:
             if DNS in pkt and pkt[DNS].qr == 0 and pkt[DNS].qd:
                 q = pkt[DNS].qd[0].qname.decode(errors="replace").rstrip(".").lower()
                 gw_dns.append((q, dst, who(dst, 53) if who(dst, 53) != "?" else who(dst, sport)))
             continue
         w = who(dst, dport)
-        if (dst, dport, proto) in allow_dst or allowed_comm(w):
+        if (dst, dport, proto) in allow_dst or allowed_net(dst, dport, proto) or allowed_comm(w):
             continue
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
             continue
         gw_flows[(dst, dport, proto, w)] += 1
 
+for k in [k for k in gw_flows if k[0] in captive_dsts and k[1] == 80 and k[2] == "tcp"]:
+    captive_checks[label(k[0])] += gw_flows.pop(k)
 for k, n in gw_flows.items():
     dst, dport, proto, w = k
     if proto == "tcp-Antwort":
@@ -289,9 +336,21 @@ if strict_fp:
               "IPv6 aus MAC abgeleitet (EUI-64)", "mDNS-Antwort (eigener Name)", "LLMNR-Anfrage"):
         for v in sorted(fp.get(k, ())):
             find("leak", "Fingerabdruck", f"{k}: {v}")
+    # device IDs and names in discovery broadcasts (KDE Connect, Syncthing, …)
+    for k in sorted(k for k in fp if ": " in k and not k.endswith("(eigener Name)")):
+        for v in sorted(fp[k]):
+            find("leak", "Fingerabdruck", f"Rundruf {k}: {v}")
     for v in sorted(fp.get("MAC", ())):
         if "Hersteller" in v:
             find("leak", "Fingerabdruck", f"echte MAC sichtbar: {v}")
+# per-network: the client joined two networks (F05); one value for both = recognisable across networks
+if "per-network" in meta.get("checks", []):
+    for k in ("DHCPv6-DUID", "DHCP-Client-ID (Opt. 61)", "MAC"):
+        vals = fp.get(k, set())
+        if len(vals) == 1:
+            find("leak", "Wiedererkennbar", f"{k} in beiden Netzen gleich: {next(iter(vals))}")
+        elif not vals and k != "DHCP-Client-ID (Opt. 61)":
+            find("info", "Wiedererkennbar", f"{k}: nicht gesehen")
 
 # --- p0f (what an observer guesses from TCP/IP details) --------------------------
 def p0f(pcap):

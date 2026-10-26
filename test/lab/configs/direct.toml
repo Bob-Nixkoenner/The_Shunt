@@ -1,5 +1,6 @@
 # Like base, but everything without a rule goes direct (the vm-tests setup).
 [daemon]
+socket_group = "shunt"
 default_route = "direct"
 
 [tunnel.intern]

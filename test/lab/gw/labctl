@@ -19,6 +19,7 @@
 #   captive       all HTTP goes to our portal, nothing else gets out
 #   tunnelkill    tunnel endpoints are unreachable, everything else works
 #   portsonly     only tcp/80 + tcp/443 get out (hotel/guest Wi-Fi)
+#   dhcpv6        like normal, but IPv6 addresses come from stateful DHCPv6 (clients send their DUID)
 set -euo pipefail
 
 LAN=${LAN:-enp0s8}
@@ -30,11 +31,11 @@ LOG=/var/log/shuntlab
 GW4=10.77.0.1
 ULA=fd77:77::
 GUA=2001:db8:77:: # documentation prefix: looks global, routes nowhere
-MODES="normal tunnelvision localnet rogue-ra dnsspoof captive tunnelkill portsonly"
+MODES="normal tunnelvision localnet rogue-ra dnsspoof captive tunnelkill portsonly dhcpv6"
 
 # tunnel endpoints the clients use (ip:port/proto per line), for tunnelkill
 ENDPOINTS=$ETC/endpoints
-[[ -f $ENDPOINTS ]] || printf '%s\n' 192.168.222.130:51830/udp 192.168.222.130:1194/udp >"$ENDPOINTS"
+# (lab.sh gw-setup writes it from LAB_ENDPOINTS in local.env)
 
 die() { echo "labctl: $*" >&2; exit 1; }
 
@@ -45,6 +46,7 @@ write_dnsmasq() { # $1 = mode
 	localnet) range="1.1.1.100,1.1.1.199,255.255.255.0,1h" router=1.1.1.1 dns=1.1.1.1 ;;
 	esac
 	local ra="dhcp-range=$ULA,ra-only,64,1h"
+	[[ $1 == dhcpv6 ]] && ra="dhcp-range=${ULA}100,${ULA}1ff,64,1h" # managed flag: clients ask by DHCPv6
 	[[ $1 == rogue-ra ]] && ra="dhcp-range=$GUA,ra-only,64,1h
 ra-param=$LAN,high,60
 dhcp-option=option6:dns-server,[${GUA}1]"
@@ -107,6 +109,7 @@ write_nft() { # $1 = mode
 	local fwd="" pre=""
 	case $1 in
 	tunnelkill)
+		[[ -s $ENDPOINTS ]] || { echo "no $ENDPOINTS: set LAB_ENDPOINTS in local.env, run lab.sh gw-setup" >&2; exit 1; }
 		while IFS=: read -r ip rest; do
 			[[ -n $ip ]] || continue
 			fwd+="		ip daddr $ip ${rest#*/} dport ${rest%/*} counter drop
@@ -222,7 +225,8 @@ scan)
 	grep -hE '^[0-9]+/(tcp|udp) ' "$d"/scan-*.txt || echo "no open ports" ;;
 client)
 	# newest lease; v6 link-local from the neighbour table
-	read -r _ mac ip4 _ < <(sort -rn "$RUN/leases" 2>/dev/null | head -1) ||
+	# IPv4 lines only (expiry mac ip host id); DHCPv6 leases (mode dhcpv6) have an IAID there
+	read -r _ mac ip4 _ < <(awk '$2 ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/' "$RUN/leases" 2>/dev/null | sort -rn | head -1) ||
 		read -r ip4 _ mac _ < <(ip -4 neigh show dev "$LAN" | grep lladdr | head -1) ||
 		die "no client seen yet"
 	ll=$(ip -6 neigh show dev "$LAN" | awk -v m="$mac" '$3==m && $1 ~ /^fe80/ {print $1; exit}')

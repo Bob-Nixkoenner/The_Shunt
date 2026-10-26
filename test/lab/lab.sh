@@ -17,17 +17,33 @@
 #   lab.sh run [test…]          run tests (files in tests/, IDs like A01; none = all)
 #   lab.sh scan <id>            port scan of the client from the gateway
 #
+# CLIENT_OS=windows lab.sh …   same with the Windows client VM (tests-win/*.ps1)
+#
 # Results go to $LAB_OUT (default ~/projects/shunt-lab-results), never into
 # the repo or Nextcloud: pcaps may contain clear text.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# machine-specific settings (user names, addresses of your own servers): not in git
+# shellcheck source=/dev/null
+[[ -f $HERE/local.env ]] && source "$HERE/local.env"
 GW_VM=${GW_VM:-shunt-lab-gw}
+# CLIENT_OS=windows: client is the Windows VM, driven by PowerShell (winclient.sh, tests-win/)
+if [[ ${CLIENT_OS:-linux} == windows ]]; then
+	CLIENT_VM=${CLIENT_VM:-shunt-win11-lab}
+	TUNNEL_IP=${TUNNEL_IP:-10.66.0.15}
+	CLIENT_IF=${CLIENT_IF:-Ethernet}
+	CLIENT_PING='exit 0'
+	CLIENT_BOOT=600
+	TESTS_DIR=${TESTS_DIR:-$(cd "$(dirname "$0")" && pwd)/tests-win}
+	TEST_EXT=sh
+	export TUNNEL_IP CLIENT_IF TESTS_DIR TEST_EXT
+fi
 CLIENT_VM=${CLIENT_VM:-shunt-ubuntu}
 GW_PORT=${GW_PORT:-2225}
 KEY=${KEY:-$HOME/.ssh/shunt-vm}
-USER_VM=${USER_VM:-arnonym}
-CT130=${CT130:-root@192.168.222.130}
+USER_VM=${USER_VM:?set USER_VM in local.env (the account in the lab VMs)}
+CT130=${CT130:?set CT130 in local.env (ssh target of the tunnel test server)}
 CT130_IF=${CT130_IF:-wgt0}
 LAB_OUT=${LAB_OUT:-$HOME/projects/shunt-lab-results}
 # WireGuard config of the client's tunnel "intern" (test keys, not in git)
@@ -41,9 +57,11 @@ gw_cp_to() { scp "${SSHO[@]}" -P "$GW_PORT" -r "$1" "$USER_VM@127.0.0.1:$2"; }
 client_ip() { gw labctl client | awk '{print $2}'; }
 # The client is driven through VirtualBox guest control, never over the
 # network: no management traffic in the captures, and Shunt cannot cut us off.
-GC=(guestcontrol "$CLIENT_VM" --username "$USER_VM" --passwordfile "${PWFILE:-$HOME/.shunt-ubuntu-pw}")
+# CLIENT_USER: the guest account if it differs from the gateway user (Kali: kali)
+GC=(guestcontrol "$CLIENT_VM" --username "${CLIENT_USER:-$USER_VM}" --passwordfile "${PWFILE:-$HOME/.shunt-ubuntu-pw}")
 client() { # command line, run by bash as $USER_VM (sudo -n works)
-	VBoxManage "${GC[@]}" run --exe /bin/bash --timeout "${CLIENT_TIMEOUT:-600000}" -- -c "$*"
+	# guest control starts without a login shell: /usr/local/bin (the lab apps) may be missing (CachyOS)
+	VBoxManage "${GC[@]}" run --exe /bin/bash --timeout "${CLIENT_TIMEOUT:-600000}" -- -c "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; $*"
 }
 client_script() { # stdin = script, args = its arguments
 	local f=/tmp/shuntlab-$$.sh tmp
@@ -58,7 +76,8 @@ client_cp_to() { # files… dir
 	VBoxManage "${GC[@]}" copyto --target-directory "$dir" "${@:1:$#-1}"
 }
 client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
-ct130() { ssh -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR "$CT130" "$@"; }
+# CT130_KEY: a key that CT130 only lets run the capture commands (gw/ct130-capture)
+ct130() { ssh ${CT130_KEY:+-i "$CT130_KEY" -o IdentitiesOnly=yes} -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR "$CT130" "$@"; }
 vm_state() { VBoxManage showvminfo "$1" --machinereadable | sed -n 's/^VMState="\(.*\)"/\1/p'; }
 poweroff() { [[ $(vm_state "$1") == running ]] && VBoxManage controlvm "$1" poweroff >/dev/null 2>&1; sleep 2; return 0; }
 
@@ -90,7 +109,7 @@ cmd_up() { # [snapshot]
 	[[ $(vm_state "$CLIENT_VM") == saved ]] && VBoxManage discardstate "$CLIENT_VM"
 	client_to_lab
 	VBoxManage startvm "$CLIENT_VM" --type headless >/dev/null
-	wait_for "client guest control" 300 client true
+	wait_for "client guest control" "${CLIENT_BOOT:-300}" client "${CLIENT_PING:-true}"
 	wait_for "client lease" 120 gw labctl client
 	echo "client $(gw labctl client)"
 }
@@ -109,7 +128,10 @@ gw-setup)
 	gw_cp_to "$HERE/gw" /tmp/shuntlab-gw
 	gw_cp_to "$HERE/analyze.py" /tmp/shuntlab-gw/
 	gw bash /tmp/shuntlab-gw/setup.sh
-	gw install -m 755 /tmp/shuntlab-gw/analyze.py /usr/local/lib/analyze.py ;;
+	# tunnel endpoints for the tunnelkill mode (ip:port/proto, space separated)
+	[[ -z ${LAB_ENDPOINTS:-} ]] || gw bash -c "printf '%s\\n' $LAB_ENDPOINTS >/etc/shuntlab/endpoints"
+	gw install -m 755 /tmp/shuntlab-gw/analyze.py /usr/local/lib/analyze.py
+	gw sync ;; # "down" powers off hard: unsynced files come back empty
 up) cmd_up "${2:-}" ;;
 down) poweroff "$CLIENT_VM"; poweroff "$GW_VM" ;;
 detach)
@@ -137,7 +159,7 @@ run)
 	shift
 	# shellcheck source=run-test.sh
 	source "$HERE/run-test.sh"
-	(($#)) || set -- "$HERE"/tests/*.sh
+	(($#)) || set -- "${TESTS_DIR:-$HERE/tests}"/*."${TEST_EXT:-sh}"
 	for t in "$@"; do run_test "$t" || FOUND+=("$t(error)"); done
 	summary ;;
 *) sed -n '2,/^set -e/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 1 ;;
