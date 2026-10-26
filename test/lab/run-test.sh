@@ -86,6 +86,10 @@ run_test() {
 		renew_client
 		cur=normal
 	fi
+	# VirtualBox hands unicast frames only to the card's own MAC, not to one
+	# the guest set (mac = "random"/"stable"): without promisc the DHCP
+	# answers never reach NetworkManager
+	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n ip link set $CLIENT_IF promisc on" || true
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
 

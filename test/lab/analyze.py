@@ -148,8 +148,25 @@ src_v6 = set()
 macs = set()
 
 
+# per-network (F05): the client changes its MAC on purpose, so every sender
+# on the lab LAN except the gateway is the client
+any_mac = "per-network" in meta.get("checks", [])
+gw_macs = set()
+seen_by = defaultdict(set)  # (fingerprint key, value) -> sender MACs
+if any_mac and os.path.exists(p("gw.pcap")):
+    for pkt in PcapReader(p("gw.pcap")):
+        # outer IP header only: ICMP errors from the client quote the
+        # gateway's DHCP answers
+        if Ether in pkt and IP in pkt and pkt[IP].src == "10.77.0.1":
+            gw_macs.add(pkt[Ether].src.lower())
+
+
 def is_client(pkt):
-    if Ether in pkt and client_mac:
+    if Ether not in pkt:
+        return False
+    if any_mac and gw_macs:
+        return pkt[Ether].src.lower() not in gw_macs
+    if client_mac:
         return pkt[Ether].src.lower() == client_mac
     return False
 
@@ -189,6 +206,7 @@ if os.path.exists(p("gw.pcap")):
                     fp["DHCP-Hostname (Opt. 12)"].add(v[0].decode(errors="replace"))
                 elif k == "client_id":
                     fp["DHCP-Client-ID (Opt. 61)"].add(bytes(v[0]).hex(":"))
+                    seen_by[("DHCP-Client-ID (Opt. 61)", bytes(v[0]).hex(":"))].add(pkt[Ether].src.lower())
                 elif k == "vendor_class_id":
                     fp["DHCP-Vendor-Class (Opt. 60)"].add(v[0].decode(errors="replace"))
                 elif k == "param_req_list":
@@ -199,6 +217,7 @@ if os.path.exists(p("gw.pcap")):
         if DHCP6 in pkt or (UDP in pkt and pkt[UDP].dport == 547):
             if DHCP6OptClientId in pkt:
                 fp["DHCPv6-DUID"].add(bytes(pkt[DHCP6OptClientId].duid).hex(":"))
+                seen_by[("DHCPv6-DUID", bytes(pkt[DHCP6OptClientId].duid).hex(":"))].add(pkt[Ether].src.lower())
             if DHCP6OptClientFQDN in pkt:
                 fp["DHCPv6-FQDN"].add(str(pkt[DHCP6OptClientFQDN].fqdn))
             continue
@@ -345,11 +364,19 @@ if strict_fp:
             find("leak", "Fingerabdruck", f"echte MAC sichtbar: {v}")
 # per-network: the client joined two networks (F05); one value for both = recognisable across networks
 if "per-network" in meta.get("checks", []):
+    # a value counts as "in both" only when it came with two MACs (each
+    # network has its own MAC) or the MAC itself stayed the same
     for k in ("DHCPv6-DUID", "DHCP-Client-ID (Opt. 61)", "MAC"):
         vals = fp.get(k, set())
-        if len(vals) == 1:
-            find("leak", "Wiedererkennbar", f"{k} in beiden Netzen gleich: {next(iter(vals))}")
-        elif not vals and k != "DHCP-Client-ID (Opt. 61)":
+        if k == "MAC" and len(vals) == 1:
+            find("leak", "Wiedererkennbar", f"MAC in beiden Netzen gleich: {next(iter(vals))}")
+        elif k != "MAC":
+            for v in sorted(vals):
+                if len(seen_by[(k, v)]) > 1 or (len(macs) == 1 and len(vals) == 1):
+                    find("leak", "Wiedererkennbar", f"{k} in beiden Netzen gleich: {v}")
+                elif len(macs) > 1:
+                    find("info", "Wiedererkennbar", f"{k} nur mit einer MAC gesehen: {v}")
+        if not vals and k != "DHCP-Client-ID (Opt. 61)":
             find("info", "Wiedererkennbar", f"{k}: nicht gesehen")
 
 # --- p0f (what an observer guesses from TCP/IP details) --------------------------

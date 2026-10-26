@@ -98,7 +98,7 @@ gw_up() {
 }
 
 client_to_lab() {
-	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --memory "${CLIENT_MEM:-3072}"
+	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --nicpromisc1 allow-all --memory "${CLIENT_MEM:-3072}"
 }
 
 cmd_up() { # [snapshot]
