@@ -124,7 +124,12 @@ function render() {
   panic.textContent = st.panic ? "Release panic" : "PANIC";
   panic.classList.toggle("on", st.panic);
 
+  const inq = st.inbound_ask;
   $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+    ...(inq ? [el("div", { class: "banner" }, "🛡 Unknown network " + (inq.ssid ? "“" + inq.ssid + "”" : "(gateway " + inq.gateway_mac + ")") +
+      ": incoming connections are blocked. Is this your own network? ",
+      el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
+      el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
     ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
     ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, "Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another " +
       Math.ceil(st.pass_left / 60) + " min. Connections opened meanwhile are cut when it ends.")] : []));
@@ -180,6 +185,15 @@ function render() {
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
 
   if (routesChanged) { renderApps(); renderLaunchers(); }
+}
+
+async function inboundDecide(q, action) {
+  if (action === "home" && !(await ask("Trust " + (q.ssid || "this network") + "?\n\nA network profile is added: the ports under Configure → Incoming connections become reachable from private addresses on it. Your default route stays as it is.", { ok: "Trust" }))) return;
+  try {
+    await api("POST", "/api/inbound/network", { ssid: q.ssid, gateway_mac: q.gateway_mac, action });
+    toast(action === "home" ? "Trusted – network profile added" : "Kept closed – you will not be asked again here");
+    refresh();
+  } catch (e) { toast(String(e.message || e)); }
 }
 
 function renderApps() {

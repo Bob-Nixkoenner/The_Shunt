@@ -45,7 +45,9 @@ document.querySelectorAll("section[data-fold]").forEach((sec) => {
     btn.title = btn.ariaLabel = folded ? "Unfold" : "Fold";
     btn.setAttribute("aria-expanded", String(!folded));
   };
-  set(foldGet(key) === "1");
+  // data-fold="closed": folded until you open it once
+  const saved = foldGet(key);
+  set(saved === null ? sec.dataset.fold === "closed" : saved === "1");
   // the arrow and empty heading space fold; buttons, fields and links in the heading keep their job
   h.addEventListener("click", (e) => {
     if (e.target.closest("button:not(.fold), input, select, label, a")) return;
