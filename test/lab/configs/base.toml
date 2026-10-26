@@ -1,6 +1,7 @@
 # Lab client base config: one tunnel to the internal test server (CT130),
 # the lab apps pinned to it / to direct, everything else through the tunnel.
 [daemon]
+socket_group = "shunt"
 default_route = "tunnel:intern"
 
 [tunnel.intern]

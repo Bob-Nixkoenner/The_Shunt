@@ -46,7 +46,7 @@ CT130 capture went through the tunnel.
 ```sh
 lab.sh gw-create                  # linked clone of the client's "sauber" snapshot
 VBoxManage startvm shunt-lab-gw --type headless
-ssh-copy-id -i ~/.ssh/shunt-vm -p 2225 arnonym@127.0.0.1
+ssh-copy-id -i ~/.ssh/shunt-vm -p 2225 <user>@127.0.0.1
 lab.sh gw-setup
 lab.sh up sauber                  # client on the lab LAN
 lab.sh client-prep the-shunt_<version>_amd64.deb   # → snapshot "lab-basis"
