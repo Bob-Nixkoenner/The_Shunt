@@ -221,6 +221,27 @@ daemon_privacy() {
 	esac
 	echo "$_add" | tr '\n' ' '
 }
+# home_mac FILE: networks trusted already (inbound = "lan"/"open" or
+# dhcp_hostname = "send") keep the real MAC: mac = "permanent" where no mac
+# is set; prints their names.
+home_mac() {
+	_f=$1
+	_flags=$(awk '/^[[:space:]]*\[/ { if (n) print n, t && !m, ind; n = 0 }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; n = k; t = 0; m = 0; ind = "-"; next }
+		n && ind == "-" && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ { match($0, /^[[:space:]]*/); ind = RLENGTH }
+		n && /^[[:space:]]*inbound[[:space:]]*=[[:space:]]*"(lan|open)"/ { t = 1 }
+		n && /^[[:space:]]*dhcp_hostname[[:space:]]*=[[:space:]]*"send"/ { t = 1 }
+		n && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+		END { if (n) print n, t && !m, ind }' "$_f")
+	case $_flags in *" 1 "*) ;; *) return 0 ;; esac
+	FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2]; ind[f[1]] = f[3] } }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; print; if (want[k]) { pad = ""; for (j = 0; j < (ind[k] == "-" ? 0 : ind[k]); j++) pad = pad " "; print pad "mac = \"permanent\"" }; next }
+		{ print }' "$_f" >"$_f.tmp" && cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp"
+	FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2] } }
+		/^[[:space:]]*\[/ { inn = 0 }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; inn = want[k]; next }
+		inn && /^[[:space:]]*name[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); printf "%s%s", sep, $0; sep = ", " }' "$_f"
+}
 
 # ---------------------------------------------------------------- uninstall
 if [[ $MODE == uninstall ]]; then
@@ -613,7 +634,14 @@ EOF
 		# DHCPv6 DUID and client ID (same on every network), a network's
 		# first connection; shuntd sets the profiles
 		added=$(daemon_privacy "$ETC/shunt.toml")
-		[[ -z $added ]] || ok "$ETC/shunt.toml: $added(at home: network profile → MAC \"the real one\")"
+		if [[ -n $added ]]; then
+			ok "$ETC/shunt.toml: $added"
+			if [[ $added == *mac* ]]; then
+				home=$(home_mac "$ETC/shunt.toml")
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
+				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+			fi
+		fi
 	fi
 elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[ -n $TTY && ! -e /var/lib/shunt/daemon-privacy-offered ]] &&
 	[[ $(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\]/) } d && /^[[:space:]]*(mac|dhcp_hostname)[[:space:]]*=/ { n++ } END { print n + 0 }' "$ETC/shunt.toml") -lt 2 ]]; then
@@ -623,7 +651,14 @@ elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[
 	echo "  Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
 	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
 		added=$(daemon_privacy "$ETC/shunt.toml")
-		[[ -z $added ]] || ok "$ETC/shunt.toml: $added(at home: network profile → MAC \"the real one\")"
+		if [[ -n $added ]]; then
+			ok "$ETC/shunt.toml: $added"
+			if [[ $added == *mac* ]]; then
+				home=$(home_mac "$ETC/shunt.toml")
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
+				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+			fi
+		fi
 	fi
 	install -d -m755 /var/lib/shunt && touch /var/lib/shunt/daemon-privacy-offered
 fi

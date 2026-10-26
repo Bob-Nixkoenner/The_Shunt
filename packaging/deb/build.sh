@@ -70,6 +70,27 @@ if [ "$1" = configure ]; then
 		esac
 		echo "$_add" | tr '\n' ' '
 	}
+	# home_mac FILE: networks trusted already (inbound = "lan"/"open" or
+	# dhcp_hostname = "send") keep the real MAC: mac = "permanent" where no mac
+	# is set; prints their names.
+	home_mac() {
+		_f=$1
+		_flags=$(awk '/^[[:space:]]*\[/ { if (n) print n, t && !m, ind; n = 0 }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; n = k; t = 0; m = 0; ind = "-"; next }
+			n && ind == "-" && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ { match($0, /^[[:space:]]*/); ind = RLENGTH }
+			n && /^[[:space:]]*inbound[[:space:]]*=[[:space:]]*"(lan|open)"/ { t = 1 }
+			n && /^[[:space:]]*dhcp_hostname[[:space:]]*=[[:space:]]*"send"/ { t = 1 }
+			n && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+			END { if (n) print n, t && !m, ind }' "$_f")
+		case $_flags in *" 1 "*) ;; *) return 0 ;; esac
+		FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2]; ind[f[1]] = f[3] } }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; print; if (want[k]) { pad = ""; for (j = 0; j < (ind[k] == "-" ? 0 : ind[k]); j++) pad = pad " "; print pad "mac = \"permanent\"" }; next }
+			{ print }' "$_f" >"$_f.tmp" && cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp"
+		FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2] } }
+			/^[[:space:]]*\[/ { inn = 0 }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; inn = want[k]; next }
+			inn && /^[[:space:]]*name[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); printf "%s%s", sep, $0; sep = ", " }' "$_f"
+	}
 	if [ ! -f /etc/shunt/shunt.toml ]; then
 		printf '# The Shunt configuration - see /usr/share/doc/the-shunt/shunt.toml.example\n\n[daemon]\nsocket_group = "shunt"\ndefault_route = "direct"\n' >/etc/shunt/shunt.toml
 		chmod 644 /etc/shunt/shunt.toml
@@ -104,7 +125,11 @@ NMEOF
 		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
 		# an update never changes the MAC at home unasked)
 		added=$(daemon_privacy /etc/shunt/shunt.toml)
-		[ -z "$added" ] || echo "The Shunt: /etc/shunt/shunt.toml: $added(at home: set the network profile's MAC to \"the real one\")"
+		if [ -n "$added" ]; then
+			echo "The Shunt: /etc/shunt/shunt.toml: $added"
+			home=$(home_mac /etc/shunt/shunt.toml)
+			[ -z "$home" ] || echo "The Shunt: real MAC kept on the networks you trust: $home"
+		fi
 	fi
 	install -d -m755 /var/lib/shunt
 	touch /var/lib/shunt/nm-privacy-offered
