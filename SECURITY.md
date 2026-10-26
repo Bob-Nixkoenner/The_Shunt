@@ -33,9 +33,13 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   route *everything* through the tunnel (`default_route = "tunnel:<name>"`)
   or run it as a separate user or in a VM.
 - **App rules are best effort**: a program is moved into its route right
-  after it starts; a connection opened in the first milliseconds keeps the
-  old route. Menu entries made with `shunt desktop` and `shunt run` have no
-  such window.
+  after it starts; a connection opened in the first milliseconds would keep
+  the old route. On Linux with eBPF (`CAP_BPF`, kernel 6.x) the start guard
+  gives such sockets the rule's route already (rules that name programs only,
+  without arguments, ports or destinations, and only if no rule for all
+  programs comes first); `shuntd` logs a warning when it is not available.
+  Rules by path, Flatpak or arguments keep the window. Menu entries made with
+  `shunt desktop` and `shunt run` have no such window.
 - **Domain rules trust DNS.** Whatever the route's resolver answers is
   routed. On foreign networks use an encrypted `dns.direct` (tls/https).
 - **Apps with their own encrypted DNS** bypass domain rules (app, IP and
@@ -53,7 +57,8 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   the inner config if that matters.
 - **Desktops and browsers move programs into systemd scopes** of their own (COSMIC,
   Chromium). Shunt moves them back within about 0.1 s; a connection opened in that
-  window keeps the default route. For apps that must never touch the default route,
+  window keeps the default route (with the start guard: the rule's route, for
+  rules by program name). For apps that must never touch the default route,
   make the default route a tunnel or use the app firewall in `block` mode.
 - **Domain rules and explicitly started apps**: an app started in a tunnel keeps that
   tunnel for its traffic even when a (non-override) domain rule names another route, but
