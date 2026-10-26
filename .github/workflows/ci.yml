@@ -1,7 +1,15 @@
 name: ci
 on:
+  # a branch with a pull request runs once (pull_request), not twice; tags
+  # are built by the release workflow
   push:
+    branches: [main]
   pull_request:
+
+# a newer push to the same pull request makes the older run pointless
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
@@ -11,8 +19,18 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      # GTK/WebKit for the desktop app: ~180 packages; the runners' Ubuntu
+      # mirror took up to 15 minutes for them, the cache brings them back
+      - uses: actions/cache@v4
+        with:
+          path: ~/apt-archives
+          key: apt-gtk-webkit-${{ runner.os }}-${{ runner.arch }}-v1
       - name: desktop app build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: |
+          mkdir -p ~/apt-archives/partial
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/apt-archives" libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo chown -R "$USER" ~/apt-archives
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
