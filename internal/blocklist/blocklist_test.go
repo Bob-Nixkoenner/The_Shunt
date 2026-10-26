@@ -27,6 +27,10 @@ plain.example.net
 @@||allowed.example^
 example.com/path
 ||UPPER.Example.COM^
+0.0.0.0 hosts-comment.example # note
+cosmetic.example##.ad-banner
+except.example#@#.ad
+proc.example#?#div:has(.ad)
 ` + "||" + "x" + `^
 `
 
@@ -41,6 +45,8 @@ func TestParseAndHas(t *testing.T) {
 		"exact.example.org": true, "sub.exact.example.org": false,
 		"plain.example.net": true, "allowed.example": false, "localhost": false,
 		"upper.example.com": true, "after-long.example": true,
+		"hosts-comment.example": true,
+		"cosmetic.example":      false, "except.example": false, "proc.example": false,
 	} {
 		if got := l.Has(name); got != want {
 			t.Errorf("%s: got %v", name, got)
