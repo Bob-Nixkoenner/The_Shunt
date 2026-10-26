@@ -52,6 +52,10 @@ func Render(p *engine.Plan) (string, error) {
 	// Unmarked it takes the main table; only root can bind these ports.
 	w("\t\tudp sport 68 udp dport 67 return")
 	w("\t\tudp sport 546 udp dport 547 return")
+	// The same for IPv6 neighbour discovery (as the boot lockdown lets it
+	// through): marked, router solicitations were dropped and direct apps
+	// had no IPv6 on the local network.
+	w("\t\ticmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } return")
 	// Marked by shuntd itself (only CAP_NET_ADMIN can set a mark): a second
 	// hop's encrypted packets entering the first tunnel, DNS upstream
 	// queries. Remember it, so replies pass reverse path filtering.
