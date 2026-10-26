@@ -95,6 +95,7 @@ function renderConfig() {
   $("#c-blockdoh").checked = !model.dns.allow_doh;
   $("#c-blockdot").checked = !model.dns.allow_dot;
   $("#c-hostname").value = model.daemon.dhcp_hostname || "";
+  $("#c-mac").value = model.daemon.mac || "";
   $("#c-bootlock").value = model.daemon.boot_lockdown === "auto" ? "" : model.daemon.boot_lockdown || "";
 
   $("#c-upstreams").replaceChildren(...(ups.length ? ups.map((u) => {
@@ -184,6 +185,7 @@ function renderConfig() {
 
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
+$("#c-mac").addEventListener("change", (e) => { model.daemon.mac = e.target.value || undefined; markDirty(); });
 $("#c-bootlock").addEventListener("change", (e) => { model.daemon.boot_lockdown = e.target.value || undefined; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
@@ -439,6 +441,12 @@ function renderNetworks() {
           const s = el("select", { onchange: (e) => { n.dhcp_hostname = e.target.value || undefined; markDirty(); } },
             el("option", { value: "" }, "as under General"), el("option", { value: "none" }, "don't send"), el("option", { value: "send" }, "send"));
           s.value = n.dhcp_hostname || "";
+          return s;
+        })()),
+        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", title: "MAC address on this network (when set under General); applies from the next connection" }, "MAC "), (() => {
+          const s = el("select", { onchange: (e) => { n.mac = e.target.value || undefined; markDirty(); } },
+            el("option", { value: "" }, "as under General"), el("option", { value: "random" }, "new each time"), el("option", { value: "stable" }, "own per network"), el("option", { value: "permanent" }, "the real one"));
+          s.value = n.mac || "";
           return s;
         })())),
       el("td", {}, el("button", { class: "iconbtn", title: "remove", onclick: () => { nets.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));

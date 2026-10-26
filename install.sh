@@ -559,6 +559,12 @@ if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
 fi
 
 # Opsec on foreign networks; NetworkManager applies it on the next connect.
+# Older versions wrote "false", which NetworkManager 1.52+ ignores.
+if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
+	sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+	nmcli general reload conf >/dev/null 2>&1 || true
+	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ ($NM_PRIVACY)"
+fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
 	echo "  Foreign Wi-Fi networks see your laptop's MAC address and host name."
 	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
@@ -572,8 +578,9 @@ wifi.scan-rand-mac-address=yes
 # a different MAC on every Wi-Fi, but the same one each time you return
 # (keeps router reservations and hotel logins working)
 wifi.cloned-mac-address=stable
-ipv4.dhcp-send-hostname=false
-ipv6.dhcp-send-hostname=false
+# 0, not false: NetworkManager 1.52+ ignores "false" here
+ipv4.dhcp-send-hostname=0
+ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
