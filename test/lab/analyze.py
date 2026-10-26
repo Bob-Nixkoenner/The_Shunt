@@ -229,6 +229,11 @@ if os.path.exists(p("gw.pcap")):
                 # ND/RS/MLD: link housekeeping
                 if pkt[IPv6].dst.startswith("ff02") or s.startswith("fe80") or s == "::":
                     continue
+                # neighbour discovery from a global/ULA source (hop limit 255:
+                # never leaves the link), e.g. checking the router is still there
+                icmp_type = bytes(pkt[IPv6].payload)[:1]
+                if pkt[IPv6].nh == 58 and pkt[IPv6].hlim == 255 and icmp_type and 133 <= icmp_type[0] <= 137:
+                    continue
             dst, proto_n = pkt[IPv6].dst, pkt[IPv6].nh
         elif IP in pkt:
             dst, proto_n = pkt[IP].dst, pkt[IP].proto
