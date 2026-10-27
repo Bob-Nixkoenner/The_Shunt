@@ -1,4 +1,5 @@
 "use strict";
+const isTor = (t) => t.bootstrap !== undefined && t.bootstrap !== null; // a Tor tunnel: status carries its bootstrap progress
 // The Shunt UI. No frameworks, no external requests.
 
 const $ = (s) => document.querySelector(s);
@@ -107,7 +108,7 @@ function render() {
   const state = $("#state");
   if (!st) { state.className = "pill bad"; state.textContent = "shuntd not reachable"; return; }
 
-  const down = st.tunnels.filter((t) => !t.disabled).filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
+  const down = st.tunnels.filter((t) => !t.disabled).filter((t) => !t.up || (isTor(t) ? t.bootstrap < 100 : !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001"))));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (st.pass_left) { state.className = "pill bad"; state.textContent = "PASS – unprotected"; }
   else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
@@ -131,16 +132,19 @@ function render() {
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
-    const hs = p.last_handshake && !p.last_handshake.startsWith("0001");
-    const ovpn = t.driver === "openvpn" || t.driver === "tailscale";
+    const tor = isTor(t);
+    const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
+    const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
       el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
+        ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
+          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : "starting: " + t.bootstrap + " %") : "no")] : [
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, "through " + t.via)] : []),
         el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
-        el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
+        el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0))]),
         ...(st.traffic && st.traffic[t.name] ? [el("span", {}, "this month"), el("span", {},
           "↓ " + bytes(st.traffic[t.name].month.rx) + "  ↑ " + bytes(st.traffic[t.name].month.tx) +
           "  (total ↓ " + bytes(st.traffic[t.name].total.rx) + "  ↑ " + bytes(st.traffic[t.name].total.tx) + ")")] : []),
@@ -549,7 +553,7 @@ let upKey = null, autoLeakTimer = null;
 function watchTunnels(st) {
   if (!st) return;
   const key = st.tunnels.filter((t) => t.up && (t.peers || []).some((p) => p.last_handshake && !p.last_handshake.startsWith("0001")) ||
-    (t.up && (t.driver === "openvpn" || t.driver === "tailscale"))).map((t) => t.name).sort().join(",");
+    (t.up && (t.driver === "openvpn" || t.driver === "tailscale" || (isTor(t) && t.bootstrap >= 100)))).map((t) => t.name).sort().join(",");
   if (upKey !== null && key !== upKey) {
     clearTimeout(autoLeakTimer);
     autoLeakTimer = setTimeout(() => { if ($("#leak-auto").checked && !st.panic && !st.pass_left) runLeak(true); }, 5000);
