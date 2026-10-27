@@ -31,7 +31,8 @@ type Status struct {
 	Traffic      map[string]stats.Summary `json:"traffic,omitempty"`
 	DefaultRoute string                   `json:"default_route"`
 	Panic        bool                     `json:"panic"`
-	PassLeft     int64                    `json:"pass_left,omitempty"` // seconds of a running pass
+	PanicKill    bool                     `json:"panic_kill,omitempty"` // panic also ends tunnel apps (daemon.panic_kill)
+	PassLeft     int64                    `json:"pass_left,omitempty"`  // seconds of a running pass
 	Tunnels      []TunnelStatus           `json:"tunnels"`
 	Groups       []GroupStatus            `json:"groups"`
 	Rules        []string                 `json:"rules"`
