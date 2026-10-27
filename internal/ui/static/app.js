@@ -125,7 +125,7 @@ function render() {
   panic.classList.toggle("on", st.panic);
 
   const inq = st.inbound_ask;
-  $("#banners").replaceChildren(...[...new Set(st.warnings || [])].map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+  $("#banners").replaceChildren(...[...new Set(noticeTexts(st))].map((w) => el("div", { class: "banner" }, "⚠ ", w)),
     ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
     ...(inq ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
@@ -753,4 +753,10 @@ function renderChecks(fs) {
   if (!rest.length) return;
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
   $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}))));
+}
+
+// The daemon's warnings, translated here (notices: English sentence + values);
+// an older daemon sends only st.warnings (English).
+function noticeTexts(st) {
+  return st.notices && st.notices.length ? st.notices.map((n) => T(n.msg, n.vals || {})) : (st.warnings || []);
 }

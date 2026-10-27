@@ -238,6 +238,10 @@ func lookup(code, msg string) string {
 	return msg
 }
 
+// Fill puts the values into the {placeholders} of msg without translating it
+// (the English text for logs).
+func Fill(msg string, kv ...any) string { return fill(msg, kv) }
+
 func fill(s string, kv []any) string {
 	if len(kv) < 2 || !strings.Contains(s, "{") {
 		return s

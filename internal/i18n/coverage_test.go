@@ -14,6 +14,7 @@ var (
 	goStr  = `"((?:[^"\\\n]|\\.)*)"`
 	goT    = regexp.MustCompile(`\bi18n\.T\(\s*` + goStr)
 	goTn   = regexp.MustCompile(`\bi18n\.Tn\([^,]+,\s*` + goStr + `\s*,\s*` + goStr)
+	goNote = regexp.MustCompile(`\bcheck\.Note\(\s*` + goStr + `\s*,\s*` + goStr)
 	goKV   = regexp.MustCompile(`\{\w+\}`)
 	goRoot = "../.."
 )
@@ -34,6 +35,9 @@ func TestGermanCoversGoTexts(t *testing.T) {
 		var texts []string
 		for _, m := range goT.FindAllStringSubmatch(src, -1) {
 			texts = append(texts, m[1])
+		}
+		for _, m := range goNote.FindAllStringSubmatch(src, -1) {
+			texts = append(texts, m[2]) // check.Note(id, msg, …)
 		}
 		for _, m := range goTn.FindAllStringSubmatch(src, -1) {
 			texts = append(texts, m[1], m[2])
