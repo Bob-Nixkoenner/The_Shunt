@@ -132,6 +132,8 @@ function render() {
     ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
     ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, T("Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another {n} min. Connections opened meanwhile are cut when it ends.", { n: Math.ceil(st.pass_left / 60) }))] : []));
 
+  renderChecks(st.findings || []);
+
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
     const hs = p.last_handshake && !p.last_handshake.startsWith("0001");
@@ -738,3 +740,18 @@ async function decideFw(route) {
   } catch (e) { toast(e.message); }
 }
 $("#fw-later").addEventListener("click", () => { if (fwCurrent) fwLater.add(fwCurrent.id); closeFw(); });
+
+// Security check (package check): the service sends English sentences with
+// {placeholders}; T() fills and translates them. Opened by default when
+// something is bad or weak, folded when it is only information.
+function renderChecks(fs) {
+  const box = $("#checks");
+  box.hidden = !fs.length;
+  if (!fs.length) return;
+  const n = (l) => fs.filter((f) => f.level === l).length;
+  box.querySelector("summary").textContent = T("Security check: {bad} bad, {warn} weak, {info} to know", { bad: n("bad"), warn: n("warn"), info: n("info") });
+  box.open = n("bad") + n("warn") > 0 && box.dataset.shown !== "1";
+  if (box.open) box.dataset.shown = "1";
+  $("#checks-list").replaceChildren(...fs.map((f) => el("div", { class: "banner" + (f.level === "bad" ? " bad" : "") },
+    f.level === "bad" ? "⛔ " : f.level === "warn" ? "⚠ " : "ℹ ", T(f.msg, f.vals || {}))));
+}

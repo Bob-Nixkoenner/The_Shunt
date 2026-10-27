@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
@@ -41,6 +43,9 @@ commands:
              start CMD with its traffic classified by ROUTE
              (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules
   status [--json]
+  check [--json]
+             judge the configuration (kill switch, DNS, OpenVPN settings …);
+             exit status 1 if something is bad
   pending    programs the app firewall holds back, waiting for a route
   allow ID|NAME [--via ROUTE] [--once]
              let a waiting program out (default: the default route), and
@@ -106,6 +111,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "check":
+		err = checkCmd(c, args[1:])
 	case "pending":
 		err = pendingCmd(c)
 	case "allow":
@@ -874,4 +881,37 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
+}
+
+// checkCmd prints what the config check found (package check). Exit status 1
+// when something is "bad", so scripts and the installer can use it.
+func checkCmd(c *api.Client, args []string) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	if len(args) > 0 && args[0] == "--json" {
+		return json.NewEncoder(os.Stdout).Encode(st.Findings)
+	}
+	if len(st.Findings) == 0 {
+		fmt.Println(i18n.T("No findings: the configuration looks fine."))
+		return nil
+	}
+	bad := false
+	for _, f := range st.Findings {
+		kv := make([]any, 0, 2*len(f.Vals))
+		for k, v := range f.Vals {
+			kv = append(kv, k, v)
+		}
+		mark := map[string]string{check.Bad: "BAD ", check.Warn: "WARN", check.Info: "INFO"}[f.Level]
+		fmt.Printf("%s  %s\n", mark, i18n.T(f.Msg, kv...))
+		if f.Fix != "" {
+			fmt.Printf("      %s\n", i18n.T("Change: {key}", "key", f.Fix))
+		}
+		bad = bad || f.Level == check.Bad
+	}
+	if bad {
+		return fmt.Errorf("%s", i18n.T("something is bad"))
+	}
+	return nil
 }
