@@ -320,6 +320,9 @@ func (s *Server) handler() http.Handler {
 			writeJSON(w, res)
 		})
 	}
+	mux.HandleFunc("POST /api/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "POST", "/v1/tunnels/"+url.PathEscape(r.PathValue("name"))+"/newnym", nil)
+	})
 	mux.HandleFunc("DELETE /api/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/tunnels/"+url.PathEscape(r.PathValue("name")), nil)
 	})

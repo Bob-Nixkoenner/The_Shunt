@@ -153,6 +153,13 @@ function render() {
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
           t.health.loss > 0 ? " · " + Math.round(t.health.loss * 100) + " % lost" : "")] : []),
+        ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "Tor builds fresh circuits for new connections (open connections keep theirs)",
+          onclick: async (e) => {
+            e.target.disabled = true;
+            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast("New identity: " + t.name + " builds fresh circuits for new connections"); }
+            catch (err) { toast("New identity failed: " + err.message); }
+            setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
+          } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
       ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
