@@ -81,6 +81,11 @@ input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 
 input.grow { flex: 1; min-width: 180px; }
 .muted { color: var(--muted); }
 .banner { grid-column: span 12; border-radius: var(--r); padding: 10px 14px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+#checks { grid-column: span 12; }
+#checks > summary { cursor: pointer; padding: 6px 2px; color: var(--muted); }
+#checks[open] > summary { color: var(--text); }
+.banner.info { background: var(--panel); border-color: var(--line); color: var(--muted); }
+#checks-list { display: grid; gap: 8px; margin-top: 6px; }
 .banner.bad { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
 .apps td:first-child { font-weight: 600; }
 [data-rows] thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }

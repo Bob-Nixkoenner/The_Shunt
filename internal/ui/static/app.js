@@ -750,8 +750,8 @@ function renderChecks(fs) {
   if (!fs.length) return;
   const n = (l) => fs.filter((f) => f.level === l).length;
   box.querySelector("summary").textContent = T("Security check: {bad} bad, {warn} weak, {info} to know", { bad: n("bad"), warn: n("warn"), info: n("info") });
-  box.open = n("bad") + n("warn") > 0 && box.dataset.shown !== "1";
-  if (box.open) box.dataset.shown = "1";
-  $("#checks-list").replaceChildren(...fs.map((f) => el("div", { class: "banner" + (f.level === "bad" ? " bad" : "") },
+  // open once when something is bad or weak; after that the folding is yours (this runs on every refresh)
+  if (box.dataset.seen !== "1") { box.dataset.seen = "1"; box.open = n("bad") + n("warn") > 0; }
+  $("#checks-list").replaceChildren(...fs.map((f) => el("div", { class: "banner" + (f.level === "bad" ? " bad" : f.level === "info" ? " info" : "") },
     f.level === "bad" ? "⛔ " : f.level === "warn" ? "⚠ " : "ℹ ", T(f.msg, f.vals || {}))));
 }
