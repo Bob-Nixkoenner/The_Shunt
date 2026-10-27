@@ -646,6 +646,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.fw.Placed = d.watcher.Place
 	}
 	d.watcher.SetRecheck(path.Join(p.Plan.CgroupRoot, "apps", "ask"))
+	fwMode := p.Config.FirewallMode(p.Network)
+	d.watcher.SetFast(fwMode == config.FirewallAsk || fwMode == config.FirewallBlock)
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
