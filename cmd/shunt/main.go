@@ -41,6 +41,8 @@ commands:
              (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules
   status [--json]
   socks      list the SOCKS5 exits of the tunnels
+  tor-all on [tunnel] | off | status
+             EMERGENCY: everything (every rule, every app) goes through Tor until switched off
   tor status | newnym [tunnel]
              Tor tunnels: progress; build new circuits for new connections
   pending    programs the app firewall holds back, waiting for a route
@@ -104,6 +106,8 @@ func main() {
 		err = socksCmd(c)
 	case "tor":
 		err = torCmd(c, args[1:])
+	case "tor-all":
+		err = torAllCmd(c, args[1:])
 	case "pending":
 		err = pendingCmd(c)
 	case "allow":
@@ -770,4 +774,41 @@ func torCmd(c *api.Client, args []string) error {
 	}
 	fmt.Printf("tunnel:%s builds new circuits for new connections (tor allows this once every 10 seconds)\n", name)
 	return nil
+}
+
+// torAllCmd: shunt tor-all on [tunnel] | off | status
+func torAllCmd(c *api.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: shunt tor-all on [tunnel] | off | status")
+	}
+	switch args[0] {
+	case "on":
+		req := api.TorAllRequest{On: true}
+		if len(args) > 1 {
+			req.Tunnel = args[1]
+		}
+		if err := c.Do("POST", "/v1/torall", req, nil); err != nil {
+			return err
+		}
+		fmt.Println("tor-all is ON: every app goes through Tor (TCP only; no UDP, no calls). shunt tor-all off ends it.")
+		return nil
+	case "off":
+		if err := c.Do("POST", "/v1/torall", api.TorAllRequest{}, nil); err != nil {
+			return err
+		}
+		fmt.Println("tor-all is off: routes are as configured again")
+		return nil
+	case "status":
+		var st api.Status
+		if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+			return err
+		}
+		if st.TorAll == "" {
+			fmt.Println("tor-all: off")
+		} else {
+			fmt.Printf("tor-all: ON through tunnel:%s\n", st.TorAll)
+		}
+		return nil
+	}
+	return errors.New("usage: shunt tor-all on [tunnel] | off | status")
 }

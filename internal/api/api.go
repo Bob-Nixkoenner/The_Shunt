@@ -31,6 +31,7 @@ type Status struct {
 	DefaultRoute string                   `json:"default_route"`
 	Panic        bool                     `json:"panic"`
 	PassLeft     int64                    `json:"pass_left,omitempty"` // seconds of a running pass
+	TorAll       string                   `json:"tor_all,omitempty"`   // tunnel everything goes through (tor-all)
 	Tunnels      []TunnelStatus           `json:"tunnels"`
 	Groups       []GroupStatus            `json:"groups"`
 	Rules        []string                 `json:"rules"`
@@ -176,6 +177,12 @@ type TunnelImport struct {
 	Via string `json:"via,omitempty"`
 	// Driver "tailscale": Conf is a .ts file (login_server, auth_key, ...).
 	Driver string `json:"driver,omitempty"`
+}
+
+// TorAllRequest is the body of POST /v1/torall.
+type TorAllRequest struct {
+	On     bool   `json:"on"`
+	Tunnel string `json:"tunnel,omitempty"` // empty: the only Tor tunnel
 }
 
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.

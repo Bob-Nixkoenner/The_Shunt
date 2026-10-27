@@ -95,6 +95,8 @@ type Daemon struct {
 	probing             bool
 
 	ov      override.State // timed pass (panic stays in the backend)
+	torAll  string         // tunnel the tor-all switch sends everything through
+	torLoad bool           // torAll was read from its file
 	passing bool           // the plan in place was built for a pass
 
 	health     map[string]*health.Monitor // per tunnel, see health.go
@@ -143,6 +145,9 @@ type Env struct {
 	Backend Backend
 	// Pass: a timed pass runs (internal/override): every route is direct.
 	Pass bool
+	// TorAll: the Tor tunnel everything goes through (emergency switch,
+	// see Daemon.setTorAll); "" = off.
+	TorAll string
 }
 
 // PrepareOn is Prepare for the environment env.
@@ -250,6 +255,27 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 			eff, p.Network = &cc, n.Name
 		}
 	}
+	torAll := ""
+	if env.TorAll != "" {
+		if tt, ok := c.Tunnels[env.TorAll]; ok && tt.IsTor() && !tt.Disabled {
+			// everything through Tor: default route, network profile, every
+			// rule with a route (blocks stay blocks). Programs started in
+			// another route on purpose follow below, once the plan exists.
+			torAll = env.TorAll
+			cc := *eff
+			cc.Daemon.DefaultRoute = "tunnel:" + torAll
+			cc.Rules = append([]config.Rule(nil), eff.Rules...)
+			for i := range cc.Rules {
+				if r := cc.Rules[i].Route; r != "" && r != "block" {
+					cc.Rules[i].Route = "tunnel:" + torAll
+				}
+			}
+			eff = &cc
+			p.Warnings = append(p.Warnings, fmt.Sprintf("tor-all: everything goes through the Tor tunnel %q (shunt tor-all off ends it)", torAll))
+		} else {
+			p.Warnings = append(p.Warnings, fmt.Sprintf("tor-all names %q, which is not a running Tor tunnel: the switch is ignored (shunt tor-all off clears it)", env.TorAll))
+		}
+	}
 	if env.Pass {
 		// everything direct: default, network profile and every rule (block
 		// too) - for a few minutes only, see Daemon.pass
@@ -271,6 +297,17 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	p.Plan, err = engine.CompileOn(eff, cgroupRoot, infos, p.Network, ifaces)
 	if err != nil {
 		return nil, err
+	}
+	if torAll != "" {
+		tr := p.Plan.RouteByName("tunnel:" + torAll)
+		for i := range p.Plan.Rules {
+			ru := &p.Plan.Rules[i]
+			// `shunt run --via X` groups keep their route otherwise; the login browser
+			// (own route, not in Plan.Routes) and blocks stay
+			if ru.Route != nil && ru.Route != tr && ru.Route.Kind != config.RouteBlock && !ru.Route.Captive && strings.HasPrefix(ru.Name, "via:") {
+				ru.Route = tr
+			}
+		}
 	}
 	for _, r := range usedLinks(eff, p.Plan) {
 		if ifaces[r] == "" {
@@ -593,7 +630,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now())})
+	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now()), TorAll: d.loadTorAll()})
 	if err != nil {
 		return err
 	}
@@ -1455,6 +1492,26 @@ func (d *Daemon) routes() http.Handler {
 		d.Log.Warn("pass", "minutes", req.Minutes, "until", until)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Emergency switch: everything through a Tor tunnel. Turning it on never
+	// waits for a password (like panic); turning it off does.
+	mux.HandleFunc("POST /v1/torall", func(w http.ResponseWriter, r *http.Request) {
+		var req api.TorAllRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if !req.On {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		if err := d.setTorAll(req.On, req.Tunnel); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -1523,7 +1580,7 @@ func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ovs := d.ov.Status(time.Now())
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, DNS: map[string][]string{},
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, TorAll: d.torAll, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
