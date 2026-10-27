@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -34,6 +35,22 @@ func (d *Daemon) torDial(name, isolate string) func(ctx context.Context, network
 		}
 		return socks.DialVia(ctx, "unix", ts.SocksPath(), user, addr)
 	}
+}
+
+// newIdentity makes the Tor tunnel build fresh circuits.
+func (d *Daemon) newIdentity(name string) error {
+	d.mu.Lock()
+	t, ok := d.tunnels[name]
+	cfg := d.cfg.Tunnels[name]
+	d.mu.Unlock()
+	if !cfg.IsTor() {
+		return fmt.Errorf("%q is not a Tor tunnel", name)
+	}
+	ts, ok2 := t.(tunnel.TorStatus)
+	if !ok || !ok2 {
+		return fmt.Errorf("tunnel %q is not running", name)
+	}
+	return ts.NewIdentity()
 }
 
 func appOf(a net.Addr) string {

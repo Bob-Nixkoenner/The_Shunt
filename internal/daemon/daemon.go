@@ -1344,6 +1344,15 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// New circuits for a Tor tunnel (SIGNAL NEWNYM). Any member of the group
+	// may ask: it only makes tor build fresh circuits for new connections.
+	mux.HandleFunc("POST /v1/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.newIdentity(r.PathValue("name")); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/tunnels/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
