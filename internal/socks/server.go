@@ -47,7 +47,10 @@ type Server struct {
 	ListenPacket func(ctx context.Context, network, addr string) (net.PacketConn, error)
 	// Resolve looks a name up inside the tunnel (never on the local network).
 	Resolve func(ctx context.Context, name string) ([]netip.Addr, error)
-	Log     *slog.Logger
+	// Remote: the Dial target resolves names itself (Tor): names go to
+	// Dial unresolved and Resolve is not used.
+	Remote bool
+	Log    *slog.Logger
 
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
@@ -120,7 +123,7 @@ func (s *Server) handle(c net.Conn) {
 		s.associate(c)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), ctxKey{}, c.RemoteAddr()), handshakeTimeout)
 	defer cancel()
 	out, rep := s.connect(ctx, host, port)
 	if out == nil {
@@ -147,6 +150,13 @@ func (s *Server) handle(c net.Conn) {
 
 func (s *Server) connect(ctx context.Context, host string, port int) (net.Conn, byte) {
 	var addrs []netip.Addr
+	if s.Remote {
+		c, err := s.Dial(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			return nil, repFor(err)
+		}
+		return c, repOK
+	}
 	if a, err := netip.ParseAddr(host); err == nil {
 		addrs = []netip.Addr{a.Unmap()}
 	} else {
@@ -175,7 +185,10 @@ func (s *Server) connect(ctx context.Context, host string, port int) (net.Conn, 
 
 func repFor(err error) byte {
 	var ne net.Error
+	var re *ReplyError
 	switch {
+	case errors.As(err, &re):
+		return re.Code
 	case errors.Is(err, errRefused):
 		return repRefused
 	case errors.As(err, &ne) && ne.Timeout():
@@ -201,6 +214,31 @@ func negotiate(c net.Conn) error {
 	for _, m := range methods {
 		if m == 0 {
 			_, err := c.Write([]byte{ver5, 0})
+			return err
+		}
+	}
+	// user/password (RFC 1929) is accepted and ignored: some clients always
+	// send it, and the listener is loopback only
+	for _, m := range methods {
+		if m == 2 {
+			if _, err := c.Write([]byte{ver5, 2}); err != nil {
+				return err
+			}
+			var v [2]byte
+			if _, err := io.ReadFull(c, v[:]); err != nil || v[0] != 1 {
+				return errors.New("bad authentication request")
+			}
+			if _, err := io.CopyN(io.Discard, c, int64(v[1])); err != nil {
+				return err
+			}
+			var pl [1]byte
+			if _, err := io.ReadFull(c, pl[:]); err != nil {
+				return err
+			}
+			if _, err := io.CopyN(io.Discard, c, int64(pl[0])); err != nil {
+				return err
+			}
+			_, err := c.Write([]byte{1, 0})
 			return err
 		}
 	}

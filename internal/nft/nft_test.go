@@ -320,3 +320,50 @@ dns_filter = "paranoid"
 		t.Errorf("login browser not redirected while stopped:\n%s", got)
 	}
 }
+
+func TestTorRoute(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "tunnel:vps"
+[tunnel.vps]
+config = "vps.conf"
+[tunnel.tor]
+driver = "tor"
+socks = "127.0.0.1:9050"
+[[rule]]
+name = "browse"
+app = ["firefox"]
+route = "tunnel:tor"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+	p, err := engine.Compile(c, "system.slice/shuntd.service", map[string]engine.TunnelInfo{
+		"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all},
+		"tor": {Tor: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.RouteByName("tunnel:tor")
+	for _, want := range []string{
+		fmt.Sprintf("meta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort),
+		fmt.Sprintf("meta mark %#x oifname != \"lo\" meta l4proto != tcp counter reject", r.Mark),
+		fmt.Sprintf("meta mark %#x oifname != \"lo\" counter drop", r.Mark),
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ruleset lacks %q", want)
+		}
+	}
+	if strings.Contains(out, `oifname ""`) {
+		t.Error("a rule names an empty interface")
+	}
+	if r.Table != 0 || r.Iface != "" {
+		t.Errorf("tor route has table %d iface %q", r.Table, r.Iface)
+	}
+}

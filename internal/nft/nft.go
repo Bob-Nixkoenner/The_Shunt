@@ -29,6 +29,7 @@ func Render(p *engine.Plan) (string, error) {
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 
+	hasTor := false
 	replaceHeader(&b, Table)
 	w("table inet %s {", Table)
 	// Domain rules: two sets per family ("a"/"b") so the DNS proxy can
@@ -145,6 +146,13 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain filter_out {")
 	w("\t\ttype filter hook output priority filter; policy accept;")
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
+	// Tor carries TCP only (and DNS, answered by the proxy on loopback):
+	// UDP and the rest are rejected at once, so QUIC falls back to TCP.
+	for _, r := range p.Routes {
+		if r.Tor {
+			w("\t\tmeta mark %#x oifname != \"lo\" meta l4proto != tcp counter reject with icmpx admin-prohibited", r.Mark)
+		}
+	}
 	w("\t\toifname != \"lo\" jump ask_out")
 	if p.BlockDoT {
 		w("\t\t%s accept", dg)
@@ -167,6 +175,23 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t}")
 	}
 
+	// --- Tor routes: TCP goes to shuntd's transparent proxy, which hands it
+	// to tor. After the DNS redirect (a priority later), which owns port 53.
+	for _, r := range p.Routes {
+		if !r.Tor {
+			continue
+		}
+		if !hasTor {
+			w("\tchain tor_redirect {")
+			w("\t\ttype nat hook output priority dstnat + 1; policy accept;")
+			hasTor = true
+		}
+		w("\t\tmeta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort)
+	}
+	if hasTor {
+		w("\t}")
+	}
+
 	// --- belt and braces: tunnel traffic must really leave through its
 	// tunnel interface. This has to be postrouting: in the output hook the
 	// kernel still reports the interface from *before* the re-route.
@@ -186,6 +211,11 @@ func Render(p *engine.Plan) (string, error) {
 			continue
 		}
 		if r.Kind != config.RouteTunnel {
+			continue
+		}
+		if r.Tor {
+			// only the redirect to shuntd (loopback) may leave
+			w("\t\tmeta mark %#x oifname != \"lo\" counter drop", r.Mark)
 			continue
 		}
 		if err := checkIdent(r.Iface); err != nil {
@@ -211,7 +241,7 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain mss_clamp {")
 	w("\t\ttype filter hook postrouting priority mangle; policy accept;")
 	for _, r := range p.Routes {
-		if r.Kind == config.RouteTunnel {
+		if r.Kind == config.RouteTunnel && !r.Tor {
 			w("\t\toifname %q tcp flags syn / syn,rst tcp option maxseg size set rt mtu", r.Iface)
 		}
 	}

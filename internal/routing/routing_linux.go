@@ -57,7 +57,7 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 			errs = append(errs, syncLinkTable(r))
 			continue
 		}
-		if r.Kind != config.RouteTunnel {
+		if r.Kind != config.RouteTunnel || r.Tor { // Tor: no table, see nft
 			continue
 		}
 		wantRules[r.Table] = r.Mark

@@ -37,6 +37,8 @@ const (
 	DNSPortBase = 53530
 	// DNSPortCaptive is the DNS listener of the login browser.
 	DNSPortCaptive = DNSPortBase - 1
+	// TorPortBase: transparent proxy of a Tor route at TorPortBase + tunnel index.
+	TorPortBase = 53000
 	// DNSFilterPortBase: listeners for programs whose rule sets a DNS
 	// filter level other than their route's, at base + 4*route index + level.
 	DNSFilterPortBase = 54000
@@ -64,6 +66,8 @@ type TunnelInfo struct {
 	// Forward: the tunnel runs behind this interface in another network
 	// namespace. Its (encrypted) packets arrive on Iface and are forwarded.
 	Forward bool
+	// Tor: no interface; the route is a transparent proxy (see Route.Proxy).
+	Tor bool
 }
 
 // Route is a compiled route.
@@ -90,6 +94,11 @@ type Route struct {
 	// Captive: the login browser's route (see MarkCaptive); it is not in
 	// Plan.Routes.
 	Captive bool
+	// Tor: no interface and no routing table. The route's TCP is redirected
+	// to ProxyPort on loopback, where shuntd hands it to tor; everything
+	// else except DNS is rejected.
+	Tor       bool
+	ProxyPort int
 	// Filter: the DNS filter level of queries arriving at DNSPort
 	// (config.FilterOff … FilterParanoid).
 	Filter string
@@ -292,6 +301,14 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 				return nil, fmt.Errorf("no tunnel info for %q", cr.Tunnel)
 			}
 			r.Mark = MarkBase | uint32(tIdx)
+			if ti.Tor {
+				r.Tor, r.ProxyPort, r.V4, r.V6 = true, TorPortBase+tIdx, true, true
+				r.Filter = filter.Default
+				if f := c.Tunnels[cr.Tunnel].DNSFilter; f != "" {
+					r.Filter = f
+				}
+				break
+			}
 			r.Table = TableBase + tIdx
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6

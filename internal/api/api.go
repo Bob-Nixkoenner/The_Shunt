@@ -81,12 +81,14 @@ type TunnelStatus struct {
 	Driver string `json:"driver"`
 	Up     bool   `json:"up"`
 	// Disabled: switched off in the config (its route blocks).
-	Disabled bool                `json:"disabled,omitempty"`
-	Error    string              `json:"error,omitempty"`
-	Via      string              `json:"via,omitempty"`   // second hop through this route
-	Socks    string              `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
-	Peers    []tunnel.PeerStatus `json:"peers,omitempty"`
-	Health   *health.Report      `json:"health,omitempty"` // nil until the first check
+	Disabled bool   `json:"disabled,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Via      string `json:"via,omitempty"` // second hop through this route
+	// Bootstrap: tor tunnels only, 0..100 (100 = connected).
+	Bootstrap *int                `json:"bootstrap,omitempty"`
+	Socks     string              `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
+	Peers     []tunnel.PeerStatus `json:"peers,omitempty"`
+	Health    *health.Report      `json:"health,omitempty"` // nil until the first check
 }
 
 // GroupStatus describes one process group.

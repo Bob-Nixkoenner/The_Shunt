@@ -13,6 +13,9 @@ type Exit struct {
 	Listen  string // 127.0.0.1:1080
 	Mark    uint32
 	Resolve func(ctx context.Context, name string) ([]netip.Addr, error)
+	// Dial replaces the marked dialer (Tor: through tor's SOCKS socket); it
+	// gets names unresolved, and there is no UDP.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Manager keeps one listener per tunnel with a socks address.
@@ -38,7 +41,7 @@ func (m *Manager) Update(exits map[string]Exit) {
 		m.runs = map[string]*run{}
 	}
 	for name, r := range m.runs {
-		if e, ok := exits[name]; !ok || e.Listen != r.exit.Listen || e.Mark != r.exit.Mark {
+		if e, ok := exits[name]; !ok || e.Listen != r.exit.Listen || e.Mark != r.exit.Mark || (e.Dial == nil) != (r.exit.Dial == nil) {
 			r.stop()
 			delete(m.runs, name)
 		}
@@ -54,6 +57,9 @@ func (m *Manager) Update(exits map[string]Exit) {
 			continue
 		}
 		srv := &Server{Dial: MarkedDialer(e.Mark), ListenPacket: MarkedListenPacket(e.Mark), Resolve: e.Resolve, Log: m.Log}
+		if e.Dial != nil {
+			srv = &Server{Dial: e.Dial, Remote: true, Log: m.Log}
+		}
 		go func() { _ = srv.Serve(l) }()
 		m.runs[name] = &run{exit: e, l: l, srv: srv}
 		m.Log.Info("socks exit", "tunnel", name, "listen", e.Listen)
