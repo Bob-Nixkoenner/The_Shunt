@@ -41,6 +41,8 @@ type Status struct {
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
 	DNS      map[string][]string `json:"dns,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
+	// Notices are the same warnings, translatable (see check.Note).
+	Notices []check.Finding `json:"notices,omitempty"`
 	// Findings: the config check (package check); the text is English with
 	// {placeholders}, the front end translates it.
 	Findings []check.Finding `json:"findings,omitempty"`
@@ -169,6 +171,8 @@ type CheckResult struct {
 	OK       bool     `json:"ok"`
 	Error    string   `json:"error,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Notices: the same, translatable (see check.Note); Warnings are English.
+	Notices []check.Finding `json:"notices,omitempty"`
 }
 
 // TunnelImport is the body of POST /v1/tunnels.

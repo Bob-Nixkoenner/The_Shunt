@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 )
 
@@ -34,6 +35,47 @@ type Finding struct {
 	// Fix names where it is changed ("" = nowhere in the UI yet), as a
 	// config key: "daemon.boot_lockdown".
 	Fix string `json:"fix,omitempty"`
+}
+
+// Note is a warning of the running daemon (a tunnel without DNS, a login page
+// in the way …): same shape as a finding, so it is translated the same way.
+func Note(id, msg string, kv ...string) Finding {
+	f := Finding{ID: id, Level: Warn, Msg: msg}
+	if len(kv) > 0 {
+		f.Vals = map[string]string{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			f.Vals[kv[i]] = kv[i+1]
+		}
+	}
+	return f
+}
+
+// Raw wraps a ready-made text (from a file parser, say) that has no
+// translation: it is shown as it is.
+func Raw(text string) Finding { return Finding{ID: "raw", Level: Warn, Msg: text} }
+
+// Text is the English sentence with its values filled in (logs, `shuntd
+// check`, old clients).
+func (f Finding) Text() string { return i18n.Fill(f.Msg, f.kv()...) }
+
+// Local is the sentence in the language of the caller.
+func (f Finding) Local() string { return i18n.T(f.Msg, f.kv()...) }
+
+func (f Finding) kv() []any {
+	kv := make([]any, 0, 2*len(f.Vals))
+	for k, v := range f.Vals {
+		kv = append(kv, k, v)
+	}
+	return kv
+}
+
+// Texts returns the English texts of fs.
+func Texts(fs []Finding) []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.Text()
+	}
+	return out
 }
 
 // Env is what the checks need besides the config.

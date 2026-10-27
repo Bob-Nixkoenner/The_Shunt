@@ -78,8 +78,8 @@ func main() {
 			if p.DirectSystem {
 				fmt.Fprintln(os.Stderr, "dns direct ->", dnsproxy.NewSystemUpstream(0).String())
 			}
-			for _, w := range p.Warnings {
-				fmt.Fprintln(os.Stderr, "WARNING:", w)
+			for _, n := range p.Notes {
+				fmt.Fprintln(os.Stderr, "WARNING:", n.Text())
 			}
 		}
 	case "lockdown":

@@ -279,7 +279,7 @@ func importTunnel(c *api.Client, args []string) error {
 		return err
 	}
 	fmt.Printf("imported tunnel %q (route tunnel:%s)\n", req.Name, req.Name)
-	for _, w := range res.Warnings {
+	for _, w := range noticeTexts(res.Notices, res.Warnings) {
 		fmt.Println("warning:", w)
 	}
 	return nil
@@ -646,7 +646,7 @@ func status(c *api.Client, args []string) error {
 		return e.Encode(st)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	for _, wn := range st.Warnings {
+	for _, wn := range noticeTexts(st.Notices, st.Warnings) {
 		fmt.Fprintf(w, "WARNING:\t%s\n", wn)
 	}
 	if st.Network != "" {
@@ -914,4 +914,17 @@ func checkCmd(c *api.Client, args []string) error {
 		return fmt.Errorf("%s", i18n.T("something is bad"))
 	}
 	return nil
+}
+
+// noticeTexts: the daemon's warnings in the user's language; an older daemon
+// sends only the English ones.
+func noticeTexts(ns []check.Finding, english []string) []string {
+	if len(ns) == 0 {
+		return english
+	}
+	out := make([]string, len(ns))
+	for i, n := range ns {
+		out[i] = n.Local()
+	}
+	return out
 }
