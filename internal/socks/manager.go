@@ -53,7 +53,7 @@ func (m *Manager) Update(exits map[string]Exit) {
 			m.Log.Warn("socks exit", "tunnel", name, "listen", e.Listen, "err", err)
 			continue
 		}
-		srv := &Server{Dial: MarkedDialer(e.Mark), Resolve: e.Resolve, Log: m.Log}
+		srv := &Server{Dial: MarkedDialer(e.Mark), ListenPacket: MarkedListenPacket(e.Mark), Resolve: e.Resolve, Log: m.Log}
 		go func() { _ = srv.Serve(l) }()
 		m.runs[name] = &run{exit: e, l: l, srv: srv}
 		m.Log.Info("socks exit", "tunnel", name, "listen", e.Listen)

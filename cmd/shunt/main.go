@@ -96,6 +96,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "socks":
+		err = socksCmd(c)
 	case "pending":
 		err = pendingCmd(c)
 	case "allow":
@@ -683,4 +685,29 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
+}
+
+// socksCmd lists the SOCKS5 exits of the tunnels.
+func socksCmd(c *api.Client) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	n := 0
+	for _, t := range st.Tunnels {
+		if t.Socks == "" {
+			continue
+		}
+		state := "up"
+		if !t.Up {
+			state = "tunnel down (connections are refused)"
+		}
+		fmt.Fprintf(w, "tunnel:%s\tsocks5h://%s\t%s\n", t.Name, t.Socks, state)
+		n++
+	}
+	if n == 0 {
+		fmt.Fprintln(w, "no tunnel has a SOCKS5 exit; set socks = \"127.0.0.1:1080\" in its [tunnel.<name>] section")
+	}
+	return w.Flush()
 }

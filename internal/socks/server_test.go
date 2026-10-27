@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func echoServer(t *testing.T) net.Addr {
@@ -104,7 +105,55 @@ func TestDialFailureRefuses(t *testing.T) {
 
 func TestOnlyConnect(t *testing.T) {
 	p := start(t, &Server{Dial: dialer})
-	if rep, _ := request(t, p, []byte{5, 3, 0, 1, 0, 0, 0, 0, 0, 0}); rep != repBadCommand {
-		t.Fatalf("UDP ASSOCIATE reply %d", rep)
+	if rep, _ := request(t, p, []byte{5, 2, 0, 1, 0, 0, 0, 0, 0, 0}); rep != repBadCommand {
+		t.Fatalf("BIND reply %d", rep)
+	}
+}
+
+func TestUDPAssociate(t *testing.T) {
+	// UDP echo as the "world"
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	go func() {
+		b := make([]byte, 2048)
+		for {
+			n, a, err := pc.ReadFrom(b)
+			if err != nil {
+				return
+			}
+			pc.WriteTo(b[:n], a)
+		}
+	}()
+	s := &Server{Dial: dialer, ListenPacket: func(ctx context.Context, n, a string) (net.PacketConn, error) {
+		return net.ListenPacket(n, "127.0.0.1:0")
+	}}
+	p := start(t, s)
+	c, err := net.Dial("tcp", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	c.Write([]byte{5, 1, 0})
+	var m [2]byte
+	io.ReadFull(c, m[:])
+	c.Write([]byte{5, 3, 0, 1, 0, 0, 0, 0, 0, 0})
+	var r [10]byte
+	if _, err := io.ReadFull(c, r[:]); err != nil || r[1] != 0 {
+		t.Fatalf("assoc %v %v", r, err)
+	}
+	relay := &net.UDPAddr{IP: net.IP(r[4:8]), Port: int(r[8])<<8 | int(r[9])}
+	u, _ := net.DialUDP("udp", nil, relay)
+	defer u.Close()
+	dst := pc.LocalAddr().(*net.UDPAddr)
+	pkt := append([]byte{0, 0, 0, 1, 127, 0, 0, 1, byte(dst.Port >> 8), byte(dst.Port)}, "ping"...)
+	u.Write(pkt)
+	u.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 100)
+	n, err := u.Read(buf)
+	if err != nil || string(buf[n-4:n]) != "ping" || buf[3] != 1 {
+		t.Fatalf("reply %v %v", buf[:n], err)
 	}
 }
