@@ -489,6 +489,12 @@ func status(c *api.Client, args []string) error {
 				}
 			}
 		}
+		if t.Up && t.Bootstrap != nil {
+			state = "up/tor"
+			if *t.Bootstrap < 100 {
+				state = fmt.Sprintf("starting/tor %d%%", *t.Bootstrap)
+			}
+		}
 		hs, rxtx := "-", "-"
 		for _, p := range t.Peers {
 			if !p.LastHandshake.IsZero() {

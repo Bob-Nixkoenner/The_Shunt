@@ -233,10 +233,19 @@ type Tunnel struct {
 	// whose connections leave through this tunnel (names are resolved
 	// inside it). Empty = off.
 	Socks string `toml:"socks,omitempty" json:"socks,omitempty"`
+	// Tor (driver = "tor"): Bridges are bridge lines as in the Tor Browser
+	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0"); Isolate says
+	// what gets its own circuits: "app" (default), "destination" or "none".
+	Bridges []string `toml:"bridges,omitempty" json:"bridges,omitempty"`
+	Isolate string   `toml:"isolate,omitempty" json:"isolate,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
 func (t Tunnel) IsOpenVPN() bool { return t.Driver == "openvpn" }
+
+// IsTor reports whether the tunnel is Tor (a tor process run by shuntd,
+// no config file, no interface).
+func (t Tunnel) IsTor() bool { return t.Driver == "tor" }
 
 // IsTailscale reports whether the tunnel is a Tailscale/Headscale client
 // (tailscaled in its own network namespace, config = a .ts file).
@@ -334,7 +343,10 @@ func (c *Config) applyDefaults() {
 		if t.Driver == "" {
 			t.Driver = "auto"
 		}
-		if t.Interface == "" {
+		if t.IsTor() && t.Isolate == "" {
+			t.Isolate = "app"
+		}
+		if t.Interface == "" && !t.IsTor() {
 			t.Interface = "sh-" + n
 		}
 		if t.Via != "" && !strings.Contains(t.Via, ":") {
@@ -350,13 +362,30 @@ func (c *Config) Validate() error {
 		if !ValidName(n) {
 			return fmt.Errorf("tunnel %q: name must match %s", n, nameRe)
 		}
-		if t.Config == "" {
+		if t.Config == "" && !t.IsTor() {
 			return fmt.Errorf("tunnel %q: config path missing", n)
 		}
 		switch t.Driver {
-		case "auto", "kernel", "userspace", "openvpn", "tailscale":
+		case "auto", "kernel", "userspace", "openvpn", "tailscale", "tor":
 		default:
-			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn | tailscale)", n, t.Driver)
+			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn | tailscale | tor)", n, t.Driver)
+		}
+		if t.IsTor() {
+			if t.Config != "" || t.Auth != "" || t.Interface != "" {
+				return fmt.Errorf("tunnel %q: a tor tunnel has no config, auth or interface", n)
+			}
+			switch t.Isolate {
+			case "app", "destination", "none":
+			default:
+				return fmt.Errorf("tunnel %q: isolate %q (app | destination | none)", n, t.Isolate)
+			}
+			for _, b := range t.Bridges {
+				if strings.ContainsAny(b, "\r\n") || strings.TrimSpace(b) == "" {
+					return fmt.Errorf("tunnel %q: a bridge line is one line", n)
+				}
+			}
+		} else if len(t.Bridges) > 0 || t.Isolate != "" {
+			return fmt.Errorf("tunnel %q: bridges and isolate are only for driver = \"tor\"", n)
 		}
 		if t.Auth != "" && !t.IsOpenVPN() {
 			return fmt.Errorf("tunnel %q: auth is only for driver = \"openvpn\"", n)

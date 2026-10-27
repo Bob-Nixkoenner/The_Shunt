@@ -157,3 +157,29 @@ func TestUDPAssociate(t *testing.T) {
 		t.Fatalf("reply %v %v", buf[:n], err)
 	}
 }
+
+// DialVia against our own server, with a name that the far side resolves
+// (Remote) and the client address reaching the Dial function.
+func TestDialViaRemoteName(t *testing.T) {
+	target := echoServer(t).(*net.TCPAddr)
+	var gotHost string
+	var gotClient net.Addr
+	s := &Server{Remote: true, Dial: func(ctx context.Context, n, a string) (net.Conn, error) {
+		gotHost, gotClient = a, ClientAddr(ctx)
+		return dialer(ctx, n, target.String())
+	}}
+	p := start(t, s)
+	c, err := DialVia(context.Background(), "tcp", p, "someapp", "hidden.onion:80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Write([]byte("hi"))
+	b := make([]byte, 2)
+	if _, err := io.ReadFull(c, b); err != nil || string(b) != "hi" {
+		t.Fatalf("%q %v", b, err)
+	}
+	if gotHost != "hidden.onion:80" || gotClient == nil {
+		t.Fatalf("host %q client %v", gotHost, gotClient)
+	}
+}

@@ -13,10 +13,14 @@ import (
 
 // socksExits lists the SOCKS5 exits of the plan's tunnels. A tunnel that is
 // disabled or unknown to the plan gets none.
-func socksExits(p *Prepared, ups dnsproxy.RouteUpstreams) map[string]socks.Exit {
+func (d *Daemon) socksExits(p *Prepared, ups dnsproxy.RouteUpstreams) map[string]socks.Exit {
 	out := map[string]socks.Exit{}
 	for name, t := range p.Config.Tunnels {
 		if t.Socks == "" || t.Disabled {
+			continue
+		}
+		if t.IsTor() {
+			out[name] = socks.Exit{Listen: t.Socks, Dial: d.torDial(name, t.Isolate)}
 			continue
 		}
 		route := "tunnel:" + name

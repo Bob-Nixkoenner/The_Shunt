@@ -67,6 +67,7 @@ type Daemon struct {
 	panic     bool
 	proxy     *dnsproxy.Proxy
 	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
+	torProxy  torProxy       // transparent proxies of the Tor routes
 	filter    *blocklist.Manager
 	watcher   AppWatcher
 	saveMu    sync.Mutex // serializes config writes
@@ -163,6 +164,12 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		return f
 	}
 	for name, t := range c.Tunnels {
+		if t.IsTor() {
+			// no file, no interface: tor runs under shuntd (see torRoute)
+			p.Hashes[name] = fmt.Sprintf("tor|%s|%s", t.Isolate, strings.Join(t.Bridges, "\n"))
+			infos[name] = engine.TunnelInfo{Tor: true}
+			continue
+		}
 		cp := abs(t.Config)
 		if err := checkSecretFile(cp); err != nil {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
@@ -327,8 +334,8 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			p.DNSUpstreams[route] = []config.UpstreamSpec{u}
 			continue
 		}
-		if t.IsOpenVPN() {
-			continue // whatever the server pushes (see Daemon.upstreams)
+		if t.IsOpenVPN() || t.IsTor() {
+			continue // what the server pushes / Tor's DNSPort (see Daemon.upstreams)
 		}
 		if t.IsTailscale() {
 			// tailscaled's resolver: MagicDNS names, the tailnet's nameservers
@@ -392,6 +399,18 @@ func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 		ups["direct"] = []dnsproxy.Upstream{dnsproxy.NewSystemUpstream(p.Plan.RouteByName("direct").Mark)}
 	}
 	for name, t := range p.Config.Tunnels {
+		if t.IsTor() {
+			route := "tunnel:" + name
+			ups[route] = []dnsproxy.Upstream{dnsproxy.NewAddrUpstream("tor", func() string {
+				d.mu.Lock()
+				defer d.mu.Unlock()
+				if ts, ok := d.tunnels[name].(tunnel.TorStatus); ok {
+					return ts.DNSAddr()
+				}
+				return ""
+			})}
+			continue
+		}
 		if t.IsOpenVPN() && t.DNS == "" {
 			route := "tunnel:" + name
 			ups[route] = []dnsproxy.Upstream{dnsproxy.NewPushedUpstream(p.Plan.RouteByName(route).Mark, func() []netip.Addr {
@@ -611,7 +630,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.socks == nil {
 		d.socks = &socks.Manager{Log: d.Log}
 	}
-	d.socks.Update(socksExits(p, ups))
+	d.socks.Update(d.socksExits(p, ups))
+	d.torProxy.Update(p, d.torDial)
 	if d.filter != nil {
 		var used []string
 		if p.Plan.DNS {
@@ -697,7 +717,10 @@ func (d *Daemon) syncTunnels() error {
 		}
 		var t tunnel.Device
 		var err error
-		if tc.IsTailscale() {
+		if tc.IsTor() {
+			t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join("/var/lib/shunt", "tor", name),
+				RunDir: filepath.Dir(p.Config.Daemon.Socket), Bridges: tc.Bridges, Isolate: tc.Isolate}, d.Log, d.signalTunnel)
+		} else if tc.IsTailscale() {
 			t, err = tunnel.StartTailscale(tunnel.TailscaleSpec{Name: name, Iface: tc.Interface, Conf: p.TS[name],
 				RunDir: filepath.Dir(p.Config.Daemon.Socket), StateDir: filepath.Join("/var/lib/shunt", "ts-"+name)}, d.Log, d.signalTunnel)
 		} else if tc.IsOpenVPN() {
@@ -963,7 +986,7 @@ func (d *Daemon) tunnelChanged() {
 func (d *Daemon) ifaceUp(p *Prepared) map[string]bool {
 	up := map[string]bool{}
 	for name := range d.tunnels {
-		if tc, ok := p.Config.Tunnels[name]; ok {
+		if tc, ok := p.Config.Tunnels[name]; ok && !tc.IsTor() {
 			up[tc.Interface] = true
 		}
 	}
@@ -1047,6 +1070,7 @@ func (d *Daemon) shutdown() {
 	if d.socks != nil {
 		d.socks.Close()
 	}
+	d.torProxy.Close()
 	_ = os.Remove(d.cfg.Daemon.Socket)
 	d.Log.Info("shuntd stopped; kill switch stays active for tunnels, direct goes on")
 }
@@ -1550,6 +1574,10 @@ func (d *Daemon) status() api.Status {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()
 			ts.Health = d.healthReport(n)
+			if tor, ok := t.(tunnel.TorStatus); ok {
+				b := tor.Bootstrap()
+				ts.Bootstrap = &b
+			}
 			if e := t.Err(); e != "" && ts.Error == "" {
 				ts.Error = e
 			}
