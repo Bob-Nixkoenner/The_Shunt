@@ -229,6 +229,10 @@ type Tunnel struct {
 	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 	// DNSFilter: filter level for this tunnel's route ("" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Socks: a SOCKS5 proxy on this loopback address ("127.0.0.1:1080")
+	// whose connections leave through this tunnel (names are resolved
+	// inside it). Empty = off.
+	Socks string `toml:"socks,omitempty" json:"socks,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
@@ -365,6 +369,9 @@ func (c *Config) Validate() error {
 		}
 		if len(t.Interface) > 15 {
 			return fmt.Errorf("tunnel %q: interface name too long", n)
+		}
+		if err := validSocksAddr(t.Socks); err != nil {
+			return fmt.Errorf("tunnel %q: socks: %w", n, err)
 		}
 		if !validFilterLevel(t.DNSFilter, true) {
 			return fmt.Errorf("tunnel %q: dns_filter %q (off | low | normal | paranoid)", n, t.DNSFilter)
@@ -768,4 +775,23 @@ func (c *Config) Encode() ([]byte, error) {
 		return nil, err
 	}
 	return []byte(b.String()), nil
+}
+
+// validSocksAddr accepts "" or a loopback host:port; the proxy is never
+// opened to the network.
+func validSocksAddr(a string) error {
+	if a == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(a)
+	if err != nil {
+		return fmt.Errorf("%q: want 127.0.0.1:<port>", a)
+	}
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+		return fmt.Errorf("%q: bad port", a)
+	}
+	if ip, err := netip.ParseAddr(host); err != nil || !ip.IsLoopback() {
+		return fmt.Errorf("%q: only a loopback address (127.0.0.1 or ::1)", a)
+	}
+	return nil
 }

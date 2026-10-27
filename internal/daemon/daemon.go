@@ -41,6 +41,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
@@ -65,6 +66,7 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
+	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
 	filter    *blocklist.Manager
 	watcher   AppWatcher
 	saveMu    sync.Mutex // serializes config writes
@@ -606,6 +608,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 		return err
 	}
 	d.dnsUps = ups
+	if d.socks == nil {
+		d.socks = &socks.Manager{Log: d.Log}
+	}
+	d.socks.Update(socksExits(p, ups))
 	if d.filter != nil {
 		var used []string
 		if p.Plan.DNS {
@@ -1037,6 +1043,9 @@ func (d *Daemon) shutdown() {
 	}
 	if d.proxy != nil {
 		d.proxy.Close()
+	}
+	if d.socks != nil {
+		d.socks.Close()
 	}
 	_ = os.Remove(d.cfg.Daemon.Socket)
 	d.Log.Info("shuntd stopped; kill switch stays active for tunnels, direct goes on")
