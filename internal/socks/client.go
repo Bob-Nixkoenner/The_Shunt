@@ -133,3 +133,16 @@ func (e *ReplyError) Error() string { return fmt.Sprintf("socks reply %d", e.Cod
 func WithClientAddr(ctx context.Context, a net.Addr) context.Context {
 	return context.WithValue(ctx, ctxKey{}, a)
 }
+
+type userKey struct{}
+
+// WithUser fixes the SOCKS user name (Tor's isolation key) for a connection.
+func WithUser(ctx context.Context, u string) context.Context {
+	return context.WithValue(ctx, userKey{}, u)
+}
+
+// UserOf returns what WithUser set ("" if nothing).
+func UserOf(ctx context.Context) string {
+	u, _ := ctx.Value(userKey{}).(string)
+	return u
+}

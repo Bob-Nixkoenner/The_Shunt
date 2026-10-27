@@ -9,14 +9,23 @@ import (
 )
 
 func tcpOwner(a netip.AddrPort) string {
-	inode := socketInode(a)
+	inode, uid := socketInode(a)
 	if inode == "" {
 		return Unknown
 	}
+	// /proc/<pid>/fd of other users' processes is closed to a daemon without
+	// CAP_SYS_PTRACE: then the user is all we can tell
+	if name := ownerName(inode); name != "" {
+		return name
+	}
+	return "uid-" + uid
+}
+
+func ownerName(inode string) string {
 	want := "socket:[" + inode + "]"
 	ents, err := os.ReadDir("/proc")
 	if err != nil {
-		return Unknown
+		return ""
 	}
 	for _, e := range ents {
 		if _, err := strconv.Atoi(e.Name()); err != nil {
@@ -30,17 +39,17 @@ func tcpOwner(a netip.AddrPort) string {
 			if l, err := os.Readlink("/proc/" + e.Name() + "/fd/" + fd.Name()); err == nil && l == want {
 				b, err := os.ReadFile("/proc/" + e.Name() + "/comm")
 				if err != nil {
-					return Unknown
+					return ""
 				}
 				return strings.TrimSpace(string(b))
 			}
 		}
 	}
-	return Unknown
+	return ""
 }
 
 // socketInode looks the connection's local end up in /proc/net/tcp{,6}.
-func socketInode(a netip.AddrPort) string {
+func socketInode(a netip.AddrPort) (inode, uid string) {
 	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
 		fh, err := os.Open(f)
 		if err != nil {
@@ -55,12 +64,12 @@ func socketInode(a netip.AddrPort) string {
 			}
 			if local, ok := parseAddr(fs[1]); ok && local == a {
 				fh.Close()
-				return fs[9]
+				return fs[9], fs[7]
 			}
 		}
 		fh.Close()
 	}
-	return ""
+	return "", ""
 }
 
 // parseAddr reads "0100007F:1F90" (IPv4) or the 32-hex-digit IPv6 form;

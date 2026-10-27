@@ -28,7 +28,9 @@ func (d *Daemon) torDial(name, isolate string) func(ctx context.Context, network
 		}
 		user := ""
 		if isolate == "app" {
-			user = "app:" + appOf(socks.ClientAddr(ctx))
+			if user = socks.UserOf(ctx); user == "" {
+				user = "app:" + appOf(socks.ClientAddr(ctx))
+			}
 		}
 		return socks.DialVia(ctx, "unix", ts.SocksPath(), user, addr)
 	}
@@ -52,15 +54,26 @@ type torProxy struct {
 
 func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(context.Context, string, string) (net.Conn, error)) {
 	p := pp.Plan
+	// port -> route, and the isolation key of the rule behind a port ("" =
+	// the program, see torDial)
+	type target struct {
+		r   *engine.Route
+		key string
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.runs == nil {
 		t.runs = map[int][]net.Listener{}
 	}
-	want := map[int]*engine.Route{}
+	want := map[int]target{}
 	for _, r := range p.Routes {
 		if r.Kind == config.RouteTunnel && r.Tor {
-			want[r.ProxyPort] = r
+			want[r.ProxyPort] = target{r, ""}
+		}
+	}
+	for _, ru := range p.Rules {
+		if ru.ProxyPort != 0 && ru.Route != nil && ru.Route.Tor {
+			want[ru.ProxyPort] = target{ru.Route, "rule:" + ru.Name}
 		}
 	}
 	for port, ls := range t.runs {
@@ -71,7 +84,8 @@ func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(con
 			delete(t.runs, port)
 		}
 	}
-	for port, r := range want {
+	for port, tg := range want {
+		r, key := tg.r, tg.key
 		if _, ok := t.runs[port]; ok {
 			continue
 		}
@@ -85,6 +99,9 @@ func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(con
 			name, isolate := r.Tunnel, pp.Config.Tunnels[r.Tunnel].Isolate
 			tp := &socks.Transparent{Handle: func(ctx context.Context, c net.Conn, dst netip.AddrPort) {
 				ctx = socks.WithClientAddr(ctx, c.RemoteAddr())
+				if key != "" && isolate == "app" {
+					ctx = socks.WithUser(ctx, key)
+				}
 				out, err := dial(name, isolate)(ctx, "tcp", dst.String())
 				if err != nil {
 					c.Close()
