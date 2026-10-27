@@ -101,6 +101,10 @@ type Route struct {
 	// else except DNS is rejected.
 	Tor       bool
 	ProxyPort int
+	// TorGroup: a Tor route with a via runs its tor process in this cgroup
+	// (path relative to the cgroup mount); a rule sends the group through
+	// the via route, so tor's own traffic takes that tunnel or link.
+	TorGroup string
 	// Filter: the DNS filter level of queries arriving at DNSPort
 	// (config.FilterOff … FilterParanoid).
 	Filter string
@@ -360,6 +364,23 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		p.Groups = append(p.Groups, Group{Name: ViaGroupName(r.String()), Path: path.Join(cgroupRoot, "apps", "via", slug)})
 	}
 
+	// Tor tunnels with a via: tor (and its transports) run in a group of
+	// their own that is routed through the via route.
+	var torRules []Rule
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteTunnel || !r.Tor {
+			continue
+		}
+		via := c.Tunnels[r.Tunnel].Via
+		vr := p.RouteByName(via)
+		if via == "" || vr == nil {
+			continue
+		}
+		g := Group{Name: "tor:" + r.Tunnel, Path: path.Join(cgroupRoot, "apps", "tor", r.Tunnel)}
+		p.Groups = append(p.Groups, g)
+		r.TorGroup = g.Path
+		torRules = append(torRules, Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: vr})
+	}
 	var override, normal []Rule
 	for i, cr := range c.Rules {
 		if !cr.ActiveOn(network) {
@@ -437,6 +458,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 	p.Groups = append(p.Groups, cg)
 	p.Rules = append(p.Rules, Rule{Name: CaptiveGroup, Groups: []Group{cg}, AnyFamily: true, Route: p.Captive})
 	p.Rules = append(p.Rules, via(p.RouteByName("block")))
+	p.Rules = append(p.Rules, torRules...)
 	p.Rules = append(p.Rules, override...)
 	for _, r := range p.Routes {
 		if r.Kind != config.RouteBlock {

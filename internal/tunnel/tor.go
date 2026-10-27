@@ -7,6 +7,9 @@ type TorSpec struct {
 	RunDir  string // sockets live in RunDir/tor-<name>/
 	Bridges []string
 	Isolate string // app | destination | none
+	// CgroupDir: absolute cgroup directory tor is started in (via `shuntd cgexec`) (its traffic
+	// is routed by the group, see engine.Route.TorGroup); "" = ours.
+	CgroupDir string
 }
 
 // TorStatus is implemented by the Tor device.

@@ -171,7 +171,7 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	for name, t := range c.Tunnels {
 		if t.IsTor() {
 			// no file, no interface: tor runs under shuntd (see torRoute)
-			p.Hashes[name] = fmt.Sprintf("tor|%s|%s", t.Isolate, strings.Join(t.Bridges, "\n"))
+			p.Hashes[name] = fmt.Sprintf("tor|%s|%s|%s", t.Isolate, t.Via, strings.Join(t.Bridges, "\n"))
 			infos[name] = engine.TunnelInfo{Tor: true}
 			continue
 		}
@@ -755,8 +755,15 @@ func (d *Daemon) syncTunnels() error {
 		var t tunnel.Device
 		var err error
 		if tc.IsTor() {
-			t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join("/var/lib/shunt", "tor", name),
-				RunDir: filepath.Dir(p.Config.Daemon.Socket), Bridges: tc.Bridges, Isolate: tc.Isolate}, d.Log, d.signalTunnel)
+			tr := p.Plan.RouteByName("tunnel:" + name)
+			dir := torCgroupDir(tr.TorGroup)
+			if tr.TorGroup != "" && dir == "" {
+				// never start tor outside the group that routes it
+				err = errors.New("cannot place tor in its cgroup (needed for via)")
+			} else {
+				t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join("/var/lib/shunt", "tor", name),
+					RunDir: filepath.Dir(p.Config.Daemon.Socket), Bridges: tc.Bridges, Isolate: tc.Isolate, CgroupDir: dir}, d.Log, d.signalTunnel)
+			}
 		} else if tc.IsTailscale() {
 			t, err = tunnel.StartTailscale(tunnel.TailscaleSpec{Name: name, Iface: tc.Interface, Conf: p.TS[name],
 				RunDir: filepath.Dir(p.Config.Daemon.Socket), StateDir: filepath.Join("/var/lib/shunt", "ts-"+name)}, d.Log, d.signalTunnel)
