@@ -146,3 +146,11 @@ func TestWrongListener(t *testing.T) {
 		}
 	}
 }
+
+func TestIsOnion(t *testing.T) {
+	for n, want := range map[string]bool{"abc.onion": true, "onion": true, "a.b.onion": true, "onion.com": false, "notonion": false, "x.onions": false} {
+		if isOnion(n) != want {
+			t.Errorf("%q: want %v", n, want)
+		}
+	}
+}

@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,9 +19,10 @@ import (
 )
 
 // Tor runs a tor process for one tunnel and keeps it running. Tor is a
-// plain child of shuntd (so it sits in the daemon's cgroup and its own
-// traffic is not classified); apps reach it through shuntd's SOCKS exit and
-// transparent proxy, never directly.
+// plain child of shuntd: it sits in the daemon's cgroup (its own traffic is
+// not classified) and in the unit's sandbox (no capabilities beyond
+// shuntd's). Apps reach it through shuntd's SOCKS exit and transparent
+// proxy, never directly.
 type Tor struct {
 	spec TorSpec
 	log  *slog.Logger
@@ -31,8 +31,6 @@ type Tor struct {
 
 	dir     string // run dir with the sockets
 	dnsPort int
-	uid     int // tor's user (-1: run as we are)
-	gid     int
 
 	mu      sync.Mutex
 	running bool
@@ -52,15 +50,8 @@ func StartTor(s TorSpec, log *slog.Logger, changed func()) (*Tor, error) {
 	if err != nil {
 		return nil, errors.New("tor is not installed (sudo apt install tor)")
 	}
-	t := &Tor{spec: s, log: log, changed: changed, uid: -1, gid: -1,
+	t := &Tor{spec: s, log: log, changed: changed,
 		dir: filepath.Join(s.RunDir, "tor-"+s.Name), stop: make(chan struct{}), done: make(chan struct{})}
-	for _, n := range []string{"debian-tor", "tor", "_tor"} {
-		if u, err := user.Lookup(n); err == nil {
-			t.uid, _ = strconv.Atoi(u.Uid)
-			t.gid, _ = strconv.Atoi(u.Gid)
-			break
-		}
-	}
 	if t.dnsPort, err = freeUDPPort(); err != nil {
 		return nil, err
 	}
@@ -79,16 +70,8 @@ func StartTor(s TorSpec, log *slog.Logger, changed func()) (*Tor, error) {
 	if err := os.WriteFile(rcPath, []byte(rc), 0o600); err != nil {
 		return nil, err
 	}
-	_ = t.chown(rcPath)
 	go t.loop(bin, rcPath)
 	return t, nil
-}
-
-func (t *Tor) chown(p string) error {
-	if t.uid < 0 {
-		return nil
-	}
-	return os.Chown(p, t.uid, t.gid)
 }
 
 func (t *Tor) prepareDirs() error {
@@ -97,9 +80,6 @@ func (t *Tor) prepareDirs() error {
 			return err
 		}
 		if err := os.Chmod(d, 0o700); err != nil {
-			return err
-		}
-		if err := t.chown(d); err != nil {
 			return err
 		}
 	}
@@ -172,11 +152,8 @@ func (t *Tor) torrc(plugins []string) (string, error) {
 	w("DataDirectory %s", t.spec.DataDir)
 	w("Log notice stdout")
 	w("SafeLogging 1")
-	if t.uid >= 0 {
-		if u, err := user.LookupId(strconv.Itoa(t.uid)); err == nil {
-			w("User %s", u.Username)
-		}
-	}
+	// no "User": tor stays in shuntd's own (capability-bound) unit, as root
+	// without any capability; it could not switch users there anyway
 	flags := ""
 	switch t.spec.Isolate {
 	case "destination":

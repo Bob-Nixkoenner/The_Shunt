@@ -39,6 +39,8 @@ const (
 	DNSPortCaptive = DNSPortBase - 1
 	// TorPortBase: transparent proxy of a Tor route at TorPortBase + tunnel index.
 	TorPortBase = 53000
+	// TorRulePortBase: transparent proxy of a rule with a Tor route.
+	TorRulePortBase = 52000
 	// DNSFilterPortBase: listeners for programs whose rule sets a DNS
 	// filter level other than their route's, at base + 4*route index + level.
 	DNSFilterPortBase = 54000
@@ -133,6 +135,10 @@ type Rule struct {
 	// Route is nil for a rule that only sets a DNS filter level.
 	Route *Route
 	// Filter: DNS filter level of the rule's groups ("" = their route's).
+	// ProxyPort: a rule that sends its apps through a Tor route gets a
+	// transparent proxy port of its own (TorRulePortBase + rule number), so
+	// its apps' circuits are not shared with other rules' apps.
+	ProxyPort int
 	// FilterRoutes are copies of every route with that level and their
 	// own DNS listener: the rule's queries are redirected there, whichever
 	// route they take.
@@ -408,6 +414,9 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 				fr := p.filterRoute(r, ri, rule.Filter)
 				rule.FilterRoutes = append(rule.FilterRoutes, fr)
 			}
+		}
+		if rule.Route != nil && rule.Route.Tor && len(rule.Groups) > 0 {
+			rule.ProxyPort = TorRulePortBase + i
 		}
 		if cr.OverrideExplicit {
 			override = append(override, rule)

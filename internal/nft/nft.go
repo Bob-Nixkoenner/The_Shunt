@@ -186,6 +186,19 @@ func Render(p *engine.Plan) (string, error) {
 			w("\t\ttype nat hook output priority dstnat + 1; policy accept;")
 			hasTor = true
 		}
+		// a rule's own port first (its apps keep their own circuits)
+		for _, ru := range p.Rules {
+			if ru.ProxyPort == 0 || ru.Route != r {
+				continue
+			}
+			for _, g := range ru.Groups {
+				m, err := cgroupMatch(g)
+				if err != nil {
+					return "", err
+				}
+				w("\t\t%s meta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", m, r.Mark, ru.ProxyPort)
+			}
+		}
 		w("\t\tmeta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort)
 	}
 	if hasTor {
