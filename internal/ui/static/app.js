@@ -118,6 +118,10 @@ function render() {
   else { state.className = "pill ok"; state.textContent = "protected"; }
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, " (network “" + st.network + "”)")] : []));
 
+  const torall = $("#torall");
+  torall.hidden = !(st.tor_all || st.tunnels.some(isTor));
+  torall.textContent = st.tor_all ? "End Tor-only" : "All via Tor";
+  torall.classList.toggle("on", !!st.tor_all);
   const pass = $("#pass");
   pass.textContent = st.pass_left ? "End pass (" + Math.floor(st.pass_left / 60) + ":" + String(st.pass_left % 60).padStart(2, "0") + ")" : "Pass 5 min";
   pass.classList.toggle("on", !!st.pass_left);
@@ -485,6 +489,13 @@ $("#pass").addEventListener("click", async () => {
   const on = !(status && status.pass_left);
   if (on && !(await ask("Let everything through for 5 minutes – your real IP, no tunnels, no blocks, no DNS filter?", { ok: "Pass 5 min", danger: true }))) return;
   try { await api("POST", "/api/pass", { minutes: on ? 5 : 0 }); toast(on ? "Pass for 5 minutes" : "Pass ended"); } catch (e) { toast(e.message); }
+  refresh();
+});
+
+$("#torall").addEventListener("click", async () => {
+  const on = !(status && status.tor_all);
+  if (on && !(await ask("Send EVERY app through Tor until you switch this off? Rules and tunnels are overridden (blocks stay). Tor carries TCP only: calls, games and QUIC will not work.", { ok: "All via Tor", danger: true }))) return;
+  try { await api("POST", "/api/torall", { on }); toast(on ? "Everything goes through Tor now" : "Tor-only ended"); } catch (e) { toast(e.message); }
   refresh();
 });
 

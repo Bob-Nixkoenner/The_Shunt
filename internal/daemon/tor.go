@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -142,4 +146,77 @@ func (t *torProxy) Close() {
 		}
 		delete(t.runs, port)
 	}
+}
+
+// torAllFile keeps the switch across restarts: after a restart or reboot
+// everything must not silently go back to the old routes.
+func (d *Daemon) torAllFile() string { return filepath.Join(filepath.Dir(d.ConfigPath), "tor-all") }
+
+// loadTorAll returns the tunnel of the tor-all switch ("" = off). Called with
+// d.mu held (reload).
+func (d *Daemon) loadTorAll() string {
+	if !d.torLoad {
+		d.torLoad = true
+		if b, err := os.ReadFile(d.torAllFile()); err == nil {
+			d.torAll = strings.TrimSpace(string(b))
+		}
+	}
+	return d.torAll
+}
+
+// setTorAll switches "everything through Tor" on (for tunnel, or the only
+// Tor tunnel) or off, and applies it.
+func (d *Daemon) setTorAll(on bool, tunnelName string) error {
+	d.mu.Lock()
+	cfg := d.cfg
+	d.mu.Unlock()
+	name := ""
+	if on {
+		var tors []string
+		for n, t := range cfg.Tunnels {
+			if t.IsTor() && !t.Disabled {
+				tors = append(tors, n)
+			}
+		}
+		sort.Strings(tors)
+		switch {
+		case tunnelName != "":
+			if t, ok := cfg.Tunnels[strings.TrimPrefix(tunnelName, "tunnel:")]; !ok || !t.IsTor() || t.Disabled {
+				return fmt.Errorf("%q is not an enabled Tor tunnel", tunnelName)
+			}
+			name = strings.TrimPrefix(tunnelName, "tunnel:")
+		case len(tors) == 1:
+			name = tors[0]
+		case len(tors) == 0:
+			return errors.New("there is no Tor tunnel: add one first (Configure → Add a tunnel → Tor)")
+		default:
+			return fmt.Errorf("more than one Tor tunnel (%s): name one", strings.Join(tors, ", "))
+		}
+	}
+	d.mu.Lock()
+	old, oldLoad := d.torAll, d.torLoad
+	d.torAll, d.torLoad = name, true
+	d.mu.Unlock()
+	if err := d.saveTorAll(name); err != nil {
+		return err
+	}
+	if err := d.reload(d.selfCgroup()); err != nil {
+		d.mu.Lock()
+		d.torAll, d.torLoad = old, oldLoad
+		d.mu.Unlock()
+		_ = d.saveTorAll(old)
+		return err
+	}
+	d.Log.Warn("tor-all", "on", on, "tunnel", name)
+	return nil
+}
+
+func (d *Daemon) saveTorAll(name string) error {
+	if name == "" {
+		if err := os.Remove(d.torAllFile()); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.WriteFile(d.torAllFile(), []byte(name+"\n"), 0o644)
 }
