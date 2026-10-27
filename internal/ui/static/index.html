@@ -84,7 +84,8 @@ input.grow { flex: 1; min-width: 180px; }
 #checks { grid-column: span 12; }
 #checks > summary { cursor: pointer; padding: 6px 2px; color: var(--muted); }
 #checks[open] > summary { color: var(--text); }
-.banner.info { background: var(--panel); border-color: var(--line); color: var(--muted); }
+.note { padding: 6px 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.note.warn { border-left-color: var(--warn); }
 #checks-list { display: grid; gap: 8px; margin-top: 6px; }
 .banner.bad { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
 .apps td:first-child { font-weight: 600; }
