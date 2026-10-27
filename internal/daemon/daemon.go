@@ -1468,8 +1468,13 @@ func (d *Daemon) routes() http.Handler {
 		}
 		d.mu.Lock()
 		d.panic = req.On
+		killTunnelApps := req.On && d.cfg.Daemon.PanicKill
+		plan := d.plan
 		d.mu.Unlock()
 		d.Log.Warn("panic mode", "on", req.On)
+		if killTunnelApps { // the network is closed already
+			d.Log.Warn("panic: ended programs in tunnel groups", "count", d.killGroups(plan.TunnelGroups()))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
@@ -1519,7 +1524,7 @@ func (d *Daemon) status() api.Status {
 	ovs := d.ov.Status(time.Now())
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
-		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
+		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
 	}
@@ -1832,4 +1837,21 @@ func (d *Daemon) adoptable(p *peer, pid int) error {
 		return fmt.Errorf("already in route %s", from)
 	}
 	return nil
+}
+
+// killGroups ends every process in the given groups and returns how many.
+func (d *Daemon) killGroups(gs []engine.Group) int {
+	n := 0
+	for _, g := range gs {
+		pids, err := d.cg.Procs(g.Path)
+		if err != nil {
+			continue
+		}
+		for _, pid := range pids {
+			if pr, err := os.FindProcess(pid); err == nil && pr.Kill() == nil {
+				n++
+			}
+		}
+	}
+	return n
 }

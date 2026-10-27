@@ -203,6 +203,11 @@ type Daemon struct {
 	// does not go out directly, i.e. what is meant for a tunnel must not
 	// leave in clear text before shuntd runs.
 	BootLockdown string `toml:"boot_lockdown,omitempty" json:"boot_lockdown,omitempty"`
+	// PanicKill (default off): switching panic mode on also ends every
+	// program running in a tunnel group (apps with a tunnel rule, `shunt run
+	// --via`). The network is blocked first. Lifting panic does not restart
+	// them.
+	PanicKill bool `toml:"panic_kill,omitempty" json:"panic_kill,omitempty"`
 }
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
