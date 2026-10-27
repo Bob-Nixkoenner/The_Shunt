@@ -16,3 +16,10 @@ func MarkedDialer(uint32) func(ctx context.Context, network, addr string) (net.C
 		return nil, errors.New("socks exit needs the Linux kernel route")
 	}
 }
+
+// MarkedListenPacket: packet marks exist on Linux only.
+func MarkedListenPacket(uint32) func(ctx context.Context, network, addr string) (net.PacketConn, error) {
+	return func(context.Context, string, string) (net.PacketConn, error) {
+		return nil, errors.New("socks exit needs the Linux kernel route")
+	}
+}

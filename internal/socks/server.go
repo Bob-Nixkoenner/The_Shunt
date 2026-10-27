@@ -21,6 +21,7 @@ import (
 const (
 	ver5       = 5
 	cmdConnect = 1
+	cmdUDP     = 3
 	atypIPv4   = 1
 	atypName   = 3
 	atypIPv6   = 4
@@ -41,6 +42,9 @@ const (
 type Server struct {
 	// Dial opens the outgoing connection (marked for the tunnel).
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// ListenPacket opens the marked UDP socket of a UDP association
+	// (nil: UDP ASSOCIATE is refused).
+	ListenPacket func(ctx context.Context, network, addr string) (net.PacketConn, error)
 	// Resolve looks a name up inside the tunnel (never on the local network).
 	Resolve func(ctx context.Context, name string) ([]netip.Addr, error)
 	Log     *slog.Logger
@@ -107,9 +111,13 @@ func (s *Server) handle(c net.Conn) {
 	if err := negotiate(c); err != nil {
 		return
 	}
-	host, port, rep, err := readRequest(c)
+	cmd, host, port, rep, err := readRequest(c)
 	if err != nil {
 		reply(c, rep)
+		return
+	}
+	if cmd == cmdUDP {
+		s.associate(c)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
@@ -200,48 +208,48 @@ func negotiate(c net.Conn) error {
 	return errors.New("no acceptable method")
 }
 
-func readRequest(c net.Conn) (host string, port int, rep byte, err error) {
+func readRequest(c net.Conn) (cmd byte, host string, port int, rep byte, err error) {
 	var h [4]byte
 	if _, err = io.ReadFull(c, h[:]); err != nil {
-		return "", 0, repFailure, err
+		return 0, "", 0, repFailure, err
 	}
 	if h[0] != ver5 {
-		return "", 0, repFailure, errors.New("bad version")
+		return 0, "", 0, repFailure, errors.New("bad version")
 	}
-	if h[1] != cmdConnect {
-		return "", 0, repBadCommand, errors.New("only CONNECT")
+	if h[1] != cmdConnect && h[1] != cmdUDP {
+		return 0, "", 0, repBadCommand, errors.New("only CONNECT and UDP ASSOCIATE")
 	}
 	switch h[3] {
 	case atypIPv4:
 		var b [4]byte
 		if _, err = io.ReadFull(c, b[:]); err != nil {
-			return "", 0, repFailure, err
+			return 0, "", 0, repFailure, err
 		}
 		host = netip.AddrFrom4(b).String()
 	case atypIPv6:
 		var b [16]byte
 		if _, err = io.ReadFull(c, b[:]); err != nil {
-			return "", 0, repFailure, err
+			return 0, "", 0, repFailure, err
 		}
 		host = netip.AddrFrom16(b).String()
 	case atypName:
 		var l [1]byte
 		if _, err = io.ReadFull(c, l[:]); err != nil {
-			return "", 0, repFailure, err
+			return 0, "", 0, repFailure, err
 		}
 		b := make([]byte, l[0])
 		if _, err = io.ReadFull(c, b); err != nil {
-			return "", 0, repFailure, err
+			return 0, "", 0, repFailure, err
 		}
 		host = string(b)
 	default:
-		return "", 0, repBadAddrType, errors.New("address type")
+		return 0, "", 0, repBadAddrType, errors.New("address type")
 	}
 	var p [2]byte
 	if _, err = io.ReadFull(c, p[:]); err != nil {
-		return "", 0, repFailure, err
+		return 0, "", 0, repFailure, err
 	}
-	return host, int(p[0])<<8 | int(p[1]), repOK, nil
+	return h[1], host, int(p[0])<<8 | int(p[1]), repOK, nil
 }
 
 func reply(c net.Conn, rep byte) {

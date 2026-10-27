@@ -1545,7 +1545,7 @@ func (d *Daemon) status() api.Status {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Disabled: d.cfg.Tunnels[n].Disabled}
+		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Socks: d.cfg.Tunnels[n].Socks, Disabled: d.cfg.Tunnels[n].Disabled}
 		if t, ok := d.tunnels[n]; ok {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()

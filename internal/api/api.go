@@ -83,7 +83,8 @@ type TunnelStatus struct {
 	// Disabled: switched off in the config (its route blocks).
 	Disabled bool                `json:"disabled,omitempty"`
 	Error    string              `json:"error,omitempty"`
-	Via      string              `json:"via,omitempty"` // second hop through this route
+	Via      string              `json:"via,omitempty"`   // second hop through this route
+	Socks    string              `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
 	Peers    []tunnel.PeerStatus `json:"peers,omitempty"`
 	Health   *health.Report      `json:"health,omitempty"` // nil until the first check
 }
