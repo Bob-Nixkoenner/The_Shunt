@@ -225,3 +225,12 @@ dns_filter = "low"
 		t.Errorf("hagezi url %s", u)
 	}
 }
+
+func TestSocksAddrLoopbackOnly(t *testing.T) {
+	for a, ok := range map[string]bool{"": true, "127.0.0.1:1080": true, "[::1]:1080": true,
+		"0.0.0.0:1080": false, "192.168.1.5:1080": false, "127.0.0.1": false, "127.0.0.1:0": false} {
+		if err := validSocksAddr(a); (err == nil) != ok {
+			t.Errorf("%q: err=%v", a, err)
+		}
+	}
+}
