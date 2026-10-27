@@ -234,7 +234,8 @@ type Tunnel struct {
 	// inside it). Empty = off.
 	Socks string `toml:"socks,omitempty" json:"socks,omitempty"`
 	// Tor (driver = "tor"): Bridges are bridge lines as in the Tor Browser
-	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0"); Isolate says
+	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0") or the words
+	// obfs4, snowflake, meek for the built-in sets; Isolate says
 	// what gets its own circuits: "app" (default), "destination" or "none".
 	Bridges []string `toml:"bridges,omitempty" json:"bridges,omitempty"`
 	Isolate string   `toml:"isolate,omitempty" json:"isolate,omitempty"`
@@ -382,6 +383,9 @@ func (c *Config) Validate() error {
 			for _, b := range t.Bridges {
 				if strings.ContainsAny(b, "\r\n") || strings.TrimSpace(b) == "" {
 					return fmt.Errorf("tunnel %q: a bridge line is one line", n)
+				}
+				if f := strings.Fields(b); len(f) == 1 && f[0] != "obfs4" && f[0] != "snowflake" && f[0] != "meek" {
+					return fmt.Errorf("tunnel %q: bridge %q: a full bridge line (\"obfs4 1.2.3.4:443 FINGERPRINT cert=…\") or one of obfs4 | snowflake | meek", n, b)
 				}
 			}
 		} else if len(t.Bridges) > 0 || t.Isolate != "" {

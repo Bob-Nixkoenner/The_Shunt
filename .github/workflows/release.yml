@@ -164,7 +164,9 @@ jobs:
             CGO_ENABLED=0 GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=$TAG" \
               -o "build/$arch/" ./cmd/shuntd ./cmd/shunt
-            tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt
+            # pluggable transports for Tor bridges (lyrebird: obfs4, snowflake, meek, webtunnel)
+            GOARCH=$arch OUT="build/$arch" bash packaging/pt/build.sh
+            tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt lyrebird
           done
           # desktop app (cgo: GTK + WebKitGTK), amd64
           sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev

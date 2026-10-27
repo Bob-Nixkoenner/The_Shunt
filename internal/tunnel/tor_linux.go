@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,6 +56,8 @@ func StartTor(s TorSpec, log *slog.Logger, changed func()) (*Tor, error) {
 	if t.dnsPort, err = freeUDPPort(); err != nil {
 		return nil, err
 	}
+	s.Bridges = ExpandBridges(s.Bridges)
+	t.spec.Bridges = s.Bridges
 	plugins, err := torPlugins(s.Bridges)
 	if err != nil {
 		return nil, err
@@ -106,37 +109,62 @@ func (t *Tor) controlPath() string { return filepath.Join(t.dir, "control") }
 // DNSAddr is tor's DNSPort on loopback.
 func (t *Tor) DNSAddr() string { return "127.0.0.1:" + strconv.Itoa(t.dnsPort) }
 
+// ptDirs are searched for the pluggable transports before PATH: the
+// packages and install.sh put lyrebird next to the daemon's helpers.
+var ptDirs = []string{"/usr/libexec/shunt", "/usr/local/libexec/shunt"}
+
+func findPT(name string) string {
+	for _, d := range ptDirs {
+		p := filepath.Join(d, name)
+		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return p
+		}
+	}
+	if p, err := exec.LookPath(name); err == nil {
+		return p
+	}
+	return ""
+}
+
 // torPlugins returns the ClientTransportPlugin lines the bridges need.
+// lyrebird speaks obfs4, meek_lite, webtunnel and snowflake; without it,
+// obfs4proxy (obfs4 only) and snowflake-client from the distribution do.
 func torPlugins(bridges []string) ([]string, error) {
 	need := map[string]bool{}
 	for _, b := range bridges {
-		if f := strings.Fields(b); len(f) > 0 {
-			if !strings.ContainsAny(f[0], ".:[") { // a transport name, not an address
-				need[f[0]] = true
-			}
+		if f := strings.Fields(b); len(f) > 0 && !strings.ContainsAny(f[0], ".:[") { // a transport name, not an address
+			need[f[0]] = true
 		}
 	}
-	var out []string
-	if need["snowflake"] {
-		p, err := exec.LookPath("snowflake-client")
-		if err != nil {
-			return nil, errors.New("bridges use snowflake, but snowflake-client is not installed")
-		}
-		out = append(out, "ClientTransportPlugin snowflake exec "+p)
-		delete(need, "snowflake")
+	if len(need) == 0 {
+		return nil, nil
 	}
-	if len(need) > 0 {
-		p, err := exec.LookPath("lyrebird")
-		if err != nil {
-			if p, err = exec.LookPath("obfs4proxy"); err != nil {
-				return nil, errors.New("bridges need lyrebird (or obfs4proxy), which is not installed")
+	var names []string
+	for n := range need {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if p := findPT("lyrebird"); p != "" {
+		return []string{"ClientTransportPlugin " + strings.Join(names, ",") + " exec " + p}, nil
+	}
+	var out, rest []string
+	for _, n := range names {
+		if n == "snowflake" {
+			p := findPT("snowflake-client")
+			if p == "" {
+				return nil, errors.New("bridges use snowflake, but neither lyrebird nor snowflake-client is installed")
 			}
+			out = append(out, "ClientTransportPlugin snowflake exec "+p)
+			continue
 		}
-		var names []string
-		for n := range need {
-			names = append(names, n)
+		rest = append(rest, n)
+	}
+	if len(rest) > 0 {
+		p := findPT("obfs4proxy")
+		if p == "" || strings.Join(rest, ",") != "obfs4" {
+			return nil, errors.New("bridges (" + strings.Join(rest, ", ") + ") need lyrebird, which is not installed")
 		}
-		out = append(out, "ClientTransportPlugin "+strings.Join(names, ",")+" exec "+p)
+		out = append(out, "ClientTransportPlugin obfs4 exec "+p)
 	}
 	return out, nil
 }
