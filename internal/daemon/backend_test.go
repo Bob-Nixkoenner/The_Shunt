@@ -346,3 +346,16 @@ dns_direct = "pihole"
 		t.Error("unknown dns.fallback accepted")
 	}
 }
+
+// The config check reaches the status: a config with DNS routing off is
+// reported as bad.
+func TestStatusHasFindings(t *testing.T) {
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[dns]\ndisabled = true\n")
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	st := d.status()
+	if len(st.Findings) == 0 || st.Findings[0].ID != "dns.off" || st.Findings[0].Level != "bad" {
+		t.Fatalf("findings: %+v", st.Findings)
+	}
+}

@@ -30,6 +30,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -124,6 +125,8 @@ type Prepared struct {
 	// whenever resolv.conf changes (not in DNSUpstreams).
 	DirectSystem bool
 	Warnings     []string
+	// Findings: what the config check (package check) says about the config.
+	Findings []check.Finding
 	// Network is the matched [[network]] ("" = none: daemon.default_route).
 	Network string
 }
@@ -284,6 +287,7 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	} else {
 		p.Warnings = append(p.Warnings, "DNS routing is disabled: DNS queries leak past the tunnels")
 	}
+	p.Findings = check.Config(c, check.Env{OVPN: func(n string) *ovpnconf.Config { return p.OVPN[n] }})
 	return p, nil
 }
 
@@ -1526,6 +1530,7 @@ func (d *Daemon) status() api.Status {
 		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	st.Findings = d.prep.Findings
 	if d.book != nil {
 		st.Traffic = d.book.Summaries(time.Now())
 	}
