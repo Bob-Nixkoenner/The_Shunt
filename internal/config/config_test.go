@@ -234,3 +234,25 @@ func TestSocksAddrLoopbackOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestTorTunnel(t *testing.T) {
+	ok, err := Parse("[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"snowflake\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tt := ok.Tunnels["tor"]; tt.Isolate != "app" || tt.Interface != "" {
+		t.Errorf("defaults: %+v", tt)
+	}
+	for name, toml := range map[string]string{
+		"dns":     "[tunnel.tor]\ndriver = \"tor\"\ndns = \"x\"\n",
+		"config":  "[tunnel.tor]\ndriver = \"tor\"\nconfig = \"a.conf\"\n",
+		"bridge":  "[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"nonsense\"]\n",
+		"isolate": "[tunnel.tor]\ndriver = \"tor\"\nisolate = \"x\"\n",
+		"not tor": "[tunnel.v]\nconfig = \"a.conf\"\nbridges = [\"snowflake\"]\n",
+		"via":     "[tunnel.v]\nconfig = \"a.conf\"\n[tunnel.tor]\ndriver = \"tor\"\nvia = \"v\"\n",
+	} {
+		if _, err := Parse(toml); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

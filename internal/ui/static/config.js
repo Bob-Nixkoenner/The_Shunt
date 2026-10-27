@@ -124,6 +124,7 @@ function renderConfig() {
       ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, "via " + m)),
       ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
     viaSel.value = t.via || "";
+    if (t.driver === "tor") return torRow(n, t);
     return el("tr", {},
       el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
       el("td", { class: "mono" }, (i.endpoint || "–") + "  ", el("span", { class: "muted" }, joinList(i.addresses))),
@@ -387,6 +388,66 @@ $("#ts-add").addEventListener("click", async () => {
   } catch (e) { toast("Adding failed: " + e.message); }
 });
 
+// A Tor tunnel: no file, no DNS choice (names go through Tor), bridges and
+// circuit isolation instead.
+const BRIDGE_SETS = ["snowflake", "obfs4", "meek"];
+function bridgeKind(t) {
+  const b = t.bridges || [];
+  if (!b.length) return "";
+  return b.length === 1 && BRIDGE_SETS.includes(b[0]) ? b[0] : "custom";
+}
+function torRow(n, t) {
+  const kind = bridgeKind(t);
+  const own = el("textarea", { rows: 3, style: "width:100%;min-height:60px;margin-top:6px", placeholder: "one bridge line per row, e.g. obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0",
+    onchange: (e) => { const l = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean); t.bridges = l.length ? l : undefined; markDirty(); } });
+  own.value = kind === "custom" ? t.bridges.join("\n") : "";
+  own.hidden = kind !== "custom";
+  const sel = el("select", { onchange: (e) => {
+    const v = e.target.value;
+    t.bridges = v === "" ? undefined : v === "custom" ? ["obfs4 "] : [v];
+    markDirty(); renderConfig();
+  } },
+    el("option", { value: "" }, "no bridge (connect to Tor directly)"),
+    ...BRIDGE_SETS.map((b) => el("option", { value: b }, "built-in " + b)),
+    el("option", { value: "custom" }, "my own bridge lines"));
+  sel.value = kind;
+  const iso = el("select", { title: "Which connections share Tor circuits", onchange: (e) => { t.isolate = e.target.value; markDirty(); } },
+    el("option", { value: "app" }, "each rule its own circuits"),
+    el("option", { value: "destination" }, "one set per destination"),
+    el("option", { value: "none" }, "one shared set"));
+  iso.value = t.isolate || "app";
+  return el("tr", {},
+    el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),
+    el("td", {}, el("span", { class: "muted" }, "Tor network"), el("div", { class: "muted", style: "font-size:12px" }, "TCP only; no UDP, no calls. .onion works.")),
+    el("td", {}, sel, own, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
+      el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { class: "muted" }, "Advanced"),
+        el("label", { class: "row muted", title: "A SOCKS5 proxy on this local address that leads into Tor (names are resolved by Tor). Loopback only. Empty = off." },
+          "SOCKS5 exit ", el("input", { type: "text", size: 16, placeholder: "127.0.0.1:9050", value: t.socks || "", onchange: (e) => { t.socks = e.target.value.trim() || undefined; markDirty(); } }))),
+      el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't start it. Apps that would use it are blocked." },
+        el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
+    el("td", {}, el("span", { class: "muted" }, "through Tor"), el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
+    el("td", {}, el("button", { class: "iconbtn", title: "delete tunnel", onclick: () => deleteTunnel(n) }, "✕")));
+}
+
+$("#tor-add").addEventListener("click", () => {
+  const name = $("#tor-name").value.trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,9}$/.test(name)) return toast("Tunnel name: 1–10 characters a-z 0-9 -");
+  if (model.tunnel && model.tunnel[name]) return toast("There is a tunnel " + name + " already – pick another name");
+  const kind = $("#tor-bridges").value;
+  let bridges;
+  if (kind === "custom") {
+    bridges = $("#tor-own").value.split("\n").map((x) => x.trim()).filter(Boolean);
+    if (!bridges.length) return toast("Paste at least one bridge line");
+  } else if (kind) bridges = [kind];
+  model.tunnel = model.tunnel || {};
+  model.tunnel[name] = { driver: "tor", isolate: "app", ...(bridges ? { bridges } : {}) };
+  $("#tor-name").value = ""; $("#tor-own").value = "";
+  markDirty();
+  renderConfig();
+  toast("Tor tunnel " + name + " added – press “Save & apply” to start it");
+});
+$("#tor-bridges").addEventListener("change", () => { $("#tor-own").hidden = $("#tor-bridges").value !== "custom"; });
+
 async function deleteTunnel(n) {
   if ($("#savebar").classList.contains("dirty")) return toast("Save or discard your other changes first");
   if (!(await ask("Delete tunnel " + n + " and its config file?", { ok: "Delete", danger: true }))) return;
@@ -508,12 +569,12 @@ $("#fw-p-normal").addEventListener("click", () => fwPreset("ask", false));
 $("#fw-p-off").addEventListener("click", () => fwPreset("off", false));
 
 // "Add a tunnel": switch between the file import and the Tailscale/Headscale form
-for (const [t, other] of [["file", "ts"], ["ts", "file"]]) {
+for (const t of ["file", "ts", "tor"]) {
   $("#addtab-" + t).addEventListener("click", () => {
-    $("#add-" + t).hidden = false;
-    $("#add-" + other).hidden = true;
-    $("#addtab-" + t).classList.add("active");
-    $("#addtab-" + other).classList.remove("active");
+    for (const o of ["file", "ts", "tor"]) {
+      $("#add-" + o).hidden = o !== t;
+      $("#addtab-" + o).classList.toggle("active", o === t);
+    }
   });
 }
 

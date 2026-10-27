@@ -375,6 +375,12 @@ func (c *Config) Validate() error {
 			if t.Config != "" || t.Auth != "" || t.Interface != "" {
 				return fmt.Errorf("tunnel %q: a tor tunnel has no config, auth or interface", n)
 			}
+			if t.DNS != "" {
+				return fmt.Errorf("tunnel %q: a tor tunnel resolves names through Tor; dns is not allowed", n)
+			}
+			if t.Via != "" || t.AllowLAN {
+				return fmt.Errorf("tunnel %q: via and allow_lan are not available for tor tunnels (yet)", n)
+			}
 			switch t.Isolate {
 			case "app", "destination", "none":
 			default:

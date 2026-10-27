@@ -320,7 +320,7 @@ body.windows .win-only { display: block !important; }
   </section>
 
   <section data-fold>
-    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button></span></h2>
+    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale, Tor</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button><button id="addtab-tor" type="button">Tor</button></span></h2>
     <div class="editor" id="add-file">
       <div class="row"><b>Import a WireGuard, OpenVPN or Tailscale/Headscale (.ts) file</b><span class="muted">(stored with mode 600; scripts in it are switched off)</span></div>
       <div class="row" style="margin-top:10px">
@@ -356,6 +356,22 @@ body.windows .win-only { display: block !important; }
         <button id="ts-add" class="primary">Add</button>
       </div>
       <div class="muted" style="margin-top:8px">Without an exit node the tunnel reaches the tailnet (100.64.0.0/10) only; with one, everything routed into it leaves through that node.</div>
+    </div>
+    <div class="editor" id="add-tor" hidden>
+      <div class="row"><b>Add a Tor tunnel</b><span class="muted">(needs the tor package; The Shunt starts and watches it)</span></div>
+      <div class="row" style="margin-top:10px">
+        <input id="tor-name" placeholder="name, e.g. tor" style="width:140px" maxlength="10">
+        <select id="tor-bridges">
+          <option value="">no bridge (connect to Tor directly)</option>
+          <option value="snowflake">built-in snowflake bridges (for networks that block Tor)</option>
+          <option value="obfs4">built-in obfs4 bridges</option>
+          <option value="meek">built-in meek bridge (looks like a CDN)</option>
+          <option value="custom">my own bridge lines</option>
+        </select>
+        <button id="tor-add" class="primary">Add</button>
+      </div>
+      <textarea id="tor-own" hidden placeholder="one bridge line per row, from bridges.torproject.org, e.g. obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0" style="min-height:70px;margin-top:10px"></textarea>
+      <div class="muted" style="margin-top:8px">Tor carries TCP only: no calls, games or QUIC (those apps fall back to TCP or fail). Apps use it through a rule “route = Tor”; each rule gets its own circuits. For ordinary browsing the Tor Browser stays the better choice.</div>
     </div>
   </section>
 
