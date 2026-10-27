@@ -244,12 +244,12 @@ func TestTorTunnel(t *testing.T) {
 		t.Errorf("defaults: %+v", tt)
 	}
 	for name, toml := range map[string]string{
-		"dns":     "[tunnel.tor]\ndriver = \"tor\"\ndns = \"x\"\n",
-		"config":  "[tunnel.tor]\ndriver = \"tor\"\nconfig = \"a.conf\"\n",
-		"bridge":  "[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"nonsense\"]\n",
-		"isolate": "[tunnel.tor]\ndriver = \"tor\"\nisolate = \"x\"\n",
-		"not tor": "[tunnel.v]\nconfig = \"a.conf\"\nbridges = [\"snowflake\"]\n",
-		"via":     "[tunnel.v]\nconfig = \"a.conf\"\n[tunnel.tor]\ndriver = \"tor\"\nvia = \"v\"\n",
+		"dns":       "[tunnel.tor]\ndriver = \"tor\"\ndns = \"x\"\n",
+		"config":    "[tunnel.tor]\ndriver = \"tor\"\nconfig = \"a.conf\"\n",
+		"bridge":    "[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"nonsense\"]\n",
+		"isolate":   "[tunnel.tor]\ndriver = \"tor\"\nisolate = \"x\"\n",
+		"not tor":   "[tunnel.v]\nconfig = \"a.conf\"\nbridges = [\"snowflake\"]\n",
+		"allow_lan": "[tunnel.tor]\ndriver = \"tor\"\nallow_lan = true\n",
 	} {
 		if _, err := Parse(toml); err == nil {
 			t.Errorf("%s: accepted", name)

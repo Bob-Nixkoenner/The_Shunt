@@ -378,8 +378,8 @@ func (c *Config) Validate() error {
 			if t.DNS != "" {
 				return fmt.Errorf("tunnel %q: a tor tunnel resolves names through Tor; dns is not allowed", n)
 			}
-			if t.Via != "" || t.AllowLAN {
-				return fmt.Errorf("tunnel %q: via and allow_lan are not available for tor tunnels (yet)", n)
+			if t.AllowLAN {
+				return fmt.Errorf("tunnel %q: allow_lan is not available for tor tunnels", n)
 			}
 			switch t.Isolate {
 			case "app", "destination", "none":
@@ -402,6 +402,9 @@ func (c *Config) Validate() error {
 		}
 		if t.Via != "" {
 			r, err := c.ParseRoute(t.Via)
+			if err == nil && r.Kind == RouteTunnel && c.Tunnels[r.Tunnel].IsTor() {
+				return fmt.Errorf("tunnel %q: cannot run through the Tor tunnel %q (Tor carries TCP only)", n, r.Tunnel)
+			}
 			if err != nil || (r.Kind != RouteTunnel && r.Kind != RouteLink) {
 				return fmt.Errorf("tunnel %q: via must be \"tunnel:<name>\" or \"link:<%s>\"", n, strings.Join(LinkKinds, "|"))
 			}

@@ -416,10 +416,19 @@ function torRow(n, t) {
     el("option", { value: "destination" }, "one set per destination"),
     el("option", { value: "none" }, "one shared set"));
   iso.value = t.isolate || "app";
+  // Tor itself can run through a WireGuard/OpenVPN tunnel (or one kind of
+  // connection): the network in between then sees that tunnel, not Tor
+  const others = Object.keys(model.tunnel).filter((m) => m !== n && (model.tunnel[m] || {}).driver !== "tor").sort();
+  const viaSel = el("select", { title: "How Tor itself connects", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); } },
+    el("option", { value: "" }, "connects directly"),
+    ...others.map((m) => el("option", { value: "tunnel:" + m }, "through tunnel " + m)),
+    ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
+  viaSel.value = t.via || "";
   return el("tr", {},
     el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),
     el("td", {}, el("span", { class: "muted" }, "Tor network"), el("div", { class: "muted", style: "font-size:12px" }, "TCP only; no UDP, no calls. .onion works.")),
     el("td", {}, sel, own, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
+      el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "Tor "), viaSel),
       el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { class: "muted" }, "Advanced"),
         el("label", { class: "row muted", title: "A SOCKS5 proxy on this local address that leads into Tor (names are resolved by Tor). Loopback only. Empty = off." },
           "SOCKS5 exit ", el("input", { type: "text", size: 16, placeholder: "127.0.0.1:9050", value: t.socks || "", onchange: (e) => { t.socks = e.target.value.trim() || undefined; markDirty(); } }))),

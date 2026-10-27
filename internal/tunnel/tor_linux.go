@@ -253,6 +253,15 @@ func (t *Tor) notify() {
 
 func (t *Tor) runOnce(bin, rc string) error {
 	cmd := exec.Command(bin, "-f", rc)
+	if t.spec.CgroupDir != "" {
+		// a helper (shuntd itself) moves into the group and execs tor: tor is
+		// born there, not even its first packet goes out unclassified
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		cmd = exec.Command(self, "cgexec", t.spec.CgroupDir, bin, "-f", rc)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM}
 	out, err := cmd.StdoutPipe()
 	if err != nil {

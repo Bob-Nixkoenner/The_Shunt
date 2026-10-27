@@ -99,6 +99,10 @@ func main() {
 		if _, err = bufio.NewReader(os.Stdin).ReadString('\n'); err == nil {
 			err = json.NewEncoder(os.Stdout).Encode(probe.Run(context.Background()))
 		}
+	case "cgexec": // internal: shuntd cgexec <cgroup dir> <program> [args…]: move into the
+		// cgroup, then become the program (tor for a Tor tunnel with a via), so not
+		// even its first packet is sent from the wrong group
+		err = daemon.CgroupExec(flag.Args()[1:])
 	case "restore-nsswitch":
 		err = daemon.RestoreNsswitch()
 	default:
