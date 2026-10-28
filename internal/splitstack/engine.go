@@ -136,9 +136,9 @@ func parseConfig(js string) (*config, error) {
 		switch t.Type {
 		case "":
 			c.Tunnels[i].Type = typeWireGuard
-		case typeWireGuard, typeOpenVPN, typeTailscale:
+		case typeWireGuard, typeOpenVPN, typeTailscale, typeTor:
 		default:
-			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn | tailscale)", t.Name, t.Type)
+			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn | tailscale | tor)", t.Name, t.Type)
 		}
 		names[t.Name] = true
 	}
@@ -311,6 +311,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
 		} else if t.Type == typeTailscale {
 			wt, err = e.newTSTunnel(t)
+		} else if t.Type == typeTor {
+			wt, err = e.newTorWT(t)
 		} else if t.Via != "" {
 			wt, err = e.newWGVia(t, c.MTU)
 		} else {
@@ -327,6 +329,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 			}
 			wt.ovpnConf.Type = t.Type
 			wt.tsType = t.Type == typeTailscale
+			wt.torType = t.Type == typeTor
 			wt.err = err.Error()
 		}
 		e.setTunnel(t.Name, wt)
@@ -590,7 +593,7 @@ func (e *Engine) NetworkChanged() {
 			}
 			continue
 		}
-		if t.dev == nil {
+		if t.dev == nil || t.isTor() {
 			continue
 		}
 		if err := t.dev.BindUpdate(); err != nil {
@@ -619,7 +622,7 @@ func (e *Engine) Resumed() {
 	e.tunMu.RUnlock()
 	n := 0
 	for _, t := range ts {
-		if t.isOVPN() || t.dev == nil {
+		if t.isOVPN() || t.isTor() || t.dev == nil {
 			continue
 		}
 		if err := t.dev.Down(); err != nil {
