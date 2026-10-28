@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Linux: shuntd checks every 5 seconds that its firewall rules are still loaded and puts them back (with a warning in the log) when something else removed them – another VPN, a firewall tool, `nft flush ruleset`. Before, traffic left directly until the next reload (lab N01).
+- Linux: shuntd checks every second that its firewall rules are still loaded and puts them back (with a warning in the log) when something else removed them – another VPN, a firewall tool, `nft flush ruleset`. Before, traffic left directly until the next reload (lab N01).
 
 ## v0.7.1-rc17
 
