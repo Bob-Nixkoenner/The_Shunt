@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -100,6 +101,16 @@ func (b *linuxBackend) Stopped(p *engine.Plan) error {
 		return err
 	}
 	return nft.Apply(s)
+}
+
+// Intact: table inet shunt is still loaded. `nft list tables` is cheap (no
+// rules are read); a failing nft counts as intact (nothing proven).
+func (b *linuxBackend) Intact() bool {
+	out, err := exec.Command("nft", "list", "tables").Output()
+	if err != nil {
+		return true
+	}
+	return strings.Contains("\n"+string(out), "\ntable inet "+nft.Table+"\n")
 }
 
 func (b *linuxBackend) LiftLockdown() error {
