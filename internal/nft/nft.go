@@ -121,6 +121,22 @@ func Render(p *engine.Plan) (string, error) {
 			w("\t\tiifname %q ct state new ct mark set %#x", r.Iface, r.Mark)
 		}
 	}
+	// Forwarded traffic (containers, VMs and other devices behind this
+	// machine) is not seen by route_out, which only classifies local
+	// sockets: it took the main table, past the tunnel and its kill switch.
+	// A new forwarded connection gets the default route's mark (the same
+	// way, via the tunnel's table or into its kill switch). Not what comes
+	// in from a tunnel, from loopback, or for this machine itself.
+	if p.DefaultRoute.Kind != config.RouteDirect {
+		skip := []string{`"lo"`}
+		for _, r := range p.Routes {
+			if r.Kind == config.RouteTunnel && r.Iface != "" && checkIdent(r.Iface) == nil {
+				skip = append(skip, fmt.Sprintf("%q", r.Iface))
+			}
+		}
+		w("\t\tiifname != { %s } fib daddr type != local ct state new ct mark and %#x != %#x meta mark set %#x ct mark set meta mark",
+			strings.Join(skip, ", "), engine.MarkMask, engine.MarkBase, p.DefaultRoute.Mark)
+	}
 	w("\t\tct mark and %#x == %#x meta mark set ct mark", engine.MarkMask, engine.MarkBase)
 	// Tailscale tunnels: what tailscaled (in its own namespace) sends
 	// arrives on the veth. It leaves like Shunt's own encrypted packets:

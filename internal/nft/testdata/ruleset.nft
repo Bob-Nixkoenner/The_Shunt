@@ -50,6 +50,7 @@ table inet shunt {
 		iifname "lo" return
 		iifname "sh-home" ct state new ct mark set 0x530001
 		iifname "sh-vps" ct state new ct mark set 0x530002
+		iifname != { "lo", "sh-home", "sh-vps" } fib daddr type != local ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x530002 ct mark set meta mark
 		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
 	}
 	chain tunnel_addr_guard {
