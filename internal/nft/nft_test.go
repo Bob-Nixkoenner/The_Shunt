@@ -430,7 +430,7 @@ route = "tunnel:tor"
 	r := p.RouteByName("tunnel:tor")
 	for _, want := range []string{
 		fmt.Sprintf("meta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort),
-		fmt.Sprintf("meta mark %#x oifname != \"lo\" meta l4proto != tcp counter reject", r.Mark),
+		fmt.Sprintf("meta mark %#x fib daddr type != local meta l4proto != tcp counter reject", r.Mark),
 		fmt.Sprintf("meta mark %#x oifname != \"lo\" counter drop", r.Mark),
 	} {
 		if !strings.Contains(out, want) {
