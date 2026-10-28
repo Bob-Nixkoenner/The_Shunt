@@ -523,6 +523,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	ruleTick := time.NewTicker(time.Second)
+	defer ruleTick.Stop()
 	netTick := time.NewTicker(5 * time.Second)
 	defer netTick.Stop()
 	hup := make(chan os.Signal, 1)
@@ -543,6 +545,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
 			go d.applyNetPrivacy()
+		case <-ruleTick.C:
+			d.checkRules()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -551,7 +555,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-netTick.C:
 			d.endPassIfDue(self)
 			d.checkNetwork()
-			d.checkRules()
 			d.mu.Lock()
 			if d.routeSoft != "" && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
