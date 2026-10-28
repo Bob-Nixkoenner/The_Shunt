@@ -51,6 +51,9 @@ cat >"$P/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
+	# messages in German when the system language is
+	DE=
+	case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in de | de_* | de.*) DE=1 ;; esac
 	getent group shunt >/dev/null || groupadd --system shunt
 	# The Shunt runs its own tor for Tor tunnels; the system service (SOCKS
 	# on 9050) that the tor package starts is not needed. Only on a fresh
@@ -132,14 +135,18 @@ ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true
-		echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"
+		if [ -n "$DE" ]; then echo "The Shunt: WLAN-Datenschutz ab der nächsten Verbindung (eigene MAC pro Netz, kein Host-Name im DHCP): $NM_PRIVACY"
+		else echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"; fi
 		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
 		# an update never changes the MAC at home unasked)
 		added=$(daemon_privacy /etc/shunt/shunt.toml)
 		if [ -n "$added" ]; then
-			echo "The Shunt: /etc/shunt/shunt.toml: $added"
+			echo "The Shunt: /etc/shunt/shunt.toml: $added" # config keys: no translation
 			home=$(home_mac /etc/shunt/shunt.toml)
-			[ -z "$home" ] || echo "The Shunt: real MAC kept on the networks you trust: $home"
+			if [ -n "$home" ]; then
+				if [ -n "$DE" ]; then echo "The Shunt: echte MAC bleibt in den Netzen, denen du vertraust: $home"
+				else echo "The Shunt: real MAC kept on the networks you trust: $home"; fi
+			fi
 		fi
 	fi
 	install -d -m755 /var/lib/shunt
@@ -149,8 +156,13 @@ NMEOF
 	# decides at boot from daemon.boot_lockdown (auto: only for a tunnel default route)
 	systemctl enable shunt-lockdown.service >/dev/null 2>&1 || true
 	systemctl restart shuntd.service >/dev/null 2>&1 || true
-	echo "The Shunt is early beta software and not a 100% solution: running programs keep their route, some snap apps start in two steps, and apps may connect before they are routed. Check with 'shunt leaktest'."
-	echo "The Shunt: add yourself to the group 'shunt' to use the CLI: sudo usermod -aG shunt \$USER"
+	if [ -n "$DE" ]; then
+		echo "The Shunt ist eine frühe Beta und keine 100-%-Lösung: laufende Programme behalten ihren Weg, manche Snap-Apps starten in zwei Schritten, und Apps können sich verbinden, bevor sie einem Weg zugeordnet sind. Prüfe mit 'shunt leaktest'."
+		echo "The Shunt: nimm dich in die Gruppe 'shunt' auf, um die Kommandozeile zu nutzen: sudo usermod -aG shunt \$USER"
+	else
+		echo "The Shunt is early beta software and not a 100% solution: running programs keep their route, some snap apps start in two steps, and apps may connect before they are routed. Check with 'shunt leaktest'."
+		echo "The Shunt: add yourself to the group 'shunt' to use the CLI: sudo usermod -aG shunt \$USER"
+	fi
 fi
 EOF
 cat >"$P/DEBIAN/prerm" <<'EOF'
