@@ -44,13 +44,136 @@ c_red=$'\e[31m' c_grn=$'\e[32m' c_yel=$'\e[33m' c_bld=$'\e[1m' c_off=$'\e[0m'
 # full output of every step; kept across runs, rotated at 1 MiB.
 LOG=/var/log/shunt-install.log LOG_ON=0
 log() { if ((LOG_ON)); then printf '%s\n' "$*" >>"$LOG"; fi; }
-say() { printf '%s==>%s %s\n' "$c_bld" "$c_off" "$*"; log "==> $*"; }
-ok() { printf '  %s✔%s %s\n' "$c_grn" "$c_off" "$*"; log "  ok: $*"; }
-warn() { printf '  %s!%s %s\n' "$c_yel" "$c_off" "$*"; log "  warning: $*"; }
+# Language: German when SHUNT_LANG, LC_ALL, LC_MESSAGES or LANG says so, English
+# otherwise. Messages are English templates ("%s" for values); _de holds the
+# German versions, a missing one shows the English text. The log stays English.
+LANG_DE=0
+case ${SHUNT_LANG:-${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}} in de | de_* | de-* | de.* | DE*) LANG_DE=1 ;; esac
+_t() { # text -> its translation (or itself)
+	local r
+	if ((LANG_DE)) && r=$(_de "$1") && [[ -n $r ]]; then printf '%s' "$r"; else printf '%s' "$1"; fi
+}
+_en() { local t=$1; shift; printf -- "$t" "$@"; } # template + values, English
+_f() { # template + values, in the user's language (values that are texts are translated too)
+	local t=$1 a=() x
+	shift
+	for x in "$@"; do a+=("$(_t "$x")"); done
+	printf -- "$(_t "$t")" "${a[@]}"
+}
+# German versions of the messages above (English text -> German); see _t.
+_de() {
+	case $1 in
+	'ERROR:') printf %s 'FEHLER:' ;;
+	'Details:') printf %s 'Einzelheiten:' ;;
+	'waiting for another package manager to finish') printf %s 'wartet auf einen anderen Paketmanager' ;;
+	'Package database out of date? Run '\''sudo pacman -Syu'\'', then the installer again.') printf %s 'Paketdatenbank veraltet? Starte '\''sudo pacman -Syu'\'' und danach den Installer erneut.' ;;
+	'%s failed (exit %s). Last lines of %s:') printf %s '%s fehlgeschlagen (Exit %s). Letzte Zeilen von %s:' ;;
+	'installing %s (%s)') printf %s 'installiere %s (%s)' ;;
+	'unknown option %s') printf %s 'unbekannte Option %s' ;;
+	'--dns-level must be 0, 1, 2 or 3') printf %s '--dns-level muss 0, 1, 2 oder 3 sein' ;;
+	'run as root: sudo bash %s') printf %s 'als root starten: sudo bash %s' ;;
+	'--dry-run only works for installing') printf %s '--dry-run geht nur beim Installieren' ;;
+	'Removing The Shunt') printf %s 'The Shunt wird entfernt' ;;
+	'rules, routes and kill switches removed') printf %s 'Regeln, Routen und Kill-Switches entfernt' ;;
+	'nsswitch.conf restored') printf %s 'nsswitch.conf wiederhergestellt' ;;
+	'network privacy settings removed') printf %s 'Netzwerk-Datenschutzeinstellungen entfernt' ;;
+	'removed %s (including your tunnel keys)') printf %s '%s entfernt (samt deinen Tunnel-Schlüsseln)' ;;
+	'kept %s (use --purge to delete it)') printf %s '%s behalten (mit --purge wird es gelöscht)' ;;
+	'done. Your network is back to normal.') printf %s 'fertig. Dein Netzwerk ist wieder normal.' ;;
+	'Please note') printf %s 'Bitte beachten' ;;
+	'Checking the system') printf %s 'System wird geprüft' ;;
+	'Linux only') printf %s 'nur Linux' ;;
+	'systemd is required') printf %s 'systemd wird gebraucht' ;;
+	'no supported package manager (apt, pacman or dnf) found') printf %s 'kein unterstützter Paketmanager (apt, pacman oder dnf) gefunden' ;;
+	'cgroup v2 (unified hierarchy) is required; boot with systemd.unified_cgroup_hierarchy=1') printf %s 'cgroup v2 (einheitliche Hierarchie) wird gebraucht; starte mit systemd.unified_cgroup_hierarchy=1' ;;
+	'kernel 5.13 or newer needed (have %s)') printf %s 'Kernel 5.13 oder neuer nötig (vorhanden: %s)' ;;
+	'unsupported CPU %s') printf %s 'nicht unterstützte CPU %s' ;;
+	'kernel WireGuard available') printf %s 'Kernel-WireGuard vorhanden' ;;
+	'no WireGuard kernel module: Shunt will use its built-in wireguard-go (slower, works)') printf %s 'kein WireGuard-Kernelmodul: Shunt nutzt sein eingebautes wireguard-go (langsamer, funktioniert)' ;;
+	'Checking the network') printf %s 'Netzwerk wird geprüft' ;;
+	'github.com reachable') printf %s 'github.com erreichbar' ;;
+	'github.com is not reachable through this terminal'\''s route (The Shunt is active – is the tunnel up?)') printf %s 'github.com ist über den Weg dieses Terminals nicht erreichbar (The Shunt ist aktiv – steht der Tunnel?)' ;;
+	'Run the installer past the tunnels instead (direct, with your real IP)?') printf %s 'Den Installer stattdessen an den Tunneln vorbei laufen lassen (direkt, mit deiner echten IP)?' ;;
+	'no connection to github.com within 20 s – check the network (with The Shunt active: shunt status)') printf %s 'keine Verbindung zu github.com innerhalb von 20 s – prüf das Netzwerk (bei aktivem The Shunt: shunt status)' ;;
+	'release %s is not signed - skipping it') printf %s 'Release %s ist nicht signiert – wird übersprungen' ;;
+	'could not download the installer of release %s') printf %s 'Installer von Release %s konnte nicht geladen werden' ;;
+	'release %s: continuing with its own installer') printf %s 'Release %s: weiter mit dessen eigenem Installer' ;;
+	'could not download the checksums of release %s') printf %s 'Prüfsummen von Release %s konnten nicht geladen werden' ;;
+	'release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die Signatur von SHA256SUMS ist falsch – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'Dry run - this is what the installer would do (nothing is changed)') printf %s 'Probelauf – das würde der Installer tun (es wird nichts geändert)' ;;
+	'Installing dependencies') printf %s 'Abhängigkeiten werden installiert' ;;
+	'updating package lists (apt)') printf %s 'Paketlisten werden aktualisiert (apt)' ;;
+	'nftables, wireguard-tools') printf %s 'nftables, wireguard-tools' ;;
+	'polkit not available: config changes will need sudo') printf %s 'polkit nicht verfügbar: Konfigurationsänderungen brauchen sudo' ;;
+	'Install OpenVPN support (for .ovpn configs)?') printf %s 'OpenVPN-Unterstützung installieren (für .ovpn-Dateien)?' ;;
+	'Tor (for Tor tunnels)') printf %s 'Tor (für Tor-Tunnel)' ;;
+	'tor not available: Tor tunnels will not start until it is installed') printf %s 'tor nicht verfügbar: Tor-Tunnel starten erst, wenn es installiert ist' ;;
+	'Install the desktop app (tray icon, window, notifications)?') printf %s 'Desktop-App installieren (Tray-Symbol, Fenster, Benachrichtigungen)?' ;;
+	'desktop app libraries') printf %s 'Bibliotheken der Desktop-App' ;;
+	'Go and git') printf %s 'Go und git' ;;
+	'Go %s is too old to fetch the required toolchain; install Go >= 1.21') printf %s 'Go %s ist zu alt, um die nötige Toolchain zu laden; installiere Go >= 1.21' ;;
+	'Building from source') printf %s 'Bauen aus dem Quelltext' ;;
+	'downloading Go toolchain and modules') printf %s 'Go-Toolchain und Module werden geladen' ;;
+	'compiling shuntd and shunt') printf %s 'shuntd und shunt werden kompiliert' ;;
+	'compiling lyrebird (Tor bridge transports)') printf %s 'lyrebird (Tor-Bridge-Transporte) wird kompiliert' ;;
+	'lyrebird not built: Tor bridges will not work') printf %s 'lyrebird nicht gebaut: Tor-Bridges funktionieren nicht' ;;
+	'build tools for the desktop app') printf %s 'Bauwerkzeuge für die Desktop-App' ;;
+	'compiling shunt-desktop') printf %s 'shunt-desktop wird kompiliert' ;;
+	'ssh-keygen (checks the release signature)') printf %s 'ssh-keygen (prüft die Release-Signatur)' ;;
+	'Downloading release %s') printf %s 'Release %s wird geladen' ;;
+	'signature of the checksums verified') printf %s 'Signatur der Prüfsummen geprüft' ;;
+	'checksum mismatch - download corrupted or tampered with') printf %s 'Prüfsumme stimmt nicht – Download beschädigt oder manipuliert' ;;
+	'checksum verified') printf %s 'Prüfsumme stimmt' ;;
+	'checksum mismatch (desktop app)') printf %s 'Prüfsumme stimmt nicht (Desktop-App)' ;;
+	'no prebuilt desktop app for %s in this release - skipping it (build from source with --from-source)') printf %s 'keine fertige Desktop-App für %s in diesem Release – wird übersprungen (aus dem Quelltext bauen mit --from-source)' ;;
+	'%s - building from source') printf %s '%s – wird aus dem Quelltext gebaut' ;;
+	'Building from source (%s)') printf %s 'Bauen aus dem Quelltext (%s)' ;;
+	'downloading source') printf %s 'Quelltext wird geladen' ;;
+	'installed %s to %s') printf %s '%s nach %s installiert' ;;
+	'Configuration') printf %s 'Konfiguration' ;;
+	'user %s may use the '\''shunt'\'' command (after a restart)') printf %s 'Benutzer %s darf den Befehl '\''shunt'\'' nutzen (nach einem Neustart)' ;;
+	'user %s may use the '\''shunt'\'' command') printf %s 'Benutzer %s darf den Befehl '\''shunt'\'' nutzen' ;;
+	'keeping existing %s') printf %s 'vorhandene %s bleibt' ;;
+	'WireGuard config to import (empty = none for now)') printf %s 'WireGuard-Datei zum Importieren (leer = vorerst keine)' ;;
+	'cannot read %s') printf %s '%s kann nicht gelesen werden' ;;
+	'Name for this tunnel') printf %s 'Name für diesen Tunnel' ;;
+	'name must be 1-10 chars: a-z 0-9 -') printf %s 'Name muss 1-10 Zeichen haben: a-z 0-9 -' ;;
+	'imported %s as tunnel '\''%s'\'' (PostUp/PreUp scripts in it are ignored)') printf %s '%s als Tunnel '\''%s'\'' importiert (PostUp/PreUp-Skripte darin werden ignoriert)' ;;
+	'wg-quick@%s is running with the same config - two clients with one key fight each other') printf %s 'wg-quick@%s läuft mit derselben Datei – zwei Clients mit einem Schlüssel stören sich gegenseitig' ;;
+	'Stop and disable wg-quick@%s?') printf %s 'wg-quick@%s anhalten und abschalten?' ;;
+	'wg-quick@%s stopped') printf %s 'wg-quick@%s angehalten' ;;
+	'wrote %s') printf %s '%s geschrieben' ;;
+	'glibc asks systemd-resolved directly (nss-resolve) - that bypasses per-route DNS') printf %s 'glibc fragt systemd-resolved direkt (nss-resolve) – das umgeht das DNS pro Weg' ;;
+	'Switch to plain DNS lookups? (backup is kept, undone on uninstall)') printf %s 'Auf einfache DNS-Abfragen umstellen? (Sicherung bleibt, wird beim Deinstallieren rückgängig gemacht)' ;;
+	'privacy settings: host name setting fixed for NetworkManager 1.52+ (%s)') printf %s 'Datenschutzeinstellungen: Host-Namen-Einstellung für NetworkManager 1.52+ korrigiert (%s)' ;;
+	'Foreign Wi-Fi networks see your laptop'\''s MAC address and host name.') printf %s 'Fremde WLANs sehen die MAC-Adresse und den Host-Namen deines Laptops.' ;;
+	'Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?') printf %s 'Verstecken (eigene MAC pro Netz, kein Host-Name im DHCP, IPv6-Datenschutzadressen)?' ;;
+	'privacy settings active from the next Wi-Fi connection (%s)') printf %s 'Datenschutzeinstellungen gelten ab der nächsten WLAN-Verbindung (%s)' ;;
+	'%s: %s') printf %s '%s: %s' ;;
+	'real MAC kept on the networks you trust: %s') printf %s 'echte MAC bleibt in den Netzen, denen du vertraust: %s' ;;
+	'At home: Configure → network profile → MAC "the real one" (router reservations keep working).') printf %s 'Zuhause: Configure → Netzprofil → MAC „die echte“ (Router-Reservierungen funktionieren weiter).' ;;
+	'Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network).') printf %s 'Deine WLAN-Datenschutzeinstellungen lassen die Kabel-MAC und die Geräte-ID im DHCPv6 aus (in jedem Netz gleich).' ;;
+	'Hide those too (The Shunt sets each network: own MAC per network, no host name)?') printf %s 'Auch die verstecken (The Shunt stellt jedes Netz ein: eigene MAC pro Netz, kein Host-Name)?' ;;
+	'Dry run') printf %s 'Probelauf' ;;
+	'configuration check failed - fix %s and run the installer again') printf %s 'Konfigurationsprüfung fehlgeschlagen – korrigiere %s und starte den Installer erneut' ;;
+	'configuration valid') printf %s 'Konfiguration gültig' ;;
+	'Starting the service') printf %s 'Dienst wird gestartet' ;;
+	'Show the tray icon automatically after login?') printf %s 'Tray-Symbol nach der Anmeldung automatisch zeigen?' ;;
+	'desktop app installed: menu entry "The Shunt"') printf %s 'Desktop-App installiert: Menüeintrag „The Shunt“' ;;
+	'waiting for shuntd') printf %s 'warte auf shuntd' ;;
+	'shuntd did not start. Emergency exit: sudo shuntd cleanup') printf %s 'shuntd ist nicht gestartet. Notausgang: sudo shuntd cleanup' ;;
+	'shuntd is running') printf %s 'shuntd läuft' ;;
+	*) return 1 ;;
+	esac
+}
+say() { printf '%s==>%s %s\n' "$c_bld" "$c_off" "$(_f "$@")"; log "==> $(_en "$@")"; }
+ok() { printf '  %s✔%s %s\n' "$c_grn" "$c_off" "$(_f "$@")"; log "  ok: $(_en "$@")"; }
+warn() { printf '  %s!%s %s\n' "$c_yel" "$c_off" "$(_f "$@")"; log "  warning: $(_en "$@")"; }
+note() { printf '  %s\n' "$(_f "$@")"; log "  $(_en "$@")"; } # a plain line of explanation
 die() {
-	printf '%sERROR:%s %s\n' "$c_red" "$c_off" "$*" >&2
-	log "ERROR: $*"
-	if ((LOG_ON)); then echo "Details: $LOG" >&2; fi
+	printf '%s%s%s %s\n' "$c_red" "$(_t 'ERROR:')" "$c_off" "$(_f "$@")" >&2
+	log "ERROR: $(_en "$@")"
+	if ((LOG_ON)); then echo "$(_t 'Details:') $LOG" >&2; fi
 	exit 1
 }
 
@@ -62,42 +185,45 @@ TTY=/dev/tty
 ask() { # ask "question" default -> echoes answer
 	local q=$1 def=${2:-} a=
 	if [[ -n $TTY ]]; then
-		printf '  %s?%s %s [%s] ' "$c_bld" "$c_off" "$q" "$def" >"$TTY"
+		local shown=$def
+		((LANG_DE)) && [[ $def == y ]] && shown=j
+		printf '  %s?%s %s [%s] ' "$c_bld" "$c_off" "$(_t "$q")" "$shown" >"$TTY"
 		read -r a <"$TTY" || true
 	fi
 	log "  question: $q -> ${a:-$def}"
 	echo "${a:-$def}"
 }
-yes_no() { [[ $(ask "$1 (y/n)" "${2:-y}") =~ ^[yYjJ] ]]; }
+yes_no() { [[ $(ask "$(_t "$1") ($( ((LANG_DE)) && echo j/n || echo y/n))" "${2:-y}") =~ ^[yYjJ] ]]; }
 
 # Long steps run in the background with a spinner and elapsed time; their
 # output goes to the log and is shown when they fail.
 step() { # step "message" cmd...
-	local msg=$1 pid rc i=0 t0=$SECONDS spin='|/-\'
+	local msg=$1 pid rc i=0 t0=$SECONDS spin='|/-\' shown
+	shown=$(_t "$msg")
 	shift
 	log "--- $msg: $*"
 	"$@" >>"$LOG" 2>&1 &
 	pid=$!
-	[[ -t 1 ]] || printf '  ... %s\n' "$msg" # no spinner: tell a reader of the output what runs now
+	[[ -t 1 ]] || printf '  ... %s\n' "$shown" # no spinner: tell a reader of the output what runs now
 	while kill -0 "$pid" 2>/dev/null; do
 		if [[ -t 1 ]]; then
 			local extra=''
 			if [[ $PM == apt ]] && fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && ! pgrep -P "$pid" -f 'apt|dpkg' >/dev/null && [[ $msg == *"($PM)"* ]]; then
-				extra=' (waiting for another package manager to finish)'
+				extra=" ($(_t 'waiting for another package manager to finish'))"
 			fi
-			printf '\r  %s %s ... %ds%s ' "${spin:i++%4:1}" "$msg" $((SECONDS - t0)) "$extra"
+			printf '\r  %s %s ... %ds%s ' "${spin:i++%4:1}" "$shown" $((SECONDS - t0)) "$extra"
 		fi
 		sleep 0.2
 	done
 	wait "$pid" && rc=0 || rc=$?
 	[[ -t 1 ]] && printf '\r\033[K'
 	if ((rc)); then
-		printf '  %s✘%s %s failed (exit %d). Last lines of %s:\n' "$c_red" "$c_off" "$msg" "$rc" "$LOG"
+		printf '  %s✘%s %s\n' "$c_red" "$c_off" "$(_f '%s failed (exit %s). Last lines of %s:' "$shown" "$rc" "$LOG")"
 		tail -n 25 "$LOG" | sed 's/^/    /'
 		log "FAILED: $msg (exit $rc)"
 		exit "$rc"
 	fi
-	ok "$msg ($((SECONDS - t0))s)"
+	ok "%s (%ss)" "$msg" "$((SECONDS - t0))"
 }
 
 # ---------------------------------------------------------------- packages
@@ -139,7 +265,7 @@ pacman_install() {
 	local i=0
 	while [[ -e /var/lib/pacman/db.lck ]] && ((i++ < 600)); do sleep 1; done
 	pacman -S --needed --noconfirm "$@" || {
-		echo "Package database out of date? Run 'sudo pacman -Syu', then the installer again."
+		_t "Package database out of date? Run 'sudo pacman -Syu', then the installer again."; echo
 		return 1
 	}
 }
@@ -149,9 +275,9 @@ pkg_install() { # pkg_install "what" logical-name
 	[[ -n $names ]] || return 1
 	# shellcheck disable=SC2086 # word splitting on purpose
 	case $PM in
-	apt) step "installing $1 ($PM)" apt-get -o DPkg::Lock::Timeout=600 -y -q install $names ;;
-	pacman) step "installing $1 ($PM)" pacman_install $names ;;
-	dnf) step "installing $1 ($PM)" dnf -y -q install $names ;;
+	apt) step "$(_f 'installing %s (%s)' "$1" "$PM")" apt-get -o DPkg::Lock::Timeout=600 -y -q install $names ;;
+	pacman) step "$(_f 'installing %s (%s)' "$1" "$PM")" pacman_install $names ;;
+	dnf) step "$(_f 'installing %s (%s)' "$1" "$PM")" dnf -y -q install $names ;;
 	esac
 }
 
@@ -169,13 +295,13 @@ for a in "$@"; do
 		sed -n '2,19p' "$0"
 		exit 0
 		;;
-	*) die "unknown option $a" ;;
+	*) die "unknown option %s" "$a" ;;
 	esac
 done
 
 [[ -z $DNS_LEVEL || $DNS_LEVEL =~ ^[0-3]$ ]] || die "--dns-level must be 0, 1, 2 or 3"
 
-((DRY)) || [[ $EUID -eq 0 ]] || die "run as root: sudo bash $0"
+((DRY)) || [[ $EUID -eq 0 ]] || die "run as root: sudo bash %s" "$0"
 ((DRY)) && [[ $MODE == uninstall ]] && die "--dry-run only works for installing"
 
 if [[ $EUID -eq 0 ]]; then
@@ -265,9 +391,9 @@ if [[ $MODE == uninstall ]]; then
 	rm -rf /usr/local/libexec/shunt
 	systemctl daemon-reload
 	if ((PURGE)); then
-		rm -rf "$ETC" && ok "removed $ETC (including your tunnel keys)"
+		rm -rf "$ETC" && ok "removed %s (including your tunnel keys)" "$ETC"
 	else
-		ok "kept $ETC (use --purge to delete it)"
+		ok "kept %s (use --purge to delete it)" "$ETC"
 	fi
 	ok "done. Your network is back to normal."
 	exit 0
@@ -275,13 +401,24 @@ fi
 
 # ---------------------------------------------------------------- checks
 say "Please note"
-cat <<EOF
+if ((LANG_DE)); then
+	cat <<EOF
+  The Shunt ist eine frühe Beta und keine 100-%-Lösung. Es sortiert den Verkehr pro
+  Programm, aber ein Programm, das schon läuft, behält seinen Weg, manche Apps
+  (Snap-Browser) starten in zwei Schritten, und Apps können Verbindungen öffnen,
+  bevor sie einem Weg zugeordnet sind. Es macht dich nicht anonym. Prüfe mit
+  'shunt leaktest' und 'shunt which' und verlass dich nicht darauf, wo ein Leck
+  dich in Gefahr bringen würde.
+EOF
+else
+	cat <<EOF
   The Shunt is early beta software and not a 100 % solution. It sorts traffic per
   program, but a program that is already running keeps its route, some apps (snap
   browsers) start in two steps, and apps can open connections before they are
   routed. It does not make you anonymous. Check with 'shunt leaktest' and
   'shunt which', and do not rely on it where a leak would put you at risk.
 EOF
+fi
 say "Checking the system"
 [[ $(uname -s) == Linux ]] || die "Linux only"
 [[ -d /run/systemd/system ]] || die "systemd is required"
@@ -289,13 +426,13 @@ say "Checking the system"
 [[ $(stat -fc %T /sys/fs/cgroup) == cgroup2fs ]] ||
 	die "cgroup v2 (unified hierarchy) is required; boot with systemd.unified_cgroup_hierarchy=1"
 IFS=. read -r kmaj kmin _ <<<"$(uname -r)"
-((kmaj > 5 || (kmaj == 5 && kmin >= 13))) || die "kernel 5.13 or newer needed (have $(uname -r))"
+((kmaj > 5 || (kmaj == 5 && kmin >= 13))) || die "kernel 5.13 or newer needed (have %s)" "$(uname -r)"
 case $(uname -m) in
 x86_64) ARCH=amd64 ;;
 aarch64) ARCH=arm64 ;;
-*) die "unsupported CPU $(uname -m)" ;;
+*) die "unsupported CPU %s" "$(uname -m)" ;;
 esac
-ok "Linux $(uname -r), systemd, cgroup v2, $ARCH, $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown distribution}") ($PM)"
+ok "Linux %s, systemd, cgroup v2, %s, %s (%s)" "$(uname -r)" "$ARCH" "$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown distribution}")" "$PM"
 if modprobe -n wireguard 2>/dev/null; then
 	ok "kernel WireGuard available"
 else
@@ -354,7 +491,7 @@ find_release() { # -> sets tag (empty: build from source) and why
 			return
 		fi
 		# no checksums yet: the release build is still running
-		asset "$t" SHA256SUMS && warn "release $t is not signed - skipping it"
+		asset "$t" SHA256SUMS && warn "release %s is not signed - skipping it" "$t"
 	done
 }
 # use_release_installer: run the installer of release $tag (same arguments)
@@ -363,8 +500,8 @@ use_release_installer() {
 	local f
 	f=$(mktemp)
 	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
-		die "could not download the installer of release $tag"
-	ok "release $tag: continuing with its own installer"
+		die "could not download the installer of release %s" "$tag"
+	ok "release %s: continuing with its own installer" "$tag"
 	rm -rf "$WORK"
 	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
 }
@@ -372,11 +509,11 @@ use_release_installer() {
 fetch_sums() {
 	local base=https://github.com/$REPO/releases/download/$tag
 	curl -fsSLo "$WORK/SHA256SUMS" "$base/SHA256SUMS" && curl -fsSLo "$WORK/SHA256SUMS.sig" "$base/SHA256SUMS.sig" ||
-		die "could not download the checksums of release $tag"
+		die "could not download the checksums of release %s" "$tag"
 	printf '%s\n' "$RELEASE_SIGNER" >"$WORK/allowed_signers"
 	ssh-keygen -Y verify -f "$WORK/allowed_signers" -I "${RELEASE_SIGNER%% *}" -n "$RELEASE_NS" \
 		-s "$WORK/SHA256SUMS.sig" <"$WORK/SHA256SUMS" >>"$LOG" 2>&1 ||
-		die "release $tag: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)"
+		die "release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)" "$tag"
 }
 
 # before any question: a release is installed by its own installer
@@ -459,7 +596,7 @@ build_from() { # source dir
 	local gov
 	gov=$(go env GOVERSION | sed 's/^go//')
 	IFS=. read -r gmaj gmin _ <<<"$gov"
-	((gmaj > 1 || gmin >= 21)) || die "Go $gov is too old to fetch the required toolchain; install Go >= 1.21"
+	((gmaj > 1 || gmin >= 21)) || die "Go %s is too old to fetch the required toolchain; install Go >= 1.21" "$gov"
 	say "Building from source"
 	local ver
 	ver=src-$(git -C "$1" rev-parse --short HEAD 2>/dev/null || echo local)
@@ -478,7 +615,7 @@ build_from() { # source dir
 
 if [[ -n $tag ]]; then
 	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
-	say "Downloading release $tag"
+	say "Downloading release %s" "$tag"
 	fetch_sums
 	ok "signature of the checksums verified"
 	base=https://github.com/$REPO/releases/download/$tag
@@ -493,16 +630,16 @@ if [[ -n $tag ]]; then
 				die "checksum mismatch (desktop app)"
 			tar -xzf "$WORK/desktop.tar.gz" -C "$WORK/bin"
 		else
-			warn "no prebuilt desktop app for $ARCH in this release - skipping it (build from source with --from-source)"
+			warn "no prebuilt desktop app for %s in this release - skipping it (build from source with --from-source)" "$ARCH"
 			WANT_DESKTOP=0
 		fi
 	fi
 elif [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 	build_from "$SRC_DIR"
 else
-	ok "$why - building from source"
+	ok "%s - building from source" "$why"
 	command -v git >/dev/null || pkg_install git git
-	say "Building from source ($REF)"
+	say "Building from source (%s)" "$REF"
 	branch_opt=()
 	[[ $REF == HEAD ]] || branch_opt=(--branch "$REF")
 	step "downloading source" git clone -q --depth 1 "${branch_opt[@]}" "https://github.com/$REPO" "$WORK/src"
@@ -519,7 +656,7 @@ if ((WANT_DESKTOP)) && [[ -f $WORK/bin/shunt-desktop ]]; then
 fi
 # sudo's secure_path does not include /usr/local/bin everywhere (Kali)
 ln -sf "$BIN_DIR/shuntd" /usr/sbin/shuntd
-ok "installed $("$BIN_DIR/shuntd" version) to $BIN_DIR"
+ok "installed %s to %s" "$("$BIN_DIR/shuntd" version)" "$BIN_DIR"
 
 unit_src() { # file name -> path of packaged unit (or download)
 	if [[ -f $SRC_DIR/packaging/systemd/$1 ]]; then
@@ -538,16 +675,16 @@ if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then
 	id -nG "$SUDO_USER" | tr ' ' '\n' | grep -qx shunt || NEW_MEMBER=1
 	usermod -aG shunt "$SUDO_USER"
 	if [[ -n $NEW_MEMBER ]]; then
-		ok "user $SUDO_USER may use the 'shunt' command (after a restart)"
+		ok "user %s may use the 'shunt' command (after a restart)" "$SUDO_USER"
 	else
-		ok "user $SUDO_USER may use the 'shunt' command"
+		ok "user %s may use the 'shunt' command" "$SUDO_USER"
 	fi
 fi
 install -d -m755 "$ETC"
 install -d -m700 "$ETC/tunnels"
 
 if [[ -f $ETC/shunt.toml ]]; then
-	ok "keeping existing $ETC/shunt.toml"
+	ok "keeping existing %s" "$ETC/shunt.toml"
 else
 	wg=${SHUNT_WG_CONF:-}
 	if [[ -z $wg ]]; then
@@ -556,18 +693,18 @@ else
 	fi
 	tunnel_block='' rule_hint=''
 	if [[ -n $wg ]]; then
-		[[ -r $wg ]] || die "cannot read $wg"
+		[[ -r $wg ]] || die "cannot read %s" "$wg"
 		base=$(basename "$wg" .conf)
 		name=$(echo "$base" | tr 'A-Z_' 'a-z-' | tr -cd 'a-z0-9-' | sed 's/^-*//' | cut -c1-10)
 		[[ -n $name ]] || name=vpn
 		name=$(ask "Name for this tunnel" "$name")
 		[[ $name =~ ^[a-z0-9][a-z0-9-]{0,9}$ ]] || die "name must be 1-10 chars: a-z 0-9 -"
 		install -m600 "$wg" "$ETC/tunnels/$name.conf"
-		ok "imported $wg as tunnel '$name' (PostUp/PreUp scripts in it are ignored)"
+		ok "imported %s as tunnel '%s' (PostUp/PreUp scripts in it are ignored)" "$wg" "$name"
 		if systemctl is-active -q "wg-quick@$base" 2>/dev/null; then
-			warn "wg-quick@$base is running with the same config - two clients with one key fight each other"
-			if yes_no "Stop and disable wg-quick@$base?" y; then
-				systemctl disable --now "wg-quick@$base" && ok "wg-quick@$base stopped"
+			warn "wg-quick@%s is running with the same config - two clients with one key fight each other" "$base"
+			if yes_no "$(_f 'Stop and disable wg-quick@%s?' "$base")" y; then
+				systemctl disable --now "wg-quick@$base" && ok "wg-quick@%s stopped" "$base"
 			fi
 		fi
 		tunnel_block=$(printf '[tunnel.%s]\nconfig = "%s/tunnels/%s.conf"\n' "$name" "$ETC" "$name")
@@ -613,7 +750,7 @@ $dns_filter_block$tunnel_block
 # route  = "direct"
 EOF
 	chmod 644 "$ETC/shunt.toml"
-	ok "wrote $ETC/shunt.toml"
+	ok "wrote %s" "$ETC/shunt.toml"
 fi
 
 if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
@@ -628,10 +765,10 @@ fi
 if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
 	sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
 	nmcli general reload conf >/dev/null 2>&1 || true
-	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ ($NM_PRIVACY)"
+	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ (%s)" "$NM_PRIVACY"
 fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
-	echo "  Foreign Wi-Fi networks see your laptop's MAC address and host name."
+	note "Foreign Wi-Fi networks see your laptop's MAC address and host name."
 	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
 		cat >"$NM_PRIVACY" <<'EOF'
 # The Shunt: privacy on foreign networks (removed by install.sh --uninstall).
@@ -649,17 +786,17 @@ ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
-		ok "privacy settings active from the next Wi-Fi connection ($NM_PRIVACY)"
+		ok "privacy settings active from the next Wi-Fi connection (%s)" "$NM_PRIVACY"
 		# the rest NetworkManager's defaults cannot do: the cable MAC, the
 		# DHCPv6 DUID and client ID (same on every network), a network's
 		# first connection; shuntd sets the profiles
 		added=$(daemon_privacy "$ETC/shunt.toml")
 		if [[ -n $added ]]; then
-			ok "$ETC/shunt.toml: $added"
+			ok "%s: %s" "$ETC/shunt.toml" "$added"
 			if [[ $added == *mac* ]]; then
 				home=$(home_mac "$ETC/shunt.toml")
-				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
-				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: %s" "$home"
+				else note "At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
 			fi
 		fi
 	fi
@@ -668,15 +805,15 @@ elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[
 	# an install from before: Wi-Fi privacy is on, the cable and the
 	# device IDs are not (asked once, only in a terminal: an update from
 	# the app must not change the MAC at home unasked)
-	echo "  Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
+	note "Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
 	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
 		added=$(daemon_privacy "$ETC/shunt.toml")
 		if [[ -n $added ]]; then
-			ok "$ETC/shunt.toml: $added"
+			ok "%s: %s" "$ETC/shunt.toml" "$added"
 			if [[ $added == *mac* ]]; then
 				home=$(home_mac "$ETC/shunt.toml")
-				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
-				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: %s" "$home"
+				else note "At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
 			fi
 		fi
 	fi
@@ -686,7 +823,7 @@ fi
 say "Dry run"
 "$BIN_DIR/shuntd" -c "$ETC/shunt.toml" check >/dev/null 2>"$WORK/check.log" || {
 	cat "$WORK/check.log"
-	die "configuration check failed - fix $ETC/shunt.toml and run the installer again"
+	die "configuration check failed - fix %s and run the installer again" "$ETC/shunt.toml"
 }
 grep -v '^dns ' "$WORK/check.log" | sed 's/^/  /' || true
 ok "configuration valid"
@@ -732,6 +869,28 @@ ok "shuntd is running"
 echo
 "$BIN_DIR/shunt" status || true
 
+if ((LANG_DE)); then
+cat <<EOF
+
+${c_bld}Fertig.${c_off} Kurzübersicht:
+  The Shunt im Anwendungsmenü            Desktop-App (Tray-Symbol + Fenster)
+  ${rule_hint:-shunt run --via tunnel:<name> -- firefox}   eine App über einen Tunnel starten
+  shunt status                       was gerade los ist
+  shunt panic on | off               alles kappen / wiederherstellen
+  sudo nano $ETC/shunt.toml && shunt reload
+  journalctl -u shuntd -f            Protokoll
+
+Die Konfiguration ändern, neu laden oder Panik aufheben fragt nach deinem
+Admin-Passwort (polkit); Status, Apps starten und PANIK nie.
+
+${c_yel}Hält man shuntd an, bleibt die Sperre für Tunnel (mit Absicht); direkter Verkehr läuft weiter.${c_off}
+Notausgang:      sudo shuntd cleanup
+Deinstallieren:  sudo bash install.sh --uninstall
+Boot-Sperre:     Läuft "alles andere" über einen Tunnel, bleibt das Netz beim Start
+                 gesperrt, bis shuntd läuft (daemon.boot_lockdown = auto | on | off).
+                 Nach dem Start offline, weil shuntd scheitert? sudo shuntd cleanup
+EOF
+else
 cat <<EOF
 
 ${c_bld}Done.${c_off} Quick reference:
@@ -752,7 +911,13 @@ Boot lockdown:   when "everything else" goes through a tunnel, the network stays
                  blocked at boot until shuntd runs (daemon.boot_lockdown = auto | on | off).
                  Offline after boot because shuntd fails? sudo shuntd cleanup
 EOF
+fi
 if [[ -n ${NEW_MEMBER:-} ]]; then
-	echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"
-	echo "(logging out is not always enough: the desktop's user services keep the old group list)."
+	if ((LANG_DE)); then
+		echo "${c_yel}Starte den Rechner neu${c_off}, damit '$SUDO_USER' 'shunt' und das Tray-Symbol ohne sudo nutzen kann"
+		echo "(Abmelden reicht nicht immer: die Benutzerdienste des Desktops behalten die alte Gruppenliste)."
+	else
+		echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"
+		echo "(logging out is not always enough: the desktop's user services keep the old group list)."
+	fi
 fi
