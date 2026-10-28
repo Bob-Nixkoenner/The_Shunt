@@ -459,6 +459,9 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         Section("Tunnels") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
+                if (settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
+                    save(Tunnel(Store.tunnelName("tor", settings.tunnels.map { it.name }), Tunnel.TOR_DEFAULT_CONF, Tunnel.TOR), "")
+                })
                 ShuntButton("Scan QR", {
                     scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard or OpenVPN QR code").setBeepEnabled(false))
                 })
@@ -466,18 +469,22 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             if (settings.tunnels.isEmpty()) Hint("A WireGuard file (.conf), an OpenVPN file (.ovpn) or the QR code your VPN server shows.")
             settings.tunnels.forEach { t ->
                 val sum = remember(t.conf) {
-                    runCatching { JSONObject(if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf)) }.getOrNull()
+                    runCatching { JSONObject(if (t.isTor) Mobile.checkTor(t.conf) else if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf)) }.getOrNull()
                 }
                 EdgeCard(Tone.Ok) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
-                        Pill(if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
+                        Pill(if (t.isTor) "Tor" else if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
                         TextButton({ renaming = t }) { Text(T("Rename")) }
                         TextButton({ confirmDelete = t }) { Text(T("Delete"), color = LocalShunt.current.bad) }
                     }
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
-                        if (t.isOpenVPN) {
+                        if (t.isTor) {
+                            KV("SOCKS", it.optString("socks"), mono = true)
+                            KV("DNS", it.optString("dns"), mono = true)
+                            TorHelp()
+                        } else if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
                         } else {
@@ -487,10 +494,10 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         }
                         // multi-hop: the tunnel reaches its server through a WireGuard tunnel
                         // (one that goes direct itself and does not run through this one)
-                        val carriers = settings.tunnels.filter { !it.isOpenVPN && it.name != t.name && it.via.isEmpty() }
+                        val carriers = settings.tunnels.filter { !it.isOpenVPN && !it.isTor && it.name != t.name && it.via.isEmpty() }
                             .filter { t.isOpenVPN || settings.tunnels.none { o -> o.via == t.name } }
                             .map { "tunnel:${it.name}" }
-                        if (carriers.isNotEmpty() || t.via.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!t.isTor && (carriers.isNotEmpty() || t.via.isNotEmpty())) Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(T("through"), Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
                             RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
                                 val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
@@ -800,5 +807,20 @@ private fun RoutePicker(current: String, choices: List<String>, onPick: (String)
                 DropdownMenuItem(text = { RouteTag(r) }, onClick = { open = false; onPick(r) })
             }
         }
+    }
+}
+
+/** Tor on the phone is Orbot's job: say so, and open it (or its page) with one tap. */
+@Composable
+private fun TorHelp() {
+    val ctx = LocalContext.current
+    val orbot = remember { ctx.packageManager.getLaunchIntentForPackage(Tunnel.ORBOT) }
+    Hint("Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – start it (without its own VPN mode) and keep it running.")
+    if (orbot != null) {
+        ShuntButton("Open Orbot", { ctx.startActivity(orbot) })
+    } else {
+        ShuntButton("Get Orbot", {
+            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://guardianproject.info/apps/org.torproject.android/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        })
     }
 }

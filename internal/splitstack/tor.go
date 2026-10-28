@@ -3,6 +3,7 @@ package splitstack
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -156,4 +157,15 @@ func (e *Engine) newTorWT(tc tunnelConf) (*wgTunnel, error) {
 	}
 	t.tor = tt
 	return t, nil
+}
+
+// CheckTor validates the file of a Tor tunnel for the app: JSON with "socks"
+// and "dns" (the addresses in use).
+func CheckTor(conf string) (string, error) {
+	c, err := parseTorConf(conf)
+	if err != nil {
+		return "", err
+	}
+	b, _ := json.Marshal(map[string]string{"socks": c.Socks, "dns": c.DNS})
+	return string(b), nil
 }
