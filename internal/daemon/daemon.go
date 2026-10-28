@@ -1896,6 +1896,12 @@ func (d *Daemon) killGroups(gs []engine.Group) int {
 		if err != nil {
 			continue
 		}
+		// cgroup.kill first: shuntd's unit has no CAP_KILL, a plain kill of
+		// another user's program fails with EPERM
+		if k, ok := d.cg.(interface{ Kill(rel string) error }); ok && len(pids) > 0 && k.Kill(g.Path) == nil {
+			n += len(pids)
+			continue
+		}
 		for _, pid := range pids {
 			if pr, err := os.FindProcess(pid); err == nil && pr.Kill() == nil {
 				n++
