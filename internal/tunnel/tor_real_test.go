@@ -18,9 +18,7 @@ import (
 
 func realTorSpec(t *testing.T, isolate string, bridges []string) TorSpec {
 	t.Helper()
-	if _, err := exec.LookPath("tor"); err != nil {
-		t.Skip("tor not installed")
-	}
+	torPath(t) // skips when tor is not installed
 	d, err := os.MkdirTemp("", "tt")
 	if err != nil {
 		t.Fatal(err)
