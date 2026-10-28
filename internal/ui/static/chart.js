@@ -26,7 +26,7 @@ function sparkline(vals) {
   if (!vals || vals.length < 2) return "";
   const max = Math.max(...vals);
   const line = linePath(vals, 100, 24, max);
-  return svgEl("svg", { class: "spark", viewBox: "0 -1 100 26", preserveAspectRatio: "none", role: "img", "aria-label": "traffic of the last " + histRange },
+  return svgEl("svg", { class: "spark", viewBox: "0 -1 100 26", preserveAspectRatio: "none", role: "img", "aria-label": T("traffic of the last {range}", { range: histRange }) },
     svgEl("path", { class: "a", d: line + "L100,24L0,24Z" }), svgEl("path", { d: line }));
 }
 
@@ -66,7 +66,7 @@ function drawBlocks(h) {
     svgEl("svg", { viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none" },
       ...vals.map((v, i) => v ? svgEl("rect", { class: "bar", x: (i * bw + bw * 0.12).toFixed(1), width: (bw * 0.76).toFixed(1), y: (H - v / max * H).toFixed(1), height: (v / max * H).toFixed(1) }) : ""),
       cursor),
-    ...(vals.some((v) => v) ? [el("span", { class: "ymax" }, max + " blocked")] : []));
+    ...(vals.some((v) => v) ? [el("span", { class: "ymax" }, T("{n} blocked", { n: max }))] : []));
   return cursor;
 }
 
@@ -82,8 +82,8 @@ function renderTraffic() {
   const filterOn = !!(status && status.dns_filter);
   const names = { "1h": "last hour", "24h": "last 24 hours", "7d": "last 7 days", "30d": "last 30 days" };
   $("#t-kpis").replaceChildren(
-    kpi("down", "↓ " + bytes(h.rx), "downloaded, " + names[h.range]),
-    kpi("up", "↑ " + bytes(h.tx), "uploaded, " + names[h.range]),
+    kpi("down", "↓ " + bytes(h.rx), T("downloaded, {range}", { range: T(names[h.range]) })),
+    kpi("up", "↑ " + bytes(h.tx), T("uploaded, {range}", { range: T(names[h.range]) })),
     kpi("dns", filterOn || h.dns_month ? String(h.dns_today) : "–", filterOn ? "names blocked today" : "names blocked today (DNS filter off)"),
     kpi("dns", filterOn || h.dns_month ? String(h.dns_month) : "–", "names blocked this month"));
   const c1 = drawTraffic(h), c2 = drawBlocks(h);
@@ -97,7 +97,7 @@ function renderTraffic() {
     const p = h.points[i];
     const x = (i + 0.5) / n * 1000;
     for (const c of [c1, c2]) { c.setAttribute("x1", x); c.setAttribute("x2", x); c.setAttribute("visibility", "visible"); }
-    hover.textContent = fmtTime(p.t, true) + "  ·  ↓ " + rate(p.rx, step) + "  ↑ " + rate(p.tx, step) + "  ·  " + p.dns + " blocked";
+    hover.textContent = T("{time}  ·  ↓ {rx}  ↑ {tx}  ·  {n} blocked", { time: fmtTime(p.t, true), rx: rate(p.rx, step), tx: rate(p.tx, step), n: p.dns });
   };
   const leave = () => { for (const c of [c1, c2]) c.setAttribute("visibility", "hidden"); hover.textContent = ""; };
   for (const id of ["#t-chart", "#t-dnschart"]) { $(id).onmousemove = move; $(id).onmouseleave = leave; }

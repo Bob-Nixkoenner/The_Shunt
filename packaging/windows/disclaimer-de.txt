@@ -1,0 +1,8 @@
+﻿The Shunt ist frühe Beta-Software und keine 100-%-Lösung.
+
+Es sortiert den Verkehr pro Programm, aber:
+ - ein Programm, das schon läuft, behält die Route, mit der es gestartet wurde,
+ - eine App kann Verbindungen öffnen, bevor sie geroutet ist,
+ - es macht dich nicht anonym.
+
+Prüfe es mit dem Leaktest in der App und verlass dich nicht darauf, wo ein Leck dich in Gefahr bringen würde.

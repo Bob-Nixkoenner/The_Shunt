@@ -7,10 +7,14 @@ on:
     types: [published]
   push:
     tags: ["v*"]
+  # a change to this workflow is built once in its pull request: everything
+  # but signing and publishing, version v0.0.0-ci
+  pull_request:
+    paths: [".github/workflows/release.yml"]
 
 # publishing in the UI fires both events for the same tag: build once
 concurrency:
-  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  group: release-${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -33,6 +37,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle   # Gradle itself and the app's dependencies
       - name: SDK and NDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
@@ -61,9 +66,9 @@ jobs:
           (cd android && ./gradlew --no-daemon assembleGithubDebug bundlePlayRelease)
           mkdir dist
           cp android/app/build/outputs/apk/github/debug/app-github-debug.apk \
-            "dist/shunt-${{ github.event.release.tag_name || github.ref_name }}-android.apk"
+            "dist/shunt-${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}-android.apk"
           cp android/app/build/outputs/bundle/playRelease/app-play-release.aab \
-            "dist/shunt-${{ github.event.release.tag_name || github.ref_name }}-play.aab"
+            "dist/shunt-${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}-play.aab"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -86,7 +91,7 @@ jobs:
       - name: Inno Setup
         shell: pwsh
         env:
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; if ($LASTEXITCODE) { throw 'choco failed' } }
@@ -115,14 +120,14 @@ jobs:
         # CycloneDX list of the Go modules in the binaries; a failure here must not stop a release
         continue-on-error: true
         env:
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: |
           go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0
           mkdir -p dist
           "$(go env GOPATH)/bin/cyclonedx-gomod" app -json -main cmd/shuntd -output "dist/the-shunt-$TAG.cdx.json"
       - name: build
         env:
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: VERSION=$TAG DIST=out STAGE_DIR=stage packaging/windows/build.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -135,30 +140,32 @@ jobs:
           path: out/the-shunt-windows-amd64.zip
           if-no-files-found: error
 
-  release:
-    needs: [android, windows-files, windows-setup]
-    # the windows jobs may be skipped (BUILD_WINDOWS), the release still goes out
-    if: ${{ !cancelled() && needs.android.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.windows-files.result) && contains(fromJSON('["success","skipped"]'), needs.windows-setup.result) }}
+  linux:
+    # Linux binaries, desktop app and .deb packages; runs next to the
+    # Android and Windows jobs instead of after them
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@v4
+      # GTK/WebKit for the desktop app: ~180 packages; the runners' Ubuntu
+      # mirror took up to 15 minutes for them, the cache brings them back
+      - uses: actions/cache@v4
         with:
-          name: android-apk
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: windows-{zip,setup}
-          path: dist
-          merge-multiple: true
-        continue-on-error: true # none when Windows is off
+          path: ~/apt-archives
+          key: apt-gtk-webkit-${{ runner.os }}-${{ runner.arch }}-v1
+      - name: desktop app build dependencies
+        run: |
+          mkdir -p ~/apt-archives/partial
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::archives="$HOME/apt-archives" libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo chown -R "$USER" ~/apt-archives
       - name: build
         env:
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: |
+          mkdir -p dist
           for arch in amd64 arm64; do
             mkdir -p "build/$arch"
             CGO_ENABLED=0 GOARCH=$arch go build -trimpath \
@@ -169,7 +176,6 @@ jobs:
             tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt lyrebird
           done
           # desktop app (cgo: GTK + WebKitGTK), amd64
-          sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
           CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o build/desktop/ ./cmd/shunt-desktop
           tar -czf dist/shunt-desktop_linux_amd64.tar.gz -C build/desktop shunt-desktop
           # Debian packages: the-shunt (amd64, arm64) and the-shunt-desktop (amd64)
@@ -177,9 +183,39 @@ jobs:
           for arch in amd64 arm64; do
             VERSION=$TAG ARCH=$arch BIN=build/$arch OUT=dist bash packaging/deb/build.sh
           done
-          # Windows ZIP and setup.exe come from the windows-* jobs (already in dist/)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist
+          if-no-files-found: error
+
+  release:
+    needs: [android, linux, windows-files, windows-setup]
+    # the windows jobs may be skipped (BUILD_WINDOWS), the release still goes out
+    if: ${{ !cancelled() && needs.android.result == 'success' && needs.linux.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.windows-files.result) && contains(fromJSON('["success","skipped"]'), needs.windows-setup.result) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-{zip,setup}
+          path: dist
+          merge-multiple: true
+        continue-on-error: true # none when Windows is off
+      - name: checksums
+        run: |
+          # every file of the release, built by the jobs above
           (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json > SHA256SUMS)
       - name: sign checksums
+        if: github.event_name != 'pull_request'
         # install.sh only uses releases whose SHA256SUMS carry this signature
         # (public key: RELEASE_SIGNER in install.sh)
         env:
@@ -195,6 +231,7 @@ jobs:
           ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed_signers" -I release@the-shunt -n shunt-release \
             -s dist/SHA256SUMS.sig < dist/SHA256SUMS
       - name: attest build provenance
+        if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -205,9 +242,10 @@ jobs:
             dist/*.exe
             dist/*.deb
       - name: publish
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
