@@ -131,7 +131,7 @@ func (b *tunnelBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 // tunnel that is up; carriers start first and never sleep, see onDemandEligible).
 func (e *Engine) newWGVia(t tunnelConf, mtu int) (*wgTunnel, error) {
 	outer := e.tunnel(t.Via)
-	if outer == nil || outer.isOVPN() || outer.tsType {
+	if outer == nil || outer.isOVPN() || outer.tsType || outer.torType {
 		return nil, errors.New("via: " + t.Via + " is not a WireGuard tunnel here")
 	}
 	if outer.net == nil {
