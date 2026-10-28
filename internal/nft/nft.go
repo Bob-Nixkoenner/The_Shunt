@@ -174,9 +174,12 @@ func Render(p *engine.Plan) (string, error) {
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
 	// Tor carries TCP only (and DNS, answered by the proxy on loopback):
 	// UDP and the rest are rejected at once, so QUIC falls back to TCP.
+	// "fib daddr type != local", not "oifname != lo": a DNS query redirected
+	// to the proxy on loopback still reports the interface from before the
+	// redirect (eth0) here, and a resolver on the LAN would be rejected.
 	for _, r := range p.Routes {
 		if r.Tor {
-			w("\t\tmeta mark %#x oifname != \"lo\" meta l4proto != tcp counter reject with icmpx admin-prohibited", r.Mark)
+			w("\t\tmeta mark %#x fib daddr type != local meta l4proto != tcp counter reject with icmpx admin-prohibited", r.Mark)
 		}
 	}
 	w("\t\toifname != \"lo\" jump ask_out")
