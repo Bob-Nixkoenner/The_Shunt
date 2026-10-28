@@ -21,14 +21,22 @@ data class Tunnel(
     val via: String = "",
 ) {
     val isOpenVPN get() = type == OPENVPN
+    /** A Tor tunnel: TCP and names go to a Tor client on this phone (Orbot), see conf. */
+    val isTor get() = type == TOR
 
     fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).put("via", via).apply {
         if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
+        if (isTor) put("type", TOR)
     }
 
     companion object {
         const val WIREGUARD = "wireguard"
         const val OPENVPN = "openvpn"
+        const val TOR = "tor"
+
+        /** Orbot (the Tor app of the Guardian Project): SOCKS 9050, DNS 5400. */
+        const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\ndns = 127.0.0.1:5400\n"
+        const val ORBOT = "org.torproject.android"
     }
 }
 

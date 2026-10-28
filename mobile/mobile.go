@@ -144,6 +144,9 @@ func CheckWireGuard(conf string) (string, error) { return splitstack.CheckWireGu
 // "clean" (the text to store).
 func CheckOpenVPN(conf string) (string, error) { return splitstack.CheckOpenVPN(conf) }
 
+// CheckTor validates the file of a Tor tunnel: JSON with "socks" and "dns".
+func CheckTor(conf string) (string, error) { return splitstack.CheckTor(conf) }
+
 // VerifyUpdate checks the release signature of a downloaded SHA256SUMS file
 // (error if it was not signed by the release key) and returns the SHA-256
 // (hex) that the file lists for name, "" if it lists none.
