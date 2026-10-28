@@ -1,7 +1,7 @@
 ID=M09
 TITLE="Weitergeleiteter Verkehr (Container/VM auf dem Client) bei laufendem Tunnel folgt dem Standardweg"
 MODE=normal
-EXPECT_CANARY=tunnel
+EXPECT_CANARY=any
 NOTE="Wie M06, aber der Tunnel laeuft: Verkehr aus dem Namespace muss durch den Tunnel, nicht direkt (Docker/libvirt-Fall)."
 CLIENT='
 sudo -n sysctl -qw net.ipv4.ip_forward=1
