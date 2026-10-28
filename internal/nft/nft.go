@@ -150,6 +150,14 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t}")
 	}
 
+	// Old ICMP requests that nothing needs any more but whose answers tell a
+	// neighbour the system's clock (timestamp, down to milliseconds: uptime
+	// and clock fingerprint), netmask or existence: not answered.
+	w("\tchain icmp_quiet {")
+	w("\t\ttype filter hook input priority raw; policy accept;")
+	w("\t\ticmp type { timestamp-request, address-mask-request, info-request } counter drop")
+	w("\t}")
+
 	if p.Inbound != nil {
 		lines, err := inboundLines(p.Inbound)
 		if err != nil {

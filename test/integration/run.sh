@@ -49,7 +49,12 @@ CGMNT=/sys/fs/cgroup
 
 echo "== build"
 mkdir -p "$BIN"
-(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+if [[ -n ${PREBUILT:-} ]]; then
+	# binaries built elsewhere (a machine without the Go version go.mod wants)
+	cp "$PREBUILT"/{shuntd,shunt,fakedns,wireguard-go} "$BIN/"
+else
+	(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+fi
 
 groupadd -f shunttest
 TGID=$(getent group shunttest | cut -d: -f3)

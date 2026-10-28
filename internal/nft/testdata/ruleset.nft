@@ -52,6 +52,10 @@ table inet shunt {
 		iifname "sh-vps" ct state new ct mark set 0x530002
 		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
 	}
+	chain icmp_quiet {
+		type filter hook input priority raw; policy accept;
+		icmp type { timestamp-request, address-mask-request, info-request } counter drop
+	}
 	chain ask_out {
 	}
 	chain filter_out {

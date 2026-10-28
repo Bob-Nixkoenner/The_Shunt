@@ -30,6 +30,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -87,7 +88,10 @@ type Daemon struct {
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
 	routeSoft string
-	restart   chan struct{}
+	// clock check through the default route (see runClockCheck)
+	clockOff time.Duration
+	clockSet bool
+	restart  chan struct{}
 
 	fw *firewall.Manager
 
@@ -475,6 +479,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
+	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
 	go func() {
 		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
@@ -563,6 +568,47 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if again { // waiting for the user to log in
 				go d.probeCaptive()
 			}
+		}
+	}
+}
+
+// clockLimit: a system clock more off than this compared with the time seen
+// through the tunnel gets a warning.
+const clockLimit = 90 * time.Second
+
+// runClockCheck compares the system clock with web servers asked over the
+// default route, when that is a tunnel (the idea of Tails/Whonix; never in
+// the clear on a foreign network). It only warns, it sets nothing.
+func (d *Daemon) runClockCheck(ctx context.Context) {
+	wait := 25 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = 20 * time.Minute
+		d.mu.Lock()
+		viaTunnel := d.plan != nil && d.plan.DefaultRoute.Kind == config.RouteTunnel
+		d.mu.Unlock()
+		if !viaTunnel {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		off, err := clockcheck.Median(cctx, d.downloadClient(), clockcheck.Sites)
+		cancel()
+		if err != nil {
+			wait = 2 * time.Minute // tunnel not up yet, try again soon
+			continue
+		}
+		d.mu.Lock()
+		was := d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit)
+		d.clockOff, d.clockSet = off, true
+		d.mu.Unlock()
+		if clockcheck.Skewed(off, clockLimit) {
+			d.Log.Warn("the system clock differs from the time seen through the tunnel", "offset", off.Round(time.Second))
+		} else if was {
+			d.Log.Info("the system clock agrees with the time seen through the tunnel again")
 		}
 	}
 }
@@ -1533,6 +1579,9 @@ func (d *Daemon) status() api.Status {
 		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	if d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit) {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("the system clock is %s %s the time seen through the tunnel: handshakes and certificate checks may fail (fix it with timedatectl set-ntp true)", (d.clockOff.Abs()/time.Second*time.Second).String(), map[bool]string{true: "behind", false: "ahead of"}[d.clockOff > 0]))
+	}
 	if d.book != nil {
 		st.Traffic = d.book.Summaries(time.Now())
 	}
