@@ -1,7 +1,7 @@
 ID=A07
 TITLE="Start aus dem Menü: Tunnel-App (Regel) bei Standardweg direkt"
 CONFIG=direct
-ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp) # default route direct: Ubuntu's connectivity check may go direct
+ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:185.125.190.0/24:123/udp) # default route direct: Ubuntu's connectivity check may go direct
 NOTE="Wie A06, aber über einen Menüeintrag (gio launch). Erwartet: Fund wie A06 (Start-Wettlauf, Fix-Plan #6)."
 CLIENT='
 f=/usr/share/applications/labtun-menu.desktop
