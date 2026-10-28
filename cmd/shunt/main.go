@@ -110,6 +110,8 @@ func main() {
 	}
 	var err error
 	switch args[0] {
+	case "speedtest":
+		err = speedtestCmd(c, args[1:])
 	case "run":
 		err = run(c, args[1:])
 	case "status":

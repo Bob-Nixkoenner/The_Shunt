@@ -342,7 +342,8 @@ check "leaktest: tunnel ok" yes "$(grep -qE '^tunnel:vps +10.66.0.2 +10.66.0.2 +
 check "leaktest: block blocked" yes "$(grep -qE '^block +- +- +BLOCKED' <<<"$lt" && echo yes || echo "no: $lt")"
 
 # speed test: every route measured from inside it; the server sees the exit address of that route
-st=$(fetch_long "$BIN/shunt" -s "$SOCK" speedtest --route direct,tunnel:vps,block --rounds 1 --size-mb 2 --json)
+st=$(cli timeout 120 "$BIN/shunt" -s "$SOCK" speedtest --route direct,tunnel:vps,block --rounds 1 --size-mb 2 --json 2>"$WORK/speed.err" || true)
+[[ -n $st ]] || { echo "speedtest printed nothing:"; cat "$WORK/speed.err"; grep -i speed "$WORK/shuntd.log" | tail -5; }
 sp() { python3 -c 'import json,sys; r={x["route"]:x for x in json.load(sys.stdin)["routes"]}; x=r.get(sys.argv[1], {}); print(x.get("state","missing"), x.get("ip",""), "mbit" if x.get("down_mbit",0) > 0 and x.get("up_mbit",0) > 0 and x.get("latency_ms",0) > 0 else "nomeasure", "block" if "block" in r else "")' "$1" <<<"$st"; }
 check "speedtest: direct measured, exit address direct" "ok 10.99.0.2 mbit " "$(sp direct)"
 check "speedtest: tunnel measured, exit address is the tunnel's" "ok 10.66.0.2 mbit " "$(sp tunnel:vps)"
