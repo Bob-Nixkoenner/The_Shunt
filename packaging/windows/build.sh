@@ -21,7 +21,7 @@ echo "$WINTUN_SHA  $tmp/wintun.zip" | sha256sum -c -
 unzip -oq "$tmp/wintun.zip" -d "$tmp" && cp "$tmp/wintun/bin/amd64/wintun.dll" "$OUT/"
 
 GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkico "$OUT/the-shunt.ico"
-cp packaging/windows/disclaimer.txt packaging/windows/install.ps1 packaging/windows/uninstall.ps1 packaging/windows/README.txt "$OUT/"
+cp packaging/windows/disclaimer.txt packaging/windows/disclaimer-de.txt packaging/windows/install.ps1 packaging/windows/uninstall.ps1 packaging/windows/README.txt "$OUT/"
 # STAGE_DIR=<dir>: also leave the staged files there (for a separate Windows job that runs ISCC)
 if [ -n "${STAGE_DIR:-}" ]; then mkdir -p "$STAGE_DIR"; cp -r "$OUT/." "$STAGE_DIR/"; fi
 # Setup.exe (Inno Setup): ISCC=/path/to/ISCC.exe (runs under wine on Linux); skipped if not set

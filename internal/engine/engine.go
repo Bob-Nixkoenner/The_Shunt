@@ -149,6 +149,8 @@ type Plan struct {
 	LinkIfaces []string
 	// FilterRoutes: all rules' FilterRoutes (one listener each).
 	FilterRoutes []*Route
+	// Inbound: incoming connections (nil = not filtered).
+	Inbound *Inbound
 }
 
 // Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
@@ -179,6 +181,41 @@ func (p *Plan) AppRules() []*Rule {
 	for i := range p.Rules {
 		if len(p.Rules[i].Apps) > 0 {
 			out = append(out, &p.Rules[i])
+		}
+	}
+	return out
+}
+
+// StartMarks returns, per process name (comm, at most 15 bytes), the route
+// mark a program gets for its sockets until the app watcher has moved it
+// into its rule's group (the start race, see package racebpf). Only rules
+// that take a program as a whole qualify: app names, no arguments, no
+// destination or port selectors. Rules that apply to every program
+// (destination or port rules without a group) end the list, because a
+// program not yet in its group could match them first.
+func (p *Plan) StartMarks() map[string]uint32 {
+	out := map[string]uint32{}
+	for _, r := range p.Rules {
+		if len(r.Groups) == 0 {
+			if r.Route != nil {
+				break
+			}
+			continue // only a DNS filter level
+		}
+		if len(r.Apps) == 0 || r.Route == nil || len(r.Args) > 0 || !r.AnyFamily || len(r.Ports) > 0 {
+			continue
+		}
+		for _, a := range r.Apps {
+			if a.Kind != "name" {
+				continue
+			}
+			n := a.Value
+			if len(n) > 15 {
+				n = n[:15]
+			}
+			if _, seen := out[n]; !seen {
+				out[n] = r.Route.Mark
+			}
 		}
 	}
 	return out
@@ -421,5 +458,37 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 
 	dr, _ := c.ParseRoute(c.Daemon.DefaultRoute)
 	p.DefaultRoute = p.RouteByName(dr.String())
+
+	if mode, allow := c.InboundFor(network); mode != "" {
+		in := &Inbound{Mode: mode, Allow: allow, Uplinks: slices.Clone(p.LinkIfaces)}
+		sort.Strings(in.Uplinks)
+		for _, r := range p.Routes {
+			if r.Kind == config.RouteTunnel && r.Iface != "" && !slices.ContainsFunc(in.Tunnels, func(t InboundTunnel) bool { return t.Iface == r.Iface }) {
+				m, a := c.TunnelInbound(r.Tunnel)
+				in.Tunnels = append(in.Tunnels, InboundTunnel{Iface: r.Iface, Mode: m, Allow: a})
+			}
+		}
+		p.Inbound = in
+	}
 	return p, nil
+}
+
+// Inbound is the protection against incoming connections in effect.
+type Inbound struct {
+	Mode string // config.InboundClosed | InboundLAN | InboundOpen
+	// Allow: what InboundLAN lets in from private addresses.
+	Allow []config.PortSel
+	// Uplinks: the Wi-Fi/cable/mobile interfaces that are filtered.
+	// Bridges, containers and VMs are not touched.
+	Uplinks []string
+	// Tunnels: each tunnel interface with its own mode (closed unless
+	// the tunnel says otherwise, whatever network you are on).
+	Tunnels []InboundTunnel
+}
+
+// InboundTunnel is what may come in through one tunnel interface.
+type InboundTunnel struct {
+	Iface string
+	Mode  string
+	Allow []config.PortSel
 }

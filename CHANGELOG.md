@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.7.1-rc17
+
+- Languages: the window, the tray menu and the notifications speak the language of the system – German now, English otherwise – and a language picked under View → Language applies to all three (the tray follows within seconds). A language is one file (`internal/i18n/lang/<code>.json`: the English text is the key, a missing translation shows the English text), so more can follow. `SHUNT_LANG=en` overrides both for a single run. Android speaks the language Android gives the app (system language, or the per-app language on Android 13+) from the same catalog, packed into the app. The Windows setup follows the language of Windows (German or English). The command line and `install.sh` are still English; so are logs, JSON output and config keys. A check in the tests lists texts that have no translation yet.
+- Configure tab tidied up: "General" is split into Routing and a new "Privacy and protection" card (host name, MAC, incoming connections, network at boot in two columns, shorter explanations); a network profile is one compact card with its settings in a grid, and what the profile sets itself is marked with a coloured bar, so the few overrides stand out from "as under General". Same settings, same keys.
+
+## v0.7.1-rc16
+
+- Installer and .deb: when the privacy option switches the MAC on, networks you trust already (a profile with `inbound = "lan"`/`"open"` or `dhcp_hostname = "send"`, e.g. home) get `mac = "permanent"` and keep the real MAC, so router reservations at home keep working; the installer names them. Profiles that set a MAC themselves are left alone.
+
+## v0.7.1-rc15
+
+- Installer and .deb: the privacy option now covers the cable and the device IDs too. Saying yes (the .deb on its first install) also puts `dhcp_hostname = "none"` and `mac = "stable"` under `[daemon]` in `shunt.toml` (only keys that are not set yet), so the cable MAC, the DHCPv6 DUID and the client ID differ per network and a network's first connection is covered. An install from before is asked once, only in a terminal: an update from the app or a .deb update never changes the MAC at home unasked. At home: network profile → MAC "the real one".
+- Installer: questions count as asked only with a real terminal (`/dev/tty` exists without one too, e.g. ssh without `-t`); without one the defaults apply, as before.
+
+## v0.7.1-rc14
+
+- Desktop window / web UI: tabs like the Android app – Overview, VPN, Apps, DNS, Ports, Configure, View. A Normal/Expert switch under View hides rules, ports, own DNS servers, multi-hop, launchers and firewall details in Normal (they keep working; a banner lists the ones in use). Narrow windows: tabs wrap, tables stack.
+- Dependencies: `cilium/ebpf` v0.22.0 (GO-2026-6238, reachable through the start protection).
+- Open ports and DNS blocks per app (Linux): shuntd lists the listening sockets and names their program by its cgroup (`shunt ports`, Ports tab), with where each can be reached from (this machine, the network, a tunnel). The DNS filter names the program behind each blocked query (`shunt blocks`, Apps → "Who asks for blocked names").
+- Inbound protection (Linux): `[inbound] enabled = true` closes incoming connections on networks you have not trusted (answers, DHCP, neighbour discovery and ICMP errors still pass). A `[[network]]` profile can say `inbound = "lan"` (the ports in `inbound_allow` / `inbound.allow` from private addresses) or `"open"`; each tunnel too (closed unless it says otherwise). On an unknown network the status asks whether to trust it. `shunt inbound`, settings under Configure → General, per network and per tunnel. Off by default (on a server it would close SSH).
+- MAC address per network (Linux, NetworkManager): `mac = "random" | "stable" | "permanent"` under `[daemon]`, per network profile as well (e.g. the real one at home); also in Configure → General and per profile. Wi-Fi and cable. With random or stable the device's own IDs leave DHCP and IPv6 too: the DHCPv6 DUID was the same on every network (derived from the machine ID), now it follows the MAC (random) or the profile (stable); the DHCPv4 client ID follows the MAC; IPv6 addresses use stable-privacy instead of EUI-64 (MAC inside). A new MAC applies from the next connection, a connection in use is not cut. Off unless set.
+- No host name in DHCP now covers a network's first connection on NetworkManager 1.52+: the defaults said `false`, which these versions ignore (they read a number), so a newly joined network still got the host name until The Shunt had set the profile. Now `0`; `install.sh` and the .deb fix the file they wrote earlier (`90-shunt-privacy.conf`).
+- The network privacy settings never change a profile while it connects (NetworkManager 1.54 then never finishes DHCP), and reach NetworkManager at boot too (it may not answer yet when shuntd starts). A connection that already runs with the defaults is not reapplied (that restarted DHCP for nothing).
+- Linux: with a tunnel as default route, IPv6 neighbour discovery (router and neighbour solicitations, neighbour advertisements) got the tunnel mark and was dropped, so the local network gave no IPv6 to apps that go direct. It now takes the main table, as DHCP does (and as the boot lockdown already allowed).
+
+## v0.7.1-rc13
+
+- Windows: the kill switch moved from Windows Firewall rules to the Windows Filtering Platform (new package `internal/winsplit/wfp`, derived from wireguard-windows, MIT). Windows' own allow rules (core networking DNS, push notifications, store apps; 124 on a fresh Windows 11) punched through the old "block outbound" policy, so DNS, push and telemetry left the network while the service was stopped, after a crash and at boot. The new filters sit in a sublayer above the firewall and permit only the service, the Shunt adapter, loopback, DHCP/NDP and private local networks (not their DNS); DNS goes only to The Shunt. They are persistent: they stay while the service is stopped, after a crash and across reboots. Measured in the test lab: 24 of 27 Windows tests pass (7 before); stop, crash, reboot, IPv6, TunnelCrack LocalNet and push connections no longer leak.
+- Windows: the kill switch is **on by default** (`[daemon] kill_switch = false` turns it off). Only turning it off, uninstalling or `shuntd-win killswitch-off` (emergency, as Administrator) lift it; stopping the service or shutting Windows down no longer does. The firewall rules of the old kill switch are removed at the next start.
+- Linux: answers to connections that came in through a tunnel (SYN-ACK, RST, ICMP, UDP replies) leave through that tunnel. They took the main routing table and showed the tunnel address on the local network.
+- DNS filter lists are downloaded the way apps without a rule go, DNS included. Linux asked the name on the local network (the lookup had no route mark); Windows downloaded them straight over the physical network.
+- No host name in DHCP (Linux, NetworkManager): `dhcp_hostname = "none"` under `[daemon]`, per network profile `"send"` (e.g. at home); also in Configure → General and per profile. The Shunt sets NetworkManager's profiles itself, because NetworkManager has no working global switch for it (1.46 none, 1.54 ignores the default for unset profiles). Off unless set.
+- Captive portal check: the same request as NetworkManager's own check (no Go User-Agent, no gzip), so a network cannot tell The Shunt apart.
+- .deb: writes the network privacy settings `install.sh` offers (own MAC per Wi-Fi, IPv6 privacy addresses), once; removing the package removes them.
+- App rules list the menu entries that start one of their apps outside the rule's route ("start in the route from the menu"): an app rule catches a program only after it started, so its first connection could go the old way.
+- Android docs: without "Block connections without VPN" Android itself lets a little past the VPN (DNS while it starts, sockets opened before it); with always-on and the block nothing of an app got past in the lab.
+
+## v0.7.1-rc12
+
+- Update button for source builds: a build made from source (`src-<sha>`) compares commits, so the app never offered to install the newest release itself and only showed the copy-command fallback. The update info now carries the release tag that "Update" installs (`internal/update`).
+- Android: first start shows what the VPN service can see (installed apps, destinations and DNS names of the routed apps, keys) and what happens with it (nothing leaves the phone; GitHub for filter lists and api.ipify.org for the leak test, only when used), with Accept and Decline. Nothing runs before Accept. A "Privacy" section on the Status tab links to the policy.
+- Website and privacy policy (English and German) and a legal notice on GitHub Pages: https://bob-nixkoenner.github.io/The_Shunt/
+
 ## v0.7.1-rc11
 
 - Windows: launchers and "Start an app", as on Linux. A launcher is a Start menu entry (folder "The Shunt Launchers") that starts a program with extra arguments in a route; existing Firefox profiles get a launcher each. Chrome, Brave, Edge, Vivaldi and Opera launchers get a new profile folder of their own in `%USERPROFILE%\ShuntProfiles`; existing profiles of these browsers cannot be shared with a launcher on Windows (the browser binds cookies and saved passwords to its data folder: a second folder cannot read them and the browser deletes them from the profile, tested with Brave).

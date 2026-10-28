@@ -1,5 +1,8 @@
-# Optional, for the paranoid: block all traffic from early boot until shuntd
-# has applied its rules. If shuntd cannot start you are offline until you run
+# Block all traffic from early boot until shuntd has applied its rules, so
+# nothing meant for a tunnel leaves in clear text first. Enabled by the
+# installer; `shuntd lockdown` only locks if daemon.boot_lockdown says so
+# (auto: the default route of the daemon or a network profile is not
+# direct). If shuntd cannot start you are offline until you run
 # `sudo shuntd cleanup` - that is the point.
 [Unit]
 Description=Shunt boot lockdown (block network until shuntd is ready)

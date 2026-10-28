@@ -2,8 +2,14 @@ package daemon
 
 import (
 	"net"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/links"
 )
 
 // selfExe is shuntd's own binary, also after an update replaced the file.
@@ -37,3 +43,30 @@ func peerCred(c net.Conn) (pid, uid uint32, ok bool) {
 	}
 	return uint32(cred.Pid), cred.Uid, true
 }
+
+// otherFirewalls names the packet filters besides The Shunt: ufw,
+// firewalld and nftables tables of others (iptables-nft shows as ip filter).
+func otherFirewalls() []string {
+	var out []string
+	if raw, err := os.ReadFile("/etc/ufw/ufw.conf"); err == nil && regexp.MustCompile(`(?m)^\s*ENABLED\s*=\s*yes`).Match(raw) {
+		out = append(out, "ufw")
+	}
+	if _, err := os.Stat("/run/firewalld/firewalld.pid"); err == nil {
+		out = append(out, "firewalld")
+	}
+	raw, err := exec.Command("nft", "list", "tables").Output()
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		t, ok := strings.CutPrefix(strings.TrimSpace(l), "table ")
+		if _, name, _ := strings.Cut(t, " "); !ok || name == "shunt" || strings.HasPrefix(name, "shunt_") {
+			continue
+		}
+		out = append(out, "nft "+t)
+	}
+	return out
+}
+
+// physicalIface: Wi-Fi, cable or mobile, not a bridge, tunnel or container.
+func physicalIface(name string) bool { return links.Kind("/sys/class/net", name) != "" }

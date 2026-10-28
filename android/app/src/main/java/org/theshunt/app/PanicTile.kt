@@ -25,7 +25,7 @@ class PanicTile : TileService() {
                 panic -> Tile.STATE_ACTIVE
                 else -> Tile.STATE_INACTIVE
             }
-            subtitle = if (e == null) "VPN off" else if (panic) "everything blocked" else "off"
+            subtitle = if (e == null) T("VPN off") else if (panic) T("everything blocked") else T("off")
             updateTile()
         }
     }

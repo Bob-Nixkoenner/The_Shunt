@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Shunt</title>
+<script src="i18n-data.js"></script>
+<script src="i18n.js"></script>
 <script src="state.js"></script>
 <script src="theme.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%2310b981'/%3E%3Cpath d='M6 22h4.5l6-9.5h6M10.5 22H26' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
@@ -20,7 +22,7 @@
 :root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 97%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .brand { white-space: nowrap; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
 .brand svg { width: 26px; height: 26px; }
 .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
@@ -36,12 +38,12 @@ button.danger { background: var(--bad); color: #fff; border-color: transparent; 
 button.danger.on { background: var(--panel2); color: var(--bad); border-color: var(--bad); }
 button:disabled { opacity: .5; cursor: wait; }
 main { max-width: 1180px; margin: 0 auto; padding: 22px 24px 60px; display: grid; gap: 18px; grid-template-columns: repeat(12, 1fr); }
-section { grid-column: span 12; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; }
+section { min-width: 0; grid-column: span 12; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; }
 section.half { grid-column: span 6; }
 @media (max-width: 900px) { section.half { grid-column: span 12; } main { padding: 16px; } header { padding: 12px 16px; } }
 @media (max-width: 640px) {
   header { flex-wrap: wrap; gap: 10px; }
-  #defroute, #reload { display: none; }
+  #defroute { display: none; }
   #state { order: 5; flex-basis: 100%; text-align: center; }
   .brand { white-space: nowrap; }
 }
@@ -53,8 +55,9 @@ h2 .spacer { flex: 1; }
 .card.up { border-left-color: var(--accent); }
 .card.down { border-left-color: var(--bad); }
 .card .name { font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 8px; font-size: 13px; }
-.kv span:nth-child(odd) { color: var(--muted); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin-top: 8px; font-size: 13px; }
+.kv span:nth-child(odd) { color: var(--muted); white-space: nowrap; }
+.kv span:nth-child(even) { overflow-wrap: anywhere; }
 .mono { font-family: var(--mono); font-size: 12.5px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -108,17 +111,44 @@ details.browser { border-top: 1px solid var(--line, #e5e7eb); padding: 4px 0; }
 .pill.verdict.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); }
 .pill.verdict.blocked { background: color-mix(in srgb, var(--info) 18%, transparent); }
 .verdict.ok { color: var(--accent); } .verdict.leak { color: var(--bad); } .verdict.warn { color: var(--warn); } .verdict.blocked { color: var(--info); } .verdict.error { color: var(--muted); }
-nav.tabs { display: flex; gap: 4px; }
+/* tabs in a row of their own, like the tab bar on Android */
+header { flex-wrap: wrap; row-gap: 10px; }
+header > button { white-space: nowrap; }
+nav.tabs { order: 10; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; margin-bottom: -4px; }
+nav.tabs button { flex: none; }
 nav.tabs button { background: transparent; border-color: transparent; color: var(--muted); font-weight: 600; }
 nav.tabs button.active { background: var(--panel2); color: var(--text); border-color: var(--line); }
 [hidden] { display: none !important; }
-.form { display: grid; grid-template-columns: 150px 1fr; gap: 10px 14px; align-items: center; }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px 32px; }
+.settings > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.settings .t { font-weight: 600; font-size: 13px; color: var(--text); }
+.settings select, .settings input:not([type=checkbox]) { width: 100%; }
+.settings .muted { font-size: 12px; }
+.netcard { border-top: 1px solid var(--line); padding: 14px 0; }
+.netcard:first-child { border-top: 0; padding-top: 4px; }
+.nethead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 10px; }
+.nethead .spacer { flex: 1; }
+.netgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; }
+.netgrid label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; color: var(--muted); padding-left: 8px; border-left: 2px solid transparent; }
+.netgrid label.set { border-left-color: var(--accent); color: var(--text); }
+.netgrid select { width: 100%; }
+.form { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
 .form label { color: var(--muted); font-size: 13px; }
-@media (max-width: 640px) { .form { grid-template-columns: 1fr; } }
+.form select { max-width: 100%; }
+@media (max-width: 640px) {
+  .form { grid-template-columns: minmax(0, 1fr); }
+  /* config tables: one cell under the other instead of running out on the right */
+  :is(#c-tunnels, #c-rules, #p-rules, #c-upstreams, #c-networks, #c-fwapps) :is(tr, td) { display: block; }
+  :is(#c-tunnels, #c-rules, #p-rules, #c-upstreams, #c-networks, #c-fwapps) td { border-bottom: none; padding: 3px 0; }
+  :is(#c-tunnels, #c-rules, #p-rules, #c-upstreams, #c-networks, #c-fwapps) tr { border-bottom: 1px solid var(--line); padding: 6px 0; }
+  .savebar { flex-wrap: wrap; } .savebar .msg { flex-basis: 100%; } .savebar .msg.muted { display: none; }
+}
 textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 12.5px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .iconbtn { padding: 3px 9px; }
 .savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); }
 .savebar.dirty { border-color: var(--accent); }
+.savebar button { white-space: nowrap; flex: none; }
+.savebar .msg { min-width: 0; }
 .msg.err { color: var(--bad); } .msg.ok { color: var(--accent); } .msg.warn { color: var(--warn); }
 .editor { background: var(--panel2); border-radius: 9px; padding: 14px; margin-top: 10px; }
 .drop { border: 2px dashed var(--line); border-radius: 9px; padding: 14px; text-align: center; color: var(--muted); }
@@ -159,6 +189,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .chart .a-up { fill: color-mix(in srgb, var(--info) 25%, transparent); } .chart .l-up { stroke: var(--info); fill: none; }
 .chart .l-down, .chart .l-up { stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .chart .bar { fill: var(--warn); }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); opacity: .7; }
 .chart .cursor { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .axis { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 .axis #t-hover { flex: 1; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -169,6 +200,8 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 body.windows .linux-only, .win-only { display: none !important; }
 body.windows .win-only { display: block !important; }
+body.normal .expert { display: none !important; }
+#expert-hint a { margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -179,9 +212,8 @@ body.windows .win-only { display: block !important; }
   </div>
   <span id="state" class="pill">connecting…</span>
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
-  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-apps">Apps</button><button id="tab-config">Configure</button><button id="tab-filter">DNS filter</button></nav>
+  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" class="expert">Ports</button><button id="tab-config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
-  <button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
   <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
 </header>
@@ -213,104 +245,13 @@ body.windows .win-only { display: block !important; }
     <div class="hint">Counts what goes through your tunnels (rates averaged per step); direct traffic is not measured. Counters are kept on this machine, nothing is sent anywhere.</div>
   </section>
 
-  <section class="half" data-fold>
+  <section data-fold>
     <h2>Leak test <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400" title="Runs the test by itself a few seconds after a tunnel comes up or goes down"><input type="checkbox" id="leak-auto" checked> after tunnel changes</label><button id="leak">Run test</button></h2>
     <div id="leakres" data-rows="5" class="muted">Checks every route for its public IP and DNS resolver. Contacts api.ipify.org and Google DNS (o-o.myaddr.l.google.com) through each route.</div>
   </section>
-
-  <section class="half" data-fold>
-    <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">first match wins</span></h2>
-    <div><table><tbody id="rules"></tbody></table></div>
-    <div class="hint" id="rules-more"></div>
-    <div class="hint">Change them under <b>Configure</b> (or edit <span class="mono">/etc/shunt/shunt.toml</span> and press “Reload config”).</div>
-  </section>
-
-  <section data-fold>
-    <h2>DNS</h2>
-    <div data-rows="5"><table><tbody id="dns"></tbody></table></div>
-    <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
-  </section>
-
 </main>
 
-<main id="page-apps" hidden>
-  <section id="sec-launchers" data-fold hidden>
-    <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0"><span class="linux-only">extra menu entries</span><span class="win-only" style="display:none">extra Start menu entries (folder “The Shunt Launchers”)</span>, e.g. one per browser profile</span></h2>
-    <div id="browsers"></div>
-    <div class="row" style="margin-top:12px">
-      <select id="lapp" title="app to start"></select>
-      <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
-      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm (Chromium/Brave: empty = own profile folder)">
-      <select id="lroute"></select>
-      <button id="lcreate" class="primary">Create</button>
-    </div>
-    <div class="hint linux-only" style="margin-top:10px"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
-    <div class="hint win-only" style="margin-top:10px;display:none"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process. The browser’s updater runs as a service of its own and takes the program rule or the default route, and so does a browser started by a link from another program. Edge with “Startup boost” runs already at login: give Edge launchers a data folder of their own. Check with the leak test.</div>
-    <div class="hint win-only" style="display:none">Each launcher starts its own instance with its own route; the program and everything it starts stay in that route. Firefox: <span class="mono">--new-instance --profile "&lt;folder&gt;"</span>. Chrome/Brave/Edge/Vivaldi/Opera: leave the arguments empty and the launcher gets its own, new profile folder in <span class="mono">%USERPROFILE%\ShuntProfiles</span> (log in there once; browser sync brings bookmarks over). Existing profiles of these browsers cannot be shared with a launcher on Windows. Removing a launcher keeps its folder.</div>
-    <div class="hint linux-only">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
-  </section>
-
-  <section data-fold>
-    <h2><span class="linux-only">Menu apps</span><span class="win-only" style="display:none">Programs</span> <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
-    <div class="apps" data-rows="5"><table>
-      <thead><tr><th>App</th><th>Starts via</th><th class="linux-only" title="DNS filter level for this app, whatever route it takes">DNS filter</th></tr></thead>
-      <tbody id="apps"></tbody>
-    </table></div>
-    <div class="hint win-only">Programs that run or have a rule. A rule applies by the program’s file name to every new connection – no restart of the program needed. “system default” removes the rule (the default route applies).</div>
-    <div class="hint linux-only">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
-  </section>
-  <section class="half" data-fold>
-    <h2>Start an app</h2>
-    <div class="row">
-      <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
-      <select id="runroute"></select>
-      <button id="run" class="primary">Start</button>
-    </div>
-    <div class="hint">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
-  </section>
-
-  <section class="half linux-only" data-fold>
-    <h2>Where traffic goes</h2>
-    <table>
-      <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
-      <tbody id="groups"></tbody>
-    </table>
-  </section>
-</main>
-
-<main id="page-config" hidden>
-  <section class="half">
-    <h2>General</h2>
-    <div class="form">
-      <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
-      <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
-      <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
-      <label>Encrypted DNS of apps</label>
-      <div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
-        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
-        <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
-      <label class="win-only">Kill switch</label>
-      <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
-        <div class="muted" style="font-size:12px">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. Lifted when you stop the service on purpose. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
-      <label class="linux-only">Updates</label>
-      <div class="linux-only"><div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updrel"> releases</label>
-        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-updpre"> pre-releases (rc)</label>
-        <span class="muted" style="font-size:12px">ask GitHub every 3 hours; both off = no requests</span></div>
-        <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
-    </div>
-  </section>
-
-  <section class="half">
-    <h2>DNS servers <span class="muted" style="text-transform:none;letter-spacing:0">Pi-hole, Unbound, AdGuard…</span></h2>
-    <table><tbody id="c-upstreams"></tbody></table>
-    <div class="row" style="margin-top:10px">
-      <input id="u-name" placeholder="name, e.g. pihole" style="width:130px">
-      <input id="u-addr" class="grow" placeholder="192.168.1.2 · tls://1.1.1.1 · https://10.8.0.1/dns-query">
-      <input id="u-tls" placeholder="TLS name (tls/https)" style="width:170px">
-      <button id="u-add">Add</button>
-    </div>
-  </section>
-
+<main id="page-vpn" hidden>
   <section data-fold>
     <h2>Tunnels</h2>
     <table><tbody id="c-tunnels"></tbody></table>
@@ -335,7 +276,7 @@ body.windows .win-only { display: block !important; }
         <input id="t-user" placeholder="username" autocomplete="off" style="width:180px">
         <input id="t-pass" type="password" placeholder="password" autocomplete="new-password" style="width:180px">
       </div>
-      <div class="muted" style="margin-top:8px">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
+      <div class="muted" style="margin-top:8px" data-i18n="html">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
       <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
     </div>
     <div class="editor" id="add-ts" hidden>
@@ -347,19 +288,64 @@ body.windows .win-only { display: block !important; }
       <div class="row" style="margin-top:10px">
         <input id="ts-key" class="grow" type="password" placeholder="auth key (hskey-auth-… / tskey-auth-…)" autocomplete="new-password">
       </div>
-      <div class="row" style="margin-top:10px">
+      <div class="row expert" style="margin-top:10px">
         <input id="ts-host" placeholder="host name in the tailnet (optional)" style="width:260px" autocomplete="off">
         <input id="ts-exit" placeholder="exit node IP or name (optional)" style="width:260px" autocomplete="off">
-        <button id="ts-add" class="primary">Add</button>
       </div>
+      <div class="row" style="margin-top:10px"><button id="ts-add" class="primary">Add</button></div>
       <div class="muted" style="margin-top:8px">Without an exit node the tunnel reaches the tailnet (100.64.0.0/10) only; with one, everything routed into it leaves through that node.</div>
     </div>
   </section>
+</main>
 
+<main id="page-apps" hidden>
   <section data-fold>
-    <h2>Networks <span class="muted" style="text-transform:none;letter-spacing:0">where you are decides “everything else” · first match wins</span><span class="spacer"></span><button id="n-add">+ Add the current network</button></h2>
-    <div id="n-now" class="muted" style="margin-bottom:8px"></div>
-    <table><tbody id="c-networks"></tbody></table>
+    <h2><span class="linux-only">Menu apps</span><span class="win-only" style="display:none">Programs</span> <span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="allapps"> show all <span id="appcount"></span></label><input id="appfilter" placeholder="filter…" style="text-transform:none;letter-spacing:0;font-size:13px;padding:5px 9px"></h2>
+    <div class="apps" data-rows="5"><table>
+      <thead><tr><th>App</th><th>Starts via</th><th class="linux-only" title="DNS filter level for this app, whatever route it takes">DNS filter</th></tr></thead>
+      <tbody id="apps"></tbody>
+    </table></div>
+    <div class="hint win-only">Programs that run or have a rule. A rule applies by the program’s file name to every new connection – no restart of the program needed. “system default” removes the rule (the default route applies).</div>
+    <div class="hint linux-only" data-i18n="html">Changes the app’s menu and panel entries for your user, so starting it from there always uses that route. “system default” restores the original entry. <b>Takes effect the next time the app starts:</b> close all of its windows first – a running app keeps its route, and browsers hand new windows to the already running instance.</div>
+  </section>
+  <section class="half" data-fold>
+    <h2>Start an app</h2>
+    <div class="row">
+      <input id="cmd" class="grow" placeholder="firefox -no-remote -P" autocomplete="off">
+      <select id="runroute"></select>
+      <button id="run" class="primary">Start</button>
+    </div>
+    <div class="hint" data-i18n="html">The app and everything it starts use the chosen route. A browser that is already open would only get a new window of the old process – close it first or use <span class="mono">-no-remote</span>.</div>
+  </section>
+
+  <section class="half linux-only" data-fold>
+    <h2>Who asks for blocked names</h2>
+    <div data-rows="8"><table><tbody id="appblocks"></tbody></table></div>
+    <div class="hint">DNS queries the filter blocked, per program, since the service started. Programs without a scope of their own (started in a terminal, or on desktops like COSMIC that keep many programs together) count as “login session”.</div>
+  </section>
+
+  <section class="half linux-only expert" data-fold>
+    <h2>Where traffic goes</h2>
+    <table>
+      <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
+      <tbody id="groups"></tbody>
+    </table>
+  </section>
+
+  <section id="sec-launchers" class="expert" data-fold hidden>
+    <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="html"><span class="linux-only">extra menu entries</span><span class="win-only" style="display:none">extra Start menu entries (folder “The Shunt Launchers”)</span>, e.g. one per browser profile</span></h2>
+    <div id="browsers"></div>
+    <div class="row" style="margin-top:12px">
+      <select id="lapp" title="app to start"></select>
+      <input id="lname" placeholder="menu name, e.g. Firefox SM" style="min-width:190px">
+      <input id="largs" class="grow" placeholder="extra arguments, e.g. --new-instance -P sm (Chromium/Brave: empty = own profile folder)">
+      <select id="lroute"></select>
+      <button id="lcreate" class="primary">Create</button>
+    </div>
+    <div class="hint linux-only" style="margin-top:10px" data-i18n="html"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process, some snap browsers need a second step to start, and a browser can still open connections of its own (updates, extensions) before it is routed. Check with the leak test and <span class="mono">shunt which</span>.</div>
+    <div class="hint win-only" style="margin-top:10px;display:none" data-i18n="html"><b>Not a 100 % solution:</b> a browser that is already open keeps its route and hands new windows to the old process. The browser’s updater runs as a service of its own and takes the program rule or the default route, and so does a browser started by a link from another program. Edge with “Startup boost” runs already at login: give Edge launchers a data folder of their own. Check with the leak test.</div>
+    <div class="hint win-only" style="display:none" data-i18n="html">Each launcher starts its own instance with its own route; the program and everything it starts stay in that route. Firefox: <span class="mono">--new-instance --profile "&lt;folder&gt;"</span>. Chrome/Brave/Edge/Vivaldi/Opera: leave the arguments empty and the launcher gets its own, new profile folder in <span class="mono">%USERPROFILE%\ShuntProfiles</span> (log in there once; browser sync brings bookmarks over). Existing profiles of these browsers cannot be shared with a launcher on Windows. Removing a launcher keeps its folder.</div>
+    <div class="hint linux-only" data-i18n="html">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
   <section class="linux-only">
@@ -373,15 +359,150 @@ body.windows .win-only { display: block !important; }
         <option value="off">take the default route (no questions)</option>
         <option value="ask">ask me – no answer: default route after the timeout</option>
         <option value="block">ask me – blocked until I decide</option></select>
-      <label for="c-fwtimeout">Timeout</label><div class="row"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
-      <label>Terminal programs</label><label class="row" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
+      <label class="expert" for="c-fwtimeout">Timeout</label><div class="row expert"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
+      <label class="expert">Terminal programs</label><label class="row expert" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
     </div>
-    <div class="hint">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
-    <h2 style="margin-top:16px">Remembered decisions</h2>
-    <table><tbody id="c-fwapps"></tbody></table>
+    <div class="hint" data-i18n="html">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
   </section>
 
+  <section class="linux-only expert" data-fold>
+    <h2>Remembered decisions <span class="muted" style="text-transform:none;letter-spacing:0">answers of the app firewall</span></h2>
+    <table><tbody id="c-fwapps"></tbody></table>
+  </section>
+</main>
+
+<main id="page-dns" hidden>
+  <section class="half">
+    <h2>DNS filter <span class="muted" style="text-transform:none;letter-spacing:0">blocked names never reach a DNS server</span></h2>
+    <div class="form">
+      <label for="f-default">Everything else</label><select id="f-default"></select>
+    </div>
+    <div class="hint" data-i18n="html">Which level applies, most specific first: a <b>rule</b> for the app (or group) → the <b>tunnel</b> the query goes through → the <b>network</b> you are in (direct and Wi-Fi/cable routes) → “Everything else”. Set them under <b>VPN</b> (tunnels) and <b>Configure</b> (networks, rules). Names you routed with a domain rule and the Wi-Fi login browser are never filtered.</div>
+    <div id="f-now" style="margin-top:10px"></div>
+  </section>
+
+  <section class="half" data-fold>
+    <h2>Statistics <span class="spacer"></span><button id="f-refresh" title="Download all lists in use again">Update lists now</button></h2>
+    <div id="f-stats" class="muted"></div>
+    <div data-rows="5" style="margin-top:8px"><table><tbody id="f-loaded"></tbody></table></div>
+  </section>
+
+  <section class="expert" data-fold>
+    <h2>Lists per level <span class="muted" style="text-transform:none;letter-spacing:0">only lists of levels that are in use get downloaded · a level includes the one below it</span></h2>
+    <div data-rows="10"><table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table></div>
+    <div style="margin-top:10px">
+      <textarea id="f-paste" spellcheck="false" placeholder="more lists: paste one https:// URL or a whole block, one per line (Pi-hole adlists, AdGuard Home lists, hosts files, domain lists)" style="min-height:70px"></textarea>
+      <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><button id="f-tidy" title="Remove entries that a lower level already includes, or that are listed twice">Tidy lists</button><span id="f-paste-info" class="muted"></span></div>
+    </div>
+    <div class="hint" data-i18n="html">Lists: <a href="https://github.com/hagezi/dns-blocklists" target="_blank" rel="noopener">HaGeZi</a> and <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to both projects for building and maintaining them; they are downloaded when used, not part of The Shunt. Big lists cost memory (roughly 3× their size).</div>
+  </section>
+
+  <section class="half">
+    <h2>Never block</h2>
+    <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:100px"></textarea>
+    <div class="hint" style="margin:10px 0 4px" data-i18n="html">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
+    <textarea id="f-alists" spellcheck="false" placeholder="https://…/whitelist.txt" style="min-height:60px"></textarea>
+  </section>
+
+  <section class="half" data-fold>
+    <h2>Recently blocked</h2>
+    <div data-rows="5"><table><tbody id="f-recent"></tbody></table></div>
+  </section>
+
+  <section data-fold>
+    <h2>DNS per route <span class="muted" style="text-transform:none;letter-spacing:0">right now</span></h2>
+    <div data-rows="5"><table><tbody id="dns"></tbody></table></div>
+    <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
+  </section>
+
+  <section class="half">
+    <h2>DNS settings</h2>
+    <div class="form">
+      <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
+      <label class="expert">Encrypted DNS of apps</label>
+      <div class="row expert"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
+        <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
+    </div>
+  </section>
+
+  <section class="half expert">
+    <h2>DNS servers <span class="muted" style="text-transform:none;letter-spacing:0">Pi-hole, Unbound, AdGuard…</span></h2>
+    <table><tbody id="c-upstreams"></tbody></table>
+    <div class="row" style="margin-top:10px">
+      <input id="u-name" placeholder="name, e.g. pihole" style="width:130px">
+      <input id="u-addr" class="grow" placeholder="192.168.1.2 · tls://1.1.1.1 · https://10.8.0.1/dns-query">
+      <input id="u-tls" placeholder="TLS name (tls/https)" style="width:170px">
+      <button id="u-add">Add</button>
+    </div>
+  </section>
+</main>
+
+<main id="page-ports" hidden>
   <section>
+    <h2>Port rules <span class="muted" style="text-transform:none;letter-spacing:0">rules that match ports · first match wins</span><span class="spacer"></span><button id="p-new">+ New port rule</button></h2>
+    <table><tbody id="p-rules"></tbody></table>
+    <div class="hint" data-i18n="html">Edited in the rule list under <b>Configure</b>, where their order with the other rules shows.</div>
+  </section>
+  <section id="sec-ports" data-fold hidden>
+    <h2>Open ports <span class="muted" style="text-transform:none;letter-spacing:0" id="ports-sum"></span><span class="spacer"></span><label class="muted" style="text-transform:none;letter-spacing:0;font-size:13px;display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="ports-all"> also local only</label></h2>
+    <div id="ports-notes"></div>
+    <div data-rows="6"><table>
+      <thead><tr><th>Port</th><th>Program</th><th>Listens on</th><th>Reachable from</th></tr></thead>
+      <tbody id="ports"></tbody>
+    </table></div>
+    <div class="hint">Programs on this machine waiting for connections. “network”: others on the Wi-Fi or cable you are connected to can reach it; “tunnel”: the other side of a tunnel can.</div>
+  </section>
+</main>
+
+<main id="page-config" hidden>
+  <section class="half">
+    <h2>Routing</h2>
+    <div class="form">
+      <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
+      <label class="linux-only">Updates</label>
+      <div class="linux-only"><div class="row"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-updrel"> releases</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-updpre"> pre-releases (rc)</label>
+        <span class="muted" style="font-size:12px">ask GitHub every 3 hours; both off = no requests</span></div>
+        <div id="c-updinfo" class="muted" style="font-size:12px"></div></div>
+      <label class="win-only">Kill switch</label>
+      <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
+        <div class="muted" style="font-size:12px" data-i18n="html">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
+    </div>
+  </section>
+
+  <section class="half">
+    <h2>Service</h2>
+    <div class="row"><button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button></div>
+    <div class="hint" data-i18n="html">Reload after editing <span class="mono">/etc/shunt/shunt.toml</span> by hand. Both are in the tray menu as well.</div>
+  </section>
+
+  <section class="linux-only">
+    <h2>Privacy and protection <span class="muted" style="text-transform:none;letter-spacing:0">on networks you have not trusted · a network profile below can differ</span></h2>
+    <div class="settings">
+      <div class="expert"><label class="t" for="c-hostname">Host name in DHCP</label>
+        <select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
+        <div class="muted">Every network you join sees your machine's name. “Don't send it” is set per Wi-Fi/cable profile; a trusted network can say “send”.</div></div>
+      <div class="expert"><label class="t" for="c-mac">MAC address</label>
+        <select id="c-mac"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
+        <div class="muted">Wi-Fi and cable. New or own per network also keeps the device's IDs out of DHCP and IPv6 addresses. Applies from the next connection; a login page may ask again. At home use “the real one” in the profile.</div></div>
+      <div><label class="t" for="c-inbound">Incoming connections</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
+        <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">
+        <div class="muted">Answers to your own connections always pass. Tunnels are closed unless the tunnel says otherwise. A trusted profile (incoming = LAN) lets in only these ports, from private addresses. On a server this blocks SSH from outside too.</div></div>
+      <div><label class="t" for="c-bootlock">Network at boot</label>
+        <select id="c-bootlock"><option value="">auto: blocked if everything else goes through a tunnel</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
+        <div class="muted" data-i18n="html">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
+    </div>
+  </section>
+
+  <section data-fold>
+    <h2>Networks <span class="muted" style="text-transform:none;letter-spacing:0">where you are decides “everything else” · first match wins</span><span class="spacer"></span><button id="n-add">+ Add the current network</button></h2>
+    <div id="n-now" class="muted" style="margin-bottom:8px"></div>
+    <div id="c-networks"></div>
+  </section>
+
+  <section class="expert">
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">order: apps started in “block” · rules marked “also for started apps” · apps started in a route · other rules · default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>
@@ -404,49 +525,12 @@ body.windows .win-only { display: block !important; }
     </div>
   </section>
 
-  <section>
+  <section class="expert">
     <h2>Raw configuration <span class="muted" style="text-transform:none;letter-spacing:0">/etc/shunt/shunt.toml – keeps comments</span><span class="spacer"></span><button id="raw-toggle">Show</button></h2>
     <div id="raw-box" hidden>
       <textarea id="raw" spellcheck="false"></textarea>
       <div class="row" style="margin-top:10px"><button id="raw-check">Check</button><button id="raw-save" class="primary">Save raw &amp; apply</button><span id="raw-msg" class="msg"></span></div>
     </div>
-  </section>
-
-  <section class="pf half">
-    <h2>DNS filter <span class="muted" style="text-transform:none;letter-spacing:0">blocked names never reach a DNS server</span></h2>
-    <div class="form">
-      <label for="f-default">Everything else</label><select id="f-default"></select>
-    </div>
-    <div class="hint">Which level applies, most specific first: a <b>rule</b> for the app (or group) → the <b>tunnel</b> the query goes through → the <b>network</b> you are in (direct and Wi-Fi/cable routes) → “Everything else”. Set them under <b>Configure</b> (tunnels, networks, rules). Names you routed with a domain rule and the Wi-Fi login browser are never filtered.</div>
-    <div id="f-now" style="margin-top:10px"></div>
-  </section>
-
-  <section class="pf half" data-fold>
-    <h2>Statistics <span class="spacer"></span><button id="f-refresh" title="Download all lists in use again">Update lists now</button></h2>
-    <div id="f-stats" class="muted"></div>
-    <div data-rows="5" style="margin-top:8px"><table><tbody id="f-loaded"></tbody></table></div>
-  </section>
-
-  <section class="pf" data-fold>
-    <h2>Lists per level <span class="muted" style="text-transform:none;letter-spacing:0">only lists of levels that are in use get downloaded · a level includes the one below it</span></h2>
-    <div data-rows="10"><table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table></div>
-    <div style="margin-top:10px">
-      <textarea id="f-paste" spellcheck="false" placeholder="more lists: paste one https:// URL or a whole block, one per line (Pi-hole adlists, AdGuard Home lists, hosts files, domain lists)" style="min-height:70px"></textarea>
-      <div class="row" style="margin-top:6px"><span class="muted">add to level</span><select id="f-paste-level"><option>low</option><option>normal</option><option selected>paranoid</option></select><span class="muted">(and every level above)</span><button id="f-add">Add lists</button><button id="f-tidy" title="Remove entries that a lower level already includes, or that are listed twice">Tidy lists</button><span id="f-paste-info" class="muted"></span></div>
-    </div>
-    <div class="hint">Lists: <a href="https://github.com/hagezi/dns-blocklists" target="_blank" rel="noopener">HaGeZi</a> and <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to both projects for building and maintaining them; they are downloaded when used, not part of The Shunt. Big lists cost memory (roughly 3× their size).</div>
-  </section>
-
-  <section class="pf half">
-    <h2>Never block</h2>
-    <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:100px"></textarea>
-    <div class="hint" style="margin:10px 0 4px">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
-    <textarea id="f-alists" spellcheck="false" placeholder="https://…/whitelist.txt" style="min-height:60px"></textarea>
-  </section>
-
-  <section class="pf half" data-fold>
-    <h2>Recently blocked</h2>
-    <div data-rows="5"><table><tbody id="f-recent"></tbody></table></div>
   </section>
 
   <div class="savebar" id="savebar">
@@ -456,6 +540,24 @@ body.windows .win-only { display: block !important; }
     <span id="c-msg" class="msg muted">Changes are checked before anything is written; the previous file is kept as shunt.toml.bak.</span>
   </div>
 </main>
+
+<main id="page-view" hidden>
+  <section class="half">
+    <h2>Settings shown</h2>
+    <div class="seg" id="v-mode" role="group" aria-label="Settings shown"><button data-m="normal">Normal</button><button data-m="expert">Expert</button></div>
+    <div class="hint">Normal hides the fine-tuning: rules, ports, own DNS servers and lists, multi-hop, launchers. Hidden settings keep working.</div>
+  </section>
+  <section class="half">
+    <h2>Look</h2>
+    <div class="form">
+      <label for="v-lang">Language</label><select id="v-lang"></select>
+      <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
+      <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" class="expert">Ports</option><option value="config">Configure</option><option value="view">View</option></select>
+    </div>
+    <div class="hint">Start at login: in the tray menu (“Start at login”).</div>
+  </section>
+</main>
+<div id="expert-hint" class="banner" hidden></div>
 <div id="toast"></div>
 <!-- own dialog instead of confirm()/prompt(): embedded web views may not show those -->
 <!-- app firewall: a program wants to go online -->
@@ -477,5 +579,7 @@ body.windows .win-only { display: block !important; }
 <script src="chart.js"></script>
 <script src="config.js"></script>
 <script src="filter.js"></script>
+<script src="view.js"></script>
+<script src="ports.js"></script>
 </body>
 </html>

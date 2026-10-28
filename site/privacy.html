@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Shunt – Privacy policy</title><link rel="stylesheet" href="style.css"></head><body>
+<nav><a href="index.html">The Shunt</a><a href="privacy.html">Privacy policy</a><a href="datenschutz.html">Datenschutz</a><a href="impressum.html">Impressum</a></nav>
+<main>
+<h1>Privacy policy</h1>
+<p>Last updated: 25 October 2026. Applies to the app <strong>The Shunt</strong> (package <code>org.theshunt.app</code>) and the Linux and Windows versions.</p>
+
+<h2>In short</h2>
+<p>The Shunt has no accounts, no servers of its own, no advertising, no analytics and no crash reporting. The developer receives no data from your use of the app. Settings, keys and statistics stay on your device.</p>
+
+<h2>Controller</h2>
+<p>Bob Nixkoenner, address see <a href="impressum.html">legal notice</a>. Contact: <a href="mailto:shunt@isst.pizza">shunt@isst.pizza</a></p>
+
+<h2>What the app does with the VPN permission</h2>
+<p>The app uses Android's VPN service to send traffic of the apps you choose through tunnels you configure (WireGuard, OpenVPN, Tailscale/Headscale). The app decides per app, address, port or domain which tunnel is used. This happens on your device. The traffic content is not read, stored or passed on by the developer. It is sent, encrypted by the tunnel protocol, to the server <em>you</em> entered. That server's operator (for example your VPN provider) processes it under their own privacy policy.</p>
+
+<h2>Data stored on your device</h2>
+<ul>
+<li>Tunnel configurations, private keys and pre-shared keys that you add.</li>
+<li>Rules and app selections.</li>
+<li>Counters: transferred bytes per tunnel and number of blocked DNS requests, kept in a local file for the history chart. No list of visited sites is kept.</li>
+</ul>
+<p>Nothing of this leaves the device unless you export it yourself. Uninstalling the app deletes it.</p>
+
+<h2>Permissions</h2>
+<table>
+<tr><th>Permission</th><th>Why</th></tr>
+<tr><td>VPN service, Internet</td><td>To run the tunnels you configured.</td></tr>
+<tr><td>Foreground service</td><td>To keep the tunnel running while the app is closed. Shown as a notification.</td></tr>
+<tr><td>Notifications</td><td>Status of the tunnel and warnings.</td></tr>
+<tr><td>See installed apps (<code>QUERY_ALL_PACKAGES</code>)</td><td>To list your apps so you can choose which of them use which tunnel. The list is used on the device only and is never sent anywhere.</td></tr>
+<tr><td>Camera</td><td>Only to scan a QR code with a tunnel configuration. No picture is saved or sent.</td></tr>
+<tr><td>Network state</td><td>To react to Wi-Fi and mobile network changes.</td></tr>
+</table>
+
+<h2>Connections the app makes by itself</h2>
+<p>These requests reveal your IP address to the named party. Each is triggered by a feature you use.</p>
+<table>
+<tr><th>Destination</th><th>When</th><th>Purpose</th></tr>
+<tr><td><code>raw.githubusercontent.com</code> (GitHub, USA)</td><td>When you enable DNS filter lists</td><td>Download of public block lists. Privacy policy: <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</td></tr>
+<tr><td><code>api.ipify.org</code> and Google Public DNS</td><td>Only when you start the leak test</td><td>Shows which public IP address and DNS resolver the outside world sees through each route.</td></tr>
+<tr><td><code>api.github.com</code></td><td>Only in the version distributed outside Google Play, to check for updates</td><td>Update check. The Google Play version has no such check.</td></tr>
+</table>
+<p>The app also connects to the tunnel servers you configured, and to the DNS servers you set.</p>
+
+<h2>Logs</h2>
+<p>The app writes short technical messages to the Android system log (for example "start failed"). They contain no traffic content. They are not sent anywhere by the app.</p>
+
+<h2>No sharing, no sale</h2>
+<p>No data is sold or shared with third parties by the developer. There are no advertising or analytics SDKs.</p>
+
+<h2>Your rights</h2>
+<p>Because the developer holds no data about you, there is nothing to disclose or erase on the developer's side. Under the GDPR you still have the right to access, rectification, erasure, restriction, objection and data portability, and to complain to a supervisory authority, for example the one of your federal state.</p>
+
+<h2>Children</h2>
+<p>The app is not aimed at children under 16.</p>
+
+<h2>Changes</h2>
+<p>Changes are published on this page with a new date. The history is visible in the <a href="https://github.com/Bob-Nixkoenner/The_Shunt/commits/main/site">repository</a>.</p>
+</main><footer>Open source (Apache-2.0) · <a href="https://github.com/Bob-Nixkoenner/The_Shunt">GitHub</a></footer></body></html>

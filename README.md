@@ -102,11 +102,13 @@ If the download hangs (no progress bar): press Ctrl+C and add `-4` to the curl
 line (broken IPv6, common in VMs), or check DNS with `getent hosts raw.githubusercontent.com`.
 
 The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
-verified release (or builds from source), imports your WireGuard config, writes
+verified release, imports your WireGuard config, writes
 `/etc/shunt/shunt.toml`, does a dry run and starts the service.
-`sudo bash install.sh --dry-run` only shows what it would do. Releases are only used if
-their `SHA256SUMS` carry the release signature (`ssh-keygen -Y verify`, key in
-`install.sh`); otherwise it builds from source. Everything is logged to
+`sudo bash install.sh --dry-run` only shows what it would do. It takes the newest release
+(pre-releases included) whose `SHA256SUMS` carry the release signature (`ssh-keygen -Y
+verify`, key in `install.sh`) and hands over to the installer of that release, so code
+merged after a release is not installed until it is released. Without a signed release it
+builds from source. Everything is logged to
 `/var/log/shunt-install.log`.
 Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).
 
@@ -232,6 +234,9 @@ No account, no telemetry.
 
 - **Kill switch**: with Android's "Always-on VPN" and "Block connections without VPN" the
   app tells you when it is missing; the status bar icon shows how many tunnels work.
+  Switch both on: without the block, Android itself lets a little past the VPN (DNS for a
+  moment while the VPN starts, apps whose connection was opened before it). With both on,
+  nothing of an app got past the tunnel in our tests (tunnel down, crash, force-stop).
 - **Tunnels on demand** (default): a WireGuard tunnel no app uses is closed after a few
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
