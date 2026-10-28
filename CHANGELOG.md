@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Linux: a tunnel's own address is no longer reachable from other interfaces. Neighbours on the local network could ask "who has 10.66.0.12?" (ARP) and learn that this machine uses a VPN and which address, or send packets to it (CVE-2019-14899). New chain `tunnel_addr_guard` and arp table `shunt_arp`; found by the test lab (M01, M02).
+- Linux: forwarded traffic (containers, VMs and devices behind this machine) now follows the default route. It used to take the main table, past the tunnel and its kill switch, also with the tunnel up (lab M06, M09).
+
 ## v0.7.1-rc17
 
 - Languages: the window, the tray menu and the notifications speak the language of the system – German now, English otherwise – and a language picked under View → Language applies to all three (the tray follows within seconds). A language is one file (`internal/i18n/lang/<code>.json`: the English text is the key, a missing translation shows the English text), so more can follow. `SHUNT_LANG=en` overrides both for a single run. Android speaks the language Android gives the app (system language, or the per-app language on Android 13+) from the same catalog, packed into the app. The Windows setup follows the language of Windows (German or English). The command line and `install.sh` are still English; so are logs, JSON output and config keys. A check in the tests lists texts that have no translation yet.
