@@ -86,8 +86,9 @@ type Daemon struct {
 	linkDNS  sync.Map
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
-	routeSoft string
-	restart   chan struct{}
+	routeSoft     string
+	rulesRestored int // times checkRules had to put the firewall rules back
+	restart       chan struct{}
 
 	fw *firewall.Manager
 
@@ -550,6 +551,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-netTick.C:
 			d.endPassIfDue(self)
 			d.checkNetwork()
+			d.checkRules()
 			d.mu.Lock()
 			if d.routeSoft != "" && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
@@ -564,6 +566,30 @@ func (d *Daemon) Run(ctx context.Context) error {
 				go d.probeCaptive()
 			}
 		}
+	}
+}
+
+// checkRules notices when something else removed our firewall rules (another
+// VPN, "nft flush ruleset", a firewall tool) and puts them back: without
+// them the kill switch and every route are gone and traffic leaves directly.
+func (d *Daemon) checkRules() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.prep == nil || d.plan == nil || d.Backend.Intact() {
+		return
+	}
+	d.Log.Warn("our firewall rules were removed by something else; putting them back")
+	var held map[string]engine.Group
+	if d.fw != nil {
+		held = d.fw.HeldFor(d.plan.CgroupRoot)
+	}
+	if err := d.Backend.Apply(d.prep.Ruleset, held); err != nil {
+		d.Log.Error("could not restore the firewall rules", "err", err)
+		return
+	}
+	d.rulesRestored++
+	if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+		d.Log.Warn("routing sync", "err", err)
 	}
 }
 
