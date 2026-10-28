@@ -6,6 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 OUT=${OUT:?set OUT to the target directory}
+case $OUT in /*) ;; *) echo "OUT must be an absolute path (the script changes directory)" >&2; exit 1 ;; esac
 mkdir -p "$OUT"
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$OUT/lyrebird" \
 	gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/cmd/lyrebird
