@@ -112,7 +112,6 @@ func (b *linuxBackend) Cleanup() error {
 		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
 	}
 	errs = append(errs, nft.Apply(nft.DeleteArpScript()))
-	errs = append(errs, nft.Apply(nft.DeleteArpScript()))
 	errs = append(errs, routing.Cleanup())
 	return errors.Join(errs...)
 }
