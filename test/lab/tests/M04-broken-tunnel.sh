@@ -3,10 +3,7 @@ TITLE="Tunnel kommt nie hoch (falscher Endpunkt, falscher Schluessel): nie direk
 CONFIG=m-broken
 EXPECT_CANARY=none
 PREP='
-sed "s/^Endpoint *=.*/Endpoint = 192.0.2.77:51820/" /etc/shunt/tunnels/intern.conf | sudo -n tee /etc/shunt/tunnels/dead.conf >/dev/null
-k=$(sudo -n awk "/^PublicKey/{print \$3}" /etc/shunt/tunnels/intern.conf)
-sudo -n sed "s|^PublicKey *=.*|PublicKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=|" /etc/shunt/tunnels/intern.conf | sudo -n tee /etc/shunt/tunnels/badkey.conf >/dev/null
-sudo -n chmod 600 /etc/shunt/tunnels/dead.conf /etc/shunt/tunnels/badkey.conf
+sudo -n bash -c "cd /etc/shunt/tunnels; sed \"s/^Endpoint *=.*/Endpoint = 192.0.2.77:51820/\" intern.conf >dead.conf; k=\$(wg genkey | wg pubkey); sed \"s|^PublicKey *=.*|PublicKey = \$k|\" intern.conf >badkey.conf; chmod 600 dead.conf badkey.conf"
 install -m755 /usr/bin/curl /tmp/labtog && sudo -n install -m755 /tmp/labtog /usr/local/bin/labtog
 '
 NOTE="labtun-Regel zeigt auf einen Tunnel mit totem Endpunkt, labtog auf einen mit falschem Schluessel. Erwartung: blockiert, im Status als Fehler sichtbar, nichts im Klartext."
