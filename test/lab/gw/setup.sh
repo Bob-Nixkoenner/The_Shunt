@@ -14,7 +14,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections
 apt-get update -q
 apt-get install -yq --no-install-recommends \
-	dnsmasq unbound tcpdump tshark nmap p0f python3-scapy nftables iproute2 iputils-ping
+	dnsmasq unbound tcpdump tshark nmap p0f python3-scapy nftables iproute2 iputils-ping iputils-arping
 
 # we run our own instances with generated configs
 systemctl disable --now dnsmasq unbound unbound-resolvconf 2>/dev/null || true
