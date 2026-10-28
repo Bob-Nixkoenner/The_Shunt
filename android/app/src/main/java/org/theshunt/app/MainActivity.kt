@@ -114,7 +114,7 @@ private fun App() {
                 ).forEachIndexed { i, (label, icon) ->
                     NavigationBarItem(
                         selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
-                        label = { Text(label, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                        label = { Text(T(label), fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
                             selectedIconColor = c.accent, unselectedIconColor = c.muted,
@@ -134,7 +134,7 @@ private fun App() {
         }
     }
     message?.let {
-        AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton({ message = null }) { Text("OK") } }, text = { Text(it) })
+        AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton({ message = null }) { Text(T("OK")) } }, text = { Text(it) })
     }
 }
 
@@ -151,18 +151,18 @@ private fun Header(status: JSONObject?) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ShuntLogo()
             Spacer(Modifier.width(10.dp))
-            Text("The Shunt", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text)
+            Text(T("The Shunt"), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text)
             Spacer(Modifier.width(12.dp))
             when {
                 !running -> Pill("off")
                 panic -> Pill("PANIC", Tone.Bad)
-                passLeft > 0 -> Pill("PASS %d:%02d".format(passLeft / 60, passLeft % 60), Tone.Bad)
+                passLeft > 0 -> Pill(T("PASS {time}", "time" to "%d:%02d".format(passLeft / 60, passLeft % 60)), Tone.Bad)
                 !lockdown -> Pill("no kill switch", Tone.Warn)
                 else -> Pill("protected", Tone.Ok)
             }
             Spacer(Modifier.weight(1f))
             if (running) {
-                ShuntButton(if (panic) "Release" else "PANIC", {
+                ShuntButton(if (panic) T("Release") else T("PANIC"), {
                     VpnState.engine?.setPanic(!panic)
                 }, kind = Tone.Bad)
             }
@@ -211,15 +211,14 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
             "Pass – unprotected",
             "Everything goes direct: your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
             bad = true,
-        ) { TextButton({ VpnState.engine?.pass(0) }) { Text("End pass now") } }
+        ) { TextButton({ VpnState.engine?.pass(0) }) { Text(T("End pass now")) } }
         if (running && !lockdown) {
             // the only real kill switch on Android is the system's: without
             // it, apps get out unprotected while the VPN (re)starts or crashes
             Banner(
                 "No kill switch",
-                "While the VPN starts, restarts or crashes, apps can get out unprotected. " +
-                    "Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
-            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") } }
+                "While the VPN starts, restarts or crashes, apps can get out unprotected. Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
+            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text(T("Open VPN settings")) } }
         }
         if (running && settings.defaultRoute == "block" && !panic) {
             Banner(
@@ -230,17 +229,16 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
         if (running && privateDns) {
             Banner(
                 "Private DNS is on",
-                "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. " +
-                    "Set Private DNS to \"Off\" so every app resolves through its route.",
-            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text("Open network settings") } }
+                "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. Set Private DNS to \"Off\" so every app resolves through its route.",
+            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text(T("Open network settings")) } }
         }
 
         Section("VPN") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(if (running) "On" else "Off", fontWeight = FontWeight.Bold, color = c.text)
+                    Text(if (running) T("On") else T("Off"), fontWeight = FontWeight.Bold, color = c.text)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("default route ", color = c.muted, fontSize = 13.sp)
+                        Text(T("default route "), color = c.muted, fontSize = 13.sp)
                         RouteTag(settings.defaultRoute)
                     }
                 }
@@ -253,12 +251,12 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
             if (running) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ShuntButton(
-                        if (passLeft > 0) "End pass" else "Pass 5 min",
+                        if (passLeft > 0) T("End pass") else T("Pass 5 min"),
                         { if (passLeft > 0) VpnState.engine?.pass(0) else confirmPass = true },
                     )
                 }
                 status?.let {
-                    Hint("Connections ${it.optLong("flows")} · blocked ${it.optLong("blocked")} · DNS names filtered ${it.optLong("dns_blocked")}")
+                    Hint(T("Connections {flows} · blocked {blocked} · DNS names filtered {names}", "flows" to it.optLong("flows"), "blocked" to it.optLong("blocked"), "names" to it.optLong("dns_blocked")))
                 }
             }
             if (settings.tunnels.isEmpty()) Hint("No tunnel yet – import one under Tunnels.")
@@ -275,7 +273,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
 
         status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
             if ((tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L) > 0L) {
-                Section("Traffic", action = { TextButton({ confirmReset = true }) { Text("Reset") } }) {
+                Section("Traffic", action = { TextButton({ confirmReset = true }) { Text(T("Reset")) } }) {
                     TrafficRows(status.optJSONObject("traffic")!!, ts)
                 }
             }
@@ -283,7 +281,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
 
         if (running) {
             Section("Leak test", action = {
-                ShuntButton(if (leakRunning) "Running…" else if (leak == null) "Run" else "Run again", {
+                ShuntButton(if (leakRunning) T("Running…") else if (leak == null) T("Run") else T("Run again"), {
                     leakRunning = true
                     Thread { val r = VpnState.engine?.leakTest(); leak = r?.let { JSONArray(it) }; leakRunning = false }.start()
                 }, enabled = !leakRunning)
@@ -300,19 +298,19 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
     if (confirmPass) {
         AlertDialog(
             onDismissRequest = { confirmPass = false },
-            title = { Text("Let everything through for 5 minutes?") },
-            text = { Text("Your real IP, no tunnels, no blocks, no DNS filter. It ends by itself; connections opened meanwhile are cut then.") },
-            confirmButton = { TextButton({ VpnState.engine?.pass(5); confirmPass = false }) { Text("Pass 5 min") } },
-            dismissButton = { TextButton({ confirmPass = false }) { Text("Cancel") } },
+            title = { Text(T("Let everything through for 5 minutes?")) },
+            text = { Text(T("Your real IP, no tunnels, no blocks, no DNS filter. It ends by itself; connections opened meanwhile are cut then.")) },
+            confirmButton = { TextButton({ VpnState.engine?.pass(5); confirmPass = false }) { Text(T("Pass 5 min")) } },
+            dismissButton = { TextButton({ confirmPass = false }) { Text(T("Cancel")) } },
         )
     }
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text("Reset traffic statistics?") },
-            text = { Text("All monthly and total counts are deleted.") },
-            confirmButton = { TextButton({ VpnState.engine?.resetStats(); confirmReset = false }) { Text("Reset") } },
-            dismissButton = { TextButton({ confirmReset = false }) { Text("Cancel") } },
+            title = { Text(T("Reset traffic statistics?")) },
+            text = { Text(T("All monthly and total counts are deleted.")) },
+            confirmButton = { TextButton({ VpnState.engine?.resetStats(); confirmReset = false }) { Text(T("Reset")) } },
+            dismissButton = { TextButton({ confirmReset = false }) { Text(T("Cancel")) } },
         )
     }
 }
@@ -336,7 +334,7 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
             Text(t.getString("name"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
             Pill(
                 when {
-                    t.optBoolean("idle") -> "asleep"; !up -> "down"; state == "ok" -> "up"; state == "idle" -> "idle"; state == "stale" -> "no answers"; state == "down" -> "down"; else -> "waiting"
+                    t.optBoolean("idle") -> T("asleep"); !up -> T("down"); state == "ok" -> T("up"); state == "idle" -> T("idle"); state == "stale" -> T("no answers"); state == "down" -> T("down"); else -> T("waiting")
                 },
                 tone,
             )
@@ -345,10 +343,10 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
         else if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
         else {
             val hs = t.optLong("handshake")
-            KV("handshake", if (hs == 0L) "never" else "${st.optLong("time") - hs}s ago")
+            KV("handshake", if (hs == 0L) T("never") else T("{n}s ago", "n" to (st.optLong("time") - hs)))
             val ms = h?.optLong("latency_ms") ?: 0
             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
-            if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) " · $loss % lost" else "")
+            if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) T(" · {n} % lost", "n" to loss) else "")
             KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
             Sparkline(history?.tunnel(t.getString("name")), Modifier.padding(top = 8.dp))
         }
@@ -365,12 +363,12 @@ private fun TrafficRows(traffic: JSONObject, tunnels: JSONArray?) {
         for (i in 0 until (tunnels?.length() ?: 0)) add(tunnels!!.getJSONObject(i).getString("name"))
         add("total")
     }
-    Row { listOf("", "this month", "total").forEachIndexed { i, h -> Text(h.uppercase(), Modifier.weight(if (i == 0) 1f else 1.3f), color = c.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) } }
+    Row { listOf("", "this month", "total").forEachIndexed { i, h -> Text(T(h).uppercase(), Modifier.weight(if (i == 0) 1f else 1.3f), color = c.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) } }
     for (n in names) {
         val tr = traffic.optJSONObject(n) ?: continue
         HorizontalDivider(color = c.line)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { if (n == "total") Text("all", color = c.muted, fontSize = 13.sp) else RouteTag("tunnel:$n") }
+            Box(Modifier.weight(1f)) { if (n == "total") Text(T("all"), color = c.muted, fontSize = 13.sp) else RouteTag("tunnel:$n") }
             Text("↓ ${b(tr.optJSONObject("month"), "rx")} ↑ ${b(tr.optJSONObject("month"), "tx")}", Modifier.weight(1.3f), fontSize = 12.5.sp, color = c.text)
             Text("↓ ${b(tr.optJSONObject("total"), "rx")} ↑ ${b(tr.optJSONObject("total"), "tx")}", Modifier.weight(1.3f), fontSize = 12.5.sp, color = c.text)
         }
@@ -409,8 +407,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             defaultRoute = if (first) "tunnel:${t.name}" else settings.defaultRoute,
         ))
         say(
-            (if (first) "Imported as tunnel:${t.name}, now the route of all apps (change it under Apps). Restart the VPN to use it."
-            else "Imported as tunnel:${t.name}. Restart the VPN to use it.") + note
+            (if (first) T("Imported as tunnel:{name}, now the route of all apps (change it under Apps). Restart the VPN to use it.", "name" to t.name)
+            else T("Imported as tunnel:{name}. Restart the VPN to use it.", "name" to t.name)) + note
         )
     }
     val add: (String, String) -> Unit = { rawName, text ->
@@ -426,10 +424,10 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 val removed = sum.optJSONArray("removed")?.length() ?: 0
                 val t = Tunnel(name, sum.getString("clean"), Tunnel.OPENVPN)
                 if (sum.optBoolean("needs_auth")) askAuth = t
-                else save(t, if (removed > 0) " $removed unsafe lines (scripts etc.) were removed." else "")
+                else save(t, if (removed > 0) T(" {n} unsafe lines (scripts etc.) were removed.", "n" to removed) else "")
             }
         } catch (e: Exception) {
-            say("Not a usable ${if (wg) "WireGuard" else "OpenVPN"} config: ${e.message}")
+            say(T("Not a usable {type} config: {error}", "type" to (if (wg) "WireGuard" else "OpenVPN"), "error" to e.message))
         }
     }
     val scope = rememberCoroutineScope()
@@ -440,7 +438,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             val picked = withContext(Dispatchers.IO) {
                 runCatching {
                     val text = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                        ?: error("file not readable")
+                        ?: error(T("file not readable"))
                     var name = "vpn"
                     ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
                         if (it.moveToFirst()) name = it.getString(0)
@@ -449,7 +447,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
             }
             picked.onSuccess { (name, text) -> add(name, text) }
-                .onFailure { say("Could not read the file: ${it.message}") }
+                .onFailure { say(T("Could not read the file: {error}", "error" to it.message)) }
         }
     }
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { add("qr", it) } }
@@ -474,8 +472,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
                         Pill(if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
-                        TextButton({ renaming = t }) { Text("Rename") }
-                        TextButton({ confirmDelete = t }) { Text("Delete", color = LocalShunt.current.bad) }
+                        TextButton({ renaming = t }) { Text(T("Rename")) }
+                        TextButton({ confirmDelete = t }) { Text(T("Delete"), color = LocalShunt.current.bad) }
                     }
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
@@ -493,11 +491,11 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                             .filter { t.isOpenVPN || settings.tunnels.none { o -> o.via == t.name } }
                             .map { "tunnel:${it.name}" }
                         if (carriers.isNotEmpty() || t.via.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("through", Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
+                            Text(T("through"), Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
                             RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
                                 val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
                                 update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
-                                say("tunnel:${t.name} now goes ${if (via.isEmpty()) "directly" else "through tunnel:$via"}. Restart the VPN to use it.")
+                                say(T("tunnel:{name} now goes {how}. Restart the VPN to use it.", "name" to t.name, "how" to (if (via.isEmpty()) T("directly") else T("through tunnel:{via}", "via" to via))))
                             }
                         }
                     }
@@ -512,14 +510,14 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         val shown = Store.tunnelName(text, others)
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Rename tunnel:${t.name}") },
+            title = { Text(T("Rename tunnel:{name}", "name" to t.name)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (vpnRunning) Text("Switch the VPN off first: a running tunnel cannot change its name.")
+                    if (vpnRunning) Text(T("Switch the VPN off first: a running tunnel cannot change its name."))
                     else {
-                        OutlinedTextField(text, { text = it }, label = { Text("New name") }, singleLine = true)
+                        OutlinedTextField(text, { text = it }, label = { Text(T("New name")) }, singleLine = true)
                         Hint("Letters, digits and \"-\", up to 10. Routes of apps, the default route and tunnels going through this one follow.")
-                        if (text.isNotBlank() && shown != text.trim()) Hint("Will be saved as \"$shown\".")
+                        if (text.isNotBlank() && shown != text.trim()) Hint(T("Will be saved as \"{name}\".", "name" to shown))
                     }
                 }
             },
@@ -529,12 +527,12 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                     if (to != t.name) {
                         Store.renameStats(ctx, t.name, to)
                         update(Store.rename(settings, t.name, to))
-                        say("Renamed to tunnel:$to.")
+                        say(T("Renamed to tunnel:{name}.", "name" to to))
                     }
                     renaming = null
-                }, enabled = !vpnRunning && text.isNotBlank()) { Text("Rename") }
+                }, enabled = !vpnRunning && text.isNotBlank()) { Text(T("Rename")) }
             },
-            dismissButton = { TextButton({ renaming = null }) { Text("Cancel") } },
+            dismissButton = { TextButton({ renaming = null }) { Text(T("Cancel")) } },
         )
     }
     askAuth?.let { t ->
@@ -542,28 +540,28 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         var pass by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { askAuth = null },
-            title = { Text("Login for tunnel:${t.name}") },
+            title = { Text(T("Login for tunnel:{name}", "name" to t.name)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("This OpenVPN server asks for a username and password.")
-                    OutlinedTextField(user, { user = it }, label = { Text("Username") }, singleLine = true)
+                    Text(T("This OpenVPN server asks for a username and password."))
+                    OutlinedTextField(user, { user = it }, label = { Text(T("Username")) }, singleLine = true)
                     OutlinedTextField(
-                        pass, { pass = it }, label = { Text("Password") }, singleLine = true,
+                        pass, { pass = it }, label = { Text(T("Password")) }, singleLine = true,
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     )
                 }
             },
             confirmButton = {
-                TextButton({ save(t.copy(user = user, pass = pass), ""); askAuth = null }, enabled = user.isNotEmpty()) { Text("Import") }
+                TextButton({ save(t.copy(user = user, pass = pass), ""); askAuth = null }, enabled = user.isNotEmpty()) { Text(T("Import")) }
             },
-            dismissButton = { TextButton({ askAuth = null }) { Text("Cancel") } },
+            dismissButton = { TextButton({ askAuth = null }) { Text(T("Cancel")) } },
         )
     }
     confirmDelete?.let { t ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete tunnel:${t.name}?") },
-            text = { Text("Apps routed to it are blocked until you pick another route.") },
+            title = { Text(T("Delete tunnel:{name}?", "name" to t.name)) },
+            text = { Text(T("Apps routed to it are blocked until you pick another route.")) },
             confirmButton = {
                 TextButton({
                     val route = "tunnel:${t.name}"
@@ -574,9 +572,9 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         networks = settings.networks.map { if (it.route == route) it.copy(route = "block") else it },
                     ))
                     confirmDelete = null
-                }) { Text("Delete") }
+                }) { Text(T("Delete")) }
             },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text("Cancel") } },
+            dismissButton = { TextButton({ confirmDelete = null }) { Text(T("Cancel")) } },
         )
     }
 }
@@ -588,8 +586,8 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
     Section("Battery") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Only keep used tunnels connected", color = c.text, fontWeight = FontWeight.SemiBold)
-                Text("A tunnel no app uses is closed after a few minutes and opens again on the first connection (about a second).", color = c.muted, fontSize = 12.sp)
+                Text(T("Only keep used tunnels connected"), color = c.text, fontWeight = FontWeight.SemiBold)
+                Text(T("A tunnel no app uses is closed after a few minutes and opens again on the first connection (about a second)."), color = c.muted, fontSize = 12.sp)
             }
             Switch(settings.onDemand, { update(settings.copy(onDemand = it)) })
         }
@@ -598,15 +596,15 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
     Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Ignore the DNS of the tunnels", color = c.text, fontWeight = FontWeight.SemiBold)
-                Text("Use only the servers below, not the DNS line of the tunnel files. Names that exist only inside a tunnel (home network) stop resolving.", color = c.muted, fontSize = 12.sp)
+                Text(T("Ignore the DNS of the tunnels"), color = c.text, fontWeight = FontWeight.SemiBold)
+                Text(T("Use only the servers below, not the DNS line of the tunnel files. Names that exist only inside a tunnel (home network) stop resolving."), color = c.muted, fontSize = 12.sp)
             }
             Switch(settings.ignoreTunnelDns, { update(settings.copy(ignoreTunnelDns = it)) })
         }
         HorizontalDivider(color = c.line)
         Hint(
-            if (settings.ignoreTunnelDns) "These servers are asked, in this order, through the route of the app."
-            else "Asked after the tunnel's own DNS, when that one does not answer within 2 s."
+            if (settings.ignoreTunnelDns) T("These servers are asked, in this order, through the route of the app.")
+            else T("Asked after the tunnel's own DNS, when that one does not answer within 2 s.")
         )
         settings.dnsServers.forEach { s ->
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -615,20 +613,20 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
                     when (s) { "1.1.1.1", "1.0.0.1" -> "Cloudflare"; "8.8.8.8", "8.8.4.4" -> "Google"; "9.9.9.9" -> "Quad9"; else -> "" },
                     color = c.muted, fontSize = 12.sp,
                 )
-                TextButton({ update(settings.copy(dnsServers = settings.dnsServers - s)) }) { Text("Remove", color = c.bad) }
+                TextButton({ update(settings.copy(dnsServers = settings.dnsServers - s)) }) { Text(T("Remove"), color = c.bad) }
             }
         }
         var text by remember { mutableStateOf("") }
         val ok = Settings.isDnsAddress(text.trim()) && text.trim() !in settings.dnsServers && settings.dnsServers.size < Settings.MAX_DNS
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
-                text, { text = it }, Modifier.weight(1f), label = { Text("Add a DNS server (IP)") }, singleLine = true,
+                text, { text = it }, Modifier.weight(1f), label = { Text(T("Add a DNS server (IP)")) }, singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
             )
             ShuntButton("Add", { update(settings.copy(dnsServers = settings.dnsServers + text.trim())); text = "" }, kind = Tone.Ok, enabled = ok)
         }
         val missing = Settings.DEFAULT_DNS.filter { it !in settings.dnsServers }
-        if (missing.isNotEmpty()) TextButton({ update(settings.copy(dnsServers = settings.dnsServers + missing)) }) { Text("Add 1.1.1.1 and 8.8.8.8 again") }
+        if (missing.isNotEmpty()) TextButton({ update(settings.copy(dnsServers = settings.dnsServers + missing)) }) { Text(T("Add 1.1.1.1 and 8.8.8.8 again")) }
     }
 }
 
@@ -667,14 +665,14 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Section("Where traffic goes") {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("All other apps", Modifier.weight(1f), color = c.text)
+                Text(T("All other apps"), Modifier.weight(1f), color = c.text)
                 RoutePicker(settings.defaultRoute, settings.routes()) { update(settings.copy(defaultRoute = it)) }
             }
             // network profiles: another default on Wi-Fi or on mobile data
             for ((link, label) in listOf("wifi" to "… on Wi-Fi", "mobile" to "… on mobile data")) {
                 val p = settings.networks.find { it.link == link }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
+                    Text(T(label), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
                     RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
                         val rest = settings.networks.filter { it.link != link }
                         update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile(link, r)))
@@ -682,12 +680,12 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                 }
             }
             OutlinedTextField(
-                query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("filter…") }, singleLine = true,
+                query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(T("filter…")) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = c.panel2, focusedContainerColor = c.panel2, unfocusedBorderColor = c.line),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(showSystem, { showSystem = it })
-                Text("Show system services", color = c.muted, fontSize = 13.sp)
+                Text(T("Show system services"), color = c.muted, fontSize = 13.sp)
             }
         }
         LazyColumn(Modifier.weight(1f)) {
@@ -707,7 +705,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                         val filtered = a.pkg !in settings.unfiltered
                         FilterChip(filtered, {
                             update(settings.copy(unfiltered = if (filtered) settings.unfiltered + a.pkg else settings.unfiltered - a.pkg))
-                        }, label = { Text("filter", fontSize = 12.sp) }, colors = FilterChipDefaults.filterChipColors(
+                        }, label = { Text(T("filter"), fontSize = 12.sp) }, colors = FilterChipDefaults.filterChipColors(
                             containerColor = c.panel, labelColor = c.muted,
                             selectedContainerColor = c.accent.copy(alpha = .18f), selectedLabelColor = c.accent,
                         ))
@@ -746,9 +744,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Section("DNS filter") {
             Hint("Names on these lists get no answer (NXDOMAIN). Per app: Apps → filter. Tap a list's name to see its source.")
-            status?.let { Hint("${it.optLong("dns_blocked")} names blocked since the VPN started") }
+            status?.let { Hint(T("{n} names blocked since the VPN started", "n" to it.optLong("dns_blocked"))) }
             val on = Blocklists.ALL.keys.count { it in settings.filterLists }
-            Hint("$on of ${Blocklists.ALL.size} lists on. Big lists (marked) use a lot of mobile data and memory – prefer Wi-Fi.")
+            Hint(T("{on} of {total} lists on. Big lists (marked) use a lot of mobile data and memory – prefer Wi-Fi.", "on" to on, "total" to Blocklists.ALL.size))
         }
         Blocklists.GROUPS.forEach { (group, entries) ->
             Section(group) {
@@ -759,14 +757,14 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
                             if (checked && e.mb >= Blocklists.BIG_MB) bigList = e else switchOn(e.name, checked)
                         })
                         Column(Modifier.weight(1f)) {
-                            Text(e.what, color = c.text, fontWeight = FontWeight.SemiBold)
+                            Text(T(e.what), color = c.text, fontWeight = FontWeight.SemiBold)
                             Text(
                                 e.name, fontFamily = Mono, fontSize = 12.sp, color = c.info, textDecoration = TextDecoration.Underline,
                                 modifier = Modifier.clickable { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Blocklists.page(e.name)))) },
                             )
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            counts[e.name]?.takeIf { it > 0 }?.let { Text(if (it == 1) "1 name" else "%,d names".format(it), color = c.muted, fontSize = 12.sp) }
+                            counts[e.name]?.takeIf { it > 0 }?.let { Text(if (it == 1) T("1 name") else T("{n} names", "n" to "%,d".format(it)), color = c.muted, fontSize = 12.sp) }
                             if (e.mb > 0) Text("%.1f MB".format(e.mb), color = if (e.mb >= Blocklists.BIG_MB) c.warn else c.muted, fontSize = 11.sp)
                         }
                     }
@@ -778,10 +776,10 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
     bigList?.let { e ->
         AlertDialog(
             onDismissRequest = { bigList = null },
-            title = { Text("Big list") },
-            text = { Text("\"${e.what}\" is about %.0f MB and needs a lot of memory on the phone. Switch it on?".format(e.mb)) },
-            confirmButton = { TextButton({ switchOn(e.name, true); bigList = null }) { Text("Switch on") } },
-            dismissButton = { TextButton({ bigList = null }) { Text("Cancel") } },
+            title = { Text(T("Big list")) },
+            text = { Text(T("\"{what}\" is about {mb} MB and needs a lot of memory on the phone. Switch it on?", "what" to T(e.what), "mb" to "%.0f".format(e.mb))) },
+            confirmButton = { TextButton({ switchOn(e.name, true); bigList = null }) { Text(T("Switch on")) } },
+            dismissButton = { TextButton({ bigList = null }) { Text(T("Cancel")) } },
         )
     }
 }

@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.7.1-rc17
+
+- Languages: the window, the tray menu and the notifications speak the language of the system – German now, English otherwise – and a language picked under View → Language applies to all three (the tray follows within seconds). A language is one file (`internal/i18n/lang/<code>.json`: the English text is the key, a missing translation shows the English text), so more can follow. `SHUNT_LANG=en` overrides both for a single run. Android speaks the language Android gives the app (system language, or the per-app language on Android 13+) from the same catalog, packed into the app. The Windows setup follows the language of Windows (German or English). The command line and `install.sh` are still English; so are logs, JSON output and config keys. A check in the tests lists texts that have no translation yet.
+- Configure tab tidied up: "General" is split into Routing and a new "Privacy and protection" card (host name, MAC, incoming connections, network at boot in two columns, shorter explanations); a network profile is one compact card with its settings in a grid, and what the profile sets itself is marked with a coloured bar, so the few overrides stand out from "as under General". Same settings, same keys.
+
+## v0.7.1-rc16
+
+- Installer and .deb: when the privacy option switches the MAC on, networks you trust already (a profile with `inbound = "lan"`/`"open"` or `dhcp_hostname = "send"`, e.g. home) get `mac = "permanent"` and keep the real MAC, so router reservations at home keep working; the installer names them. Profiles that set a MAC themselves are left alone.
+
+## v0.7.1-rc15
+
+- Installer and .deb: the privacy option now covers the cable and the device IDs too. Saying yes (the .deb on its first install) also puts `dhcp_hostname = "none"` and `mac = "stable"` under `[daemon]` in `shunt.toml` (only keys that are not set yet), so the cable MAC, the DHCPv6 DUID and the client ID differ per network and a network's first connection is covered. An install from before is asked once, only in a terminal: an update from the app or a .deb update never changes the MAC at home unasked. At home: network profile → MAC "the real one".
+- Installer: questions count as asked only with a real terminal (`/dev/tty` exists without one too, e.g. ssh without `-t`); without one the defaults apply, as before.
+
+## v0.7.1-rc14
+
+- Desktop window / web UI: tabs like the Android app – Overview, VPN, Apps, DNS, Ports, Configure, View. A Normal/Expert switch under View hides rules, ports, own DNS servers, multi-hop, launchers and firewall details in Normal (they keep working; a banner lists the ones in use). Narrow windows: tabs wrap, tables stack.
+- Dependencies: `cilium/ebpf` v0.22.0 (GO-2026-6238, reachable through the start protection).
+- Open ports and DNS blocks per app (Linux): shuntd lists the listening sockets and names their program by its cgroup (`shunt ports`, Ports tab), with where each can be reached from (this machine, the network, a tunnel). The DNS filter names the program behind each blocked query (`shunt blocks`, Apps → "Who asks for blocked names").
+- Inbound protection (Linux): `[inbound] enabled = true` closes incoming connections on networks you have not trusted (answers, DHCP, neighbour discovery and ICMP errors still pass). A `[[network]]` profile can say `inbound = "lan"` (the ports in `inbound_allow` / `inbound.allow` from private addresses) or `"open"`; each tunnel too (closed unless it says otherwise). On an unknown network the status asks whether to trust it. `shunt inbound`, settings under Configure → General, per network and per tunnel. Off by default (on a server it would close SSH).
+- MAC address per network (Linux, NetworkManager): `mac = "random" | "stable" | "permanent"` under `[daemon]`, per network profile as well (e.g. the real one at home); also in Configure → General and per profile. Wi-Fi and cable. With random or stable the device's own IDs leave DHCP and IPv6 too: the DHCPv6 DUID was the same on every network (derived from the machine ID), now it follows the MAC (random) or the profile (stable); the DHCPv4 client ID follows the MAC; IPv6 addresses use stable-privacy instead of EUI-64 (MAC inside). A new MAC applies from the next connection, a connection in use is not cut. Off unless set.
+- No host name in DHCP now covers a network's first connection on NetworkManager 1.52+: the defaults said `false`, which these versions ignore (they read a number), so a newly joined network still got the host name until The Shunt had set the profile. Now `0`; `install.sh` and the .deb fix the file they wrote earlier (`90-shunt-privacy.conf`).
+- The network privacy settings never change a profile while it connects (NetworkManager 1.54 then never finishes DHCP), and reach NetworkManager at boot too (it may not answer yet when shuntd starts). A connection that already runs with the defaults is not reapplied (that restarted DHCP for nothing).
+- Linux: with a tunnel as default route, IPv6 neighbour discovery (router and neighbour solicitations, neighbour advertisements) got the tunnel mark and was dropped, so the local network gave no IPv6 to apps that go direct. It now takes the main table, as DHCP does (and as the boot lockdown already allowed).
+
 ## v0.7.1-rc13
 
 - Windows: the kill switch moved from Windows Firewall rules to the Windows Filtering Platform (new package `internal/winsplit/wfp`, derived from wireguard-windows, MIT). Windows' own allow rules (core networking DNS, push notifications, store apps; 124 on a fresh Windows 11) punched through the old "block outbound" policy, so DNS, push and telemetry left the network while the service was stopped, after a crash and at boot. The new filters sit in a sublayer above the firewall and permit only the service, the Shunt adapter, loopback, DHCP/NDP and private local networks (not their DNS); DNS goes only to The Shunt. They are persistent: they stay while the service is stopped, after a crash and across reboots. Measured in the test lab: 24 of 27 Windows tests pass (7 before); stop, crash, reboot, IPv6, TunnelCrack LocalNet and push connections no longer leak.

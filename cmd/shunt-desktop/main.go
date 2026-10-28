@@ -20,6 +20,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktopapp"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
@@ -139,6 +140,8 @@ type trayApp struct {
 	panic     *systray.MenuItem
 	autostart *systray.MenuItem
 	tunnels   []*systray.MenuItem
+	relabel   func() // sets the texts of the fixed menu items (again)
+	lang      string // the language they are in
 }
 
 func (a *trayApp) onReady() {
@@ -154,24 +157,45 @@ func (a *trayApp) onReady() {
 		a.tunnels = append(a.tunnels, it)
 	}
 	systray.AddSeparator()
-	open := systray.AddMenuItem("Open The Shunt", "Show the window")
-	a.panic = systray.AddMenuItem("PANIC – block all traffic", "Drop everything except loopback, now")
-	captive := systray.AddMenuItem("Wi-Fi login page…", "Hotel/train Wi-Fi: open a throwaway browser that goes past the tunnels")
+	open := systray.AddMenuItem("", "")
+	a.panic = systray.AddMenuItem("", "")
+	captive := systray.AddMenuItem("", "")
 	if runtime.GOOS == "windows" {
 		captive.Hide() // needs the Linux CLI
 	}
 	systray.AddSeparator()
-	restart := systray.AddMenuItem("Restart service", "Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment")
-	restartAll := systray.AddMenuItem("Restart service and app", "Restart shuntd, then this tray app and window")
-	a.update = systray.AddMenuItem("Update available – how to update…", "Opens the window with the update")
+	restart := systray.AddMenuItem("", "")
+	restartAll := systray.AddMenuItem("", "")
+	a.update = systray.AddMenuItem("", "")
 	a.update.Hide()
 	systray.AddSeparator()
-	a.updOn = systray.AddMenuItemCheckbox("Check for updates", "Ask GitHub every 3 hours whether a newer version exists", update.Enabled())
+	a.updOn = systray.AddMenuItemCheckbox("", "", update.Enabled())
 	if !updatesSupported {
 		a.updOn.Hide()
 	}
-	a.autostart = systray.AddMenuItemCheckbox("Start at login", "Show the tray icon after login", desktopapp.AutostartEnabled())
-	quit := systray.AddMenuItem("Quit tray", "Close the tray icon and window (protection keeps running)")
+	a.autostart = systray.AddMenuItemCheckbox("", "", desktopapp.AutostartEnabled())
+	quit := systray.AddMenuItem("", "")
+	// the texts are set here and again whenever the language changes
+	a.relabel = func() {
+		open.SetTitle(i18n.T("Open The Shunt"))
+		open.SetTooltip(i18n.T("Show the window"))
+		captive.SetTitle(i18n.T("Wi-Fi login page…"))
+		captive.SetTooltip(i18n.T("Hotel/train Wi-Fi: open a throwaway browser that goes past the tunnels"))
+		restart.SetTitle(i18n.T("Restart service"))
+		restart.SetTooltip(i18n.T("Restart shuntd (asks for the admin password); tunnelled apps are blocked for a moment"))
+		restartAll.SetTitle(i18n.T("Restart service and app"))
+		restartAll.SetTooltip(i18n.T("Restart shuntd, then this tray app and window"))
+		a.update.SetTitle(i18n.T("Update available – how to update…"))
+		a.update.SetTooltip(i18n.T("Opens the window with the update"))
+		a.updOn.SetTitle(i18n.T("Check for updates"))
+		a.updOn.SetTooltip(i18n.T("Ask GitHub every 3 hours whether a newer version exists"))
+		a.autostart.SetTitle(i18n.T("Start at login"))
+		a.autostart.SetTooltip(i18n.T("Show the tray icon after login"))
+		quit.SetTitle(i18n.T("Quit tray"))
+		quit.SetTooltip(i18n.T("Close the tray icon and window (protection keeps running)"))
+		a.lang = i18n.Current()
+	}
+	a.relabel()
 	systray.SetOnTapped(a.show) // left click on the icon
 
 	go func() {
@@ -186,7 +210,7 @@ func (a *trayApp) onReady() {
 			case <-a.updOn.ClickedCh:
 				on := !a.updOn.Checked()
 				if err := update.SetEnabled(on); err != nil {
-					a.notifier.Notify(desktopapp.Notification{Summary: "Update check", Body: err.Error()})
+					a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Update check"), Body: err.Error()})
 					continue
 				}
 				if on {
@@ -202,18 +226,18 @@ func (a *trayApp) onReady() {
 			case <-captive.ClickedCh:
 				cmd := exec.Command(a.shunt, "-s", a.sock, "captive")
 				if err := cmd.Start(); err != nil {
-					a.notifier.Notify(desktopapp.Notification{Summary: "Wi-Fi login", Body: err.Error()})
+					a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Wi-Fi login"), Body: err.Error()})
 				} else {
 					go func() {
 						if err := cmd.Wait(); err != nil {
-							a.notifier.Notify(desktopapp.Notification{Summary: "Wi-Fi login browser", Body: err.Error()})
+							a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Wi-Fi login browser"), Body: err.Error()})
 						}
 					}()
 				}
 			case <-a.autostart.ClickedCh:
 				on := !a.autostart.Checked()
 				if err := desktopapp.SetAutostart(on, a.exe); err != nil {
-					a.notifier.Notify(desktopapp.Notification{Summary: "Autostart", Body: err.Error()})
+					a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Autostart"), Body: err.Error()})
 					continue
 				}
 				if on {
@@ -239,14 +263,14 @@ func (a *trayApp) updateAvailable(i update.Info) {
 	if a.update != nil {
 		a.update.Show()
 	}
-	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt: update available", Body: "Open the tray menu → “Update available”, then “Install update” in the window."})
+	a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt: update available"), Body: i18n.T("Open the tray menu → “Update available”, then “Install update” in the window.")})
 }
 
 // restartService asks shuntd to restart and waits until it answers again;
 // with app, this program then replaces itself with a fresh copy.
 func (a *trayApp) restartService(app bool) {
 	if err := a.client.Do("POST", "/v1/restart", nil, nil); err != nil {
-		a.notifier.Notify(desktopapp.Notification{Summary: "Service not restarted", Body: err.Error()})
+		a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Service not restarted"), Body: err.Error()})
 		return
 	}
 	time.Sleep(time.Second)
@@ -259,10 +283,10 @@ func (a *trayApp) restartService(app bool) {
 		}
 	}
 	if !back {
-		a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service did not come back", Body: restartHint, Urgent: true})
+		a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt service did not come back"), Body: restartHint(), Urgent: true})
 		return
 	}
-	a.notifier.Notify(desktopapp.Notification{Summary: "The Shunt service restarted"})
+	a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt service restarted")})
 	if app {
 		args := []string{a.exe, "-s", a.sock}
 		if !windowVisible() {
@@ -270,7 +294,7 @@ func (a *trayApp) restartService(app bool) {
 		}
 		systray.Quit()
 		if err := execSelf(a.exe, args); err != nil {
-			a.notifier.Notify(desktopapp.Notification{Summary: "App not restarted", Body: err.Error()})
+			a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("App not restarted"), Body: err.Error()})
 		}
 	}
 }
@@ -281,7 +305,7 @@ func (a *trayApp) togglePanic() {
 	on := !lastPanic
 	// lifting panic needs the admin password (polkit dialog), setting it never does
 	if err := a.client.Do("POST", "/v1/panic", api.PanicRequest{On: on}, nil); err != nil {
-		a.notifier.Notify(desktopapp.Notification{Summary: "Panic mode not changed", Body: err.Error(), Urgent: true})
+		a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Panic mode not changed"), Body: err.Error(), Urgent: true})
 	}
 }
 
@@ -312,13 +336,16 @@ func (a *trayApp) poll() {
 
 func (a *trayApp) render(v desktopapp.View) {
 	systray.SetIcon(trayIcon(desktopapp.IconN(v.Level, v.Active)))
+	if a.relabel != nil && i18n.Current() != a.lang {
+		a.relabel()
+	}
 	systray.SetTooltip("The Shunt – " + v.Title)
 	a.title.SetTitle(v.Title)
 	lastPanic = v.Panic
 	if v.Panic {
-		a.panic.SetTitle("Release panic (needs admin password)")
+		a.panic.SetTitle(i18n.T("Release panic (needs admin password)"))
 	} else {
-		a.panic.SetTitle("PANIC – block all traffic")
+		a.panic.SetTitle(i18n.T("PANIC – block all traffic"))
 	}
 	for i, it := range a.tunnels {
 		if i < len(v.Tunnels) {

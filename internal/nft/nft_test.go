@@ -321,6 +321,83 @@ dns_filter = "paranoid"
 	}
 }
 
+func TestInbound(t *testing.T) {
+	c, err := config.Parse(`
+[tunnel.vps]
+config = "vps.conf"
+[tunnel.heim]
+config = "heim.conf"
+inbound = "lan"
+inbound_allow = ["tcp/22"]
+[inbound]
+enabled = true
+allow = ["tcp/1716", "udp/1716"]
+[[network]]
+name = "home"
+ssid = ["h"]
+default_route = "direct"
+inbound = "lan"
+inbound_allow = ["tcp/22", "udp/47998-48000"]
+[[network]]
+name = "cafe"
+ssid = ["c"]
+default_route = "tunnel:vps"
+inbound = "open"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ti := map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}, "heim": {Iface: "sh-heim", HasV4: true}}
+	render := func(network string) string {
+		p, err := engine.CompileOn(c, "shunt", ti, network, map[string]string{"wifi": "wlan0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := Render(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	common := []string{
+		"type filter hook input priority filter; policy accept;",
+		`iifname != { "wlan0", "sh-heim", "sh-vps" } return`,
+		"ct state established,related accept",
+		"udp sport 67 udp dport 68 accept",
+		// tunnels keep their own mode on every network
+		`iifname "sh-vps" counter drop`,
+		`iifname "sh-heim" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } tcp dport 22 accept`,
+		`iifname "sh-heim" counter drop`,
+	}
+	for network, c := range map[string]struct{ want, not []string }{
+		"": {want: []string{"\t\tcounter drop\n"}, not: []string{"\t\tip saddr", "dport 1716"}},
+		"home": {want: []string{
+			"ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } tcp dport 22 accept",
+			"ip6 saddr { fc00::/7, fe80::/10 } udp dport 47998-48000 accept",
+			"icmp type echo-request accept",
+		}, not: []string{"dport 1716"}},
+		"cafe": {want: []string{"\t\taccept\n"}},
+	} {
+		out := render(network)
+		for _, w := range append(common, c.want...) {
+			if !strings.Contains(out, w) {
+				t.Errorf("network %q: missing %q", network, w)
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(out, n) {
+				t.Errorf("network %q: unexpected %q", network, n)
+			}
+		}
+	}
+
+	// switched off: no inbound chain at all
+	c.Inbound.Enabled = false
+	if out := render("home"); strings.Contains(out, "chain inbound") {
+		t.Error("inbound chain while disabled")
+	}
+}
+
 func TestTorRoute(t *testing.T) {
 	c, err := config.Parse(`
 [daemon]

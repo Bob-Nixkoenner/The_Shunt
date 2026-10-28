@@ -41,6 +41,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
@@ -68,10 +69,13 @@ type Daemon struct {
 	proxy     *dnsproxy.Proxy
 	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
 	torProxy  torProxy       // transparent proxies of the Tor routes
-	filter    *blocklist.Manager
-	watcher   AppWatcher
-	saveMu    sync.Mutex // serializes config writes
-	dnsUps    dnsproxy.RouteUpstreams
+	// sockets names the programs behind sockets (DNS blocks per app, open ports).
+	sockets     sockets.Resolver
+	filter      *blocklist.Manager
+	watcher     AppWatcher
+	startWarned bool       // the eBPF start guard failed (logged once)
+	saveMu      sync.Mutex // serializes config writes
+	dnsUps      dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
 	// tunnel name); read by the DNS proxy without d.mu.
 	pushed sync.Map
@@ -529,9 +533,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
-	go d.applyHostname()
+	go d.applyNetPrivacy()
 	go func() {
-		if err := dhcphost.WatchNew(ctx, func() { go d.applyHostname() }); err != nil {
+		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
 			d.Log.Debug("dhcp host name: no NetworkManager signals", "err", err)
 		}
 	}()
@@ -595,7 +599,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			if err := d.reload(self); err != nil {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
-			go d.applyHostname()
+			go d.applyNetPrivacy()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -658,6 +662,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 	}
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
+		d.proxy.Owner = func(proto string, from netip.AddrPort) string {
+			o, _ := d.sockets.Of(proto, from)
+			return o.Name
+		}
 	}
 	ups := d.upstreams(p)
 	if err := d.proxy.Update(p.Plan, ups); err != nil {
@@ -706,6 +714,10 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
+	if err := d.Backend.StartMarks(p.Plan.CgroupRoot, p.Plan.StartMarks()); err != nil && !d.startWarned {
+		d.startWarned = true
+		d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
 	for _, g := range append(p.Plan.Groups, engine.Group{Path: path.Join(p.Plan.CgroupRoot, "apps", "free")}) {
@@ -802,13 +814,13 @@ func firewallSettings(p *Prepared) firewall.Settings {
 	return s
 }
 
-// applyHostname sets the NetworkManager profiles for daemon.dhcp_hostname;
-// the network we are on decides for the profile in use.
-func (d *Daemon) applyHostname() {
+// applyNetPrivacy sets the NetworkManager profiles for daemon.dhcp_hostname
+// and daemon.mac; the network we are on decides for the profile in use.
+func (d *Daemon) applyNetPrivacy() {
 	d.mu.Lock()
 	c, info := d.cfg, d.netInfo
 	d.mu.Unlock()
-	if c == nil || c.Daemon.DHCPHostname == "" {
+	if c == nil {
 		return
 	}
 	pol := dhcphost.Policy{Config: c}
@@ -846,8 +858,8 @@ func (d *Daemon) checkNetwork() {
 	d.netInfo = info
 	if moved {
 		go d.probeCaptive()
-		go d.applyHostname() // the profile in use may want another setting here
-		if d.prep != nil {   // allow_lan routes follow the attached networks
+		go d.applyNetPrivacy() // the profile in use may want another setting here
+		if d.prep != nil {     // allow_lan routes follow the attached networks
 			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 				d.Log.Warn("routing sync after network change", "err", err)
 			}
@@ -1457,6 +1469,28 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/inbound/network", func(w http.ResponseWriter, r *http.Request) {
+		var req api.InboundDecision
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		// trusting a network opens ports: managing; keeping it closed is not
+		if req.Action != "closed" {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		if err := d.decideInbound(req); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, d.listening())
+	})
 	mux.HandleFunc("GET /v1/procs", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.ToLower(r.URL.Query().Get("name"))
 		if name == "" {
@@ -1592,6 +1626,10 @@ func (d *Daemon) status() api.Status {
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
+	}
+	if d.plan.Inbound != nil {
+		st.Inbound = d.plan.Inbound.Mode
+		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
 	if d.book != nil {

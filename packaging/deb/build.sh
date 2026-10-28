@@ -60,6 +60,48 @@ if [ "$1" = configure ]; then
 	fi
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
+	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+	# [daemon] when they are not set there; prints what it added.
+	daemon_privacy() {
+		_f=$1
+		_have=$(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/) }
+			d && /^[[:space:]]*dhcp_hostname[[:space:]]*=/ { h = 1 }
+			d && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+			/^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { s = 1 }
+			END { printf "%d%d%d", s, h, m }' "$_f")
+		_h='' _m=''
+		case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
+		case $_have in ??0) _m='mac = "stable"' ;; esac
+		[ -n "$_h$_m" ] || return 0
+		_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
+		case $_have in
+		0??) printf '\n[daemon]\n%s\n' "$_add" >>"$_f" ;;
+		*) ADD=$_add awk '{ print } !done && /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { print ENVIRON["ADD"]; done = 1 }' "$_f" >"$_f.tmp" &&
+			cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp" ;;
+		esac
+		echo "$_add" | tr '\n' ' '
+	}
+	# home_mac FILE: networks trusted already (inbound = "lan"/"open" or
+	# dhcp_hostname = "send") keep the real MAC: mac = "permanent" where no mac
+	# is set; prints their names.
+	home_mac() {
+		_f=$1
+		_flags=$(awk '/^[[:space:]]*\[/ { if (n) print n, t && !m, ind; n = 0 }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; n = k; t = 0; m = 0; ind = "-"; next }
+			n && ind == "-" && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ { match($0, /^[[:space:]]*/); ind = RLENGTH }
+			n && /^[[:space:]]*inbound[[:space:]]*=[[:space:]]*"(lan|open)"/ { t = 1 }
+			n && /^[[:space:]]*dhcp_hostname[[:space:]]*=[[:space:]]*"send"/ { t = 1 }
+			n && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+			END { if (n) print n, t && !m, ind }' "$_f")
+		case $_flags in *" 1 "*) ;; *) return 0 ;; esac
+		FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2]; ind[f[1]] = f[3] } }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; print; if (want[k]) { pad = ""; for (j = 0; j < (ind[k] == "-" ? 0 : ind[k]); j++) pad = pad " "; print pad "mac = \"permanent\"" }; next }
+			{ print }' "$_f" >"$_f.tmp" && cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp"
+		FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2] } }
+			/^[[:space:]]*\[/ { inn = 0 }
+			/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; inn = want[k]; next }
+			inn && /^[[:space:]]*name[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); printf "%s%s", sep, $0; sep = ", " }' "$_f"
+	}
 	if [ ! -f /etc/shunt/shunt.toml ]; then
 		printf '# The Shunt configuration - see /usr/share/doc/the-shunt/shunt.toml.example\n\n[daemon]\nsocket_group = "shunt"\ndefault_route = "direct"\n' >/etc/shunt/shunt.toml
 		chmod 644 /etc/shunt/shunt.toml
@@ -67,6 +109,11 @@ if [ "$1" = configure ]; then
 	# Privacy on foreign networks, as install.sh offers it: on by default,
 	# written once (whoever deletes the file keeps it deleted on updates).
 	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
+	# older packages wrote "false", which NetworkManager 1.52+ ignores
+	if [ -f "$NM_PRIVACY" ] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
+		sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+		nmcli general reload conf >/dev/null 2>&1 || true
+	fi
 	if [ -d /etc/NetworkManager/conf.d ] && [ ! -f "$NM_PRIVACY" ] && [ ! -e /var/lib/shunt/nm-privacy-offered ]; then
 		cat >"$NM_PRIVACY" <<'NMEOF'
 # The Shunt: privacy on foreign networks (removed with the package; delete
@@ -79,17 +126,28 @@ wifi.scan-rand-mac-address=yes
 # a different MAC on every Wi-Fi, but the same one each time you return
 # (keeps router reservations and hotel logins working)
 wifi.cloned-mac-address=stable
-ipv4.dhcp-send-hostname=false
-ipv6.dhcp-send-hostname=false
+# 0, not false: NetworkManager 1.52+ ignores "false" here
+ipv4.dhcp-send-hostname=0
+ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true
 		echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"
+		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
+		# an update never changes the MAC at home unasked)
+		added=$(daemon_privacy /etc/shunt/shunt.toml)
+		if [ -n "$added" ]; then
+			echo "The Shunt: /etc/shunt/shunt.toml: $added"
+			home=$(home_mac /etc/shunt/shunt.toml)
+			[ -z "$home" ] || echo "The Shunt: real MAC kept on the networks you trust: $home"
+		fi
 	fi
 	install -d -m755 /var/lib/shunt
 	touch /var/lib/shunt/nm-privacy-offered
 	systemctl daemon-reload >/dev/null 2>&1 || true
 	systemctl enable shuntd.service >/dev/null 2>&1 || true
+	# decides at boot from daemon.boot_lockdown (auto: only for a tunnel default route)
+	systemctl enable shunt-lockdown.service >/dev/null 2>&1 || true
 	systemctl restart shuntd.service >/dev/null 2>&1 || true
 	echo "The Shunt is early beta software and not a 100% solution: running programs keep their route, some snap apps start in two steps, and apps may connect before they are routed. Check with 'shunt leaktest'."
 	echo "The Shunt: add yourself to the group 'shunt' to use the CLI: sudo usermod -aG shunt \$USER"

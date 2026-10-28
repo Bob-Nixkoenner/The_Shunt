@@ -31,6 +31,8 @@ type Config struct {
 	Firewall *Firewall `toml:"firewall,omitempty" json:"firewall,omitempty"`
 	// DNSFilter: blocklists (nil = defaults, see DefaultDNSFilter).
 	DNSFilter *DNSFilter `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Inbound: protection against incoming connections (nil = off).
+	Inbound *Inbound `toml:"inbound,omitempty" json:"inbound,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -99,6 +101,13 @@ type Network struct {
 	// connects; otherwise it applies once the network is recognised (the
 	// address is then renewed).
 	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// MAC overrides daemon.mac on this network ("" = keep); recognised
+	// like dhcp_hostname. A new MAC takes effect from the next connection.
+	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
+	// Inbound: closed | lan | open while on this network ("" = closed),
+	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -136,6 +145,17 @@ func validHostname(m string) bool {
 	return m == "" || m == HostnameNone || m == HostnameSend
 }
 
+// MAC address modes (daemon.mac, network mac).
+const (
+	MACRandom    = "random"    // new on every connection
+	MACStable    = "stable"    // own per network, the same each time
+	MACPermanent = "permanent" // the device's real one
+)
+
+func validMAC(m string) bool {
+	return m == "" || m == MACRandom || m == MACStable || m == MACPermanent
+}
+
 func contains(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {
@@ -161,6 +181,13 @@ type Daemon struct {
 	// profiles send the host name in DHCP: none | send. "" leaves the
 	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
 	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// MAC (Linux, NetworkManager): the MAC address Wi-Fi and cable profiles
+	// show a network: random | stable | permanent; "" leaves the profiles
+	// alone. random and stable also keep the device's own IDs out of DHCP
+	// (DHCPv6 DUID and DHCPv4 client ID follow the MAC) and out of IPv6
+	// addresses (stable-privacy). A [[network]] can say otherwise (e.g.
+	// permanent at home).
+	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
@@ -170,10 +197,37 @@ type Daemon struct {
 	// kill_switch = false (or uninstalling) lifts it. Linux always has its
 	// own kill switch.
 	KillSwitch *bool `toml:"kill_switch,omitempty" json:"kill_switch,omitempty"`
+	// BootLockdown (Linux): block the network from early boot until shuntd
+	// has applied its rules (shunt-lockdown.service): auto | on | off.
+	// "" = auto: on when a default route (daemon or a network profile)
+	// does not go out directly, i.e. what is meant for a tunnel must not
+	// leave in clear text before shuntd runs.
+	BootLockdown string `toml:"boot_lockdown,omitempty" json:"boot_lockdown,omitempty"`
 }
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
 func (d Daemon) KillSwitchOn() bool { return d.KillSwitch == nil || *d.KillSwitch }
+
+// BootLockdownOn reports whether shunt-lockdown should block the network at
+// boot (see Daemon.BootLockdown).
+func (c *Config) BootLockdownOn() bool {
+	switch c.Daemon.BootLockdown {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	routes := []string{c.Daemon.DefaultRoute}
+	for _, n := range c.Networks {
+		routes = append(routes, n.DefaultRoute)
+	}
+	for _, r := range routes {
+		if r != "" && r != "direct" && !strings.HasPrefix(r, "link:") {
+			return true
+		}
+	}
+	return false
+}
 
 // DNS configures the per-route DNS proxy.
 type DNS struct {
@@ -239,6 +293,12 @@ type Tunnel struct {
 	// what gets its own circuits: "app" (default), "destination" or "none".
 	Bridges []string `toml:"bridges,omitempty" json:"bridges,omitempty"`
 	Isolate string   `toml:"isolate,omitempty" json:"isolate,omitempty"`
+	// Inbound: what may come in through this tunnel while the inbound
+	// protection is on: closed | lan | open ("" = closed, the far end of a
+	// tunnel is not your network unless you say so, e.g. a tunnel home).
+	// InboundAllow: the ports "lan" lets in (nil = inbound.allow).
+	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
 }
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
@@ -451,9 +511,18 @@ func (c *Config) Validate() error {
 		if !validHostname(n.DHCPHostname) {
 			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
 		}
+		if !validMAC(n.MAC) {
+			return fmt.Errorf("%s: mac %q (random | stable | permanent)", where, n.MAC)
+		}
 	}
 	if !validHostname(c.Daemon.DHCPHostname) {
 		return fmt.Errorf("daemon.dhcp_hostname %q (none | send)", c.Daemon.DHCPHostname)
+	}
+	if !validMAC(c.Daemon.MAC) {
+		return fmt.Errorf("daemon.mac %q (random | stable | permanent)", c.Daemon.MAC)
+	}
+	if b := c.Daemon.BootLockdown; b != "" && b != "auto" && b != "on" && b != "off" {
+		return fmt.Errorf("daemon.boot_lockdown %q (auto | on | off)", b)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
@@ -463,6 +532,9 @@ func (c *Config) Validate() error {
 		if !validMode(n.Firewall) {
 			return fmt.Errorf("network %q: firewall %q (off | ask | block)", n.Name, n.Firewall)
 		}
+	}
+	if err := c.validateInbound(); err != nil {
+		return err
 	}
 	if err := c.checkHops(); err != nil {
 		return err

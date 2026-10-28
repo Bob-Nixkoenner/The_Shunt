@@ -100,6 +100,7 @@ func (s *Server) handler() http.Handler {
 	sub, _ := fs.Sub(static, "static")
 	files := http.FileServer(http.FS(sub))
 	mux.Handle("GET /", files)
+	mux.HandleFunc("GET /i18n-data.js", serveI18N)
 
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		var st api.Status
@@ -263,6 +264,13 @@ func (s *Server) handler() http.Handler {
 		}
 		s.forward(w, "POST", "/v1/pending/"+url.PathEscape(r.PathValue("id")), req)
 	})
+	mux.HandleFunc("POST /api/inbound/network", func(w http.ResponseWriter, r *http.Request) {
+		var req api.InboundDecision
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/inbound/network", req)
+	})
 	mux.HandleFunc("GET /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
 		var rs []firewall.Remembered
 		if err := s.Client.Do("GET", "/v1/firewall/apps", nil, &rs); err != nil {
@@ -273,6 +281,14 @@ func (s *Server) handler() http.Handler {
 	})
 	mux.HandleFunc("DELETE /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/firewall/apps?key="+url.QueryEscape(r.URL.Query().Get("key")), nil)
+	})
+	mux.HandleFunc("GET /api/listening", func(w http.ResponseWriter, r *http.Request) {
+		var l api.Listening
+		if err := s.Client.Do("GET", "/v1/listening", nil, &l); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, l)
 	})
 	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
 		var ps []api.ProcRoute

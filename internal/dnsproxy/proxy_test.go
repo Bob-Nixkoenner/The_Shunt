@@ -52,7 +52,7 @@ func TestCaptiveUpstream(t *testing.T) {
 	ask := func(port int, name string) string {
 		q := new(dns.Msg)
 		q.SetQuestion(name, dns.TypeTXT)
-		r := p.handle(port, q, markUnknown)
+		r := p.handle(port, q, markUnknown, nil)
 		if len(r.Answer) == 0 {
 			return "none"
 		}
@@ -87,7 +87,7 @@ func TestFilter(t *testing.T) {
 	ask := func(port int, name string) int {
 		q := new(dns.Msg)
 		q.SetQuestion(name, dns.TypeA)
-		return p.handle(port, q, markUnknown).Rcode
+		return p.handle(port, q, markUnknown, nil).Rcode
 	}
 	for _, c := range []struct {
 		port int
@@ -109,6 +109,20 @@ func TestFilter(t *testing.T) {
 	if st.Blocked != 2 || st.ByLevel["paranoid"] != 1 || len(st.Recent) != 2 || st.Recent[0].Name != "evil.example" || st.Recent[0].List != "mal" {
 		t.Errorf("stats %+v", st)
 	}
+
+	// per app: the sender is asked only for blocked queries
+	p.Owner = func(string, netip.AddrPort) string { return "never called" }
+	asked := 0
+	who := func() string { asked++; return "firefox" }
+	for _, n := range []string{"a.ads.example.", "b.ads.example.", "fine.example."} {
+		q := new(dns.Msg)
+		q.SetQuestion(n, dns.TypeA)
+		p.handle(1, q, markUnknown, who)
+	}
+	st = p.FilterStats()
+	if asked != 2 || st.ByApp["firefox"] != 2 || st.Recent[0].App != "firefox" {
+		t.Errorf("per app: asked %d, stats %+v", asked, st)
+	}
 }
 
 // A query that reaches another route's listener (the nat redirect is sticky
@@ -123,7 +137,7 @@ func TestWrongListener(t *testing.T) {
 	ask := func(port int, mark uint32) string {
 		q := new(dns.Msg)
 		q.SetQuestion("x.example.", dns.TypeTXT)
-		r := p.handle(port, q, mark)
+		r := p.handle(port, q, mark, nil)
 		if len(r.Answer) == 0 {
 			return fmt.Sprintf("rcode %d", r.Rcode)
 		}

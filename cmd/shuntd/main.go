@@ -35,6 +35,7 @@ commands:
   run        start the daemon (default)
   check      validate config and print the nftables ruleset, change nothing
   lockdown   block all traffic except loopback/DHCP until 'run' applies a plan
+             (if daemon.boot_lockdown says so: auto = default route not direct)
   cleanup    remove all Shunt rules, routes and tables (lifts kill switches!)
   fix-nsswitch      stop glibc from bypassing DNS routing via systemd-resolved
   restore-nsswitch  undo fix-nsswitch
@@ -82,7 +83,18 @@ func main() {
 			}
 		}
 	case "lockdown":
-		err = nft.Apply(nft.RenderLockdown())
+		// the config decides (daemon.boot_lockdown, auto = only when traffic
+		// is meant for a tunnel); an unreadable config does not lock: shuntd
+		// cannot start with it either and would leave the machine offline
+		c, cerr := config.Load(*cfgPath)
+		switch {
+		case cerr != nil:
+			log.Warn("boot lockdown skipped: config unreadable", "err", cerr)
+		case !c.BootLockdownOn():
+			log.Info("boot lockdown not needed (boot_lockdown, default route direct)")
+		default:
+			err = nft.Apply(nft.RenderLockdown())
+		}
 	case "cleanup":
 		err = daemon.Cleanup()
 	case "fix-nsswitch":
