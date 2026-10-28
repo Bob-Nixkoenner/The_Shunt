@@ -88,6 +88,7 @@ type Daemon struct {
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
 	routeSoft string
+	tsOrig    string // system tcp_timestamps before we switched it off
 	// clock check through the default route (see runClockCheck)
 	clockOff time.Duration
 	clockSet bool
@@ -613,6 +614,29 @@ func (d *Daemon) runClockCheck(ctx context.Context) {
 	}
 }
 
+// applyTCPTimestamps follows daemon.tcp_timestamps: "off" switches TCP
+// timestamps off (remembering the system value), anything else gives the
+// remembered value back. Caller holds d.mu.
+func (d *Daemon) applyTCPTimestamps(want string) {
+	switch {
+	case want == "off" && d.tsOrig == "":
+		d.tsOrig = tcpTimestamps()
+		if d.tsOrig == "" || d.tsOrig == "0" {
+			d.tsOrig = ""
+			return
+		}
+		if err := setTCPTimestamps("0"); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot switch off", "err", err)
+			d.tsOrig = ""
+		}
+	case want != "off" && d.tsOrig != "":
+		if err := setTCPTimestamps(d.tsOrig); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot restore", "err", err)
+		}
+		d.tsOrig = ""
+	}
+}
+
 // reload applies config changes. Ordering matters for fail-closed behaviour:
 // classification (nft) and kill switch tables go in before any tunnel moves.
 func (d *Daemon) reload(selfCgroup string) error {
@@ -671,6 +695,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(w)
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	d.applyTCPTimestamps(p.Config.Daemon.TCPTimestamps)
 	wasPassing := d.passing
 	d.passing = d.ov.Passing(time.Now())
 	if wasPassing && !d.passing {
@@ -1078,6 +1103,7 @@ func (d *Daemon) linkAbsent(route string) bool {
 func (d *Daemon) shutdown() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.applyTCPTimestamps("keep")
 	for _, t := range d.tunnels {
 		t.Down()
 	}
