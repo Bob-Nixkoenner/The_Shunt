@@ -466,9 +466,11 @@ build_from() { # source dir
 	step "downloading Go toolchain and modules" env -C "$1" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" go mod download
 	step "compiling shuntd and shunt" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
 		go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt
-	step "compiling lyrebird (Tor bridge transports)" env -C "$1/packaging/pt" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" \
+	# a subshell: step ends the script on a failure, and a missing lyrebird
+	# (module proxy hiccup) must not stop the install - only bridges need it
+	(step "compiling lyrebird (Tor bridge transports)" env -C "$1/packaging/pt" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" \
 		GOFLAGS=-trimpath CGO_ENABLED=0 go build -ldflags "-s -w" -o "$WORK/bin/" \
-		gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/cmd/lyrebird || warn "lyrebird not built: Tor bridges will not work"
+		gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/cmd/lyrebird) || warn "lyrebird not built: Tor bridges will not work"
 	if ((WANT_DESKTOP)); then
 		pkg_install "build tools for the desktop app" desktop-build
 		step "compiling shunt-desktop" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=1 \
