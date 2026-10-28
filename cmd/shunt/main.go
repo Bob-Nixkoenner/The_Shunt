@@ -19,11 +19,13 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
@@ -34,69 +36,78 @@ import (
 // version is set at build time (-ldflags "-X main.version=…").
 var version = "dev"
 
-const usage = `usage: shunt [-s socket] <command>
+// usageEntries: command syntax (not translated) and its explanation lines.
+var usageEntries = []struct {
+	syntax string
+	desc   string
+}{
+	{`  run (--via ROUTE | --group NAME) -- CMD [ARGS...]`, "start CMD with its traffic classified by ROUTE (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules"},
+	{`  status [--json]`, ""},
+	{`  socks`, "list the SOCKS5 exits of the tunnels"},
+	{`  tor-all on [tunnel] | off | status`, "EMERGENCY: everything (every rule, every app) goes through Tor until switched off"},
+	{`  tor status | newnym [tunnel]`, "Tor tunnels: progress; build new circuits for new connections"},
+	{`  pending`, "programs the app firewall holds back, waiting for a route"},
+	{`  allow ID|NAME [--via ROUTE] [--once]`, "let a waiting program out (default: the default route), and remember it unless --once"},
+	{`  firewall apps | forget KEY`, "stored firewall decisions / forget one (asked again next time)"},
+	{`  ports [--all] [--json]`, "open ports: who listens, reachable from where (--all: also the ones only this machine can reach)"},
+	{`  blocks`, "which programs asked for names the DNS filter blocked"},
+	{`  inbound [trust [NAME] | keep-closed]`, "incoming protection on this network; on an unknown one: trust it as your LAN (adds a network profile, inbound = \"lan\") or keep it closed and stop asking"},
+	{`  which NAME`, "show running processes named like NAME and the route each one takes"},
+	{`  rename OLD NEW`, "rename a tunnel (files, rules, default route, menu entries follow)"},
+	{`  import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]`, "add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo for root-only files like /etc/wireguard/*.conf. --via makes it a second hop through that tunnel; OpenVPN logins are asked for."},
+	{`  remove NAME`, "delete a tunnel and its imported files (not while the default route, a rule or another tunnel's --via uses it)"},
+	{`  captive [--browser B]`, "Wi-Fi login page (hotel, train): opens a throwaway browser that goes direct, past the tunnels"},
+	{`  reload`, "re-read the daemon config"},
+	{`  restart`, "restart shuntd (tunnels reconnect; tunnelled apps are blocked meanwhile)"},
+	{`  panic on|off`, "drop all traffic except loopback / undo"},
+	{`  pass MINUTES|off`, "let everything through (direct, past tunnels and blocks) for 1-60 minutes, then back by itself; asks for the admin password"},
+	{`  ui [--port N] [--no-browser] [--no-update-check]`, "open the web interface (local only)"},
+	{`  leaktest`, "check public IP and DNS resolver of every route (contacts api.ipify.org and Google DNS through each route)"},
+	{`  desktop list | set <app-id> <route> | unset <app-id>`, "make an app's menu entry always start through a route"},
+	{`  desktop clone <app-id> <route> --name NAME [--args ARGS]`, "extra menu entry, e.g. one per Firefox profile: desktop clone firefox-esr tunnel:vps --name \"Firefox SM\" --args \"--new-instance -P sm\""},
+	{`  desktop profiles`, "list Firefox profiles"},
+	{`  version`, ""},
+}
 
-commands:
-  run (--via ROUTE | --group NAME) -- CMD [ARGS...]
-             start CMD with its traffic classified by ROUTE
-             (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules
-  status [--json]
-  socks      list the SOCKS5 exits of the tunnels
-  tor-all on [tunnel] | off | status
-             EMERGENCY: everything (every rule, every app) goes through Tor until switched off
-  tor status | newnym [tunnel]
-             Tor tunnels: progress; build new circuits for new connections
-  pending    programs the app firewall holds back, waiting for a route
-  allow ID|NAME [--via ROUTE] [--once]
-             let a waiting program out (default: the default route), and
-             remember it unless --once
-  firewall apps | forget KEY
-             stored firewall decisions / forget one (asked again next time)
-  ports [--all] [--json]
-             open ports: who listens, reachable from where (--all: also
-             the ones only this machine can reach)
-  blocks     which programs asked for names the DNS filter blocked
-  inbound [trust [NAME] | keep-closed]
-             incoming protection on this network; on an unknown one:
-             trust it as your LAN (adds a network profile, inbound = "lan")
-             or keep it closed and stop asking
-  which NAME show running processes named like NAME and the route each one takes
-  rename OLD NEW
-             rename a tunnel (files, rules, default route, menu entries follow)
-  import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]
-             add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo
-             for root-only files like /etc/wireguard/*.conf. --via makes it a
-             second hop through that tunnel; OpenVPN logins are asked for.
-  remove NAME
-             delete a tunnel and its imported files (not while the default
-             route, a rule or another tunnel's --via uses it)
-  captive [--browser B]
-             Wi-Fi login page (hotel, train): opens a throwaway browser
-             that goes direct, past the tunnels
-  reload     re-read the daemon config
-  restart    restart shuntd (tunnels reconnect; tunnelled apps are blocked meanwhile)
-  panic on|off
-             drop all traffic except loopback / undo
-  pass MINUTES|off
-             let everything through (direct, past tunnels and blocks) for
-             1-60 minutes, then back by itself; asks for the admin password
-  ui [--port N] [--no-browser] [--no-update-check]
-             open the web interface (local only)
-  leaktest   check public IP and DNS resolver of every route
-             (contacts api.ipify.org and Google DNS through each route)
-  desktop list | set <app-id> <route> | unset <app-id>
-             make an app's menu entry always start through a route
-  desktop clone <app-id> <route> --name NAME [--args ARGS]
-             extra menu entry, e.g. one per Firefox profile:
-             desktop clone firefox-esr tunnel:vps --name "Firefox SM" --args "--new-instance -P sm"
-  desktop profiles
-             list Firefox profiles
-  version
-`
+// usage is the help text, in the user's language.
+func usage() string {
+	var b strings.Builder
+	b.WriteString(i18n.T("usage: shunt [-s socket] <command>"))
+	b.WriteString("\n\n" + i18n.T("commands:") + "\n")
+	for _, e := range usageEntries {
+		b.WriteString(e.syntax + "\n")
+		if e.desc != "" {
+			b.WriteString(wrap(i18n.T(e.desc), 13, 80))
+		}
+	}
+	return b.String()
+}
+
+// wrap breaks text into lines of at most width columns, each indented.
+func wrap(text string, indent, width int) string {
+	var b strings.Builder
+	line := strings.Repeat(" ", indent)
+	empty := true
+	for _, w := range strings.Fields(text) {
+		if !empty && utf8.RuneCountInString(line)+1+utf8.RuneCountInString(w) > width {
+			b.WriteString(line + "\n")
+			line, empty = strings.Repeat(" ", indent), true
+		}
+		if !empty {
+			line += " "
+		}
+		line += w
+		empty = false
+	}
+	if !empty {
+		b.WriteString(line + "\n")
+	}
+	return b.String()
+}
 
 func main() {
 	sock := flag.String("s", "/run/shunt/shuntd.sock", "shuntd socket")
-	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usage()) }
 	flag.Parse()
 	c := api.NewClient(*sock)
 	socketPath = *sock
@@ -151,7 +162,7 @@ func main() {
 		err = c.Do("POST", "/v1/reload", nil, nil)
 	case "restart":
 		if err = c.Do("POST", "/v1/restart", nil, nil); err == nil {
-			fmt.Println("shuntd restarts")
+			fmt.Println(i18n.T("shuntd restarts"))
 		}
 	case "captive":
 		err = captive(c, args[1:])
@@ -169,12 +180,12 @@ func main() {
 		m := 0
 		if args[1] != "off" {
 			if m, err = strconv.Atoi(args[1]); err != nil || m < 1 || m > 60 {
-				fmt.Fprintln(os.Stderr, "shunt: pass takes 1-60 minutes or off")
+				fmt.Fprintln(os.Stderr, "shunt:", i18n.T("pass takes 1-60 minutes or off"))
 				os.Exit(2)
 			}
 		}
 		if err = c.Do("POST", "/v1/pass", api.PassRequest{Minutes: m}, nil); err == nil && m > 0 {
-			fmt.Printf("everything goes direct for %d minutes (shunt pass off ends it)\n", m)
+			fmt.Println(i18n.T("everything goes direct for {n} minutes (shunt pass off ends it)", "n", m))
 		}
 	default:
 		flag.Usage()
@@ -191,13 +202,13 @@ var socketPath string
 
 func run(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	via := fs.String("via", "", "route: direct | block | tunnel:<name> | link:wifi|ethernet|mobile")
-	group := fs.String("group", "", "named group from the config")
+	via := fs.String("via", "", i18n.T("route: direct | block | tunnel:<name> | link:wifi|ethernet|mobile"))
+	group := fs.String("group", "", i18n.T("named group from the config"))
 	placed := fs.Bool("placed", false, "")
 	_ = fs.Parse(args)
 	cmd := fs.Args()
 	if len(cmd) == 0 || (*via == "") == (*group == "") {
-		return fmt.Errorf("need exactly one of --via/--group and a command")
+		return errors.New(i18n.T("need exactly one of --via/--group and a command"))
 	}
 	g := *group
 	if *via != "" {
@@ -221,10 +232,10 @@ func run(c *api.Client, args []string) error {
 
 func importTunnel(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	name := fs.String("name", "", "tunnel name (default: from the file name)")
-	via := fs.String("via", "", "second hop through this route (tunnel:<name>), or link:wifi|ethernet|mobile")
-	dns := fs.String("dns", "", "DNS upstream name from the config")
-	user := fs.String("user", "", "OpenVPN username (asked for if the server wants one)")
+	name := fs.String("name", "", i18n.T("tunnel name (default: from the file name)"))
+	via := fs.String("via", "", i18n.T("second hop through this route (tunnel:<name>), or link:wifi|ethernet|mobile"))
+	dns := fs.String("dns", "", i18n.T("DNS upstream name from the config"))
+	user := fs.String("user", "", i18n.T("OpenVPN username (asked for if the server wants one)"))
 	// flags may come after the file name
 	var file string
 	for len(args) > 0 {
@@ -233,17 +244,17 @@ func importTunnel(c *api.Client, args []string) error {
 			break
 		}
 		if file != "" {
-			return fmt.Errorf("one file at a time")
+			return errors.New(i18n.T("one file at a time"))
 		}
 		file, args = fs.Arg(0), fs.Args()[1:]
 	}
 	if file == "" {
-		return fmt.Errorf("usage: shunt import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]")
+		return errors.New(i18n.T("usage: shunt import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]"))
 	}
 	b, err := os.ReadFile(file)
 	if err != nil {
 		if os.IsPermission(err) {
-			return fmt.Errorf("%w (root-only file: run with sudo)", err)
+			return fmt.Errorf("%w %s", err, i18n.T("(root-only file: run with sudo)"))
 		}
 		return err
 	}
@@ -260,11 +271,11 @@ func importTunnel(c *api.Client, args []string) error {
 		if oc.NeedsAuth {
 			in := bufio.NewReader(os.Stdin)
 			if req.Username == "" {
-				fmt.Fprint(os.Stderr, "OpenVPN username: ")
+				fmt.Fprint(os.Stderr, i18n.T("OpenVPN username: "))
 				l, _ := in.ReadString('\n')
 				req.Username = strings.TrimSpace(l)
 			}
-			fmt.Fprint(os.Stderr, "OpenVPN password: ")
+			fmt.Fprint(os.Stderr, i18n.T("OpenVPN password: "))
 			if term.IsTerminal(int(os.Stdin.Fd())) {
 				p, err := term.ReadPassword(int(os.Stdin.Fd()))
 				fmt.Fprintln(os.Stderr)
@@ -282,9 +293,9 @@ func importTunnel(c *api.Client, args []string) error {
 	if err := c.Do("POST", "/v1/tunnels", req, &res); err != nil {
 		return err
 	}
-	fmt.Printf("imported tunnel %q (route tunnel:%s)\n", req.Name, req.Name)
+	fmt.Println(i18n.T("imported tunnel {name} (route tunnel:{name})", "name", strconv.Quote(req.Name)))
 	for _, w := range res.Warnings {
-		fmt.Println("warning:", w)
+		fmt.Println(i18n.T("warning:"), w)
 	}
 	return nil
 }
@@ -293,13 +304,13 @@ func importTunnel(c *api.Client, args []string) error {
 // launchers of this user (which carry the route name) at the new name.
 func renameTunnel(c *api.Client, args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: shunt rename OLD NEW")
+		return errors.New(i18n.T("usage: shunt rename OLD NEW"))
 	}
 	from, to := args[0], args[1]
 	if err := c.Do("POST", "/v1/tunnels/"+url.PathEscape(from)+"/rename", api.TunnelRename{To: to}, nil); err != nil {
 		return err
 	}
-	fmt.Printf("tunnel %q is now %q (route tunnel:%s)\n", from, to, to)
+	fmt.Println(i18n.T("tunnel {from} is now {to} (route tunnel:{name})", "from", strconv.Quote(from), "to", strconv.Quote(to), "name", to))
 	list, err := desktop.List()
 	if err != nil {
 		return nil
@@ -307,9 +318,9 @@ func renameTunnel(c *api.Client, args []string) error {
 	for _, e := range list {
 		if e.Route == "tunnel:"+from {
 			if err := desktop.SetRoute(e.ID, "tunnel:"+to, self()); err != nil {
-				fmt.Printf("warning: menu entry %s: %v\n", e.ID, err)
+				fmt.Println(i18n.T("warning: menu entry {id}: {err}", "id", e.ID, "err", err))
 			} else {
-				fmt.Printf("menu entry %s now starts via tunnel:%s\n", e.ID, to)
+				fmt.Println(i18n.T("menu entry {id} now starts via tunnel:{name}", "id", e.ID, "name", to))
 			}
 		}
 	}
@@ -349,27 +360,27 @@ func pendingCmd(c *api.Client) error {
 		return err
 	}
 	if len(ps) == 0 {
-		fmt.Println("no program is waiting")
+		fmt.Println(i18n.T("no program is waiting"))
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tPROGRAM\tPROCS\tWAITING\tTHEN")
 	for _, p := range ps {
-		then := "blocked until you decide"
+		then := i18n.T("blocked until you decide")
 		if !p.Deadline.IsZero() {
-			then = "default route in " + time.Until(p.Deadline).Round(time.Second).String()
+			then = i18n.T("default route in {time}", "time", time.Until(p.Deadline).Round(time.Second).String())
 		}
 		fmt.Fprintf(w, "%s\t%s (%s)\t%d\t%s\t%s\n", p.ID, p.Name, p.Key, p.Procs, time.Since(p.Asked).Round(time.Second), then)
 	}
 	w.Flush()
-	fmt.Println("\nshunt allow <ID> --via <route>   (direct | tunnel:<name> | block)")
+	fmt.Println("\n" + i18n.T("shunt allow <ID> --via <route>   (direct | tunnel:<name> | block)"))
 	return nil
 }
 
 func allowCmd(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("allow", flag.ExitOnError)
-	via := fs.String("via", "", "route (default: the default route)")
-	once := fs.Bool("once", false, "only for this run, don't remember")
+	via := fs.String("via", "", i18n.T("route (default: the default route)"))
+	once := fs.Bool("once", false, i18n.T("only for this run, don't remember"))
 	var target string
 	for len(args) > 0 {
 		_ = fs.Parse(args)
@@ -379,7 +390,7 @@ func allowCmd(c *api.Client, args []string) error {
 		target, args = fs.Arg(0), fs.Args()[1:]
 	}
 	if target == "" {
-		return fmt.Errorf("usage: shunt allow ID|NAME [--via ROUTE] [--once]")
+		return errors.New(i18n.T("usage: shunt allow ID|NAME [--via ROUTE] [--once]"))
 	}
 	var ps []firewall.Pending
 	if err := c.Do("GET", "/v1/pending", nil, &ps); err != nil {
@@ -392,12 +403,16 @@ func allowCmd(c *api.Client, args []string) error {
 		}
 	}
 	if id == "" {
-		return fmt.Errorf("no waiting program %q (see shunt pending)", target)
+		return errors.New(i18n.T("no waiting program {name} (see shunt pending)", "name", strconv.Quote(target)))
 	}
 	if err := c.Do("POST", "/v1/pending/"+id, api.FirewallDecision{Route: *via, Remember: !*once}, nil); err != nil {
 		return err
 	}
-	fmt.Printf("%s goes %s\n", target, map[bool]string{true: "via the default route", false: "via " + *via}[*via == ""])
+	if *via == "" {
+		fmt.Println(i18n.T("{name} goes via the default route", "name", target))
+	} else {
+		fmt.Println(i18n.T("{name} goes via {route}", "name", target, "route", *via))
+	}
 	return nil
 }
 
@@ -413,7 +428,7 @@ func firewallCmd(c *api.Client, args []string) error {
 		for _, r := range rs {
 			route := r.Route
 			if route == "" {
-				route = "(default route)"
+				route = i18n.T("(default route)")
 			}
 			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Name, route, r.Key)
 		}
@@ -421,31 +436,31 @@ func firewallCmd(c *api.Client, args []string) error {
 	case len(args) == 2 && args[0] == "forget":
 		return c.Do("DELETE", "/v1/firewall/apps?key="+url.QueryEscape(args[1]), nil, nil)
 	}
-	return fmt.Errorf("usage: shunt firewall apps | forget KEY")
+	return errors.New(i18n.T("usage: shunt firewall apps | forget KEY"))
 }
 
 func removeTunnel(c *api.Client, args []string) error {
 	if len(args) != 1 || args[0] == "" {
-		return fmt.Errorf("usage: shunt remove NAME")
+		return errors.New(i18n.T("usage: shunt remove NAME"))
 	}
 	name := strings.TrimPrefix(args[0], "tunnel:")
 	if err := c.Do("DELETE", "/v1/tunnels/"+url.PathEscape(name), nil, nil); err != nil {
 		return err
 	}
-	fmt.Printf("tunnel %q removed\n", name)
+	fmt.Println(i18n.T("tunnel {name} removed", "name", strconv.Quote(name)))
 	return nil
 }
 
 func which(c *api.Client, args []string) error {
 	if len(args) != 1 {
-		return fmt.Errorf("usage: shunt which NAME   (e.g. shunt which brave)")
+		return errors.New(i18n.T("usage: shunt which NAME   (e.g. shunt which brave)"))
 	}
 	var ps []api.ProcRoute
 	if err := c.Do("GET", "/v1/procs?name="+url.QueryEscape(args[0]), nil, &ps); err != nil {
 		return err
 	}
 	if len(ps) == 0 {
-		fmt.Printf("no running process named like %q\n", args[0])
+		fmt.Println(i18n.T("no running process named like {name}", "name", strconv.Quote(args[0])))
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
@@ -457,9 +472,7 @@ func which(c *api.Client, args []string) error {
 	}
 	w.Flush()
 	if len(routes) > 1 {
-		fmt.Println("\nNote: this program runs in more than one route. A browser that is already")
-		fmt.Println("running opens new windows in its *old* process and route: quit it completely")
-		fmt.Println("(also from the tray / background) and start it again.")
+		fmt.Println("\n" + i18n.T("Note: this program runs in more than one route. A browser that is already running opens new windows in its *old* process and route: quit it completely (also from the tray / background) and start it again."))
 	}
 	return nil
 }
@@ -473,7 +486,7 @@ func ports(c *api.Client, args []string) error {
 		case "--json":
 			asJSON = true
 		default:
-			return fmt.Errorf("usage: shunt ports [--all] [--json]")
+			return errors.New(i18n.T("usage: shunt ports [--all] [--json]"))
 		}
 	}
 	var l api.Listening
@@ -488,11 +501,11 @@ func ports(c *api.Client, args []string) error {
 	if l.Error != "" {
 		return errors.New(l.Error)
 	}
-	where := "unknown network (no [[network]] profile matches)"
+	where := i18n.T("unknown network (no [[network]] profile matches)")
 	if l.Network != "" {
-		where = "network profile " + strconv.Quote(l.Network)
+		where = i18n.T("network profile {name}", "name", strconv.Quote(l.Network))
 	}
-	fmt.Printf("%s · connected via %s · tunnels %s\n", where, orNone(l.Uplinks), orNone(l.Tunnels))
+	fmt.Println(i18n.T("{where} · connected via {up} · tunnels {tun}", "where", where, "up", orNone(l.Uplinks), "tun", orNone(l.Tunnels)))
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "PROTO\tADDRESS\tREACH\tFROM NETWORK\tFROM TUNNEL\tPROGRAM\tUNIT")
 	exposed, hidden := 0, 0
@@ -518,26 +531,26 @@ func ports(c *api.Client, args []string) error {
 		fromNet := yesNo(p.Exposed)
 		switch {
 		case p.Blocked:
-			fromNet = "blocked"
+			fromNet = i18n.T("blocked")
 		case p.LANOnly:
-			fromNet = "LAN only"
+			fromNet = i18n.T("LAN only")
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", p.Proto, net.JoinHostPort(p.Addr, strconv.Itoa(int(p.Port))), reach, fromNet, yesNo(p.Tunnel), prog, p.Owner.Unit)
 	}
 	w.Flush()
 	if hidden > 0 {
-		fmt.Printf("\n%d more only reachable from this machine (--all shows them)\n", hidden)
+		fmt.Println("\n" + i18n.T("{n} more only reachable from this machine (--all shows them)", "n", hidden))
 	}
 	if len(l.Firewalls) > 0 {
-		fmt.Printf("Other firewalls active: %s – they may block some of these already.\n", strings.Join(l.Firewalls, ", "))
+		fmt.Println(i18n.T("Other firewalls active: {list} – they may block some of these already.", "list", strings.Join(l.Firewalls, ", ")))
 	}
 	switch {
 	case l.Inbound == "":
 		if exposed > 0 {
-			fmt.Printf("%d port(s) can be reached from the network you are connected to. Incoming protection is off ([inbound] enabled = true).\n", exposed)
+			fmt.Println(i18n.Tn(exposed, "{n} port can be reached from the network you are connected to. Incoming protection is off ([inbound] enabled = true).", "{n} ports can be reached from the network you are connected to. Incoming protection is off ([inbound] enabled = true)."))
 		}
 	default:
-		fmt.Printf("Incoming protection: %s on this network, tunnels closed. %d port(s) still reachable from it.\n", l.Inbound, exposed)
+		fmt.Println(i18n.Tn(exposed, "Incoming protection: {mode} on this network, tunnels closed. {n} port still reachable from it.", "Incoming protection: {mode} on this network, tunnels closed. {n} ports still reachable from it.", "mode", l.Inbound))
 	}
 	return nil
 }
@@ -550,20 +563,20 @@ func inboundCmd(c *api.Client, args []string) error {
 	if len(args) == 0 {
 		switch {
 		case st.Inbound == "":
-			fmt.Println("Incoming protection is off (enable: [inbound] enabled = true in the config).")
+			fmt.Println(i18n.T("Incoming protection is off (enable: [inbound] enabled = true in the config)."))
 		case st.Network != "":
-			fmt.Printf("Network profile %q: incoming %s, tunnels closed.\n", st.Network, st.Inbound)
+			fmt.Println(i18n.T("Network profile {name}: incoming {mode}, tunnels closed.", "name", strconv.Quote(st.Network), "mode", st.Inbound))
 		default:
-			fmt.Printf("Unknown network: incoming %s, tunnels closed.\n", st.Inbound)
+			fmt.Println(i18n.T("Unknown network: incoming {mode}, tunnels closed.", "mode", st.Inbound))
 		}
 		if a := st.InboundAsk; a != nil {
-			fmt.Printf("Not decided yet for %s (gateway %s): shunt inbound trust [NAME] | keep-closed\n", orDash(a.SSID), orDash(a.GatewayMAC))
+			fmt.Println(i18n.T("Not decided yet for {ssid} (gateway {mac}): shunt inbound trust [NAME] | keep-closed", "ssid", orDash(a.SSID), "mac", orDash(a.GatewayMAC)))
 		}
 		return nil
 	}
 	a := st.InboundAsk
 	if a == nil {
-		return fmt.Errorf("nothing to decide: the network is known or already kept closed")
+		return errors.New(i18n.T("nothing to decide: the network is known or already kept closed"))
 	}
 	req := api.InboundDecision{SSID: a.SSID, GatewayMAC: a.GatewayMAC}
 	switch args[0] {
@@ -575,15 +588,15 @@ func inboundCmd(c *api.Client, args []string) error {
 	case "keep-closed":
 		req.Action = "closed"
 	default:
-		return fmt.Errorf("usage: shunt inbound [trust [NAME] | keep-closed]")
+		return errors.New(i18n.T("usage: shunt inbound [trust [NAME] | keep-closed]"))
 	}
 	if err := c.Do("POST", "/v1/inbound/network", req, nil); err != nil {
 		return err
 	}
 	if req.Action == "home" {
-		fmt.Println("Trusted: added a network profile with inbound = \"lan\" (ports from [inbound] allow, private addresses only).")
+		fmt.Println(i18n.T("Trusted: added a network profile with inbound = \"lan\" (ports from [inbound] allow, private addresses only)."))
 	} else {
-		fmt.Println("Kept closed; you will not be asked again on this network.")
+		fmt.Println(i18n.T("Kept closed; you will not be asked again on this network."))
 	}
 	return nil
 }
@@ -604,9 +617,9 @@ func orNone(s []string) string {
 
 func yesNo(b bool) string {
 	if b {
-		return "YES"
+		return i18n.T("YES")
 	}
-	return "no"
+	return i18n.T("no")
 }
 
 func blocks(c *api.Client) error {
@@ -615,7 +628,7 @@ func blocks(c *api.Client) error {
 		return err
 	}
 	if st.DNSFilter == nil {
-		fmt.Println("The DNS filter is not active.")
+		fmt.Println(i18n.T("The DNS filter is not active."))
 		return nil
 	}
 	by := st.DNSFilter.Stats.ByApp
@@ -626,13 +639,13 @@ func blocks(c *api.Client) error {
 	sort.Slice(names, func(i, j int) bool {
 		return by[names[i]] > by[names[j]] || by[names[i]] == by[names[j]] && names[i] < names[j]
 	})
-	fmt.Printf("%d queries blocked since the service started\n", st.DNSFilter.Stats.Blocked)
+	fmt.Println(i18n.Tn(int(st.DNSFilter.Stats.Blocked), "{n} query blocked since the service started", "{n} queries blocked since the service started"))
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "BLOCKED\tPROGRAM")
 	for _, n := range names {
 		label := n
 		if label == "" {
-			label = "(unknown)"
+			label = i18n.T("(unknown)")
 		}
 		fmt.Fprintf(w, "%d\t%s\n", by[n], label)
 	}
@@ -651,34 +664,34 @@ func status(c *api.Client, args []string) error {
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	for _, wn := range st.Warnings {
-		fmt.Fprintf(w, "WARNING:\t%s\n", wn)
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("WARNING:"), wn)
 	}
 	if st.Network != "" {
-		fmt.Fprintf(w, "default route:\t%s (network profile %q)\n", st.DefaultRoute, st.Network)
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("default route:"), i18n.T("{route} (network profile {name})", "route", st.DefaultRoute, "name", strconv.Quote(st.Network)))
 	} else {
-		fmt.Fprintf(w, "default route:\t%s\n", st.DefaultRoute)
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("default route:"), st.DefaultRoute)
 	}
 	if ni := st.NetInfo; ni.Iface != "" {
 		where := ni.Iface
 		if ni.SSID != "" {
-			where += ", Wi-Fi " + strconv.Quote(ni.SSID)
+			where += i18n.T(", Wi-Fi {ssid}", "ssid", strconv.Quote(ni.SSID))
 		}
 		if ni.GatewayMAC != "" {
-			where += ", gateway " + ni.GatewayMAC
+			where += i18n.T(", gateway {mac}", "mac", ni.GatewayMAC)
 		}
-		fmt.Fprintf(w, "network:\t%s\n", where)
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("network:"), where)
 	}
 	if st.Panic {
-		fmt.Fprintln(w, "PANIC MODE:\tall traffic blocked")
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("PANIC MODE:"), i18n.T("all traffic blocked"))
 	}
 	if st.PassLeft > 0 {
-		fmt.Fprintf(w, "PASS:\teverything goes direct for %s more (shunt pass off)\n", (time.Duration(st.PassLeft) * time.Second).String())
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("PASS:"), i18n.T("everything goes direct for {time} more (shunt pass off)", "time", (time.Duration(st.PassLeft)*time.Second).String()))
 	}
 	fmt.Fprintln(w, "\nTUNNEL\tIFACE\tSTATE\tHANDSHAKE\tRX/TX")
 	for _, t := range st.Tunnels {
-		state := "down (blocked)"
+		state := i18n.T("down (blocked)")
 		if t.Disabled {
-			state = "off (blocked)"
+			state = i18n.T("off (blocked)")
 		}
 		if t.Up {
 			state = "up/" + t.Driver
@@ -692,22 +705,22 @@ func status(c *api.Client, args []string) error {
 		if t.Up && t.Bootstrap != nil {
 			state = "up/tor"
 			if *t.Bootstrap < 100 {
-				state = fmt.Sprintf("starting/tor %d%%", *t.Bootstrap)
+				state = i18n.T("starting/tor {n}%", "n", *t.Bootstrap)
 			}
 		}
 		hs, rxtx := "-", "-"
 		for _, p := range t.Peers {
 			if !p.LastHandshake.IsZero() {
-				hs = time.Since(p.LastHandshake).Round(time.Second).String() + " ago"
+				hs = i18n.T("{time} ago", "time", time.Since(p.LastHandshake).Round(time.Second).String())
 			}
 			rxtx = fmt.Sprintf("%d/%d", p.RxBytes, p.TxBytes)
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Name, t.Iface, state, hs, rxtx)
 		if t.Via != "" {
-			fmt.Fprintf(w, "  via:\t%s (second hop)\n", t.Via)
+			fmt.Fprintf(w, "  %s\t%s\n", i18n.T("via:"), i18n.T("{via} (second hop)", "via", t.Via))
 		}
 		if t.Error != "" {
-			fmt.Fprintf(w, "  error:\t%s\n", t.Error)
+			fmt.Fprintf(w, "  %s\t%s\n", i18n.T("error:"), t.Error)
 		}
 	}
 	if len(st.Traffic) > 1 { // "total" plus at least one tunnel
@@ -723,7 +736,7 @@ func status(c *api.Client, args []string) error {
 			t := st.Traffic[n]
 			label := "tunnel:" + n
 			if n == "total" {
-				label = "all tunnels"
+				label = i18n.T("all tunnels")
 			}
 			fmt.Fprintf(w, "%s\t%s / %s\t%s / %s\t%s / %s\n", label, humanBytes(t.Month.RX), humanBytes(t.Month.TX),
 				humanBytes(t.LastMonth.RX), humanBytes(t.LastMonth.TX), humanBytes(t.Total.RX), humanBytes(t.Total.TX))
@@ -741,11 +754,11 @@ func status(c *api.Client, args []string) error {
 		}
 	}
 	if f := st.DNSFilter; f != nil {
-		fmt.Fprintf(w, "\nDNS FILTER\tdefault %s, %d blocked since start\n", f.Default, f.Stats.Blocked)
+		fmt.Fprintf(w, "\nDNS FILTER\t%s\n", i18n.T("default {level}, {n} blocked since start", "level", f.Default, "n", f.Stats.Blocked))
 		for _, l := range f.Lists {
-			state := fmt.Sprintf("%d names", l.Entries)
+			state := i18n.T("{n} names", "n", l.Entries)
 			if l.Error != "" {
-				state += ", error: " + l.Error
+				state += i18n.T(", error: {err}", "err", l.Error)
 			}
 			fmt.Fprintf(w, "  %s\t%s (%s)\n", l.Name, state, strings.Join(l.Levels, ", "))
 		}
@@ -754,11 +767,11 @@ func status(c *api.Client, args []string) error {
 	for _, g := range st.Groups {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", g.Name, g.Route, g.Procs, strings.Join(g.Apps, ", "))
 	}
-	fmt.Fprintln(w, "\nRULES (first match wins)")
+	fmt.Fprintln(w, "\n"+i18n.T("RULES (first match wins)"))
 	for i, r := range st.Rules {
 		fmt.Fprintf(w, "%d.\t%s\n", i+1, r)
 	}
-	fmt.Fprintf(w, "%d.\t(default) -> %s\n", len(st.Rules)+1, st.DefaultRoute)
+	fmt.Fprintf(w, "%d.\t%s\n", len(st.Rules)+1, i18n.T("(default) -> {route}", "route", st.DefaultRoute))
 	return w.Flush()
 }
 
@@ -771,12 +784,12 @@ func self() string {
 
 func runUI(c *api.Client, sock string, args []string) error {
 	fs := flag.NewFlagSet("ui", flag.ExitOnError)
-	port := fs.Int("port", 0, "port on 127.0.0.1 (0 = random)")
-	noBrowser := fs.Bool("no-browser", false, "only print the address")
-	noUpdate := fs.Bool("no-update-check", false, "don't ask GitHub for a newer version")
+	port := fs.Int("port", 0, i18n.T("port on 127.0.0.1 (0 = random)"))
+	noBrowser := fs.Bool("no-browser", false, i18n.T("only print the address"))
+	noUpdate := fs.Bool("no-update-check", false, i18n.T("don't ask GitHub for a newer version"))
 	_ = fs.Parse(args)
 	if err := c.Do("GET", "/v1/status", nil, nil); err != nil {
-		return fmt.Errorf("%w\n(is shuntd running, and are you in group 'shunt'?)", err)
+		return fmt.Errorf("%w\n%s", err, i18n.T("(is shuntd running, and are you in group 'shunt'?)"))
 	}
 	srv := &ui.Server{Socket: sock, Self: self(), Client: c}
 	if !*noUpdate {
@@ -793,8 +806,8 @@ func runUI(c *api.Client, sock string, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("The Shunt UI:", url)
-	fmt.Println("(keep this running; Ctrl+C to stop)")
+	fmt.Println(i18n.T("The Shunt UI:"), url)
+	fmt.Println(i18n.T("(keep this running; Ctrl+C to stop)"))
 	if !*noBrowser {
 		ui.OpenBrowser(url)
 	}
@@ -806,7 +819,7 @@ func leaktest(c *api.Client, sock string) error {
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
 		return err
 	}
-	fmt.Println("Probing every route (api.ipify.org + Google DNS)...")
+	fmt.Println(i18n.T("Probing every route (api.ipify.org + Google DNS)..."))
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	res := probe.LeakTest(ctx, c.Probe, st.Routes)
@@ -819,7 +832,7 @@ func leaktest(c *api.Client, sock string) error {
 	}
 	_ = w.Flush()
 	if leak {
-		return fmt.Errorf("LEAK detected")
+		return errors.New(i18n.T("LEAK detected"))
 	}
 	return nil
 }
@@ -851,18 +864,18 @@ func desktopCmd(args []string) error {
 		if err := desktop.SetRoute(args[1], args[2], self()); err != nil {
 			return err
 		}
-		fmt.Printf("%s now starts via %s from the menu\n", args[1], args[2])
+		fmt.Println(i18n.T("{app} now starts via {route} from the menu", "app", args[1], "route", args[2]))
 		return nil
 	case args[0] == "clone" && len(args) >= 3:
 		fs := flag.NewFlagSet("clone", flag.ExitOnError)
-		name := fs.String("name", "", "menu name of the new entry")
-		extra := fs.String("args", "", "extra arguments")
+		name := fs.String("name", "", i18n.T("menu name of the new entry"))
+		extra := fs.String("args", "", i18n.T("extra arguments"))
 		_ = fs.Parse(args[3:])
 		id, err := desktop.Clone(args[1], *name, *extra, args[2], self())
 		if err != nil {
 			return err
 		}
-		fmt.Printf("created menu entry %q (%s) via %s\n", *name, id, args[2])
+		fmt.Println(i18n.T("created menu entry {name} ({id}) via {route}", "name", strconv.Quote(*name), "id", id, "route", args[2]))
 		return nil
 	case args[0] == "profiles":
 		for _, p := range desktop.FirefoxProfiles() {
@@ -873,10 +886,10 @@ func desktopCmd(args []string) error {
 		if err := desktop.Unset(args[1]); err != nil {
 			return err
 		}
-		fmt.Printf("%s restored to its original menu entry\n", args[1])
+		fmt.Println(i18n.T("{app} restored to its original menu entry", "app", args[1]))
 		return nil
 	}
-	return fmt.Errorf("usage: shunt desktop list | set <app-id> <route> | unset <app-id> | clone <app-id> <route> --name N [--args A] | profiles")
+	return errors.New(i18n.T("usage: shunt desktop list | set <app-id> <route> | unset <app-id> | clone <app-id> <route> --name N [--args A] | profiles"))
 }
 
 // humanBytes: 1.5 GB style (powers of 1000, like traffic plans count).
@@ -907,13 +920,13 @@ func socksCmd(c *api.Client) error {
 		}
 		state := "up"
 		if !t.Up {
-			state = "tunnel down (connections are refused)"
+			state = i18n.T("tunnel down (connections are refused)")
 		}
 		fmt.Fprintf(w, "tunnel:%s\tsocks5h://%s\t%s\n", t.Name, t.Socks, state)
 		n++
 	}
 	if n == 0 {
-		fmt.Fprintln(w, "no tunnel has a SOCKS5 exit; set socks = \"127.0.0.1:1080\" in its [tunnel.<name>] section")
+		fmt.Fprintln(w, i18n.T("no tunnel has a SOCKS5 exit; set socks = \"127.0.0.1:1080\" in its [tunnel.<name>] section"))
 	}
 	return w.Flush()
 }
@@ -931,21 +944,21 @@ func torCmd(c *api.Client, args []string) error {
 		}
 	}
 	if len(args) == 0 || (args[0] != "status" && args[0] != "newnym") {
-		return errors.New("usage: shunt tor status | shunt tor newnym [tunnel]")
+		return errors.New(i18n.T("usage: shunt tor status | shunt tor newnym [tunnel]"))
 	}
 	if len(tors) == 0 {
-		return errors.New("no Tor tunnel is running (driver = \"tor\" in a [tunnel.<name>] section)")
+		return errors.New(i18n.T("no Tor tunnel is running (driver = \"tor\" in a [tunnel.<name>] section)"))
 	}
 	if args[0] == "status" {
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		for _, t := range tors {
-			state := "connected"
+			state := i18n.T("connected")
 			if *t.Bootstrap < 100 {
-				state = fmt.Sprintf("starting, %d%%", *t.Bootstrap)
+				state = i18n.T("starting, {n}%", "n", *t.Bootstrap)
 			}
 			fmt.Fprintf(w, "tunnel:%s\t%s\n", t.Name, state)
 			if t.Error != "" {
-				fmt.Fprintf(w, "  error:\t%s\n", t.Error)
+				fmt.Fprintf(w, "  %s\t%s\n", i18n.T("error:"), t.Error)
 			}
 		}
 		return w.Flush()
@@ -957,19 +970,19 @@ func torCmd(c *api.Client, args []string) error {
 	case len(tors) == 1:
 		name = tors[0].Name
 	default:
-		return errors.New("more than one Tor tunnel: shunt tor newnym <tunnel>")
+		return errors.New(i18n.T("more than one Tor tunnel: shunt tor newnym <tunnel>"))
 	}
 	if err := c.Do("POST", "/v1/tunnels/"+url.PathEscape(name)+"/newnym", nil, nil); err != nil {
 		return err
 	}
-	fmt.Printf("tunnel:%s builds new circuits for new connections (tor allows this once every 10 seconds)\n", name)
+	fmt.Println(i18n.T("tunnel:{name} builds new circuits for new connections (tor allows this once every 10 seconds)", "name", name))
 	return nil
 }
 
 // torAllCmd: shunt tor-all on [tunnel] | off | status
 func torAllCmd(c *api.Client, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: shunt tor-all on [tunnel] | off | status")
+		return errors.New(i18n.T("usage: shunt tor-all on [tunnel] | off | status"))
 	}
 	switch args[0] {
 	case "on":
@@ -980,13 +993,13 @@ func torAllCmd(c *api.Client, args []string) error {
 		if err := c.Do("POST", "/v1/torall", req, nil); err != nil {
 			return err
 		}
-		fmt.Println("tor-all is ON: every app goes through Tor (TCP only; no UDP, no calls). shunt tor-all off ends it.")
+		fmt.Println(i18n.T("tor-all is ON: every app goes through Tor (TCP only; no UDP, no calls). shunt tor-all off ends it."))
 		return nil
 	case "off":
 		if err := c.Do("POST", "/v1/torall", api.TorAllRequest{}, nil); err != nil {
 			return err
 		}
-		fmt.Println("tor-all is off: routes are as configured again")
+		fmt.Println(i18n.T("tor-all is off: routes are as configured again"))
 		return nil
 	case "status":
 		var st api.Status
@@ -994,11 +1007,11 @@ func torAllCmd(c *api.Client, args []string) error {
 			return err
 		}
 		if st.TorAll == "" {
-			fmt.Println("tor-all: off")
+			fmt.Println(i18n.T("tor-all: off"))
 		} else {
-			fmt.Printf("tor-all: ON through tunnel:%s\n", st.TorAll)
+			fmt.Println(i18n.T("tor-all: ON through tunnel:{name}", "name", st.TorAll))
 		}
 		return nil
 	}
-	return errors.New("usage: shunt tor-all on [tunnel] | off | status")
+	return errors.New(i18n.T("usage: shunt tor-all on [tunnel] | off | status"))
 }
