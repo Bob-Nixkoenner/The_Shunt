@@ -48,8 +48,8 @@ route = "tunnel:vps"
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 	p, err := engine.Compile(c, "system.slice/shuntd.service", map[string]engine.TunnelInfo{
-		"vps":  {Iface: "sh-vps", HasV4: true, AllowedIPs: all},
-		"home": {Iface: "sh-home", HasV4: true, HasV6: true, AllowedIPs: all},
+		"vps":  {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}},
+		"home": {Iface: "sh-home", HasV4: true, HasV6: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.9.0.2"), netip.MustParseAddr("fd00:9::2")}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ dns_filter = "off"
 		t.Fatal(err)
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
-	p, err := engine.CompileOn(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}}, "work", nil)
+	p, err := engine.CompileOn(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}}}, "work", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ dns_filter = "paranoid"
 		t.Fatal(err)
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
-	p, err := engine.Compile(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}})
+	p, err := engine.Compile(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}}})
 	if err != nil {
 		t.Fatal(err)
 	}

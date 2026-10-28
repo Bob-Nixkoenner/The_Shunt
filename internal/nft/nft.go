@@ -24,6 +24,8 @@ const (
 	Table         = "shunt"
 	PanicTable    = "shunt_panic"
 	LockdownTable = "shunt_lockdown"
+	// ArpTable (family arp): see tunnelAddrGuard.
+	ArpTable = "shunt_arp"
 )
 
 // Render produces the main ruleset for a plan.
@@ -132,6 +134,8 @@ func Render(p *engine.Plan) (string, error) {
 		}
 	}
 	w("\t}")
+
+	tunnelAddrGuard(w, p)
 
 	// Tailscale tunnels need forwarding on the uplinks (the replies of
 	// their encrypted packets arrive there). The machine is no router:
@@ -257,6 +261,7 @@ func Render(p *engine.Plan) (string, error) {
 	}
 	w("\t}")
 	w("}")
+	arpGuard(&b, p)
 	return b.String(), nil
 }
 
@@ -350,10 +355,12 @@ func checkIdent(s string) error {
 	return nil
 }
 
-func replaceHeader(b *strings.Builder, table string) {
+func replaceHeader(b *strings.Builder, table string) { replaceHeaderIn(b, "inet", table) }
+
+func replaceHeaderIn(b *strings.Builder, family, table string) {
 	// "add" creates the table if missing so "delete" never fails; both run in
 	// the same transaction as the new definition.
-	fmt.Fprintf(b, "table inet %s\ndelete table inet %s\n", table, table)
+	fmt.Fprintf(b, "table %s %s\ndelete table %s %s\n", family, table, family, table)
 }
 
 // RenderPanic drops everything except loopback, in and out.
@@ -474,6 +481,13 @@ func DeleteScript(table string) string {
 	return b.String()
 }
 
+// DeleteArpScript removes ArpTable.
+func DeleteArpScript() string {
+	var b strings.Builder
+	replaceHeaderIn(&b, "arp", ArpTable)
+	return b.String()
+}
+
 // Apply runs a script through `nft -f -` as one transaction.
 func Apply(script string) error {
 	cmd := exec.Command("nft", "-f", "-")
@@ -576,4 +590,66 @@ func modeLines(prefix, mode string, allow []config.PortSel) []string {
 		}
 	}
 	return append(out, prefix+"counter drop")
+}
+
+// tunnelAddrs: the interfaces of the tunnels and their own addresses.
+func tunnelAddrs(p *engine.Plan) (ifs, v4, v6 []string) {
+	seen := map[string]bool{}
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteTunnel || r.Iface == "" || checkIdent(r.Iface) != nil {
+			continue
+		}
+		ifs = append(ifs, fmt.Sprintf("%q", r.Iface))
+		for _, a := range r.Addrs {
+			a = a.Unmap()
+			if seen[a.String()] {
+				continue
+			}
+			seen[a.String()] = true
+			if a.Is4() {
+				v4 = append(v4, a.String())
+			} else {
+				v6 = append(v6, a.String())
+			}
+		}
+	}
+	return
+}
+
+// tunnelAddrGuard keeps the tunnels' own addresses off the local network.
+// Linux answers for any local address on any interface (weak host model): a
+// neighbour on the cafe Wi-Fi could ask "who has 10.66.0.12?" (ARP) and learn
+// that this machine uses a VPN and which address, or send packets to it
+// (CVE-2019-14899: inferring TCP connections inside the tunnel). Only the
+// tunnel interfaces themselves may reach those addresses. This is the IP
+// part, a chain of the main table.
+func tunnelAddrGuard(w func(string, ...any), p *engine.Plan) {
+	ifs, v4, v6 := tunnelAddrs(p)
+	if len(v4)+len(v6) == 0 {
+		return
+	}
+	pass := strings.Join(append([]string{`"lo"`}, ifs...), ", ")
+	w("\tchain tunnel_addr_guard {")
+	w("\t\ttype filter hook prerouting priority raw; policy accept;")
+	if len(v4) > 0 {
+		w("\t\tiifname != { %s } ip daddr { %s } counter drop", pass, strings.Join(v4, ", "))
+	}
+	if len(v6) > 0 {
+		w("\t\tiifname != { %s } ip6 daddr { %s } counter drop", pass, strings.Join(v6, ", "))
+	}
+	w("\t}")
+}
+
+// arpGuard is the ARP part, a table of the arp family (loaded in the same
+// transaction; replaced on every plan, so a removed tunnel's address is free
+// again): ARP requests for a tunnel address are not answered.
+func arpGuard(b *strings.Builder, p *engine.Plan) {
+	replaceHeaderIn(b, "arp", ArpTable)
+	ifs, v4, _ := tunnelAddrs(p)
+	if len(v4) == 0 {
+		return
+	}
+	pass := strings.Join(append([]string{`"lo"`}, ifs...), ", ")
+	fmt.Fprintf(b, "table arp %s {\n\tchain in {\n\t\ttype filter hook input priority filter; policy accept;\n", ArpTable)
+	fmt.Fprintf(b, "\t\tiifname != { %s } arp operation request arp daddr ip { %s } counter drop\n\t}\n}\n", pass, strings.Join(v4, ", "))
 }
