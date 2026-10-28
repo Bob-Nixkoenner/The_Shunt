@@ -141,10 +141,10 @@ fun HistorySection(h: History?, range: String, onRange: (String) -> Unit) {
         Spacer(Modifier.height(8.dp))
         if (h == null) { Hint("Loading…"); return@Section }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Kpi("↓ " + Formatter.formatShortFileSize(ctx, h.rx), "downloaded", c.accent, Modifier.weight(1f))
-            Kpi("↑ " + Formatter.formatShortFileSize(ctx, h.tx), "uploaded", c.info, Modifier.weight(1f))
-            Kpi(h.dnsToday.toString(), "blocked today", c.warn, Modifier.weight(1f))
-            Kpi(h.dnsMonth.toString(), "this month", c.warn, Modifier.weight(1f))
+            Kpi("↓ " + Formatter.formatShortFileSize(ctx, h.rx), T("downloaded"), c.accent, Modifier.weight(1f))
+            Kpi("↑ " + Formatter.formatShortFileSize(ctx, h.tx), T("uploaded"), c.info, Modifier.weight(1f))
+            Kpi(h.dnsToday.toString(), T("blocked today"), c.warn, Modifier.weight(1f))
+            Kpi(h.dnsMonth.toString(), T("this month"), c.warn, Modifier.weight(1f))
         }
         Spacer(Modifier.height(8.dp))
         TrafficChart(h)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 )
 
 // Level is the overall state shown by the tray icon.
@@ -34,22 +35,23 @@ type TunnelLine struct {
 
 // View is what the tray shows for one daemon status.
 type View struct {
-	Level   Level
-	Title   string // first menu line / tooltip
-	Panic   bool
-	Tunnels []TunnelLine
-	Active  int             // tunnels that work (connected, or idle and connecting on demand)
-	Down    map[string]bool // tunnels without a working connection
-	DNSDown map[string]bool // routes whose DNS servers don't answer
-	Captive bool            // a Wi-Fi login page is in the way
-	Pending int             // programs the app firewall holds, waiting for a route
-	Warn    []string
+	Level       Level
+	Title       string // first menu line / tooltip
+	Panic       bool
+	Tunnels     []TunnelLine
+	Active      int             // tunnels that work (connected, or idle and connecting on demand)
+	Down        map[string]bool // tunnels without a working connection
+	DNSDown     map[string]bool // routes whose DNS servers don't answer
+	Captive     bool            // a Wi-Fi login page is in the way
+	Pending     int             // programs the app firewall holds, waiting for a route
+	Unreachable bool            // the service does not answer (Title is then text for people, not a key)
+	Warn        []string
 }
 
 // Compute derives the view from a status (err != nil: daemon unreachable).
 func Compute(st *api.Status, err error, now time.Time) View {
 	if err != nil || st == nil {
-		return View{Level: Bad, Title: "The Shunt service is not reachable", Down: map[string]bool{}, DNSDown: map[string]bool{}}
+		return View{Level: Bad, Unreachable: true, Title: i18n.T("The Shunt service is not reachable"), Down: map[string]bool{}, DNSDown: map[string]bool{}}
 	}
 	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: st.Warnings}
 	v.Captive = st.Captive == "portal"
@@ -93,27 +95,27 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	}
 	switch {
 	case st.Panic:
-		v.Level, v.Title = Bad, "PANIC – all traffic blocked"
+		v.Level, v.Title = Bad, i18n.T("PANIC – all traffic blocked")
 	case v.Pending > 0:
-		v.Level, v.Title = Warn, fmt.Sprintf("%d app(s) waiting – choose a route", v.Pending)
+		v.Level, v.Title = Warn, i18n.Tn(v.Pending, "{n} app waiting – choose a route", "{n} apps waiting – choose a route")
 	case v.Captive:
-		v.Level, v.Title = Warn, "Wi-Fi login needed – tray: “Wi-Fi login page…”"
+		v.Level, v.Title = Warn, i18n.T("Wi-Fi login needed – tray: “Wi-Fi login page…”")
 	case len(v.Down) > 0:
 		names := make([]string, 0, len(v.Down))
 		for n := range v.Down {
 			names = append(names, n)
 		}
 		sort.Strings(names)
-		v.Level, v.Title = Warn, "No connection: "+strings.Join(names, ", ")+" (blocked, no leak)"
+		v.Level, v.Title = Warn, i18n.T("No connection: {list} (blocked, no leak)", "list", strings.Join(names, ", "))
 	case len(v.DNSDown) > 0:
 		names := make([]string, 0, len(v.DNSDown))
 		for n := range v.DNSDown {
 			names = append(names, n)
 		}
 		sort.Strings(names)
-		v.Level, v.Title = Warn, "DNS not working: "+strings.Join(names, ", ")
+		v.Level, v.Title = Warn, i18n.T("DNS not working: {list}", "list", strings.Join(names, ", "))
 	default:
-		v.Level, v.Title = OK, "Protected – default route "+st.DefaultRoute
+		v.Level, v.Title = OK, i18n.T("Protected – default route {route}", "route", st.DefaultRoute)
 	}
 	return v
 }
@@ -131,52 +133,52 @@ func Diff(prev, cur View, first bool) []Notification {
 	var out []Notification
 	if first {
 		if cur.Level == Bad && !cur.Panic {
-			out = append(out, Notification{"The Shunt is not running", "Apps in a tunnel route are blocked until the service is back.", true})
+			out = append(out, Notification{i18n.T("The Shunt is not running"), i18n.T("Apps in a tunnel route are blocked until the service is back."), true})
 		}
 		return out
 	}
-	reachable := func(v View) bool { return v.Title != "The Shunt service is not reachable" }
+	reachable := func(v View) bool { return !v.Unreachable }
 	switch {
 	case reachable(prev) && !reachable(cur):
-		out = append(out, Notification{"The Shunt service stopped", "Apps in a tunnel route stay blocked (kill switch).", true})
+		out = append(out, Notification{i18n.T("The Shunt service stopped"), i18n.T("Apps in a tunnel route stay blocked (kill switch)."), true})
 		return out
 	case !reachable(prev) && reachable(cur):
-		out = append(out, Notification{"The Shunt service is back", cur.Title, false})
+		out = append(out, Notification{i18n.T("The Shunt service is back"), cur.Title, false})
 	}
 	if cur.Panic != prev.Panic {
 		if cur.Panic {
-			out = append(out, Notification{"PANIC mode on", "All traffic except loopback is blocked.", true})
+			out = append(out, Notification{i18n.T("PANIC mode on"), i18n.T("All traffic except loopback is blocked."), true})
 		} else {
-			out = append(out, Notification{"Panic mode off", "Traffic flows again.", false})
+			out = append(out, Notification{i18n.T("Panic mode off"), i18n.T("Traffic flows again."), false})
 		}
 	}
 	for n := range cur.Down {
 		if !prev.Down[n] {
-			out = append(out, Notification{"Tunnel " + n + " has no connection", "Its apps are blocked – nothing leaks. The Shunt keeps retrying.", true})
+			out = append(out, Notification{i18n.T("Tunnel {name} has no connection", "name", n), i18n.T("Its apps are blocked – nothing leaks. The Shunt keeps retrying."), true})
 		}
 	}
 	if cur.Pending > prev.Pending {
-		out = append(out, Notification{"An app wants to go online", "The Shunt holds it until you choose a route (window is open).", true})
+		out = append(out, Notification{i18n.T("An app wants to go online"), i18n.T("The Shunt holds it until you choose a route (window is open)."), true})
 	}
 	if cur.Captive && !prev.Captive {
-		out = append(out, Notification{"Wi-Fi login needed", "This network shows a login page first; the VPN connects after you log in. Tray → “Wi-Fi login page…”", true})
+		out = append(out, Notification{i18n.T("Wi-Fi login needed"), i18n.T("This network shows a login page first; the VPN connects after you log in. Tray → “Wi-Fi login page…”"), true})
 	}
 	if prev.Captive && !cur.Captive && reachable(cur) {
-		out = append(out, Notification{"Wi-Fi login done", "The tunnels connect now.", false})
+		out = append(out, Notification{i18n.T("Wi-Fi login done"), i18n.T("The tunnels connect now."), false})
 	}
 	for r := range cur.DNSDown {
 		if !prev.DNSDown[r] {
-			out = append(out, Notification{"DNS for " + r + " does not work", "Its DNS servers don't answer, so names don't resolve. Check the DNS setting of that route (a server in your home network is not reachable through a tunnel).", true})
+			out = append(out, Notification{i18n.T("DNS for {route} does not work", "route", r), i18n.T("Its DNS servers don't answer, so names don't resolve. Check the DNS setting of that route (a server in your home network is not reachable through a tunnel)."), true})
 		}
 	}
 	for r := range prev.DNSDown {
 		if !cur.DNSDown[r] && reachable(cur) {
-			out = append(out, Notification{"DNS for " + r + " works again", "", false})
+			out = append(out, Notification{i18n.T("DNS for {route} works again", "route", r), "", false})
 		}
 	}
 	for n := range prev.Down {
 		if !cur.Down[n] && reachable(cur) {
-			out = append(out, Notification{"Tunnel " + n + " is back", "", false})
+			out = append(out, Notification{i18n.T("Tunnel {name} is back", "name", n), "", false})
 		}
 	}
 	return out

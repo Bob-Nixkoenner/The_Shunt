@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/netip"
 	"os"
@@ -62,12 +63,18 @@ type Proxy struct {
 	filter  atomic.Pointer[blocklist.Filter]
 	statsMu sync.Mutex
 	stats   FilterStats
+
+	// Owner names the program that sent a query ("tcp"/"udp", its source
+	// address); asked only for blocked queries. nil = not counted per app.
+	Owner func(proto string, from netip.AddrPort) string
 }
 
 // FilterStats counts what the DNS filter blocked since the daemon started.
 type FilterStats struct {
 	Blocked uint64            `json:"blocked"`
 	ByLevel map[string]uint64 `json:"by_level,omitempty"`
+	// ByApp: blocked queries per program (see Proxy.Owner), "" = unknown.
+	ByApp map[string]uint64 `json:"by_app,omitempty"`
 	// Recent: the last blocked queries, newest first.
 	Recent []Blocked `json:"recent,omitempty"`
 }
@@ -79,10 +86,14 @@ type Blocked struct {
 	Level string    `json:"level"`
 	List  string    `json:"list"`
 	Route string    `json:"route"`
+	App   string    `json:"app,omitempty"`
 }
 
 // RecentBlocked: how many blocked queries FilterStats keeps.
 const RecentBlocked = 50
+
+// maxApps bounds FilterStats.ByApp (short-lived programs come and go).
+const maxApps = 500
 
 // SetFilter switches to a new blocklist snapshot (nil = nothing blocked).
 func (p *Proxy) SetFilter(f *blocklist.Filter) { p.filter.Store(f) }
@@ -91,9 +102,9 @@ func (p *Proxy) SetFilter(f *blocklist.Filter) { p.filter.Store(f) }
 func (p *Proxy) FilterStats() FilterStats {
 	p.statsMu.Lock()
 	defer p.statsMu.Unlock()
-	s := FilterStats{Blocked: p.stats.Blocked, ByLevel: map[string]uint64{}, Recent: slices.Clone(p.stats.Recent)}
-	for k, v := range p.stats.ByLevel {
-		s.ByLevel[k] = v
+	s := FilterStats{Blocked: p.stats.Blocked, ByLevel: maps.Clone(p.stats.ByLevel), ByApp: maps.Clone(p.stats.ByApp), Recent: slices.Clone(p.stats.Recent)}
+	if s.ByLevel == nil {
+		s.ByLevel = map[string]uint64{}
 	}
 	return s
 }
@@ -106,7 +117,15 @@ func (p *Proxy) countBlocked(b Blocked) {
 	}
 	p.stats.Blocked++
 	p.stats.ByLevel[b.Level]++
-	if n := len(p.stats.Recent); n > 0 && p.stats.Recent[0].Name == b.Name && p.stats.Recent[0].Level == b.Level {
+	if p.Owner != nil {
+		if p.stats.ByApp == nil {
+			p.stats.ByApp = map[string]uint64{}
+		}
+		if _, ok := p.stats.ByApp[b.App]; ok || len(p.stats.ByApp) < maxApps {
+			p.stats.ByApp[b.App]++
+		}
+	}
+	if n := len(p.stats.Recent); n > 0 && p.stats.Recent[0].Name == b.Name && p.stats.Recent[0].Level == b.Level && p.stats.Recent[0].App == b.App {
 		p.stats.Recent[0].Time = b.Time // a retrying program fills nothing up
 		return
 	}
@@ -305,14 +324,29 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 			_ = w.WriteMsg(m)
 		}
 	}()
-	resp := p.handle(port, r, queryMark(w))
+	who := func() string {
+		if p.Owner == nil {
+			return ""
+		}
+		proto := "udp"
+		if _, ok := w.RemoteAddr().(*net.TCPAddr); ok {
+			proto = "tcp"
+		}
+		from, err := netip.ParseAddrPort(w.RemoteAddr().String())
+		if err != nil {
+			return ""
+		}
+		return p.Owner(proto, from)
+	}
+	resp := p.handle(port, r, queryMark(w), who)
 	resp.Id = r.Id
 	if err := w.WriteMsg(resp); err != nil {
 		p.Log.Debug("dns write", "err", err)
 	}
 }
 
-func (p *Proxy) handle(port int, r *dns.Msg, mark uint32) *dns.Msg {
+// who names the sender (nil = unknown); called only when the filter blocks.
+func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dns.Msg {
 	if len(r.Question) != 1 {
 		return fail(r, dns.RcodeFormatError)
 	}
@@ -359,7 +393,11 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32) *dns.Msg {
 	// names), not for names you routed on purpose with a domain rule.
 	if rule == nil && !src.Captive && src.Filter != "" && src.Filter != config.FilterOff {
 		if list := p.filter.Load().Check(src.Filter, name); list != "" {
-			p.countBlocked(Blocked{Time: time.Now(), Name: name, Level: src.Filter, List: list, Route: src.String()})
+			b := Blocked{Time: time.Now(), Name: name, Level: src.Filter, List: list, Route: src.String()}
+			if who != nil {
+				b.App = who()
+			}
+			p.countBlocked(b)
 			return fail(r, dns.RcodeNameError)
 		}
 	}

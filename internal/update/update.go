@@ -29,9 +29,13 @@ const (
 
 // Info is the result of the last check.
 type Info struct {
-	Current   string `json:"current"`       // installed version
-	App       string `json:"app,omitempty"` // version of this running program
-	Latest    string `json:"latest,omitempty"`
+	Current string `json:"current"`       // installed version
+	App     string `json:"app,omitempty"` // version of this running program
+	Latest  string `json:"latest,omitempty"`
+	// Release is the release tag Apply installs. For a release build it is
+	// Latest; a source build compares commits (Latest is a sha), so it
+	// looks up the newest release separately.
+	Release   string `json:"release,omitempty"`
 	Available bool   `json:"available"`
 	Command   string `json:"command,omitempty"`
 	// CanApply: the app can install this update itself (POST /api/update/apply).
@@ -155,12 +159,12 @@ func (c *Checker) Get() Info {
 	stale := inst != "" && !i.Checked.IsZero() && inst != i.Current
 	c.mu.Unlock()
 	if stale {
-		i.Current, i.Available, i.Command, i.Latest = inst, false, "", ""
+		i.Current, i.Available, i.Command, i.Latest, i.Release = inst, false, "", "", ""
 		if Enabled() {
 			go c.Check(context.Background())
 		}
 	}
-	i.CanApply = i.Available && verRe.MatchString(i.Latest) && canApply()
+	i.CanApply = i.Available && verRe.MatchString(i.Release) && canApply()
 	i.Disabled = !Enabled()
 	i.Releases, i.Prereleases = Releases(), Prereleases()
 	i.App = c.Current
@@ -197,6 +201,7 @@ func (c *Checker) Check(ctx context.Context) Info {
 		c.info.Err = err.Error()
 	} else {
 		c.info.Latest = latest
+		c.info.Release = latest
 		c.info.Available = newer(cur, latest)
 		if c.info.Available && strings.HasPrefix(cur, "src-") {
 			// A source build that is not GitHub's newest commit may be
@@ -205,6 +210,11 @@ func (c *Checker) Check(ctx context.Context) Info {
 			c.info.Available = behind
 			if err != nil {
 				c.info.Err = err.Error()
+			}
+			c.info.Release = ""
+			if behind {
+				// the button installs the newest release over the source build
+				c.info.Release, _ = c.latestFor(ctx, "v")
 			}
 		}
 		if c.info.Available {
@@ -412,5 +422,5 @@ func (c *Checker) Apply(ctx context.Context) error {
 	if !i.Available || !i.CanApply {
 		return ErrNotSupported
 	}
-	return Apply(ctx, i.Latest)
+	return Apply(ctx, i.Release)
 }

@@ -10,7 +10,8 @@
 #   --dry-run               check the system and show what would happen; changes nothing
 #   --uninstall [--purge]   remove Shunt (--purge also deletes /etc/shunt)
 #   --from-source           build from git even if a release exists
-#   SHUNT_REF=<branch|tag>  git ref for source builds (default: the repo's default branch)
+#   SHUNT_REF=<tag|branch> a release tag to install, or a branch to build from source
+#                           (default: the newest signed release, pre-releases included)
 #   SHUNT_WG_CONF=<file>    WireGuard config to import without asking
 #   --dns-level=0|1|2|3     DNS filter level: 0 off, 1 low, 2 normal, 3 paranoid
 #                           (default: see dnslists/defaults.toml; also SHUNT_DNS_LEVEL)
@@ -55,7 +56,9 @@ die() {
 
 # Questions go to the terminal even when the script itself is piped in.
 TTY=/dev/tty
-[[ -r $TTY && -z ${SHUNT_YES:-} ]] || TTY=
+# /dev/tty exists without a controlling terminal too (ssh without -t,
+# guest control, a service): only opening it tells
+[[ -r $TTY && -z ${SHUNT_YES:-} ]] && { : <"$TTY"; } 2>/dev/null || TTY=
 ask() { # ask "question" default -> echoes answer
 	local q=$1 def=${2:-} a=
 	if [[ -n $TTY ]]; then
@@ -197,6 +200,49 @@ trap on_exit EXIT
 
 NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
 
+# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+# [daemon] when they are not set there; prints what it added.
+daemon_privacy() {
+	_f=$1
+	_have=$(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/) }
+		d && /^[[:space:]]*dhcp_hostname[[:space:]]*=/ { h = 1 }
+		d && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+		/^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { s = 1 }
+		END { printf "%d%d%d", s, h, m }' "$_f")
+	_h='' _m=''
+	case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
+	case $_have in ??0) _m='mac = "stable"' ;; esac
+	[ -n "$_h$_m" ] || return 0
+	_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
+	case $_have in
+	0??) printf '\n[daemon]\n%s\n' "$_add" >>"$_f" ;;
+	*) ADD=$_add awk '{ print } !done && /^[[:space:]]*\[daemon\][[:space:]]*(#.*)?$/ { print ENVIRON["ADD"]; done = 1 }' "$_f" >"$_f.tmp" &&
+		cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp" ;;
+	esac
+	echo "$_add" | tr '\n' ' '
+}
+# home_mac FILE: networks trusted already (inbound = "lan"/"open" or
+# dhcp_hostname = "send") keep the real MAC: mac = "permanent" where no mac
+# is set; prints their names.
+home_mac() {
+	_f=$1
+	_flags=$(awk '/^[[:space:]]*\[/ { if (n) print n, t && !m, ind; n = 0 }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; n = k; t = 0; m = 0; ind = "-"; next }
+		n && ind == "-" && /^[[:space:]]*[A-Za-z_]+[[:space:]]*=/ { match($0, /^[[:space:]]*/); ind = RLENGTH }
+		n && /^[[:space:]]*inbound[[:space:]]*=[[:space:]]*"(lan|open)"/ { t = 1 }
+		n && /^[[:space:]]*dhcp_hostname[[:space:]]*=[[:space:]]*"send"/ { t = 1 }
+		n && /^[[:space:]]*mac[[:space:]]*=/ { m = 1 }
+		END { if (n) print n, t && !m, ind }' "$_f")
+	case $_flags in *" 1 "*) ;; *) return 0 ;; esac
+	FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2]; ind[f[1]] = f[3] } }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; print; if (want[k]) { pad = ""; for (j = 0; j < (ind[k] == "-" ? 0 : ind[k]); j++) pad = pad " "; print pad "mac = \"permanent\"" }; next }
+		{ print }' "$_f" >"$_f.tmp" && cat "$_f.tmp" >"$_f" && rm -f "$_f.tmp"
+	FLAGS=$_flags awk 'BEGIN { split(ENVIRON["FLAGS"], l, "\n"); for (i in l) { split(l[i], f, " "); want[f[1]] = f[2] } }
+		/^[[:space:]]*\[/ { inn = 0 }
+		/^[[:space:]]*\[\[network\]\][[:space:]]*(#.*)?$/ { k++; inn = want[k]; next }
+		inn && /^[[:space:]]*name[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); printf "%s%s", sep, $0; sep = ", " }' "$_f"
+}
+
 # ---------------------------------------------------------------- uninstall
 if [[ $MODE == uninstall ]]; then
 	say "Removing The Shunt"
@@ -271,9 +317,12 @@ fi
 WORK=$(mktemp -d)
 
 # ---------------------------------------------------------------- releases
-# The newest release (pre-releases included) whose build has finished - but
-# only if it is the current code (an older release would miss features this
-# installer expects) and if it is signed. Otherwise: build from source.
+# The newest signed release (pre-releases included), installed by the
+# installer of its own tag: an older release may lack what a newer installer
+# expects, and code merged after the release stays out until it is released.
+# A branch (the raw URL of the default branch) hands over to that installer.
+# Build from source only with --from-source, from a checkout or without a
+# signed release.
 find_release() { # -> sets tag (empty: build from source) and why
 	tag='' why=''
 	if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
@@ -285,26 +334,35 @@ find_release() { # -> sets tag (empty: build from source) and why
 		return
 	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
-	sha() { api "commits/$1" | sed -n 's/^  "sha": *"\([0-9a-f]*\)".*/\1/p' | head -1; }
-	local head_sha t
-	head_sha=$(sha "$REF") || true
-	why="no finished release yet"
-	# GitHub lists releases as text ("rc9" before "rc10"), so look at all of
-	# them for the one that is exactly the current code.
-	for t in $(api "releases?per_page=15" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p'); do
-		if [[ -z $head_sha || $(sha "$t") != "$head_sha" ]]; then
-			why="release $t is not the current code (or GitHub did not answer)"
-			continue
-		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS.sig" 2>/dev/null; then
+	asset() { curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$1/$2" 2>/dev/null; }
+	local t
+	why="no signed release found (or GitHub did not answer)"
+	[[ $REF == HEAD || $REF =~ ^(main|master)$ ]] || why="SHUNT_REF=$REF is not a signed release"
+	# GitHub does not list releases strictly by date (rc9 after rc10): sort by
+	# published_at (drafts are not listed for anonymous requests)
+	for t in $(api "releases?per_page=15" |
+		sed -n 's/^    "\(tag_name\|published_at\)": *"\([^"]*\)".*/\2/p' | paste - - |
+		awk -F'\t' '$2 ~ /^[0-9]/ {print $2, $1}' | sort -r | cut -d' ' -f2); do
+		# SHUNT_REF=<tag>: exactly that release (another ref: source build)
+		[[ $REF == HEAD || $REF =~ ^(main|master)$ || $REF == "$t" ]] || continue
+		if asset "$t" SHA256SUMS.sig; then
 			tag=$t
 			return
 		fi
-		if curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$t/SHA256SUMS" 2>/dev/null; then
-			why="release $t is not signed"
-			return
-		fi
+		# no checksums yet: the release build is still running
+		asset "$t" SHA256SUMS && warn "release $t is not signed - skipping it"
 	done
+}
+# use_release_installer: run the installer of release $tag (same arguments)
+use_release_installer() {
+	[[ $REF == "$tag" || -n ${SHUNT_RELEASE_INSTALLER:-} ]] && return
+	local f
+	f=$(mktemp)
+	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
+		die "could not download the installer of release $tag"
+	ok "release $tag: continuing with its own installer"
+	rm -rf "$WORK"
+	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
 }
 # fetch_sums: download and check the signed checksum list of release $tag
 fetch_sums() {
@@ -317,6 +375,10 @@ fetch_sums() {
 		die "release $tag: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)"
 }
 
+# before any question: a release is installed by its own installer
+find_release
+((DRY)) || [[ -z $tag ]] || use_release_installer
+
 # ---------------------------------------------------------------- dry run
 if ((DRY)); then
 	say "Dry run - this is what the installer would do (nothing is changed)"
@@ -324,7 +386,6 @@ if ((DRY)); then
 	[[ -n $(pkg_names polkit) ]] && pk+=" $(pkg_names polkit)" || pk+=" (no polkit package: config changes would need sudo)"
 	echo "  packages ($PM):   $pk"
 	echo "    asks for:        $(pkg_names openvpn) (OpenVPN)$( ((GRAPHICAL)) && echo ", $(pkg_names desktop) (desktop app)")"
-	find_release
 	if [[ -n $tag ]]; then
 		if command -v ssh-keygen >/dev/null; then
 			fetch_sums
@@ -350,9 +411,9 @@ if ((DRY)); then
 		echo "  nsswitch.conf:    offers to drop 'resolve' (backup kept)"
 	fi
 	if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]]; then
-		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY)"
+		echo "  NetworkManager:   offers Wi-Fi privacy settings ($NM_PRIVACY), and per network MAC + no host name in $ETC/shunt.toml"
 	fi
-	echo "  service:          installs shuntd.service, shunt-lockdown.service (off), polkit policy; enables and (re)starts shuntd"
+	echo "  service:          installs shuntd.service, shunt-lockdown.service (boot_lockdown = auto), polkit policy; enables and (re)starts shuntd"
 	[[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && echo "  user:             adds $SUDO_USER to the group 'shunt'"
 	echo "  log:              $([[ $LOG == /dev/null ]] && echo "/var/log/shunt-install.log (not written in a dry run without root)" || echo "$LOG")"
 	exit 0
@@ -399,7 +460,6 @@ build_from() { # source dir
 	fi
 }
 
-find_release
 if [[ -n $tag ]]; then
 	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
 	say "Downloading release $tag"
@@ -544,6 +604,12 @@ if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
 fi
 
 # Opsec on foreign networks; NetworkManager applies it on the next connect.
+# Older versions wrote "false", which NetworkManager 1.52+ ignores.
+if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
+	sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+	nmcli general reload conf >/dev/null 2>&1 || true
+	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ ($NM_PRIVACY)"
+fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
 	echo "  Foreign Wi-Fi networks see your laptop's MAC address and host name."
 	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
@@ -557,13 +623,44 @@ wifi.scan-rand-mac-address=yes
 # a different MAC on every Wi-Fi, but the same one each time you return
 # (keeps router reservations and hotel logins working)
 wifi.cloned-mac-address=stable
-ipv4.dhcp-send-hostname=false
-ipv6.dhcp-send-hostname=false
+# 0, not false: NetworkManager 1.52+ ignores "false" here
+ipv4.dhcp-send-hostname=0
+ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
 		ok "privacy settings active from the next Wi-Fi connection ($NM_PRIVACY)"
+		# the rest NetworkManager's defaults cannot do: the cable MAC, the
+		# DHCPv6 DUID and client ID (same on every network), a network's
+		# first connection; shuntd sets the profiles
+		added=$(daemon_privacy "$ETC/shunt.toml")
+		if [[ -n $added ]]; then
+			ok "$ETC/shunt.toml: $added"
+			if [[ $added == *mac* ]]; then
+				home=$(home_mac "$ETC/shunt.toml")
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
+				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+			fi
+		fi
 	fi
+elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[ -n $TTY && ! -e /var/lib/shunt/daemon-privacy-offered ]] &&
+	[[ $(awk '/^[[:space:]]*\[/ { d = ($0 ~ /^[[:space:]]*\[daemon\]/) } d && /^[[:space:]]*(mac|dhcp_hostname)[[:space:]]*=/ { n++ } END { print n + 0 }' "$ETC/shunt.toml") -lt 2 ]]; then
+	# an install from before: Wi-Fi privacy is on, the cable and the
+	# device IDs are not (asked once, only in a terminal: an update from
+	# the app must not change the MAC at home unasked)
+	echo "  Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
+	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
+		added=$(daemon_privacy "$ETC/shunt.toml")
+		if [[ -n $added ]]; then
+			ok "$ETC/shunt.toml: $added"
+			if [[ $added == *mac* ]]; then
+				home=$(home_mac "$ETC/shunt.toml")
+				if [[ -n $home ]]; then ok "real MAC kept on the networks you trust: $home"
+				else echo "  At home: Configure → network profile → MAC \"the real one\" (router reservations keep working)."; fi
+			fi
+		fi
+	fi
+	install -d -m755 /var/lib/shunt && touch /var/lib/shunt/daemon-privacy-offered
 fi
 
 say "Dry run"
@@ -602,6 +699,9 @@ else
 fi
 systemctl daemon-reload
 systemctl enable -q shuntd.service
+# boot lockdown: shuntd lockdown decides at boot from daemon.boot_lockdown
+# (auto: only when the default route is not direct), so it is always enabled
+systemctl enable -q shunt-lockdown.service
 systemctl restart shuntd.service
 step "waiting for shuntd" bash -c 'for _ in $(seq 50); do [[ -S /run/shunt/shuntd.sock ]] && exit 0; sleep 0.2; done; exit 1' || true
 if ! systemctl is-active -q shuntd.service; then
@@ -628,8 +728,9 @@ Changing the config, reloading or lifting panic asks for your admin password
 ${c_yel}Stopping shuntd keeps the kill switch for tunnels (on purpose); direct traffic goes on.${c_off}
 Emergency exit:  sudo shuntd cleanup
 Uninstall:       sudo bash install.sh --uninstall
-Paranoid mode (block network at boot until shuntd runs):
-                 sudo systemctl enable shunt-lockdown
+Boot lockdown:   when "everything else" goes through a tunnel, the network stays
+                 blocked at boot until shuntd runs (daemon.boot_lockdown = auto | on | off).
+                 Offline after boot because shuntd fails? sudo shuntd cleanup
 EOF
 if [[ -n ${NEW_MEMBER:-} ]]; then
 	echo "${c_yel}Restart the computer${c_off} so '$SUDO_USER' can use 'shunt' and the tray icon without sudo"

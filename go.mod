@@ -7,6 +7,7 @@ toolchain go1.26.10
 require (
 	fyne.io/systray v1.12.2
 	github.com/BurntSushi/toml v1.6.0
+	github.com/cilium/ebpf v0.22.0
 	github.com/florianl/go-nflog/v2 v2.3.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/google/nftables v0.3.0

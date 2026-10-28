@@ -14,6 +14,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/racebpf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -23,8 +24,13 @@ import (
 func DefaultBackend() Backend { return &linuxBackend{} }
 
 // linuxBackend: cgroup v2 groups, nftables marks and rules, policy routing
-// tables (see packages cgroup, nft, routing, appwatch).
-type linuxBackend struct{ cg cgroup.Manager }
+// tables (see packages cgroup, nft, routing, appwatch, racebpf).
+type linuxBackend struct {
+	cg    cgroup.Manager
+	start *racebpf.Guard
+	// startErr: loading the eBPF program failed once; not retried
+	startErr error
+}
 
 func (b *linuxBackend) Init() (string, error) {
 	mount, err := cgroup.Mount()
@@ -145,4 +151,19 @@ func (b *linuxBackend) Pids() []int {
 		}
 	}
 	return out
+}
+
+func (b *linuxBackend) StartMarks(root string, marks map[string]uint32) error {
+	if b.startErr != nil {
+		return b.startErr
+	}
+	if b.start == nil {
+		if len(marks) == 0 {
+			return nil // load it only once an app rule needs it
+		}
+		if b.start, b.startErr = racebpf.Start(b.cg.Mount, root); b.startErr != nil {
+			return b.startErr
+		}
+	}
+	return b.start.SetMarks(marks)
 }
