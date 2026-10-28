@@ -3,7 +3,7 @@
 // The measurement runs in the service (inside each route), this page only
 // starts it and polls.
 const SPEED_MB_PER_STEP = 25; // download and upload each, per route and round
-let speedTimer = null, speedLast = null;
+let speedTimer = null, speedLast = null, speedInfoOpen = false;
 
 function speedRoutes() {
   const st = typeof status !== "undefined" ? status : null;
@@ -36,7 +36,7 @@ function speedEstimate() {
   const ndt = $("#sp-prov").value === "ndt7";
   const mb = ndt ? n * rounds * 2 * 120 : n * rounds * 2 * SPEED_MB_PER_STEP;
   $("#sp-est").textContent = n ? T("about {mb} MB of data", { mb: mb }) : "";
-  $("#sp-ndt-note").hidden = !ndt;
+  $("#sp-ndt-note").hidden = !(ndt || speedInfoOpen);
   $("#sp-mobile").hidden = !speedChosen().some((r) => r === "link:mobile");
   $("#sp-start").disabled = !n;
 }
@@ -94,3 +94,4 @@ $("#tab-speed").addEventListener("click", () => { renderSpeedRoutes(); pollSpeed
 setInterval(() => { if (!document.hidden && !$("#page-speed").hidden) renderSpeedRoutes(); }, 2000);
 // the Windows service has no speed test yet
 setInterval(() => { const w = typeof status !== "undefined" && status && status.platform === "windows"; $("#tab-speed").hidden = !!w; }, 2000);
+$("#sp-info").addEventListener("click", () => { speedInfoOpen = !speedInfoOpen; speedEstimate(); });
