@@ -14,6 +14,7 @@
 #   EXPECT_OPEN=()            ports that may be open in the scan ("22/tcp")
 #   NETEM                     tc netem args on the lab LAN during the test
 #   SETTLE [3]                seconds to wait after setup before the client script
+#   PREP                      bash run in the client before the config is applied (extra files)
 #   NOTE                      extra text for the report
 #   CLIENT                    bash script run in the client as $USER_VM; $1 = canary
 #                             name; print "FAIL <text>" for a failed client-side check
@@ -63,7 +64,7 @@ run_test() {
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
 	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
-	ALLOW=() CHECKS=() EXPECT_OPEN=()
+	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP=''
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
@@ -90,6 +91,7 @@ run_test() {
 	# the guest set (mac = "random"/"stable"): without promisc the DHCP
 	# answers never reach NetworkManager
 	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n ip link set $CLIENT_IF promisc on" || true
+	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
 

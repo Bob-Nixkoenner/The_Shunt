@@ -40,6 +40,8 @@ if [[ ${CLIENT_OS:-linux} == windows ]]; then
 	export TUNNEL_IP CLIENT_IF TESTS_DIR TEST_EXT
 fi
 CLIENT_VM=${CLIENT_VM:-shunt-ubuntu}
+# virtio gives the guest a real driver (F05: changing the MAC works); Windows has none -> default e1000
+[[ ${CLIENT_OS:-linux} == windows ]] || CLIENT_NIC=${CLIENT_NIC:-virtio}
 GW_PORT=${GW_PORT:-2225}
 KEY=${KEY:-$HOME/.ssh/shunt-vm}
 USER_VM=${USER_VM:?set USER_VM in local.env (the account in the lab VMs)}
@@ -98,7 +100,7 @@ gw_up() {
 }
 
 client_to_lab() {
-	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --nicpromisc1 allow-all --memory "${CLIENT_MEM:-3072}"
+	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --nicpromisc1 allow-all ${CLIENT_NIC:+--nictype1 $CLIENT_NIC} --memory "${CLIENT_MEM:-3072}"
 }
 
 cmd_up() { # [snapshot]

@@ -1,0 +1,25 @@
+ID=M04
+TITLE="Tunnel kommt nie hoch (falscher Endpunkt, falscher Schluessel): nie direkt"
+CONFIG=m-broken
+EXPECT_CANARY=none
+PREP='
+sed "s/^Endpoint *=.*/Endpoint = 192.0.2.77:51820/" /etc/shunt/tunnels/intern.conf | sudo -n tee /etc/shunt/tunnels/dead.conf >/dev/null
+k=$(sudo -n awk "/^PublicKey/{print \$3}" /etc/shunt/tunnels/intern.conf)
+sudo -n sed "s|^PublicKey *=.*|PublicKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=|" /etc/shunt/tunnels/intern.conf | sudo -n tee /etc/shunt/tunnels/badkey.conf >/dev/null
+sudo -n chmod 600 /etc/shunt/tunnels/dead.conf /etc/shunt/tunnels/badkey.conf
+install -m755 /usr/bin/curl /tmp/labtog && sudo -n install -m755 /tmp/labtog /usr/local/bin/labtog
+'
+NOTE="labtun-Regel zeigt auf einen Tunnel mit totem Endpunkt, labtog auf einen mit falschem Schluessel. Erwartung: blockiert, im Status als Fehler sichtbar, nichts im Klartext."
+CLIENT='
+sleep 4
+for i in $(seq 8); do
+  labtun -s -m2 -o /dev/null "http://$i-$1/" && echo "FAIL labtun kam durch (toter Tunnel)"
+  labtog -s -m2 -o /dev/null "http://t$i-$1/" && echo "FAIL labtog kam durch (falscher Schluessel)"
+  labtun-dig +time=1 +tries=1 "d$i-$1" >/dev/null
+  sleep 0.5
+done
+st=$(sudo -n shunt status 2>&1); echo "$st"
+gq() { grep -q "$@" <<<"$st"; }
+gq -i -E "dead.*(down|error|fail|no handshake|-)" || echo "FAIL Status zeigt den toten Tunnel nicht als Fehler"
+true
+'
