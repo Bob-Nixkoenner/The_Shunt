@@ -172,7 +172,7 @@ jobs:
               -ldflags "-s -w -X main.version=$TAG" \
               -o "build/$arch/" ./cmd/shuntd ./cmd/shunt
             # pluggable transports for Tor bridges (lyrebird: obfs4, snowflake, meek, webtunnel)
-            GOARCH=$arch OUT="build/$arch" bash packaging/pt/build.sh
+            GOARCH=$arch OUT="$PWD/build/$arch" bash packaging/pt/build.sh
             tar -czf "dist/shunt_linux_$arch.tar.gz" -C "build/$arch" shuntd shunt lyrebird
           done
           # desktop app (cgo: GTK + WebKitGTK), amd64
