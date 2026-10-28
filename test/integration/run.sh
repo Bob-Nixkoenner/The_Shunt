@@ -634,6 +634,24 @@ check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps'
 check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
+# a program that execs at once (no pause after joining the scope) and several
+# at the same time: exec events can get lost, none may slip out unasked
+cp "$(command -v curl)" "$BIN/fwcurl3"
+fwfast() { # program url: joins the scope and execs without any pause
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --max-time 35 '"$2"
+}
+FASTPIDS=()
+for i in 1 2 3 4 5 6; do
+	fwfast "$BIN/fwcurl3" $URL >"$WORK/fast$i.out" &
+	FASTPIDS+=($!)
+done
+got=
+for _ in $(seq 40); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $got ]] && break; sleep 0.5; done
+sleep 2
+check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
+shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
+wait "${FASTPIDS[@]}" || true
+check "fast starts: all six went through the tunnel after the decision" 6 "$(cat "$WORK"/fast?.out | grep -c '^10.66.0.2$')"
 # started from the system-service cgroup: a caller without a terminal (CI
 # runner, ssh without -t) is held by the app firewall itself otherwise
 insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }
