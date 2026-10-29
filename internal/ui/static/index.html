@@ -22,7 +22,7 @@
 :root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 97%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--bg); border-bottom: 1px solid var(--line); }
 .brand { white-space: nowrap; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
 .brand svg { width: 26px; height: 26px; }
 .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
@@ -145,7 +145,7 @@ nav.tabs button.active { background: var(--panel2); color: var(--text); border-c
 }
 textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 12.5px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .iconbtn { padding: 3px 9px; }
-.savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); }
+.savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); }
 .savebar.dirty { border-color: var(--accent); }
 .savebar button { white-space: nowrap; flex: none; }
 .savebar .msg { min-width: 0; }
