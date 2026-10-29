@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 )
 
 // snapApp: the command starts a snap ("/snap/bin/brave", possibly behind
@@ -114,9 +114,9 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 				// never leave an app running outside the route it was asked for
 				_ = child.Process.Kill()
 				if n < 0 {
-					return errors.New("shuntd refused to move the app into the route")
+					return errors.New(i18n.T("shuntd refused to move the app into the route"))
 				}
-				return fmt.Errorf("could not move %s into %s", cmd[0], group)
+				return errors.New(i18n.T("could not move {cmd} into {group}", "cmd", cmd[0], "group", group))
 			}
 			break
 		}
@@ -124,7 +124,7 @@ func runSnap(c *api.Client, group string, cmd []string) error {
 	}
 	if scope == "" {
 		_ = child.Process.Kill()
-		return fmt.Errorf("%s did not start in time", cmd[0])
+		return errors.New(i18n.T("{cmd} did not start in time", "cmd", cmd[0]))
 	}
 	// children that were forked before the move stay in the snap's own scope
 	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(25 * time.Millisecond) {
