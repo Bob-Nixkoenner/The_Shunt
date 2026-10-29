@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
@@ -252,7 +253,7 @@ default_route = "block"
 				t.Errorf("pass=%v: rule route %s, want %s", pass, r.Route, want)
 			}
 		}
-		if pass && (len(p.Warnings) == 0 || !strings.Contains(strings.Join(p.Warnings, " "), "pass")) {
+		if pass && (len(p.Notes) == 0 || !strings.Contains(strings.Join(check.Texts(p.Notes), " "), "Pass")) {
 			t.Error("no warning during a pass")
 		}
 	}
@@ -348,6 +349,27 @@ dns_direct = "pihole"
 	}
 	if _, err := PrepareOn(path, "shunt", Env{Backend: newFake()}); err == nil {
 		t.Error("unknown dns.fallback accepted")
+	}
+}
+
+// The config check reaches the status: a config with DNS routing off is
+// reported as bad.
+func TestStatusHasFindings(t *testing.T) {
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[dns]\ndisabled = true\n")
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	st := d.status()
+	if len(st.Findings) == 0 || st.Findings[0].ID != "dns.off" || st.Findings[0].Level != "bad" {
+		t.Fatalf("findings: %+v", st.Findings)
+	}
+}
+
+func TestUniqueNotes(t *testing.T) {
+	a := check.Note("x", "DNS for {route} fails.", "route", "direct")
+	got := uniqueNotes([]check.Finding{a, a, check.Note("x", "DNS for {route} fails.", "route", "link:wifi")})
+	if len(got) != 2 {
+		t.Fatalf("got %d", len(got))
 	}
 }
 

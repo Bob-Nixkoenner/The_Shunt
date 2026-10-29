@@ -305,7 +305,7 @@ async function checkOrSave(save, body, msgFn) {
   try {
     const res = await api(save ? "PUT" : "POST", save ? "/api/config" : "/api/config/check", body);
     if (!res.ok) { msgFn(res.error, "err"); return false; }
-    const w = (res.warnings || []).length ? " " + T("Warnings: {list}", { list: res.warnings.join(" · ") }) : "";
+    const w = noticeTexts(res).length ? " " + T("Warnings: {list}", { list: noticeTexts(res).join(" · ") }) : "";
     msgFn(T(save ? "Saved and applied." : "Looks good – nothing written yet.") + w, w ? "warn" : "ok");
     return true;
   } catch (e) {
@@ -404,7 +404,7 @@ $("#t-import").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Importing reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Import" }))) return toast("Import cancelled");
   try {
     const res = await api("POST", "/api/tunnels", req);
-    toast((res.warnings || []).length ? T("Tunnel {name} imported – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} imported", { name }));
+    toast(noticeTexts(res).length ? T("Tunnel {name} imported – {warnings}", { name, warnings: noticeTexts(res).join(" · ") }) : T("Tunnel {name} imported", { name }));
     for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
     $("#t-via").value = "";
     updateImportForm();
@@ -425,7 +425,7 @@ $("#ts-add").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Adding reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Add" }))) return toast("Cancelled");
   try {
     const res = await api("POST", "/api/tunnels", { name, conf, driver: "tailscale" });
-    toast((res.warnings || []).length ? T("Tunnel {name} added – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} added", { name }));
+    toast(noticeTexts(res).length ? T("Tunnel {name} added – {warnings}", { name, warnings: noticeTexts(res).join(" · ") }) : T("Tunnel {name} added", { name }));
     for (const id of ["#ts-name", "#ts-server", "#ts-key", "#ts-host", "#ts-exit"]) $(id).value = "";
     await loadConfig();
     refresh();
