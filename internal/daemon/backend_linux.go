@@ -122,6 +122,7 @@ func (b *linuxBackend) Cleanup() error {
 	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable} {
 		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
 	}
+	errs = append(errs, nft.Apply(nft.DeleteArpScript()))
 	errs = append(errs, routing.Cleanup())
 	return errors.Join(errs...)
 }
