@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 )
 
 // captivePortalURL is plain HTTP on purpose: the portal has to be able to
@@ -31,8 +33,8 @@ var captiveBrowsers = []struct {
 // login pages (hotel, train, airport). Nothing it stores survives.
 func captive(c *api.Client, args []string) error {
 	fs := flag.NewFlagSet("captive", flag.ExitOnError)
-	browser := fs.String("browser", "", "browser binary (default: first of firefox, chromium, brave, chrome)")
-	url := fs.String("url", "", "page to open (default: the login page shuntd found, else "+captivePortalURL+")")
+	browser := fs.String("browser", "", i18n.T("browser binary (default: first of firefox, chromium, brave, chrome)"))
+	url := fs.String("url", "", i18n.T("page to open (default: the login page shuntd found, else {url})", "url", captivePortalURL))
 	_ = fs.Parse(args)
 	if *url == "" {
 		*url = captivePortalURL
@@ -60,7 +62,7 @@ func captive(c *api.Client, args []string) error {
 		bin = p
 	}
 	if bin == "" {
-		return fmt.Errorf("no supported browser found (firefox, chromium, brave, chrome); use --browser")
+		return errors.New(i18n.T("no supported browser found (firefox, chromium, brave, chrome); use --browser"))
 	}
 	dir, err := os.MkdirTemp(os.Getenv("XDG_RUNTIME_DIR"), "shunt-captive-")
 	if err != nil {
@@ -79,6 +81,6 @@ func captive(c *api.Client, args []string) error {
 		cmd = exec.Command(bin, "--no-remote", "--profile", dir, *url)
 	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	fmt.Fprintf(os.Stderr, "login browser (%s, direct, throwaway profile in %s); close it when you are online\n", filepath.Base(bin), dir)
+	fmt.Fprintln(os.Stderr, i18n.T("login browser ({name}, direct, throwaway profile in {dir}); close it when you are online", "name", filepath.Base(bin), "dir", dir))
 	return cmd.Run()
 }
