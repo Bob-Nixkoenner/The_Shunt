@@ -446,6 +446,24 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		o.MaxPause = 0 // the default pause; not for callers to shorten
+		if o.Provider == speedtest.NDT7 {
+			var st api.Status
+			if err := s.Client.Do("GET", "/v1/status", nil, &st); err != nil {
+				writeErr(w, http.StatusBadGateway, err)
+				return
+			}
+			tor := map[string]bool{}
+			for _, t := range st.Tunnels {
+				if t.Bootstrap != nil {
+					tor["tunnel:"+t.Name] = true
+				}
+			}
+			var dropped []string
+			if o.Routes, dropped = speedtest.WithoutTor(o.Routes, tor); len(dropped) > 0 {
+				writeErr(w, http.StatusBadRequest, errors.New("M-Lab NDT7 does not work through Tor – choose Cloudflare for Tor routes"))
+				return
+			}
+		}
 		started, err := s.speed.Start(s.Client.SpeedStep, o)
 		switch {
 		case err != nil:
