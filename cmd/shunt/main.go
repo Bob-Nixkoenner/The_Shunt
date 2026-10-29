@@ -48,6 +48,11 @@ commands:
   check [--json]
              judge the configuration (kill switch, DNS, OpenVPN settings …);
              exit status 1 if something is bad
+  socks      list the SOCKS5 exits of the tunnels
+  tor-all on [tunnel] | off | status
+             EMERGENCY: everything (every rule, every app) goes through Tor until switched off
+  tor status | newnym [tunnel]
+             Tor tunnels: progress; build new circuits for new connections
   pending    programs the app firewall holds back, waiting for a route
   allow ID|NAME [--via ROUTE] [--once]
              let a waiting program out (default: the default route), and
@@ -122,6 +127,12 @@ func main() {
 		err = status(c, args[1:])
 	case "check":
 		err = checkCmd(c, args[1:])
+	case "socks":
+		err = socksCmd(c)
+	case "tor":
+		err = torCmd(c, args[1:])
+	case "tor-all":
+		err = torAllCmd(c, args[1:])
 	case "pending":
 		err = pendingCmd(c)
 	case "allow":
@@ -694,6 +705,12 @@ func status(c *api.Client, args []string) error {
 				}
 			}
 		}
+		if t.Up && t.Bootstrap != nil {
+			state = "up/tor"
+			if *t.Bootstrap < 100 {
+				state = fmt.Sprintf("starting/tor %d%%", *t.Bootstrap)
+			}
+		}
 		hs, rxtx := "-", "-"
 		for _, p := range t.Peers {
 			if !p.LastHandshake.IsZero() {
@@ -1008,4 +1025,114 @@ func noticeTexts(ns []check.Finding, english []string) []string {
 		out[i] = n.Local()
 	}
 	return out
+}
+
+// socksCmd lists the SOCKS5 exits of the tunnels.
+func socksCmd(c *api.Client) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	n := 0
+	for _, t := range st.Tunnels {
+		if t.Socks == "" {
+			continue
+		}
+		state := "up"
+		if !t.Up {
+			state = "tunnel down (connections are refused)"
+		}
+		fmt.Fprintf(w, "tunnel:%s\tsocks5h://%s\t%s\n", t.Name, t.Socks, state)
+		n++
+	}
+	if n == 0 {
+		fmt.Fprintln(w, "no tunnel has a SOCKS5 exit; set socks = \"127.0.0.1:1080\" in its [tunnel.<name>] section")
+	}
+	return w.Flush()
+}
+
+// torCmd: shunt tor status | newnym [tunnel]
+func torCmd(c *api.Client, args []string) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	var tors []api.TunnelStatus
+	for _, t := range st.Tunnels {
+		if t.Bootstrap != nil {
+			tors = append(tors, t)
+		}
+	}
+	if len(args) == 0 || (args[0] != "status" && args[0] != "newnym") {
+		return errors.New("usage: shunt tor status | shunt tor newnym [tunnel]")
+	}
+	if len(tors) == 0 {
+		return errors.New("no Tor tunnel is running (driver = \"tor\" in a [tunnel.<name>] section)")
+	}
+	if args[0] == "status" {
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for _, t := range tors {
+			state := "connected"
+			if *t.Bootstrap < 100 {
+				state = fmt.Sprintf("starting, %d%%", *t.Bootstrap)
+			}
+			fmt.Fprintf(w, "tunnel:%s\t%s\n", t.Name, state)
+			if t.Error != "" {
+				fmt.Fprintf(w, "  error:\t%s\n", t.Error)
+			}
+		}
+		return w.Flush()
+	}
+	name := ""
+	switch {
+	case len(args) > 1:
+		name = strings.TrimPrefix(args[1], "tunnel:")
+	case len(tors) == 1:
+		name = tors[0].Name
+	default:
+		return errors.New("more than one Tor tunnel: shunt tor newnym <tunnel>")
+	}
+	if err := c.Do("POST", "/v1/tunnels/"+url.PathEscape(name)+"/newnym", nil, nil); err != nil {
+		return err
+	}
+	fmt.Printf("tunnel:%s builds new circuits for new connections (tor allows this once every 10 seconds)\n", name)
+	return nil
+}
+
+// torAllCmd: shunt tor-all on [tunnel] | off | status
+func torAllCmd(c *api.Client, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: shunt tor-all on [tunnel] | off | status")
+	}
+	switch args[0] {
+	case "on":
+		req := api.TorAllRequest{On: true}
+		if len(args) > 1 {
+			req.Tunnel = args[1]
+		}
+		if err := c.Do("POST", "/v1/torall", req, nil); err != nil {
+			return err
+		}
+		fmt.Println("tor-all is ON: every app goes through Tor (TCP only; no UDP, no calls). shunt tor-all off ends it.")
+		return nil
+	case "off":
+		if err := c.Do("POST", "/v1/torall", api.TorAllRequest{}, nil); err != nil {
+			return err
+		}
+		fmt.Println("tor-all is off: routes are as configured again")
+		return nil
+	case "status":
+		var st api.Status
+		if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+			return err
+		}
+		if st.TorAll == "" {
+			fmt.Println("tor-all: off")
+		} else {
+			fmt.Printf("tor-all: ON through tunnel:%s\n", st.TorAll)
+		}
+		return nil
+	}
+	return errors.New("usage: shunt tor-all on [tunnel] | off | status")
 }

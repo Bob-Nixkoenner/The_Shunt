@@ -295,6 +295,16 @@ type Tunnel struct {
 	Disabled bool `toml:"disabled,omitempty" json:"disabled,omitempty"`
 	// DNSFilter: filter level for this tunnel's route ("" = dns_filter.default).
 	DNSFilter string `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
+	// Socks: a SOCKS5 proxy on this loopback address ("127.0.0.1:1080")
+	// whose connections leave through this tunnel (names are resolved
+	// inside it). Empty = off.
+	Socks string `toml:"socks,omitempty" json:"socks,omitempty"`
+	// Tor (driver = "tor"): Bridges are bridge lines as in the Tor Browser
+	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0") or the words
+	// obfs4, snowflake, meek for the built-in sets; Isolate says
+	// what gets its own circuits: "app" (default), "destination" or "none".
+	Bridges []string `toml:"bridges,omitempty" json:"bridges,omitempty"`
+	Isolate string   `toml:"isolate,omitempty" json:"isolate,omitempty"`
 	// Inbound: what may come in through this tunnel while the inbound
 	// protection is on: closed | lan | open ("" = closed, the far end of a
 	// tunnel is not your network unless you say so, e.g. a tunnel home).
@@ -305,6 +315,10 @@ type Tunnel struct {
 
 // IsOpenVPN reports whether the tunnel is run by openvpn.
 func (t Tunnel) IsOpenVPN() bool { return t.Driver == "openvpn" }
+
+// IsTor reports whether the tunnel is Tor (a tor process run by shuntd,
+// no config file, no interface).
+func (t Tunnel) IsTor() bool { return t.Driver == "tor" }
 
 // IsTailscale reports whether the tunnel is a Tailscale/Headscale client
 // (tailscaled in its own network namespace, config = a .ts file).
@@ -402,7 +416,10 @@ func (c *Config) applyDefaults() {
 		if t.Driver == "" {
 			t.Driver = "auto"
 		}
-		if t.Interface == "" {
+		if t.IsTor() && t.Isolate == "" {
+			t.Isolate = "app"
+		}
+		if t.Interface == "" && !t.IsTor() {
 			t.Interface = "sh-" + n
 		}
 		if t.Via != "" && !strings.Contains(t.Via, ":") {
@@ -418,25 +435,57 @@ func (c *Config) Validate() error {
 		if !ValidName(n) {
 			return fmt.Errorf("tunnel %q: name must match %s", n, nameRe)
 		}
-		if t.Config == "" {
+		if t.Config == "" && !t.IsTor() {
 			return fmt.Errorf("tunnel %q: config path missing", n)
 		}
 		switch t.Driver {
-		case "auto", "kernel", "userspace", "openvpn", "tailscale":
+		case "auto", "kernel", "userspace", "openvpn", "tailscale", "tor":
 		default:
-			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn | tailscale)", n, t.Driver)
+			return fmt.Errorf("tunnel %q: unknown driver %q (auto | kernel | userspace | openvpn | tailscale | tor)", n, t.Driver)
+		}
+		if t.IsTor() {
+			if t.Config != "" || t.Auth != "" || t.Interface != "" {
+				return fmt.Errorf("tunnel %q: a tor tunnel has no config, auth or interface", n)
+			}
+			if t.DNS != "" {
+				return fmt.Errorf("tunnel %q: a tor tunnel resolves names through Tor; dns is not allowed", n)
+			}
+			if t.AllowLAN {
+				return fmt.Errorf("tunnel %q: allow_lan is not available for tor tunnels", n)
+			}
+			switch t.Isolate {
+			case "app", "destination", "none":
+			default:
+				return fmt.Errorf("tunnel %q: isolate %q (app | destination | none)", n, t.Isolate)
+			}
+			for _, b := range t.Bridges {
+				if strings.ContainsAny(b, "\r\n") || strings.TrimSpace(b) == "" {
+					return fmt.Errorf("tunnel %q: a bridge line is one line", n)
+				}
+				if f := strings.Fields(b); len(f) == 1 && f[0] != "obfs4" && f[0] != "snowflake" && f[0] != "meek" {
+					return fmt.Errorf("tunnel %q: bridge %q: a full bridge line (\"obfs4 1.2.3.4:443 FINGERPRINT cert=…\") or one of obfs4 | snowflake | meek", n, b)
+				}
+			}
+		} else if len(t.Bridges) > 0 || t.Isolate != "" {
+			return fmt.Errorf("tunnel %q: bridges and isolate are only for driver = \"tor\"", n)
 		}
 		if t.Auth != "" && !t.IsOpenVPN() {
 			return fmt.Errorf("tunnel %q: auth is only for driver = \"openvpn\"", n)
 		}
 		if t.Via != "" {
 			r, err := c.ParseRoute(t.Via)
+			if err == nil && r.Kind == RouteTunnel && c.Tunnels[r.Tunnel].IsTor() {
+				return fmt.Errorf("tunnel %q: cannot run through the Tor tunnel %q (Tor carries TCP only)", n, r.Tunnel)
+			}
 			if err != nil || (r.Kind != RouteTunnel && r.Kind != RouteLink) {
 				return fmt.Errorf("tunnel %q: via must be \"tunnel:<name>\" or \"link:<%s>\"", n, strings.Join(LinkKinds, "|"))
 			}
 		}
 		if len(t.Interface) > 15 {
 			return fmt.Errorf("tunnel %q: interface name too long", n)
+		}
+		if err := validSocksAddr(t.Socks); err != nil {
+			return fmt.Errorf("tunnel %q: socks: %w", n, err)
 		}
 		if !validFilterLevel(t.DNSFilter, true) {
 			return fmt.Errorf("tunnel %q: dns_filter %q (off | low | normal | paranoid)", n, t.DNSFilter)
@@ -855,4 +904,23 @@ func (c *Config) Encode() ([]byte, error) {
 		return nil, err
 	}
 	return []byte(b.String()), nil
+}
+
+// validSocksAddr accepts "" or a loopback host:port; the proxy is never
+// opened to the network.
+func validSocksAddr(a string) error {
+	if a == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(a)
+	if err != nil {
+		return fmt.Errorf("%q: want 127.0.0.1:<port>", a)
+	}
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+		return fmt.Errorf("%q: bad port", a)
+	}
+	if ip, err := netip.ParseAddr(host); err != nil || !ip.IsLoopback() {
+		return fmt.Errorf("%q: only a loopback address (127.0.0.1 or ::1)", a)
+	}
+	return nil
 }

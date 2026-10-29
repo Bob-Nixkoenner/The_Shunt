@@ -33,8 +33,9 @@ type Status struct {
 	Traffic      map[string]stats.Summary `json:"traffic,omitempty"`
 	DefaultRoute string                   `json:"default_route"`
 	Panic        bool                     `json:"panic"`
-	PanicKill    bool                     `json:"panic_kill,omitempty"` // panic also ends tunnel apps (daemon.panic_kill)
 	PassLeft     int64                    `json:"pass_left,omitempty"`  // seconds of a running pass
+	TorAll       string                   `json:"tor_all,omitempty"`    // tunnel everything goes through (tor-all)
+	PanicKill    bool                     `json:"panic_kill,omitempty"` // panic also ends tunnel apps (daemon.panic_kill)
 	Tunnels      []TunnelStatus           `json:"tunnels"`
 	Groups       []GroupStatus            `json:"groups"`
 	Rules        []string                 `json:"rules"`
@@ -95,11 +96,14 @@ type TunnelStatus struct {
 	Driver string `json:"driver"`
 	Up     bool   `json:"up"`
 	// Disabled: switched off in the config (its route blocks).
-	Disabled bool                `json:"disabled,omitempty"`
-	Error    string              `json:"error,omitempty"`
-	Via      string              `json:"via,omitempty"` // second hop through this route
-	Peers    []tunnel.PeerStatus `json:"peers,omitempty"`
-	Health   *health.Report      `json:"health,omitempty"` // nil until the first check
+	Disabled bool   `json:"disabled,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Via      string `json:"via,omitempty"` // second hop through this route
+	// Bootstrap: tor tunnels only, 0..100 (100 = connected).
+	Bootstrap *int                `json:"bootstrap,omitempty"`
+	Socks     string              `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
+	Peers     []tunnel.PeerStatus `json:"peers,omitempty"`
+	Health    *health.Report      `json:"health,omitempty"` // nil until the first check
 }
 
 // GroupStatus describes one process group.
@@ -160,7 +164,7 @@ type ConfigView struct {
 // TunnelConfInfo is the public part of a tunnel's WireGuard or OpenVPN file.
 type TunnelConfInfo struct {
 	Name       string   `json:"name"`
-	Type       string   `json:"type"` // wireguard | openvpn | tailscale
+	Type       string   `json:"type"` // wireguard | openvpn | tailscale | tor | tor
 	Endpoint   string   `json:"endpoint"`
 	Addresses  []string `json:"addresses"`
 	DNS        []string `json:"dns,omitempty"`
@@ -196,6 +200,12 @@ type TunnelImport struct {
 	Via string `json:"via,omitempty"`
 	// Driver "tailscale": Conf is a .ts file (login_server, auth_key, ...).
 	Driver string `json:"driver,omitempty"`
+}
+
+// TorAllRequest is the body of POST /v1/torall.
+type TorAllRequest struct {
+	On     bool   `json:"on"`
+	Tunnel string `json:"tunnel,omitempty"` // empty: the only Tor tunnel
 }
 
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.

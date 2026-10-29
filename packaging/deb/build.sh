@@ -20,6 +20,11 @@ P=$T/core
 install -d "$P/DEBIAN" "$P/usr/bin" "$P/usr/sbin" "$P/lib/systemd/system" "$P/usr/share/polkit-1/actions" "$P/usr/share/doc/the-shunt"
 install -m755 "$BIN/shuntd" "$BIN/shunt" "$P/usr/bin/"
 ln -s ../bin/shuntd "$P/usr/sbin/shuntd" # sudo's secure_path
+# transports for Tor bridges (shuntd looks in /usr/libexec/shunt)
+if [[ -f $BIN/lyrebird ]]; then
+	install -d "$P/usr/libexec/shunt"
+	install -m755 "$BIN/lyrebird" "$P/usr/libexec/shunt/"
+fi
 for u in shuntd.service shunt-lockdown.service; do
 	sed 's|/usr/local/bin/|/usr/bin/|g' "packaging/systemd/$u" >"$P/lib/systemd/system/$u"
 	chmod 644 "$P/lib/systemd/system/$u"
@@ -34,7 +39,7 @@ Architecture: $ARCH
 Maintainer: The Shunt <noreply@users.noreply.github.com>
 Section: net
 Priority: optional
-Depends: nftables, iproute2, wireguard-tools, ca-certificates, psmisc, polkitd | policykit-1
+Depends: nftables, iproute2, wireguard-tools, ca-certificates, psmisc, tor, polkitd | policykit-1
 Recommends: openvpn
 Homepage: https://github.com/Bob-Nixkoenner/The_Shunt
 Description: Per-app split tunneling with WireGuard and OpenVPN
@@ -47,6 +52,12 @@ cat >"$P/DEBIAN/postinst" <<'EOF'
 set -e
 if [ "$1" = configure ]; then
 	getent group shunt >/dev/null || groupadd --system shunt
+	# The Shunt runs its own tor for Tor tunnels; the system service (SOCKS
+	# on 9050) that the tor package starts is not needed. Only on a fresh
+	# install, so a tor someone set up on purpose is left alone.
+	if [ -z "$2" ] && [ -d /run/systemd/system ]; then
+		systemctl disable --now tor.service tor@default.service >/dev/null 2>&1 || true
+	fi
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
 	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to

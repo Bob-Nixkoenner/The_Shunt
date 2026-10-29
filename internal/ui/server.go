@@ -136,6 +136,13 @@ func (s *Server) handler() http.Handler {
 		}
 		s.forward(w, "POST", "/v1/pass", req)
 	})
+	mux.HandleFunc("POST /api/torall", func(w http.ResponseWriter, r *http.Request) {
+		var req api.TorAllRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/torall", req)
+	})
 	mux.HandleFunc("POST /api/reload", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/reload", nil)
 	})
@@ -340,6 +347,9 @@ func (s *Server) handler() http.Handler {
 			writeJSON(w, res)
 		})
 	}
+	mux.HandleFunc("POST /api/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "POST", "/v1/tunnels/"+url.PathEscape(r.PathValue("name"))+"/newnym", nil)
+	})
 	mux.HandleFunc("DELETE /api/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/tunnels/"+url.PathEscape(r.PathValue("name")), nil)
 	})

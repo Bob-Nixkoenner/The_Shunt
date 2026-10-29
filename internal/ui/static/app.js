@@ -1,4 +1,5 @@
 "use strict";
+const isTor = (t) => t.bootstrap !== undefined && t.bootstrap !== null; // a Tor tunnel: status carries its bootstrap progress
 // The Shunt UI. No frameworks, no external requests.
 
 const $ = (s) => document.querySelector(s);
@@ -45,6 +46,7 @@ document.addEventListener("click", (e) => {
   api("POST", "/api/open-url", { url: a.href }).catch((err) => toast(err.message));
 });
 
+// daemon warnings are English; the Tor ones get a translation here
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -107,7 +109,7 @@ function render() {
   const state = $("#state");
   if (!st) { state.className = "pill bad"; state.textContent = "shuntd not reachable"; return; }
 
-  const down = st.tunnels.filter((t) => !t.disabled).filter((t) => !t.up || !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001")));
+  const down = st.tunnels.filter((t) => !t.disabled).filter((t) => !t.up || (isTor(t) ? t.bootstrap < 100 : !t.peers || t.peers.every((p) => !p.last_handshake || p.last_handshake.startsWith("0001"))));
   if (st.panic) { state.className = "pill bad"; state.textContent = "PANIC – everything blocked"; }
   else if (st.pass_left) { state.className = "pill bad"; state.textContent = "PASS – unprotected"; }
   else if (st.captive === "portal") { state.className = "pill warn"; state.textContent = "Wi-Fi login needed – tunnels wait for it"; }
@@ -117,6 +119,10 @@ function render() {
   else { state.className = "pill ok"; state.textContent = "protected"; }
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, T(" (network “{name}”)", { name: st.network }))] : []));
 
+  const torall = $("#torall");
+  torall.hidden = !(st.tor_all || st.tunnels.some(isTor));
+  torall.textContent = st.tor_all ? "End Tor-only" : "All via Tor";
+  torall.classList.toggle("on", !!st.tor_all);
   const pass = $("#pass");
   pass.textContent = st.pass_left ? T("End pass ({time})", { time: Math.floor(st.pass_left / 60) + ":" + String(st.pass_left % 60).padStart(2, "0") }) : "Pass 5 min";
   pass.classList.toggle("on", !!st.pass_left);
@@ -140,16 +146,19 @@ function render() {
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
-    const hs = p.last_handshake && !p.last_handshake.startsWith("0001");
-    const ovpn = t.driver === "openvpn" || t.driver === "tailscale";
+    const tor = isTor(t);
+    const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
+    const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
       el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
+        ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
+          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, T("through {via}", { via: t.via }))] : []),
         el("span", {}, ovpn ? "connected" : "handshake"), el("span", {}, ago(p.last_handshake)),
-        el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0)),
+        el("span", {}, "traffic"), el("span", {}, "↓ " + bytes(p.rx_bytes || 0) + "  ↑ " + bytes(p.tx_bytes || 0))]),
         ...(st.traffic && st.traffic[t.name] ? [el("span", {}, "this month"), el("span", {},
           T("↓ {mrx}  ↑ {mtx}  (total ↓ {trx}  ↑ {ttx})", { mrx: bytes(st.traffic[t.name].month.rx), mtx: bytes(st.traffic[t.name].month.tx), trx: bytes(st.traffic[t.name].total.rx), ttx: bytes(st.traffic[t.name].total.tx) }))] : []),
         ...(t.up && t.health && t.health.state !== "unknown" ? [el("span", {}, "health"), el("span", {},
@@ -157,6 +166,13 @@ function render() {
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
           t.health.loss > 0 ? T(" · {n} % lost", { n: Math.round(t.health.loss * 100) }) : "")] : []),
+        ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "Tor builds fresh circuits for new connections (open connections keep theirs)",
+          onclick: async (e) => {
+            e.target.disabled = true;
+            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }
+            catch (err) { toast(T("New identity failed: {error}", { error: err.message })); }
+            setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
+          } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
       ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
@@ -482,6 +498,13 @@ $("#pass").addEventListener("click", async () => {
   refresh();
 });
 
+$("#torall").addEventListener("click", async () => {
+  const on = !(status && status.tor_all);
+  if (on && !(await ask("Send EVERY app through Tor until you switch this off? Rules and tunnels are overridden (blocks stay). Tor carries TCP only: calls, games and QUIC will not work.", { ok: "All via Tor", danger: true }))) return;
+  try { await api("POST", "/api/torall", { on }); toast(on ? "Everything goes through Tor now" : "Tor-only ended"); } catch (e) { toast(e.message); }
+  refresh();
+});
+
 $("#panic").addEventListener("click", async () => {
   const on = !(status && status.panic);
   if (on && !(await ask("Drop ALL traffic now (except loopback)?", { ok: "PANIC", danger: true }))) return toast("Panic mode not switched on");
@@ -554,7 +577,7 @@ let upKey = null, autoLeakTimer = null;
 function watchTunnels(st) {
   if (!st) return;
   const key = st.tunnels.filter((t) => t.up && (t.peers || []).some((p) => p.last_handshake && !p.last_handshake.startsWith("0001")) ||
-    (t.up && (t.driver === "openvpn" || t.driver === "tailscale"))).map((t) => t.name).sort().join(",");
+    (t.up && (t.driver === "openvpn" || t.driver === "tailscale" || (isTor(t) && t.bootstrap >= 100)))).map((t) => t.name).sort().join(",");
   if (upKey !== null && key !== upKey) {
     clearTimeout(autoLeakTimer);
     autoLeakTimer = setTimeout(() => { if ($("#leak-auto").checked && !st.panic && !st.pass_left) runLeak(true); }, 5000);

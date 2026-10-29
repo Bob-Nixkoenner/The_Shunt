@@ -389,6 +389,10 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	if route.Kind == config.RouteBlock {
 		return fail(r, dns.RcodeNameError)
 	}
+	// .onion names exist only inside Tor: never to another resolver
+	if isOnion(name) && !route.Tor {
+		return fail(r, dns.RcodeNameError)
+	}
 	// The blocklists: not for the login browser (portals live on odd
 	// names), not for names you routed on purpose with a domain rule.
 	if rule == nil && !src.Captive && src.Filter != "" && src.Filter != config.FilterOff {
@@ -541,3 +545,5 @@ func stripECS(m *dns.Msg) {
 	}
 	opt.Option = kept
 }
+
+func isOnion(name string) bool { return name == "onion" || strings.HasSuffix(name, ".onion") }

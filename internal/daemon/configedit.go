@@ -66,6 +66,11 @@ func (d *Daemon) configView() (api.ConfigView, error) {
 		}
 		v.Tunnels = append(v.Tunnels, ti)
 	}
+	for name, t := range d.cfg.Tunnels {
+		if t.IsTor() {
+			v.Tunnels = append(v.Tunnels, api.TunnelConfInfo{Name: name, Type: "tor", Endpoint: "Tor network"})
+		}
+	}
 	slices.SortFunc(v.Tunnels, func(a, b api.TunnelConfInfo) int { return strings.Compare(a.Name, b.Name) })
 	return v, nil
 }

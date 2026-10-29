@@ -46,6 +46,9 @@ type Manager struct {
 
 func (m Manager) abs(rel string) string { return filepath.Join(m.Mount, rel) }
 
+// Abs returns the absolute directory of the cgroup rel.
+func (m Manager) Abs(rel string) string { return m.abs(rel) }
+
 // Ensure creates a cgroup (and parents).
 func (m Manager) Ensure(rel string) error {
 	return os.MkdirAll(m.abs(rel), 0o755)
