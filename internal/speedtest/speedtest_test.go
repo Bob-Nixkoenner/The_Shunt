@@ -200,3 +200,10 @@ func TestUploadCutOffKeepsPartial(t *testing.T) {
 		t.Fatalf("partial upload: %+v", m)
 	}
 }
+
+func TestWithoutTor(t *testing.T) {
+	kept, dropped := WithoutTor([]string{"direct", "tunnel:tor1", " tunnel:wg"}, map[string]bool{"tunnel:tor1": true})
+	if len(kept) != 2 || len(dropped) != 1 || dropped[0] != "tunnel:tor1" {
+		t.Errorf("kept %v dropped %v", kept, dropped)
+	}
+}
