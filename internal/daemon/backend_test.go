@@ -31,6 +31,7 @@ type fakeBackend struct {
 	held    []map[string]engine.Group // per Hold
 	routes  int
 	syncErr error // returned by SyncRoutes
+	flushed bool  // Intact reports false until the next Apply
 }
 
 func newFake() *fakeBackend { return &fakeBackend{procs: map[string][]int{}} }
@@ -40,6 +41,7 @@ func (f *fakeBackend) Groups() firewall.CGroups            { return fakeGroups{f
 func (f *fakeBackend) Render(*engine.Plan) (string, error) { return "ruleset", nil }
 func (f *fakeBackend) Apply(_ string, held map[string]engine.Group) error {
 	f.applied = append(f.applied, held)
+	f.flushed = false
 	return nil
 }
 func (f *fakeBackend) Hold(held map[string]engine.Group) error {
@@ -54,6 +56,7 @@ func (f *fakeBackend) SyncRoutes(*engine.Plan, map[string]bool) error {
 func (f *fakeBackend) Panic(bool) error                           { return nil }
 func (f *fakeBackend) ForgetTCP(uint32) (int, error)              { return 0, nil }
 func (f *fakeBackend) LiftLockdown() error                        { return nil }
+func (f *fakeBackend) Intact() bool                               { f.mu.Lock(); defer f.mu.Unlock(); return !f.flushed }
 func (f *fakeBackend) Stopped(*engine.Plan) error                 { return nil }
 func (f *fakeBackend) Cleanup() error                             { return nil }
 func (f *fakeBackend) DomainSets() dnsproxy.SetWriter             { return nil }
@@ -367,5 +370,23 @@ func TestUniqueNotes(t *testing.T) {
 	got := uniqueNotes([]check.Finding{a, a, check.Note("x", "DNS for {route} fails.", "route", "link:wifi")})
 	if len(got) != 2 {
 		t.Fatalf("got %d", len(got))
+
+// Something else flushes our rules: the next check puts them back (once),
+// and does nothing while they are there.
+func TestCheckRulesRestores(t *testing.T) {
+	d, f := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[dns]\ndisabled = true\n")
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	n := len(f.applied)
+	d.checkRules()
+	if len(f.applied) != n || d.rulesRestored != 0 {
+		t.Fatalf("rules intact, but applied again: %d -> %d", n, len(f.applied))
+	}
+	f.flushed = true
+	d.checkRules()
+	d.checkRules()
+	if len(f.applied) != n+1 || d.rulesRestored != 1 {
+		t.Fatalf("flushed rules: applied %d times (want %d), restored %d", len(f.applied)-n, 1, d.rulesRestored)
 	}
 }
