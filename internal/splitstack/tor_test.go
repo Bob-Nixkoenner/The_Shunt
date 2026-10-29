@@ -200,4 +200,15 @@ func TestTorResolveViaSocks(t *testing.T) {
 	if r := query("nope.example", 1); r[3]&0xF != 3 {
 		t.Errorf("failure should be NXDOMAIN: %x", r)
 	}
+	r = query("abcdefghij.onion", 1)
+	if r[3]&0xF != 0 || r[7] != 1 || r[len(r)-4] != 198 || r[len(r)-3] != 18 {
+		t.Errorf("onion A answer: %x", r)
+	}
+	a := netip.AddrFrom4([4]byte{r[len(r)-4], r[len(r)-3], r[len(r)-2], r[len(r)-1]})
+	if n, ok := tt.onionName(a); !ok || n != "abcdefghij.onion" {
+		t.Errorf("onion name for %v: %q %v", a, n, ok)
+	}
+	if r := query("abcdefghij.onion", 28); r[7] != 0 {
+		t.Errorf("onion AAAA should be empty: %x", r)
+	}
 }

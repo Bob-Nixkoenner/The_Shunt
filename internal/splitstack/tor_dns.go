@@ -20,6 +20,7 @@ import (
 // somewhere else).
 type torResolver struct {
 	socks string
+	t     *torTunnel
 	mu    sync.Mutex
 	out   chan []byte
 	done  chan struct{}
@@ -27,8 +28,8 @@ type torResolver struct {
 	rd    time.Time
 }
 
-func newTorResolver(socks string) *torResolver {
-	return &torResolver{socks: socks, out: make(chan []byte, 16), done: make(chan struct{})}
+func newTorResolver(t *torTunnel) *torResolver {
+	return &torResolver{socks: t.conf.Socks, t: t, out: make(chan []byte, 16), done: make(chan struct{})}
 }
 
 type dnsQ struct {
@@ -88,9 +89,18 @@ func (r *torResolver) Write(p []byte) (int, error) {
 	go func() {
 		var resp []byte
 		switch {
+		case strings.HasSuffix(q.name, ".onion"):
+			// Tor maps an onion name to an IPv6 address only it knows; the phone's
+			// network may have no IPv6. So hand out an address of our own and
+			// connect by name when the app comes back to it (see torTunnel.dial).
+			var ip netip.Addr
+			if q.qtype == 1 {
+				ip = r.t.onionAddr(q.name)
+			}
+			resp = dnsReply(query, q, 0, ip)
 		case q.qtype != 1 && q.qtype != 28:
 			resp = dnsReply(query, q, 0, netip.Addr{})
-		case q.qtype == 28 && !strings.HasSuffix(q.name, ".onion"):
+		case q.qtype == 28:
 			resp = dnsReply(query, q, 0, netip.Addr{}) // Tor RESOLVE gives IPv4 first; AAAA stays empty
 		default:
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -152,3 +162,38 @@ func (r *torResolver) SetReadDeadline(t time.Time) error {
 	return nil
 }
 func (r *torResolver) SetWriteDeadline(time.Time) error { return nil }
+
+// onionNet holds the addresses handed out for onion names (benchmarking range,
+// never routed anywhere).
+var onionNet = netip.MustParsePrefix("198.18.0.0/16")
+
+const maxOnion = 4000
+
+// onionAddr gives name an address (the same one while it is remembered).
+func (t *torTunnel) onionAddr(name string) netip.Addr {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.onion == nil {
+		t.onion = map[netip.Addr]string{}
+		t.onionBy = map[string]netip.Addr{}
+	}
+	if a, ok := t.onionBy[name]; ok {
+		return a
+	}
+	t.onionN = t.onionN%maxOnion + 1
+	b := onionNet.Addr().As4()
+	b[2], b[3] = byte(t.onionN>>8), byte(t.onionN)
+	a := netip.AddrFrom4(b)
+	if old, ok := t.onion[a]; ok {
+		delete(t.onionBy, old)
+	}
+	t.onion[a], t.onionBy[name] = name, a
+	return a
+}
+
+func (t *torTunnel) onionName(a netip.Addr) (string, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n, ok := t.onion[a]
+	return n, ok
+}
