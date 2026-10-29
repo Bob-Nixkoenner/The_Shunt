@@ -60,6 +60,7 @@ german.DeleteData=Auch die Konfiguration, die Tunnel und die Statistik löschen 
 Source: "{#SrcDir}\shuntd-win.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\shunt-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\wintun.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SrcDir}\tor\*"; DestDir: "{app}\tor"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SrcDir}\the-shunt.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 

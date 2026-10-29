@@ -39,6 +39,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsvc"
 )
@@ -182,13 +183,14 @@ func runCore(ctx context.Context, ready func()) error {
 	// blocking (the service itself may send).
 	var ksMu sync.Mutex
 	ksOn, ksWant := false, false
+	var ksApps []string // programs that carry a Tor tunnel (tor.exe, transports)
 	var ksLUID uint64
 	applyKS := func() {
 		ksMu.Lock()
 		defer ksMu.Unlock()
 		switch {
 		case ksWant && !ksOn && ksLUID != 0:
-			if err := winsplit.EnableKillSwitch(ksLUID, netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
+			if err := winsplit.EnableKillSwitch(ksLUID, netip.MustParseAddr(splitstack.DNSAddr), ksApps...); err != nil {
 				log.Printf("kill switch: %v", err)
 				return
 			}
@@ -200,13 +202,35 @@ func runCore(ctx context.Context, ready func()) error {
 			log.Print("kill switch off")
 		}
 	}
+	var torRuns []*tunnel.Tor
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
 			ksMu.Lock()
 			ksWant = c.Daemon.KillSwitchOn()
+			ksApps = nil
+			for _, t := range c.Tunnels {
+				if t.IsTor() && !t.Disabled {
+					ksApps = tunnel.TorApps()
+					break
+				}
+			}
 			ksMu.Unlock()
 			applyKS()
 		}}
+	m.StartTor = func(name string, t config.Tunnel) (string, error) {
+		tr, err := tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join(dataDir, "tor", name),
+			Bridges: t.Bridges, Isolate: t.Isolate}, slog.Default(), nil)
+		if err != nil {
+			return "", err
+		}
+		torRuns = append(torRuns, tr)
+		return tr.SocksAddr(), nil
+	}
+	defer func() {
+		for _, tr := range torRuns {
+			tr.Down()
+		}
+	}()
 	cfg, warns, err := m.Load()
 	if err != nil {
 		return fmt.Errorf("%s: %w", filepath.Join(dataDir, "shunt.toml"), err)

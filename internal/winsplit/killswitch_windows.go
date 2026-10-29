@@ -34,9 +34,9 @@ func fw(args ...string) error {
 
 // EnableKillSwitch installs the kill switch for the adapter with LUID luid
 // (replacing an earlier one). dns is the only DNS server apps may ask.
-func EnableKillSwitch(luid uint64, dns netip.Addr) error {
+func EnableKillSwitch(luid uint64, dns netip.Addr, apps ...string) error {
 	legacyCleanup()
-	return wfp.Enable(luid, dns)
+	return wfp.Enable(luid, dns, apps...)
 }
 
 // DisableKillSwitch removes the kill switch, also one left by an earlier
