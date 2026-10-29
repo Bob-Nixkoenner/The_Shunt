@@ -58,6 +58,10 @@ table inet shunt {
 		iifname != { "lo", "sh-home", "sh-vps" } ip daddr { 10.9.0.2, 10.66.0.12 } counter drop
 		iifname != { "lo", "sh-home", "sh-vps" } ip6 daddr { fd00:9::2 } counter drop
 	}
+	chain icmp_quiet {
+		type filter hook input priority raw; policy accept;
+		icmp type { timestamp-request, address-mask-request, info-request } counter drop
+	}
 	chain ask_out {
 	}
 	chain filter_out {
