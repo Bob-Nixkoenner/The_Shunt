@@ -18,13 +18,15 @@ import (
 
 // A Tor tunnel sends TCP to a Tor client's SOCKS5 port and names to its
 // DNSPort. The Tor client is not part of this library: on Android it is
-// Orbot (SOCKS 127.0.0.1:9050, DNS 127.0.0.1:5400) or the Tor the app brings
-// along. UDP (except the DNS above) and ICMP are refused, as on Linux.
+// Orbot (SOCKS 127.0.0.1:9050) or the Tor the app brings along. Names are
+// resolved through the SOCKS port (Tor's RESOLVE), or sent to the DNSPort when
+// "dns" is given (Orbot's DNSPort is random). UDP (except DNS) and ICMP are
+// refused, as on Linux.
 //
 // The file (Conf) is two lines, both optional:
 //
 //	socks = 127.0.0.1:9050
-//	dns   = 127.0.0.1:5400
+//	dns   = 127.0.0.1:5400   (only if the client has a fixed DNSPort)
 
 const typeTor = "tor"
 
@@ -38,7 +40,7 @@ const torUser = "shunt"
 type torConf struct{ Socks, DNS string }
 
 func parseTorConf(s string) (torConf, error) {
-	c := torConf{Socks: "127.0.0.1:9050", DNS: "127.0.0.1:5400"}
+	c := torConf{Socks: "127.0.0.1:9050"}
 	sc := bufio.NewScanner(strings.NewReader(s))
 	for sc.Scan() {
 		l := strings.TrimSpace(sc.Text())
@@ -100,6 +102,9 @@ func (t *torTunnel) reachable() bool {
 func (t *torTunnel) dial(ctx context.Context, tcp bool, ap netip.AddrPort) (net.Conn, error) {
 	if !tcp {
 		if ap.Addr() == torDNS && ap.Port() == 53 {
+			if t.conf.DNS == "" {
+				return newTorResolver(t.conf.Socks), nil
+			}
 			var d net.Dialer
 			return d.DialContext(ctx, "udp", t.conf.DNS)
 		}
@@ -166,6 +171,10 @@ func CheckTor(conf string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b, _ := json.Marshal(map[string]string{"socks": c.Socks, "dns": c.DNS})
+	m := map[string]string{"socks": c.Socks}
+	if c.DNS != "" {
+		m["dns"] = c.DNS
+	}
+	b, _ := json.Marshal(m)
 	return string(b), nil
 }

@@ -34,8 +34,8 @@ data class Tunnel(
         const val OPENVPN = "openvpn"
         const val TOR = "tor"
 
-        /** Orbot (the Tor app of the Guardian Project): SOCKS 9050, DNS 5400. */
-        const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\ndns = 127.0.0.1:5400\n"
+        /** Orbot (the Tor app of the Guardian Project): SOCKS 9050; names go through SOCKS (Orbot's DNSPort is random). */
+        const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\n"
         const val ORBOT = "org.torproject.android"
     }
 }
