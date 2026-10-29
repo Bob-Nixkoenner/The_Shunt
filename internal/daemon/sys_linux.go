@@ -70,3 +70,16 @@ func otherFirewalls() []string {
 
 // physicalIface: Wi-Fi, cable or mobile, not a bridge, tunnel or container.
 func physicalIface(name string) bool { return links.Kind("/sys/class/net", name) != "" }
+
+const tcpTimestampsFile = "/proc/sys/net/ipv4/tcp_timestamps"
+
+// tcpTimestamps reads the system value ("" when unknown).
+func tcpTimestamps() string {
+	b, err := os.ReadFile(tcpTimestampsFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func setTCPTimestamps(v string) error { return os.WriteFile(tcpTimestampsFile, []byte(v), 0) }
