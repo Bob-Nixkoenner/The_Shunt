@@ -214,6 +214,44 @@ func runCore(ctx context.Context, ready func()) error {
 		eng      *splitstack.Engine
 		sm       = &socks.Manager{Log: slog.Default()}
 	)
+	// inbound protection ([inbound], mode per network profile): WFP filters
+	// that block new connections from the network; off unless enabled
+	var inNetwork atomic.Value
+	inNetwork.Store("")
+	var inMu sync.Mutex
+	inboundOn := false
+	applyInbound := func() {
+		inMu.Lock()
+		defer inMu.Unlock()
+		socksMu.Lock()
+		c := socksCfg
+		socksMu.Unlock()
+		ksMu.Lock()
+		luid := ksLUID
+		ksMu.Unlock()
+		if c == nil || luid == 0 {
+			return
+		}
+		a := winsvc.InboundFor(c, inNetwork.Load().(string))
+		if !a.On {
+			if inboundOn {
+				winsplit.DisableInbound()
+				inboundOn = false
+				log.Print("inbound protection off")
+			}
+			return
+		}
+		var ports []winsplit.InboundPort
+		for _, p := range a.Ports {
+			ports = append(ports, winsplit.InboundPort{TCP: p.Proto == "tcp", From: p.From, To: p.To})
+		}
+		if err := winsplit.EnableInbound(a.LAN, ports, luid); err != nil {
+			log.Printf("inbound protection: %v", err)
+			return
+		}
+		inboundOn = true
+		log.Printf("inbound protection on (lan=%v, %d open ports)", a.LAN, len(ports))
+	}
 	applySocks := func() {
 		socksMu.Lock()
 		defer socksMu.Unlock()
@@ -233,6 +271,13 @@ func runCore(ctx context.Context, ready func()) error {
 		sm.Update(exits)
 	}
 	defer sm.Close()
+	defer func() {
+		inMu.Lock()
+		if inboundOn {
+			winsplit.DisableInbound()
+		}
+		inMu.Unlock()
+	}()
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
 			ksMu.Lock()
@@ -241,6 +286,7 @@ func runCore(ctx context.Context, ready func()) error {
 			socksCfg = c
 			socksMu.Unlock()
 			applySocks()
+			go applyInbound()
 			ksApps = nil
 			for _, t := range c.Tunnels {
 				if t.IsTor() && !t.Disabled {
@@ -293,6 +339,7 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 	ksMu.Unlock()
 	applyKS()
+	applyInbound()
 	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
 		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
 	}
@@ -343,7 +390,7 @@ func runCore(ctx context.Context, ready func()) error {
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop)
+	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); applyInbound() })
 	go func() {
 		for {
 			select {
@@ -508,15 +555,17 @@ func waitUplink(ctx context.Context, max time.Duration) (winsplit.Uplink, error)
 // watchUplink follows the network: when the real interface changes (Wi-Fi
 // to cable, new Wi-Fi) direct sockets and the tunnels move to it, and the
 // network profile (by Wi-Fi name) is chosen again.
-func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}) {
+func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}, onNet func(name string)) {
 	publish := func(u winsplit.Uplink) {
 		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
 	}
 	publish(up)
 	e.SetSystemDNS(up.DNS)
-	if name := e.SetNetwork(up.Link, up.SSID); name != "" {
+	name := e.SetNetwork(up.Link, up.SSID)
+	if name != "" {
 		log.Printf("network profile %q", name)
 	}
+	onNet(name)
 	t := time.NewTicker(3 * time.Second)
 	defer t.Stop()
 	for {
@@ -537,9 +586,11 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		if cur.Key() != up.Key() || cur.Link != up.Link {
 			publish(cur)
 			e.SetSystemDNS(cur.DNS)
-			if name := e.SetNetwork(cur.Link, cur.SSID); name != "" {
+			name := e.SetNetwork(cur.Link, cur.SSID)
+			if name != "" {
 				log.Printf("network profile %q", name)
 			}
+			onNet(name)
 		}
 		up = cur
 	}
