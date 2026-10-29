@@ -604,6 +604,15 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
         }
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
     }
+    if (settings.tunnels.any { it.isTor }) Section("Emergency") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
+                Text(T("Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off."), color = c.muted, fontSize = 12.sp)
+            }
+            Switch(settings.torAll, { update(settings.copy(torAll = it)) })
+        }
+    }
     Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
