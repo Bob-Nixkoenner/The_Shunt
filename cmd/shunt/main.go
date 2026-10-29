@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
@@ -44,6 +45,9 @@ commands:
              start CMD with its traffic classified by ROUTE
              (direct | block | tunnel:<name> | link:wifi|ethernet|mobile) or by group rules
   status [--json]
+  check [--json]
+             judge the configuration (kill switch, DNS, OpenVPN settings …);
+             exit status 1 if something is bad
   pending    programs the app firewall holds back, waiting for a route
   allow ID|NAME [--via ROUTE] [--once]
              let a waiting program out (default: the default route), and
@@ -116,6 +120,8 @@ func main() {
 		err = run(c, args[1:])
 	case "status":
 		err = status(c, args[1:])
+	case "check":
+		err = checkCmd(c, args[1:])
 	case "pending":
 		err = pendingCmd(c)
 	case "allow":
@@ -282,7 +288,7 @@ func importTunnel(c *api.Client, args []string) error {
 		return err
 	}
 	fmt.Printf("imported tunnel %q (route tunnel:%s)\n", req.Name, req.Name)
-	for _, w := range res.Warnings {
+	for _, w := range noticeTexts(res.Notices, res.Warnings) {
 		fmt.Println("warning:", w)
 	}
 	return nil
@@ -649,7 +655,7 @@ func status(c *api.Client, args []string) error {
 		return e.Encode(st)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	for _, wn := range st.Warnings {
+	for _, wn := range noticeTexts(st.Notices, st.Warnings) {
 		fmt.Fprintf(w, "WARNING:\t%s\n", wn)
 	}
 	if st.Network != "" {
@@ -956,4 +962,50 @@ func num(f float64) string {
 		return "-"
 	}
 	return strconv.FormatFloat(f, 'f', 1, 64)
+}
+
+// checkCmd prints what the config check found (package check). Exit status 1
+// when something is "bad", so scripts and the installer can use it.
+func checkCmd(c *api.Client, args []string) error {
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	if len(args) > 0 && args[0] == "--json" {
+		return json.NewEncoder(os.Stdout).Encode(st.Findings)
+	}
+	if len(st.Findings) == 0 {
+		fmt.Println(i18n.T("No findings: the configuration looks fine."))
+		return nil
+	}
+	bad := false
+	for _, f := range st.Findings {
+		kv := make([]any, 0, 2*len(f.Vals))
+		for k, v := range f.Vals {
+			kv = append(kv, k, v)
+		}
+		mark := map[string]string{check.Bad: "BAD ", check.Warn: "WARN", check.Info: "INFO"}[f.Level]
+		fmt.Printf("%s  %s\n", mark, i18n.T(f.Msg, kv...))
+		if f.Fix != "" {
+			fmt.Printf("      %s\n", i18n.T("Change: {key}", "key", f.Fix))
+		}
+		bad = bad || f.Level == check.Bad
+	}
+	if bad {
+		return fmt.Errorf("%s", i18n.T("something is bad"))
+	}
+	return nil
+}
+
+// noticeTexts: the daemon's warnings in the user's language; an older daemon
+// sends only the English ones.
+func noticeTexts(ns []check.Finding, english []string) []string {
+	if len(ns) == 0 {
+		return english
+	}
+	out := make([]string, len(ns))
+	for i, n := range ns {
+		out[i] = n.Local()
+	}
+	return out
 }
