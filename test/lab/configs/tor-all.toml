@@ -1,0 +1,8 @@
+# Lab client for the Tor emergency mode (tor-all): one Tor tunnel, default
+# route direct (tor-all moves everything into Tor and shuts the rest).
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.tor]
+driver = "tor"
