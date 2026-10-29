@@ -35,6 +35,7 @@ type Watcher struct {
 	Unknown func(pid int, p Proc)
 
 	mu      sync.RWMutex
+	fast    bool // app firewall on: rescan often, a missed start would leave unasked
 	targets []Target
 	seen    map[int]string // pid -> comm when last checked (exec changes it)
 	placed  map[int]placement
@@ -48,6 +49,25 @@ func (w *Watcher) SetRecheck(prefix string) {
 	w.mu.Unlock()
 }
 
+// SetFast makes the safety-net scan run every 250ms instead of every 5s. The
+// daemon turns it on while the app firewall holds programs (ask/block): a
+// start the process connector missed must be held within a moment, not after
+// seconds (by then it has already used the default route).
+func (w *Watcher) SetFast(on bool) {
+	w.mu.Lock()
+	w.fast = on
+	w.mu.Unlock()
+}
+
+func (w *Watcher) interval(connector bool) time.Duration {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if !connector || w.fast {
+		return scanFast
+	}
+	return scanSlow
+}
+
 // SetTargets replaces the rules and re-scans running processes.
 func (w *Watcher) SetTargets(t []Target, skip string) {
 	w.mu.Lock()
@@ -59,11 +79,9 @@ func (w *Watcher) SetTargets(t []Target, skip string) {
 
 // Run blocks, handling exec events until stop is closed.
 func (w *Watcher) Run(stop <-chan struct{}) {
-	events, err := listenExec()
-	interval := 5 * time.Second
+	events, lost, err := listenExec()
 	if err != nil {
 		w.Log.Info("process connector unavailable, scanning /proc instead", "err", err)
-		interval = 250 * time.Millisecond
 	} else {
 		go func() {
 			for pid := range events {
@@ -72,14 +90,17 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 		}()
 	}
 	go w.sticky(stop)
-	t := time.NewTicker(interval)
+	t := time.NewTimer(w.interval(err == nil))
 	defer t.Stop()
 	for {
 		select {
 		case <-stop:
 			return
+		case <-lost: // events dropped (ENOBUFS / channel full): look right now
+			w.scan()
 		case <-t.C:
 			w.scan()
+			t.Reset(w.interval(err == nil))
 		}
 	}
 }
@@ -277,16 +298,23 @@ const (
 	cnMsgLen          = 20
 )
 
-// listenExec subscribes to exec events; the channel yields tgids.
-func listenExec() (<-chan int, error) {
+const (
+	scanFast = 250 * time.Millisecond // no connector, or app firewall on
+	scanSlow = 5 * time.Second
+)
+
+// listenExec subscribes to exec events; the first channel yields tgids. The
+// second one gets a signal whenever events may have been lost (ENOBUFS, or
+// the first channel was full): the caller scans /proc at once.
+func listenExec() (<-chan int, <-chan struct{}, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.NETLINK_CONNECTOR)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sa := &unix.SockaddrNetlink{Family: unix.AF_NETLINK, Groups: cnIdxProc, Pid: uint32(os.Getpid())}
 	if err := unix.Bind(fd, sa); err != nil {
 		unix.Close(fd)
-		return nil, err
+		return nil, nil, err
 	}
 	// netlink header + cn_msg + op
 	msg := make([]byte, nlmsgHdrLen+cnMsgLen+4)
@@ -300,17 +328,28 @@ func listenExec() (<-chan int, error) {
 	ne.PutUint32(msg[36:], procCnMcastListen)
 	if err := unix.Sendto(fd, msg, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		unix.Close(fd)
-		return nil, err
+		return nil, nil, err
 	}
 	ch := make(chan int, 256)
+	lost := make(chan struct{}, 1)
+	signalLost := func() {
+		select {
+		case lost <- struct{}{}:
+		default: // a scan is already pending
+		}
+	}
 	go func() {
 		defer unix.Close(fd)
 		buf := make([]byte, 8192)
 		for {
 			n, _, err := unix.Recvfrom(fd, buf, 0)
 			if err != nil {
-				if errors.Is(err, unix.EINTR) || errors.Is(err, unix.ENOBUFS) {
-					continue // ENOBUFS: events lost, the periodic scan catches up
+				if errors.Is(err, unix.ENOBUFS) {
+					signalLost() // events lost: scan now, not at the next tick
+					continue
+				}
+				if errors.Is(err, unix.EINTR) {
+					continue
 				}
 				close(ch)
 				return
@@ -318,12 +357,13 @@ func listenExec() (<-chan int, error) {
 			for _, pid := range parseExecEvents(buf[:n]) {
 				select {
 				case ch <- pid:
-				default: // full: the scan will find it
+				default: // full: scan right away
+					signalLost()
 				}
 			}
 		}
 	}()
-	return ch, nil
+	return ch, lost, nil
 }
 
 // parseExecEvents extracts the tgids of exec events from a netlink datagram.
