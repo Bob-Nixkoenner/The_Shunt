@@ -1,0 +1,18 @@
+name: tor-watch
+# Weekly: is there a newer Tor, tor-android or lyrebird than the one in packaging/tor-versions.json?
+# If so, open an issue (security fixes are labelled and titled SECURITY).
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/scripts/tor-watch.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
