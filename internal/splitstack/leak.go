@@ -106,6 +106,12 @@ func (e *Engine) DialDefault(ctx context.Context, network, addr string) (net.Con
 // route would: names are resolved by the route's own DNS. It serves the
 // SOCKS5 exit of a tunnel ("socks = ..."): nothing leaves the tunnel.
 func (e *Engine) DialRoute(ctx context.Context, route, network, addr string) (net.Conn, error) {
+	if strings.HasPrefix(route, tunnelPref) {
+		// Tor resolves names itself (and knows .onion): hand the name over
+		if t := e.wake(strings.TrimPrefix(route, tunnelPref)); t != nil && t.isTor() && t.tor != nil && !strings.HasPrefix(network, "udp") {
+			return t.tor.dialName(ctx, addr)
+		}
+	}
 	dial, _, err := e.routeNet(route)
 	if err != nil {
 		return nil, err

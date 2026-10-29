@@ -520,13 +520,12 @@
   "Tor": "Tor",
   "Tor builds fresh circuits for new connections (open connections keep theirs)": "Tor baut neue Circuits für neue Verbindungen (offene Verbindungen behalten ihre)",
   "Tor carries TCP only: no calls, games or QUIC (those apps fall back to TCP or fail). Apps use it through a rule “route = Tor”; each rule gets its own circuits. For ordinary browsing the Tor Browser stays the better choice.": "Tor überträgt nur TCP: keine Anrufe, Spiele oder QUIC (diese Apps weichen auf TCP aus oder scheitern). Apps nutzen es über eine Regel „Weg = Tor“; jede Regel bekommt eigene Circuits. Zum normalen Surfen bleibt der Tor Browser die bessere Wahl.",
-    "Orbot is also on Google Play and on guardianproject.info. If Tor is your default route, the page may not load: pass Orbot or your browser as \"direct\" under Apps, or use a second connection.": "Orbot gibt es auch bei Google Play und auf guardianproject.info. Ist Tor deine Standardroute, lädt die Seite vielleicht nicht: Setze Orbot oder deinen Browser unter Apps auf „direkt“ oder nimm eine zweite Verbindung.",
+  "Orbot is also on Google Play and on guardianproject.info. If Tor is your default route, the page may not load: pass Orbot or your browser as \"direct\" under Apps, or use a second connection.": "Orbot gibt es auch bei Google Play und auf guardianproject.info. Ist Tor deine Standardroute, lädt die Seite vielleicht nicht: Setze Orbot oder deinen Browser unter Apps auf „direkt“ oder nimm eine zweite Verbindung.",
   "Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.": "Tor überträgt nur TCP: keine Anrufe, Spiele oder QUIC. Tor läuft in The Shunt selbst; jede App bekommt eigene Kreisläufe. Der erste Start dauert eine Minute.",
   "Use Orbot instead": "Stattdessen Orbot nutzen",
   "Use the built-in Tor": "Das eingebaute Tor nutzen",
   "built in": "eingebaut",
   "Saved. Restart the VPN to use it.": "Gespeichert. Starte das VPN neu, damit es gilt.",
-  "New identity": "Neue Identität",
   "No bridge": "Keine Brücke",
   "Bridges help where Tor is blocked. They are slower.": "Brücken helfen, wo Tor gesperrt ist. Sie sind langsamer.",
   "Emergency": "Notfall",
@@ -534,7 +533,7 @@
   "Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off.": "Jede App geht durch den Tor-Tunnel, egal was ihre eigene Route sagt (nur TCP: Anrufe und Spiele gehen nicht). Deine Routen kommen zurück, wenn du das ausschaltest.",
   "bridges": "Brücken",
   "Tor is starting": "Tor startet",
-"Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – turn on Power User Mode in its settings (so it runs without its own VPN), start it and keep it running.": "Tor überträgt nur TCP: keine Anrufe, Spiele oder QUIC. Der Tor-Client ist Orbot – schalte in dessen Einstellungen den Power-User-Modus ein (dann läuft es ohne eigenes VPN), starte es und lass es laufen.",
+  "Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – turn on Power User Mode in its settings (so it runs without its own VPN), start it and keep it running.": "Tor überträgt nur TCP: keine Anrufe, Spiele oder QUIC. Der Tor-Client ist Orbot – schalte in dessen Einstellungen den Power-User-Modus ein (dann läuft es ohne eigenes VPN), starte es und lass es laufen.",
   "Tor network": "Tor-Netzwerk",
   "Tor-only ended": "Nur-Tor beendet",
   "Tracking and telemetry": "Tracking und Telemetrie",
@@ -924,6 +923,9 @@
   "…with arguments": "…mit Argumenten",
   "↓ {mrx}  ↑ {mtx}  (total ↓ {trx}  ↑ {ttx})": "↓ {mrx}  ↑ {mtx}  (gesamt ↓ {trx}  ↑ {ttx})",
   "⚠ Unknown network: {n} port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → Privacy and protection to block them.": "⚠ Unbekanntes Netz: {n} Port(s) sind für alle darin erreichbar. Schalte unter Konfigurieren → Datenschutz und Schutz „Eingehende Verbindungen“ ein, um sie zu blockieren.",
-  "🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ": "🛡 Unbekanntes Netz {name}: Eingehende Verbindungen sind blockiert. Ist das dein eigenes Netz? "
+  "🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ": "🛡 Unbekanntes Netz {name}: Eingehende Verbindungen sind blockiert. Ist das dein eigenes Netz? ",
+  "Clock check": "Uhrprüfung",
+  "warn when the system clock is off": "warnen, wenn die Systemuhr falsch geht",
+  "Off by default. When on, every 10 minutes The Shunt asks a few web servers for the time (HTTPS \"Date\" header) through your default route, i.e. through the tunnel, and warns if your clock differs by more than 90 seconds. A wrong clock makes tunnel handshakes and certificates fail.": "Standardmäßig aus. Wenn an, fragt The Shunt alle 10 Minuten ein paar Webserver nach der Uhrzeit (HTTPS-Kopfzeile „Date“), und zwar über deine Standardroute, also durch den Tunnel, und warnt, wenn deine Uhr mehr als 90 Sekunden abweicht. Eine falsche Uhr lässt Tunnel-Handshakes und Zertifikate scheitern."
  }
 }
