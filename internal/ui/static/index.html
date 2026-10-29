@@ -527,6 +527,9 @@ body.normal .expert { display: none !important; }
       <label class="win-only">Kill switch</label>
       <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-killswitch"> block all traffic that bypasses The Shunt, also when the service is down</label>
         <div class="muted" style="font-size:12px" data-i18n="html">Uses Windows Firewall: only the service, the Shunt adapter, the local network and DHCP may send. On by default. Stays while the service is stopped and at boot; only unticking it here or uninstalling lifts it. Emergency: <span class="mono">shuntd-win killswitch-off</span> as Administrator.</div></div>
+      <label class="win-only">Clock check</label>
+      <div class="win-only"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-clockcheck"> warn when the system clock is off</label>
+        <div class="muted" style="font-size:12px">Off by default. When on, every 10 minutes The Shunt asks a few web servers for the time (HTTPS "Date" header) through your default route, i.e. through the tunnel, and warns if your clock differs by more than 90 seconds. A wrong clock makes tunnel handshakes and certificates fail.</div></div>
     </div>
   </section>
 

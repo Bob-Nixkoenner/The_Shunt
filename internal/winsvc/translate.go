@@ -15,6 +15,12 @@ import (
 // a file named in the config (tunnel config, auth file). Warnings name what
 // the Windows service does not do (yet); the rest of the file still applies.
 func Translate(c *config.Config, read func(path string) ([]byte, error)) (js string, warnings []string, err error) {
+	return translate(c, read, nil)
+}
+
+// translate: torSocks gives the SOCKS address of a Tor tunnel's tor.exe (nil:
+// Tor tunnels stay down with a warning).
+func translate(c *config.Config, read func(path string) ([]byte, error), torSocks func(name string, t config.Tunnel) string) (js string, warnings []string, err error) {
 	warn := func(f string, a ...any) { warnings = append(warnings, fmt.Sprintf(f, a...)) }
 
 	// a disabled tunnel stays in the file but its route blocks
@@ -76,6 +82,21 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 	for _, name := range sortedKeys(c.Tunnels) {
 		t := c.Tunnels[name]
 		if t.Disabled {
+			continue
+		}
+		if t.IsTor() {
+			addr := ""
+			if torSocks != nil {
+				addr = torSocks(name, t)
+			}
+			if addr == "" {
+				warn("tunnel %q: Tor is not available here (tor.exe missing), the tunnel stays down", name)
+				addr = "127.0.0.1:9" // nothing listens: the tunnel is down, never a leak
+			}
+			// the comment makes a change of bridges or isolation change the
+			// tunnel set: the service restarts and starts tor anew
+			out.Tunnels = append(out.Tunnels, tunnelJS{Name: name, Type: "tor",
+				Conf: fmt.Sprintf("# %s\nsocks = %s\n", torSpecID(t), addr)})
 			continue
 		}
 		b, err := read(t.Config)
@@ -166,6 +187,19 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 		}
 	}
 
+	// tor.exe and its transports carry the Tor tunnels' traffic themselves:
+	// they go out direct (never through another tunnel, never blocked)
+	for _, t := range c.Tunnels {
+		if t.IsTor() && !t.Disabled {
+			for _, a := range []string{"tor.exe", "lyrebird.exe", "snowflake-client.exe", "obfs4proxy.exe"} {
+				if _, taken := out.Apps[a]; !taken {
+					out.Apps[a] = "direct"
+				}
+			}
+			break
+		}
+	}
+
 	if d := c.DNS.Direct; d != "" {
 		if ip, ok := plainIP(c.DNS.Upstream[d].Addr); ok {
 			out.Direct = ip
@@ -247,3 +281,8 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 var errNoFile = errors.New("file not found")
+
+// torSpecID identifies what tor is started with (bridges, isolation).
+func torSpecID(t config.Tunnel) string {
+	return fmt.Sprintf("tor isolate=%s bridges=%s", t.Isolate, strings.Join(t.Bridges, "|"))
+}
