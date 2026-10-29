@@ -51,6 +51,13 @@ echo "== build"
 mkdir -p "$BIN"
 (cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
 
+# Ubuntu 26.04 confines /usr/bin/wg with AppArmor: it may not talk to the
+# sockets of wireguard-go ("Unable to modify interface: Permission denied").
+# A copy elsewhere is not confined.
+mkdir -p "$WORK/wgbin"
+cp "$(command -v wg)" "$WORK/wgbin/wg"
+export PATH="$WORK/wgbin:$PATH"
+
 groupadd -f shunttest
 TGID=$(getent group shunttest | cut -d: -f3)
 # an unprivileged member of the socket group (like a desktop user)
