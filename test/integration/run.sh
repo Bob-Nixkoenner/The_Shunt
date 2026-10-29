@@ -49,7 +49,19 @@ CGMNT=/sys/fs/cgroup
 
 echo "== build"
 mkdir -p "$BIN"
-(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+if [[ -n ${PREBUILT:-} ]]; then
+	# binaries built elsewhere (a machine without the Go version go.mod wants)
+	cp "$PREBUILT"/{shuntd,shunt,fakedns,wireguard-go} "$BIN/"
+else
+	(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+fi
+
+# Ubuntu 26.04 confines /usr/bin/wg with AppArmor: it may not talk to the
+# sockets of wireguard-go ("Unable to modify interface: Permission denied").
+# A copy elsewhere is not confined.
+mkdir -p "$WORK/wgbin"
+cp "$(command -v wg)" "$WORK/wgbin/wg"
+export PATH="$WORK/wgbin:$PATH"
 
 # Ubuntu 26.04 confines /usr/bin/wg with AppArmor: it may not talk to the
 # sockets of wireguard-go ("Unable to modify interface: Permission denied").
@@ -641,6 +653,27 @@ check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps'
 check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
+# six programs that start at the same time, a moment after joining the scope
+# (a burst: exec events can get lost; a program that opens its first socket
+# within milliseconds of the exec cannot be caught by watching, that is the
+# start guard's job and needs a known rule)
+cp "$(command -v curl)" "$BIN/fwcurl3"
+fwfast() { # program url: joins the scope, 0.6 s, exec
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; sleep 0.6; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 35 '"$2"
+}
+FASTPIDS=()
+for i in 1 2 3 4 5 6; do
+	fwfast "$BIN/fwcurl3" $URL >"$WORK/fast$i.out" &
+	FASTPIDS+=($!)
+done
+got=
+for _ in $(seq 80); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $got ]] && break; sleep 0.05; done
+# (the question times out after 4 s in this config: look at once)
+check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
+shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
+wait "${FASTPIDS[@]}" || true
+check "fast starts: all six went through the tunnel after the decision" "6 10.66.0.2" "$(cat "$WORK"/fast?.out | sort | uniq -c | tr -s ' ' | sed 's/^ //' | tr '\n' ' ' | sed 's/ $//')"
+shunt firewall forget "$BIN/fwcurl3" || true # the later "forget" check looks for fwcurl
 # started from the system-service cgroup: a caller without a terminal (CI
 # runner, ssh without -t) is held by the app firewall itself otherwise
 insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }

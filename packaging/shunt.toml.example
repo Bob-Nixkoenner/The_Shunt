@@ -3,6 +3,8 @@
 socket       = "/run/shunt/shuntd.sock"
 socket_group = "shunt"      # members may use the `shunt` CLI
 default_route = "direct"    # direct | block | tunnel:<name>
+# tcp_timestamps = "keep"   # "off": no TCP timestamps while shuntd runs (a neighbour on a foreign
+#                            # network cannot read the uptime from direct connections)
 # boot_lockdown = "auto"     # block the network at boot until shuntd runs:
 #                            # auto (when a default route is not direct) | on | off
 # dhcp_hostname = "none"     # NetworkManager profiles: none | send (a [[network]] may override)
