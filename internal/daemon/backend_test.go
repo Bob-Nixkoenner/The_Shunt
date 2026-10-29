@@ -82,6 +82,7 @@ type fakeWatcher struct{}
 
 func (fakeWatcher) SetTargets([]appwatch.Target, string) {}
 func (fakeWatcher) SetRecheck(string)                    {}
+func (fakeWatcher) SetFast(bool)                         {}
 func (fakeWatcher) Place(int, string)                    {}
 func (fakeWatcher) Run(<-chan struct{})                  {}
 

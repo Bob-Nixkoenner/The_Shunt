@@ -123,6 +123,9 @@ function render() {
   const panic = $("#panic");
   panic.textContent = st.panic ? "Release panic" : "PANIC";
   panic.classList.toggle("on", st.panic);
+  panic.title = st.panic ? T("Lift panic mode (needs the admin password)")
+    : st.panic_kill ? T("Blocks all traffic except loopback and ends every program running in a tunnel group.")
+    : T("Blocks all traffic except loopback. Running programs keep running (daemon.panic_kill = true also ends programs in tunnel groups).");
 
   const inq = st.inbound_ask;
   $("#banners").replaceChildren(...[...new Set(noticeTexts(st))].map((w) => el("div", { class: "banner" }, "⚠ ", w)),

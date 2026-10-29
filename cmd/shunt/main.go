@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -28,6 +29,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/speedtest"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 	"golang.org/x/term"
@@ -91,6 +93,11 @@ commands:
              desktop clone firefox-esr tunnel:vps --name "Firefox SM" --args "--new-instance -P sm"
   desktop profiles
              list Firefox profiles
+  speedtest [--route R1,R2,...] [--rounds N] [--provider cloudflare|ndt7] [--size-mb N] [--json]
+             measure latency, download and upload of each route (default: all but
+             block), one after the other, in random order, N rounds (default 3),
+             result = median. Contacts speed.cloudflare.com (ndt7: M-Lab, which
+             publishes the measurement together with the IP).
   version
 `
 
@@ -107,6 +114,8 @@ func main() {
 	}
 	var err error
 	switch args[0] {
+	case "speedtest":
+		err = speedtestCmd(c, args[1:])
 	case "run":
 		err = run(c, args[1:])
 	case "status":
@@ -881,6 +890,78 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
+}
+
+// speedtestCmd: shunt speedtest [--route a,b] [--rounds N] [--provider P] [--json]
+func speedtestCmd(c *api.Client, args []string) error {
+	fs := flag.NewFlagSet("speedtest", flag.ExitOnError)
+	routes := fs.String("route", "", i18n.T("routes to test, comma separated (default: all but block)"))
+	rounds := fs.Int("rounds", 3, i18n.T("rounds (1-5); the result is the median"))
+	prov := fs.String("provider", speedtest.Cloudflare, i18n.T("cloudflare | ndt7"))
+	sizeMB := fs.Int("size-mb", 25, i18n.T("megabytes moved per download and upload step (1-100)"))
+	asJSON := fs.Bool("json", false, i18n.T("print the report as JSON"))
+	_ = fs.Parse(args)
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	o := speedtest.Options{Provider: *prov, Rounds: *rounds, Routes: st.Routes, Bytes: int64(*sizeMB) * 1_000_000}
+	if *routes != "" {
+		o.Routes = strings.Split(*routes, ",")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if !*asJSON {
+		fmt.Fprintln(os.Stderr, i18n.T("Measuring one route after the other, in random order; this takes a few minutes. Ctrl+C stops."))
+		if *prov == speedtest.NDT7 {
+			fmt.Fprintln(os.Stderr, i18n.T("M-Lab publishes every NDT7 measurement together with the IP address it came from."))
+		}
+	}
+	rep, err := speedtest.Run(ctx, c.SpeedStep, o, func(done, total int, _ *speedtest.Report) {
+		if !*asJSON {
+			fmt.Fprintf(os.Stderr, "\r%d/%d ", done, total)
+		}
+	})
+	if !*asJSON {
+		fmt.Fprintln(os.Stderr)
+	}
+	if rep == nil {
+		return err
+	}
+	if *asJSON {
+		e := json.NewEncoder(os.Stdout)
+		e.SetIndent("", "  ")
+		if e2 := e.Encode(rep); e2 != nil {
+			return e2
+		}
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "ROUTE\tPING ms\tJITTER ms\tDOWN Mbit/s\tUP Mbit/s\tEXIT IP\tRESULT")
+	for _, r := range rep.Routes {
+		mark := ""
+		switch {
+		case r.Fastest:
+			mark = " " + i18n.T("(fastest)")
+		case r.Slowest:
+			mark = " " + i18n.T("(slowest)")
+		}
+		res := strings.ToUpper(r.State)
+		if r.Error != "" {
+			res += " " + r.Error
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n", r.Route, num(r.LatencyMs), num(r.JitterMs), num(r.DownMbit), num(r.UpMbit), dash(r.IP), res, mark)
+	}
+	_ = w.Flush()
+	fmt.Println(i18n.T("Seed {seed}: the same seed repeats the order.", "seed", rep.Seed))
+	return err
+}
+
+func num(f float64) string {
+	if f <= 0 {
+		return "-"
+	}
+	return strconv.FormatFloat(f, 'f', 1, 64)
 }
 
 // checkCmd prints what the config check found (package check). Exit status 1

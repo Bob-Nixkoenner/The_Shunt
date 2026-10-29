@@ -11,7 +11,7 @@ const joinList = (a) => (a || []).join(", ");
 
 // One page per tab. The tabs that edit the config share one copy of it and
 // one save bar, which moves along to the page that is shown.
-const TABS = ["overview", "vpn", "apps", "dns", "ports", "config", "view"];
+const TABS = ["overview", "vpn", "apps", "dns", "ports", "speed", "config", "view"];
 const CFG_TABS = ["vpn", "apps", "dns", "ports", "config"];
 let curTab = "overview";
 function setTab(t) {
