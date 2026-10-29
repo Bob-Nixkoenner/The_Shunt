@@ -30,6 +30,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -90,7 +91,11 @@ type Daemon struct {
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
 	routeSoft string
-	restart   chan struct{}
+	tsOrig    string // system tcp_timestamps before we switched it off
+	// clock check through the default route (see runClockCheck)
+	clockOff time.Duration
+	clockSet bool
+	restart  chan struct{}
 
 	fw *firewall.Manager
 
@@ -533,6 +538,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
+	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
 	go func() {
 		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
@@ -625,6 +631,70 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
+// clockLimit: a system clock more off than this compared with the time seen
+// through the tunnel gets a warning.
+const clockLimit = 90 * time.Second
+
+// runClockCheck compares the system clock with web servers asked over the
+// default route, when that is a tunnel (the idea of Tails/Whonix; never in
+// the clear on a foreign network). It only warns, it sets nothing.
+func (d *Daemon) runClockCheck(ctx context.Context) {
+	wait := 25 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = 20 * time.Minute
+		d.mu.Lock()
+		viaTunnel := d.plan != nil && d.plan.DefaultRoute.Kind == config.RouteTunnel
+		d.mu.Unlock()
+		if !viaTunnel {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		off, err := clockcheck.Median(cctx, d.downloadClient(), clockcheck.Sites)
+		cancel()
+		if err != nil {
+			wait = 2 * time.Minute // tunnel not up yet, try again soon
+			continue
+		}
+		d.mu.Lock()
+		was := d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit)
+		d.clockOff, d.clockSet = off, true
+		d.mu.Unlock()
+		if clockcheck.Skewed(off, clockLimit) {
+			d.Log.Warn("the system clock differs from the time seen through the tunnel", "offset", off.Round(time.Second))
+		} else if was {
+			d.Log.Info("the system clock agrees with the time seen through the tunnel again")
+		}
+	}
+}
+
+// applyTCPTimestamps follows daemon.tcp_timestamps: "off" switches TCP
+// timestamps off (remembering the system value), anything else gives the
+// remembered value back. Caller holds d.mu.
+func (d *Daemon) applyTCPTimestamps(want string) {
+	switch {
+	case want == "off" && d.tsOrig == "":
+		d.tsOrig = tcpTimestamps()
+		if d.tsOrig == "" || d.tsOrig == "0" {
+			d.tsOrig = ""
+			return
+		}
+		if err := setTCPTimestamps("0"); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot switch off", "err", err)
+			d.tsOrig = ""
+		}
+	case want != "off" && d.tsOrig != "":
+		if err := setTCPTimestamps(d.tsOrig); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot restore", "err", err)
+		}
+		d.tsOrig = ""
+	}
+}
+
 // reload applies config changes. Ordering matters for fail-closed behaviour:
 // classification (nft) and kill switch tables go in before any tunnel moves.
 func (d *Daemon) reload(selfCgroup string) error {
@@ -688,6 +758,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(w)
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	d.applyTCPTimestamps(p.Config.Daemon.TCPTimestamps)
 	wasPassing := d.passing
 	d.passing = d.ov.Passing(time.Now())
 	if wasPassing && !d.passing {
@@ -709,6 +780,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.fw.Placed = d.watcher.Place
 	}
 	d.watcher.SetRecheck(path.Join(p.Plan.CgroupRoot, "apps", "ask"))
+	fwMode := p.Config.FirewallMode(p.Network)
+	d.watcher.SetFast(fwMode == config.FirewallAsk || fwMode == config.FirewallBlock)
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
@@ -1103,6 +1176,7 @@ func (d *Daemon) linkAbsent(route string) bool {
 func (d *Daemon) shutdown() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.applyTCPTimestamps("keep")
 	for _, t := range d.tunnels {
 		t.Down()
 	}
@@ -1274,6 +1348,42 @@ func (d *Daemon) routes() http.Handler {
 			return
 		}
 		out, err := d.runProbe(r.Context(), g.Path)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
+	})
+	mux.HandleFunc("POST /v1/speedtest/step", func(w http.ResponseWriter, r *http.Request) {
+		var req api.SpeedStepRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := req.Step.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Route == "block" {
+			writeErr(w, http.StatusBadRequest, errors.New("the block route has no internet to measure"))
+			return
+		}
+		d.mu.Lock()
+		g, ok := d.plan.Group(engine.ViaGroupName(req.Route))
+		d.mu.Unlock()
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown route %q", req.Route))
+			return
+		}
+		// one at a time: two measurements would disturb each other
+		select {
+		case speedSlot <- struct{}{}:
+			defer func() { <-speedSlot }()
+		case <-r.Context().Done():
+			return
+		}
+		out, err := d.runIn(r.Context(), g.Path, 60*time.Second, "speedtest-step", req.Step.Provider, req.Step.Kind, strconv.FormatInt(req.Step.Bytes, 10))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -1572,8 +1682,13 @@ func (d *Daemon) routes() http.Handler {
 		}
 		d.mu.Lock()
 		d.panic = req.On
+		killTunnelApps := req.On && d.cfg.Daemon.PanicKill
+		plan := d.plan
 		d.mu.Unlock()
 		d.Log.Warn("panic mode", "on", req.On)
+		if killTunnelApps { // the network is closed already
+			d.Log.Warn("panic: ended programs in tunnel groups", "count", d.killGroups(plan.TunnelGroups()))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
@@ -1581,6 +1696,9 @@ func (d *Daemon) routes() http.Handler {
 
 // probeSlots limits concurrent leak test probes (one per route is normal).
 var probeSlots = make(chan struct{}, 16)
+
+// speedSlot: one speed measurement at a time.
+var speedSlot = make(chan struct{}, 1)
 
 // runProbe runs `shuntd probe` (fixed targets, nothing the caller chooses)
 // inside the cgroup at path, so its traffic takes exactly that route. The
@@ -1592,9 +1710,15 @@ func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	return d.runIn(ctx, path, 30*time.Second, "probe")
+}
+
+// runIn runs `shuntd args...` inside the cgroup at path and returns what it
+// prints; it starts only after it was moved (it waits for a line on stdin).
+func (d *Daemon) runIn(ctx context.Context, path string, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, selfExe(), "probe")
+	cmd := exec.CommandContext(ctx, selfExe(), args...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -1623,7 +1747,7 @@ func (d *Daemon) status() api.Status {
 	ovs := d.ov.Status(time.Now())
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, TorAll: d.torAll, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
-		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
+		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
 	}
@@ -1632,6 +1756,9 @@ func (d *Daemon) status() api.Status {
 		st.InboundAsk = d.inboundAsk()
 	}
 	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	if d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit) {
+		st.Warnings = append(st.Warnings, fmt.Sprintf("the system clock is %s %s the time seen through the tunnel: handshakes and certificate checks may fail (fix it with timedatectl set-ntp true)", (d.clockOff.Abs()/time.Second*time.Second).String(), map[bool]string{true: "behind", false: "ahead of"}[d.clockOff > 0]))
+	}
 	if d.book != nil {
 		st.Traffic = d.book.Summaries(time.Now())
 	}
@@ -1940,4 +2067,27 @@ func (d *Daemon) adoptable(p *peer, pid int) error {
 		return fmt.Errorf("already in route %s", from)
 	}
 	return nil
+}
+
+// killGroups ends every process in the given groups and returns how many.
+func (d *Daemon) killGroups(gs []engine.Group) int {
+	n := 0
+	for _, g := range gs {
+		pids, err := d.cg.Procs(g.Path)
+		if err != nil {
+			continue
+		}
+		// cgroup.kill first: shuntd's unit has no CAP_KILL, a plain kill of
+		// another user's program fails with EPERM
+		if k, ok := d.cg.(interface{ Kill(rel string) error }); ok && len(pids) > 0 && k.Kill(g.Path) == nil {
+			n += len(pids)
+			continue
+		}
+		for _, pid := range pids {
+			if pr, err := os.FindProcess(pid); err == nil && pr.Kill() == nil {
+				n++
+			}
+		}
+	}
+	return n
 }

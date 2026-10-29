@@ -22,7 +22,7 @@
 :root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: color-mix(in srgb, var(--bg) 97%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--bg); border-bottom: 1px solid var(--line); }
 .brand { white-space: nowrap; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
 .brand svg { width: 26px; height: 26px; }
 .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
@@ -99,6 +99,9 @@ details.browser > summary { color: var(--text, inherit); font-size: 14px; paddin
 details.browser { border-top: 1px solid var(--line, #e5e7eb); padding: 4px 0; }
 .verdict { font-weight: 700; }
 .leaklist { display: grid; gap: 8px; }
+.spbar { position: relative; min-width: 150px; height: 20px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.spfill { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: .35; }
+.spnum { position: relative; padding: 0 6px; line-height: 20px; white-space: nowrap; }
 .leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
 .leakrow.ok { border-left-color: var(--accent); } .leakrow.leak { border-left-color: var(--bad); } .leakrow.warn { border-left-color: var(--warn); } .leakrow.blocked { border-left-color: var(--info); }
 .leakhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
@@ -145,7 +148,7 @@ nav.tabs button.active { background: var(--panel2); color: var(--text); border-c
 }
 textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 12.5px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 .iconbtn { padding: 3px 9px; }
-.savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); }
+.savebar { position: sticky; bottom: 0; z-index: 4; grid-column: span 12; display: flex; gap: 10px; align-items: center; padding: 12px 18px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); }
 .savebar.dirty { border-color: var(--accent); }
 .savebar button { white-space: nowrap; flex: none; }
 .savebar .msg { min-width: 0; }
@@ -212,7 +215,7 @@ body.normal .expert { display: none !important; }
   </div>
   <span id="state" class="pill">connecting…</span>
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
-  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" class="expert">Ports</button><button id="tab-config">Configure</button><button id="tab-view">View</button></nav>
+  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" class="expert">Ports</button><button id="tab-speed">Speedtest</button><button id="tab-config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
   <button id="torall" hidden title="Emergency: send every app through Tor until you switch it off (TCP only)">All via Tor</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
@@ -472,6 +475,34 @@ body.normal .expert { display: none !important; }
   </section>
 </main>
 
+<main id="page-speed" hidden>
+  <section>
+    <h2>Speedtest <span class="spacer"></span><button id="sp-start">Start</button><button id="sp-cancel" hidden>Cancel</button></h2>
+    <div class="hint">Measures ping, download and upload of every route you tick, one after the other, in random order and in several rounds; the result is the middle value. A route that does not work shows as failed – nothing is ever measured through another route instead.</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 14px"><span class="muted">Routes</span><span id="sp-routes" class="row" style="flex-wrap:wrap;gap:6px 14px"></span><button class="iconbtn" id="sp-all">All</button><button class="iconbtn" id="sp-none">None</button></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 14px;margin-top:8px">
+      <label class="muted" for="sp-prov">Test server</label>
+      <select id="sp-prov"><option value="cloudflare">Cloudflare (speed.cloudflare.com)</option><option value="ndt7">M-Lab NDT7</option></select>
+      <button class="iconbtn" id="sp-info" title="M-Lab publishes every NDT7 measurement together with your IP address – click for details" aria-label="Info about the test servers">ⓘ</button>
+      <label class="muted" for="sp-rounds">Rounds</label>
+      <select id="sp-rounds"><option value="1">1 (quick)</option><option value="3" selected>3</option><option value="5">5 (thorough)</option></select>
+      <span class="muted" id="sp-est"></span>
+    </div>
+    <div class="hint" id="sp-ndt-note" hidden>M-Lab publishes every NDT7 measurement together with the IP address it came from. Through a tunnel or Tor that is the exit address; on the direct route it is your real one.</div>
+    <div class="hint" id="sp-mobile" hidden>One of the routes is a mobile connection: a test moves several tens of megabytes per route and round and counts against a data plan.</div>
+    <div id="sp-prog" class="muted" style="margin:8px 0"></div>
+    <div class="msg" id="sp-msg"></div>
+  </section>
+  <section id="sp-result-sec" hidden>
+    <h2>Result</h2>
+    <div data-rows="8"><table>
+      <thead><tr><th>Route</th><th>Ping</th><th>Jitter</th><th>Download</th><th>Upload</th><th>Exit address</th></tr></thead>
+      <tbody id="sp-result"></tbody>
+    </table></div>
+    <div class="hint" id="sp-seed"></div>
+  </section>
+</main>
+
 <main id="page-config" hidden>
   <section class="half">
     <h2>Routing</h2>
@@ -598,5 +629,6 @@ body.normal .expert { display: none !important; }
 <script src="filter.js"></script>
 <script src="view.js"></script>
 <script src="ports.js"></script>
+<script src="speed.js"></script>
 </body>
 </html>

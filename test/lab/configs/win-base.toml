@@ -1,0 +1,25 @@
+# Lab client base config: one tunnel to the internal test server (CT130),
+# the lab apps pinned to it / to direct, everything else through the tunnel.
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+# Lab: no blocklists, so their download (direct to GitHub) does not show up in
+# every test; W01 checks the download itself with configs/win-filter.toml.
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []

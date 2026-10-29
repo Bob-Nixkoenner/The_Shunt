@@ -1,0 +1,15 @@
+table inet shunt_panic
+delete table inet shunt_panic
+table inet shunt_panic {
+	chain out {
+		type filter hook output priority -300; policy drop;
+		oifname "lo" accept
+	}
+	chain in {
+		type filter hook input priority -300; policy drop;
+		iifname "lo" accept
+	}
+	chain fwd_drop {
+		type filter hook forward priority -300; policy drop;
+	}
+}
