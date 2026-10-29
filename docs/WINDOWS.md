@@ -70,6 +70,10 @@ checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows
 
 `driver = "tor"` (Configure: Add a tunnel, Tor) runs `tor\tor.exe` from the install folder as a child of the service; bridges `snowflake`, `obfs4`, `meek` use `tor\pt\lyrebird.exe`. tor.exe and the transports always go out direct (the service adds those app rules) and the kill switch lets them send. Apps on the Tor route: TCP only, names through Tor, `.onion` works, an own circuit per app (`isolate`). `socks = "127.0.0.1:1080"` on any tunnel opens a SOCKS5 proxy whose connections leave through that tunnel (TCP; no UDP ASSOCIATE yet).
 
+## Inbound protection and clock check
+
+`[inbound] enabled = true` blocks new connections from the network to this PC (Windows Filtering Platform, a sublayer above Windows Firewall, so allow rules of installers do not open anything). Per network profile: `inbound = "closed"` (default), `"lan"` (ports from `[inbound] allow`, e.g. `tcp/1716`, only from private addresses) or `"open"` (no filtering). Answers to your own connections, DHCP, router discovery and loopback always work; nothing comes in through the tunnel. The filters are not persistent across a reboot of the filtering service, and are removed when the service stops cleanly. `[daemon] clock_check = true` (off by default) asks a few web servers for the time through the default route every 10 minutes and warns when the clock is off by more than 90 seconds.
+
 ## Not yet
 
 OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, DNS filter levels per rule/tunnel/network (the default level works, lists are downloaded straight over the real network), app firewall, restricting
