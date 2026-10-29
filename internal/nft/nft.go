@@ -151,6 +151,14 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t}")
 	}
 
+	// Old ICMP requests that nothing needs any more but whose answers tell a
+	// neighbour the system's clock (timestamp, down to milliseconds: uptime
+	// and clock fingerprint), netmask or existence: not answered.
+	w("\tchain icmp_quiet {")
+	w("\t\ttype filter hook input priority raw; policy accept;")
+	w("\t\ticmp type { timestamp-request, address-mask-request, info-request } counter drop")
+	w("\t}")
+
 	if p.Inbound != nil {
 		lines, err := inboundLines(p.Inbound)
 		if err != nil {
@@ -402,43 +410,74 @@ func replaceHeader(b *strings.Builder, table string) {
 	fmt.Fprintf(b, "table inet %s\ndelete table inet %s\n", table, table)
 }
 
+// Strict describes a "nothing gets out except ..." ruleset. Panic, boot
+// lockdown and the emergency mode (only the tor process, only to its
+// relays) are the same thing with different exceptions.
+type Strict struct {
+	Table    string
+	Priority int  // output hook priority (before the main ruleset)
+	Inbound  bool // also drop input (except lo) and forwarding
+	DHCP     bool // DHCPv4/v6 client traffic
+	ND       bool // IPv6 neighbour discovery
+	// Only the processes in AllowCgroup may reach AllowDst, and only they
+	// (emergency mode: the tor process and its guards/bridges). Both must be
+	// set; an empty AllowDst with a cgroup lets nothing through.
+	AllowCgroup engine.Group
+	AllowDst    []netip.Prefix
+}
+
+// RenderStrict renders s: policy drop on output (and input/forward if
+// Inbound) with only loopback and the listed exceptions.
+func RenderStrict(s Strict) (string, error) {
+	var b strings.Builder
+	replaceHeader(&b, s.Table)
+	fmt.Fprintf(&b, "table inet %s {\n\tchain out {\n\t\ttype filter hook output priority %d; policy drop;\n\t\toifname \"lo\" accept\n", s.Table, s.Priority)
+	if s.DHCP {
+		b.WriteString("\t\tudp sport 68 udp dport 67 accept\n\t\tudp sport 546 udp dport 547 accept\n")
+	}
+	if s.ND {
+		b.WriteString("\t\ticmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept\n")
+	}
+	if s.AllowCgroup.Path != "" && len(s.AllowDst) > 0 {
+		m, err := cgroupMatch(s.AllowCgroup)
+		if err != nil {
+			return "", err
+		}
+		var v4, v6 []netip.Prefix
+		for _, p := range s.AllowDst {
+			if p.Addr().Is4() {
+				v4 = append(v4, p)
+			} else {
+				v6 = append(v6, p)
+			}
+		}
+		if len(v4) > 0 {
+			fmt.Fprintf(&b, "\t\t%s ip daddr %s accept\n", m, prefixSet(v4))
+		}
+		if len(v6) > 0 {
+			fmt.Fprintf(&b, "\t\t%s ip6 daddr %s accept\n", m, prefixSet(v6))
+		}
+	}
+	b.WriteString("\t}\n")
+	if s.Inbound {
+		fmt.Fprintf(&b, "\tchain in {\n\t\ttype filter hook input priority %d; policy drop;\n\t\tiifname \"lo\" accept\n\t}\n", s.Priority)
+		fmt.Fprintf(&b, "\tchain fwd_drop {\n\t\ttype filter hook forward priority %d; policy drop;\n\t}\n", s.Priority)
+	}
+	b.WriteString("}\n")
+	return b.String(), nil
+}
+
 // RenderPanic drops everything except loopback, in and out.
 func RenderPanic() string {
-	var b strings.Builder
-	replaceHeader(&b, PanicTable)
-	fmt.Fprintf(&b, `table inet %s {
-	chain out {
-		type filter hook output priority -300; policy drop;
-		oifname "lo" accept
-	}
-	chain in {
-		type filter hook input priority -300; policy drop;
-		iifname "lo" accept
-	}
-	chain fwd_drop {
-		type filter hook forward priority -300; policy drop;
-	}
-}
-`, PanicTable)
-	return b.String()
+	out, _ := RenderStrict(Strict{Table: PanicTable, Priority: -300, Inbound: true})
+	return out
 }
 
 // RenderLockdown is the boot-time ruleset: nothing but loopback, DHCP and
 // IPv6 neighbour discovery until shuntd has applied its plan.
 func RenderLockdown() string {
-	var b strings.Builder
-	replaceHeader(&b, LockdownTable)
-	fmt.Fprintf(&b, `table inet %s {
-	chain out {
-		type filter hook output priority -290; policy drop;
-		oifname "lo" accept
-		udp sport 68 udp dport 67 accept
-		udp sport 546 udp dport 547 accept
-		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
-	}
-}
-`, LockdownTable)
-	return b.String()
+	out, _ := RenderStrict(Strict{Table: LockdownTable, Priority: -290, DHCP: true, ND: true})
+	return out
 }
 
 // dnsRedirectLines are the rules of the dns_redirect chain. Without direct

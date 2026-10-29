@@ -12,9 +12,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/speedtest"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/daemon"
@@ -115,6 +118,10 @@ func main() {
 		// cgroup, then become the program (tor for a Tor tunnel with a via), so not
 		// even its first packet is sent from the wrong group
 		err = daemon.CgroupExec(flag.Args()[1:])
+	case "speedtest-step": // internal: started by the daemon inside a route (args are validated there)
+		if _, err = bufio.NewReader(os.Stdin).ReadString('\n'); err == nil {
+			err = speedStep(flag.Args()[1:])
+		}
 	case "restore-nsswitch":
 		err = daemon.RestoreNsswitch()
 	default:
@@ -125,4 +132,22 @@ func main() {
 		log.Error(cmd+" failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+// speedStep: shuntd speedtest-step PROVIDER KIND BYTES -> one measurement as JSON.
+func speedStep(a []string) error {
+	if len(a) != 3 {
+		return errors.New("usage: speedtest-step PROVIDER KIND BYTES")
+	}
+	n, err := strconv.ParseInt(a[2], 10, 64)
+	if err != nil {
+		return err
+	}
+	st := speedtest.Step{Provider: a[0], Kind: a[1], Bytes: n}
+	if err := st.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	defer cancel()
+	return json.NewEncoder(os.Stdout).Encode(speedtest.Measure(ctx, st))
 }

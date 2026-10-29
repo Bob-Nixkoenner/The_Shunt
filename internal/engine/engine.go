@@ -150,6 +150,32 @@ type Rule struct {
 	FilterRoutes []*Route
 }
 
+// TunnelGroups are the groups whose programs go through a tunnel: groups of
+// rules with a tunnel route, and the implicit via-groups of `shunt run --via`.
+func (p *Plan) TunnelGroups() []Group {
+	var out []Group
+	seen := map[string]bool{}
+	add := func(g Group) {
+		if g.Path != "" && !seen[g.Path] {
+			seen[g.Path] = true
+			out = append(out, g)
+		}
+	}
+	for _, r := range p.Rules {
+		if r.Route != nil && r.Route.Kind == config.RouteTunnel {
+			for _, g := range r.Groups {
+				add(g)
+			}
+		}
+	}
+	for _, g := range p.Groups {
+		if strings.HasPrefix(g.Name, "via:tunnel:") {
+			add(g)
+		}
+	}
+	return out
+}
+
 // Plan is everything a backend needs to enforce the config.
 type Plan struct {
 	CgroupRoot   string
