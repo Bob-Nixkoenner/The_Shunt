@@ -74,6 +74,10 @@ type torTunnel struct {
 	checked time.Time
 	alive   bool
 	rx, tx  int64
+
+	onion   map[netip.Addr]string // address handed out -> onion name
+	onionBy map[string]netip.Addr
+	onionN  int
 }
 
 func newTorTunnel(conf string) (*torTunnel, error) {
@@ -103,7 +107,7 @@ func (t *torTunnel) dial(ctx context.Context, tcp bool, ap netip.AddrPort) (net.
 	if !tcp {
 		if ap.Addr() == torDNS && ap.Port() == 53 {
 			if t.conf.DNS == "" {
-				return newTorResolver(t.conf.Socks), nil
+				return newTorResolver(t), nil
 			}
 			var d net.Dialer
 			return d.DialContext(ctx, "udp", t.conf.DNS)
@@ -113,7 +117,11 @@ func (t *torTunnel) dial(ctx context.Context, tcp bool, ap netip.AddrPort) (net.
 	if ap.Addr() == torDNS {
 		return nil, errors.New("no TCP to the Tor DNS address")
 	}
-	c, err := socks.DialVia(ctx, "tcp", t.conf.Socks, torUser, ap.String())
+	target := ap.String()
+	if name, ok := t.onionName(ap.Addr()); ok {
+		target = net.JoinHostPort(name, fmt.Sprint(ap.Port()))
+	}
+	c, err := socks.DialVia(ctx, "tcp", t.conf.Socks, torUser, target)
 	if err != nil {
 		return nil, err
 	}
