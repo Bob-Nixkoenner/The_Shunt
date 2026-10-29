@@ -30,13 +30,17 @@ function renderSpeedRoutes() {
 }
 
 // hidden ones (Tor routes in the normal view) are not measured, even if ticked before
-function speedChosen() { return [...$("#sp-routes").querySelectorAll("input:checked")].filter((i) => i.offsetParent !== null).map((i) => i.value); }
+function speedChosen() {
+  const ndt = $("#sp-prov").value === "ndt7"; // M-Lab resets connections from Tor: not offered there
+  return [...$("#sp-routes").querySelectorAll("input:checked")].filter((i) => i.offsetParent !== null && !(ndt && isTorRoute(i.value))).map((i) => i.value);
+}
 
 function speedEstimate() {
   const n = speedChosen().length, rounds = +$("#sp-rounds").value;
   const ndt = $("#sp-prov").value === "ndt7";
   const mb = ndt ? n * rounds * 2 * 120 : n * rounds * 2 * SPEED_MB_PER_STEP;
   $("#sp-est").textContent = n ? T("about {mb} MB of data", { mb: mb }) : "";
+  $("#sp-ndt-tor").hidden = !(ndt && speedRoutes().some(isTorRoute));
   $("#sp-ndt-note").hidden = !(ndt || speedInfoOpen);
   $("#sp-mobile").hidden = !speedChosen().some((r) => r === "link:mobile");
   $("#sp-start").disabled = !n;

@@ -323,3 +323,17 @@ func (j *Job) Cancel() {
 		j.cancel()
 	}
 }
+
+// WithoutTor drops the routes in tor from routes (M-Lab resets connections
+// that come through Tor exits, so NDT7 is not offered there). dropped lists
+// what was removed.
+func WithoutTor(routes []string, tor map[string]bool) (kept, dropped []string) {
+	for _, r := range routes {
+		if tor[strings.TrimSpace(r)] {
+			dropped = append(dropped, r)
+		} else {
+			kept = append(kept, r)
+		}
+	}
+	return kept, dropped
+}
