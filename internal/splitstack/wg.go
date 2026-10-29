@@ -292,6 +292,9 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 }
 
 func (t *wgTunnel) close() {
+	if t.tor != nil {
+		t.tor.close()
+	}
 	if t.ts != nil {
 		t.ts.close()
 	}

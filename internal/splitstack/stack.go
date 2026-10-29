@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"io"
 	"net"
 	"net/netip"
@@ -191,6 +192,9 @@ func (e *Engine) dialTo(ctx context.Context, f *flow, dst netip.AddrPort) (net.C
 	}
 	if v4, v6 := t.families(); (dst.Addr().Is4() && !v4) || (dst.Addr().Is6() && !v6) {
 		return nil, fmt.Errorf("%s has no address of this IP family", f.route)
+	}
+	if t.isTor() && f.app != "" {
+		ctx = socks.WithUser(ctx, torUser+"-"+f.app) // Tor: own circuits per app
 	}
 	return t.dialAP(ctx, f.proto == 6, dst)
 }
