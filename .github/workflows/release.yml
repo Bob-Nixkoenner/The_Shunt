@@ -60,6 +60,8 @@ jobs:
             echo "::warning::no SHUNT_KEYSTORE_B64 secret: APK gets a random debug key (no in-place updates)"
           fi
           android/build-openvpn.sh
+          android/fetch-tor.sh
+          android/build-lyrebird.sh
           android/build-core.sh
           # github: the APK (updates itself); play: the bundle for Google Play (no install permission),
           # signed with the same key as upload key (Play re-signs the apps it hands out)

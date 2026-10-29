@@ -17,9 +17,10 @@
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- is Orbot (the Tor client of Tor tunnels) installed? works without QUERY_ALL_PACKAGES too -->
+    <!-- is Orbot (the Tor client of Tor tunnels) installed, and F-Droid (to get it)? works without QUERY_ALL_PACKAGES too -->
     <queries>
         <package android:name="org.torproject.android" />
+        <package android:name="org.fdroid.fdroid" />
     </queries>
 
     <application

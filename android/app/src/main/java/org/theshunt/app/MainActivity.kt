@@ -339,7 +339,13 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
                 tone,
             )
         }
+        val boot = t.optInt("bootstrap", 100) // built-in Tor only
+        if (boot in 1..99) {
+            androidx.compose.material3.LinearProgressIndicator(progress = { boot / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = LocalShunt.current.accent)
+            KV("Tor", "$boot %")
+        }
         if (asleep) Hint("Not used right now – saves battery. Connects when an app needs it.")
+        else if (!up && boot in 1..99 && t.optString("error").startsWith("Tor is starting")) Unit
         else if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
         else {
             val hs = t.optLong("handshake")
@@ -460,7 +466,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
                 if (settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
-                    save(Tunnel(Store.tunnelName("tor", settings.tunnels.map { it.name }), Tunnel.TOR_DEFAULT_CONF, Tunnel.TOR), "")
+                    val conf = if (hasBuiltinTor(ctx)) Tunnel.TOR_BUILTIN_CONF else Tunnel.TOR_DEFAULT_CONF
+                    save(Tunnel(Store.tunnelName("tor", settings.tunnels.map { it.name }), conf, Tunnel.TOR), "")
                 })
                 ShuntButton("Scan QR", {
                     scan.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("WireGuard or OpenVPN QR code").setBeepEnabled(false))
@@ -481,9 +488,15 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
                         if (t.isTor) {
-                            KV("SOCKS", it.optString("socks"), mono = true)
+                            if (it.optString("client") == "builtin") {
+                                KV("Tor", T("built in"), mono = true)
+                                if (it.optString("bridges").isNotEmpty()) KV("bridges", it.optString("bridges"), mono = true)
+                            } else KV("SOCKS", it.optString("socks"), mono = true)
                             it.optString("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
-                            TorHelp()
+                            TorHelp(t, builtin = it.optString("client") == "builtin", onSwitch = { c ->
+                                update(settings.copy(tunnels = settings.tunnels.map { x -> if (x.name == t.name) x.copy(conf = c) else x }))
+                                say(T("Saved. Restart the VPN to use it."))
+                            })
                         } else if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
@@ -599,6 +612,15 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
             Switch(settings.onDemand, { update(settings.copy(onDemand = it)) })
         }
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
+    }
+    if (settings.tunnels.any { it.isTor }) Section("Emergency") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
+                Text(T("Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off."), color = c.muted, fontSize = 12.sp)
+            }
+            Switch(settings.torAll, { update(settings.copy(torAll = it)) })
+        }
     }
     Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -810,17 +832,48 @@ private fun RoutePicker(current: String, choices: List<String>, onPick: (String)
     }
 }
 
-/** Tor on the phone is Orbot's job: say so, and open it (or its page) with one tap. */
+fun hasBuiltinTor(ctx: android.content.Context) = java.io.File(ctx.applicationInfo.nativeLibraryDir, "libtor.so").exists()
+
+/** Tor on the phone: the Tor the app brings, or Orbot (say so, open it or its page with one tap). */
 @Composable
-private fun TorHelp() {
+private fun TorHelp(t: Tunnel, builtin: Boolean, onSwitch: (String) -> Unit) {
     val ctx = LocalContext.current
+    if (builtin) {
+        Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
+            ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
+        }
+        if (java.io.File(ctx.applicationInfo.nativeLibraryDir, "liblyrebird.so").exists()) {
+            val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
+            Hint("Bridges help where Tor is blocked. They are slower.")
+            for (row in listOf(listOf("No bridge" to "", "obfs4" to "obfs4"), listOf("snowflake" to "snowflake", "meek" to "meek"))) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((label, b) in row) {
+                        ShuntButton(label, { onSwitch(Tunnel.TOR_BUILTIN_CONF + if (b.isEmpty()) "" else "bridge = $b\n") }, kind = if (cur == b) Tone.Ok else Tone.Neutral)
+                    }
+                }
+            }
+        }
+        return
+    }
+    if (hasBuiltinTor(ctx)) ShuntButton("Use the built-in Tor", { onSwitch(Tunnel.TOR_BUILTIN_CONF) })
     val orbot = remember { ctx.packageManager.getLaunchIntentForPackage(Tunnel.ORBOT) }
     Hint("Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – turn on Power User Mode in its settings (so it runs without its own VPN), start it and keep it running.")
     if (orbot != null) {
         ShuntButton("Open Orbot", { ctx.startActivity(orbot) })
     } else {
+        val fdroid = remember { runCatching { ctx.packageManager.getPackageInfo("org.fdroid.fdroid", 0) }.isSuccess }
+        // F-Droid installed: open Orbot's page in it; otherwise the F-Droid website (Play and Orbot's own page are named in the hint)
         ShuntButton("Get Orbot", {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://guardianproject.info/apps/org.torproject.android/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.torproject.android/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (fdroid) {
+                val store = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=org.torproject.android")).setPackage("org.fdroid.fdroid").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { ctx.startActivity(store) }.onFailure { ctx.startActivity(web) }
+            } else {
+                ctx.startActivity(web)
+            }
         })
+        Hint("Orbot is also on Google Play and on guardianproject.info. If Tor is your default route, the page may not load: pass Orbot or your browser as \"direct\" under Apps, or use a second connection.")
     }
 }
