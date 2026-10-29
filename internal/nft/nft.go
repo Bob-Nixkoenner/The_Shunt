@@ -24,6 +24,8 @@ const (
 	Table         = "shunt"
 	PanicTable    = "shunt_panic"
 	LockdownTable = "shunt_lockdown"
+	// EmergencyTable: tor-all, only the tor process reaches relays/bridges.
+	EmergencyTable = "shunt_emerg"
 	// ArpTable (family arp): see tunnelAddrGuard.
 	ArpTable = "shunt_arp"
 )
@@ -494,6 +496,16 @@ func RenderStrict(s Strict) (string, error) {
 func RenderPanic() string {
 	out, _ := RenderStrict(Strict{Table: PanicTable, Priority: -300, Inbound: true})
 	return out
+}
+
+// RenderEmergency is the tor-all ruleset: after the main ruleset's redirect
+// to the Tor proxy (so it sees the packets of the apps already on
+// loopback), everything that leaves the machine is dropped except DHCP, IPv6
+// neighbour discovery and the processes in torGroup talking to dst (relays
+// or bridges). Nothing falls back to direct, whatever happens to tor,
+// the tunnels or the main table; the table stays when shuntd stops.
+func RenderEmergency(torGroup engine.Group, dst []netip.Prefix) (string, error) {
+	return RenderStrict(Strict{Table: EmergencyTable, Priority: 10, DHCP: true, ND: true, AllowCgroup: torGroup, AllowDst: dst})
 }
 
 // RenderLockdown is the boot-time ruleset: nothing but loopback, DHCP and

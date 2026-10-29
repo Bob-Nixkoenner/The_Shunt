@@ -1,0 +1,13 @@
+table inet shunt_emerg
+delete table inet shunt_emerg
+table inet shunt_emerg {
+	chain out {
+		type filter hook output priority 10; policy drop;
+		oifname "lo" accept
+		udp sport 68 udp dport 67 accept
+		udp sport 546 udp dport 547 accept
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" ip daddr { 192.0.2.1/32, 198.51.100.7/32 } accept
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" ip6 daddr { 2001:db8::1/128 } accept
+	}
+}

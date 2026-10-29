@@ -105,10 +105,12 @@ type Daemon struct {
 	captiveAt           time.Time // last probe
 	probing             bool
 
-	ov      override.State // timed pass (panic stays in the backend)
-	torAll  string         // tunnel the tor-all switch sends everything through
-	torLoad bool           // torAll was read from its file
-	passing bool           // the plan in place was built for a pass
+	ov       override.State // timed pass (panic stays in the backend)
+	torAll   string         // tunnel the tor-all switch sends everything through
+	torLoad  bool           // torAll was read from its file
+	emergAt  time.Time      // last look at the relay list (tor-all)
+	emergKey string         // relay list of the rules in place
+	passing  bool           // the plan in place was built for a pass
 
 	health     map[string]*health.Monitor // per tunnel, see health.go
 	healthBusy bool
@@ -130,6 +132,8 @@ type Prepared struct {
 	AuthFiles map[string]string
 	Hashes    map[string]string
 	Ruleset   string
+	// EmergKey identifies the relay list tor-all's strict rules were built from.
+	EmergKey string
 	// DNS upstreams per route name, and problems worth telling the user.
 	DNSUpstreams map[string][]config.UpstreamSpec
 	// DirectSystem: the direct route uses the system resolvers, re-read
@@ -336,6 +340,9 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	p.Ruleset, err = env.Backend.Render(p.Plan)
 	if err != nil {
 		return nil, err
+	}
+	if x := emergencyScript(env.Backend, p, torAll); x != "" {
+		p.Ruleset += "\n" + x
 	}
 	if p.Plan.DNS {
 		p.prepareDNS(eff)
@@ -623,6 +630,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.tunnelChanged()
 		case <-netTick.C:
 			d.endPassIfDue(self)
+			d.refreshEmergency(self)
 			d.checkNetwork()
 			d.mu.Lock()
 			if d.routeSoft != "" && d.prep != nil {
@@ -764,6 +772,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if err := d.Backend.Apply(p.Ruleset, held); err != nil {
 		return err
 	}
+	d.emergKey, d.emergAt = p.EmergKey, time.Now()
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
 		d.proxy.Owner = func(proto string, from netip.AddrPort) string {
@@ -880,7 +889,7 @@ func (d *Daemon) syncTunnels() error {
 				// never start tor outside the group that routes it
 				err = errors.New("cannot place tor in its cgroup (needed for via)")
 			} else {
-				t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join("/var/lib/shunt", "tor", name),
+				t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join(torDataRoot, name),
 					RunDir: filepath.Dir(p.Config.Daemon.Socket), Bridges: tc.Bridges, Isolate: tc.Isolate, CgroupDir: dir}, d.Log, d.signalTunnel)
 			}
 		} else if tc.IsTailscale() {
