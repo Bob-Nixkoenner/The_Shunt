@@ -665,7 +665,7 @@ for _ in $(seq 80); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $
 check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
 shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
 wait "${FASTPIDS[@]}" || true
-check "fast starts: all six went through the tunnel after the decision" 6 "$(cat "$WORK"/fast?.out | grep -c '^10.66.0.2$')"
+check "fast starts: all six went through the tunnel after the decision" "6 10.66.0.2" "$(cat "$WORK"/fast?.out | sort | uniq -c | tr -s ' ' | sed 's/^ //' | tr '\n' ' ' | sed 's/ $//')"
 # started from the system-service cgroup: a caller without a terminal (CI
 # runner, ssh without -t) is held by the app firewall itself otherwise
 insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }
