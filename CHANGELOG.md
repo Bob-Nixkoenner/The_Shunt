@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Linux: shuntd checks every second that its firewall rules are still loaded and puts them back (with a warning in the log) when something else removed them – another VPN, a firewall tool, `nft flush ruleset`. Before, traffic left directly until the next reload (lab N01).
 - Linux: a tunnel's own address is no longer reachable from other interfaces. Neighbours on the local network could ask "who has 10.66.0.12?" (ARP) and learn that this machine uses a VPN and which address, or send packets to it (CVE-2019-14899). New chain `tunnel_addr_guard` and arp table `shunt_arp`; found by the test lab (M01, M02).
 - Linux: forwarded traffic (containers, VMs and devices behind this machine) now follows the default route. It used to take the main table, past the tunnel and its kill switch, also with the tunnel up (lab M06, M09).
 - App firewall (`ask`/`block`): programs that start at once are held too – shuntd rescans when exec events are lost and every 250 ms while the firewall is on.
