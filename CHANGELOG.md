@@ -5,6 +5,14 @@
 - SOCKS5 exit per tunnel (Linux): `socks = "127.0.0.1:1080"` under `[tunnel.X]` opens a local SOCKS5 proxy (CONNECT and UDP ASSOCIATE, names resolved inside the tunnel) whose connections leave through that tunnel; `shunt socks` lists them, the form has a field under "Advanced".
 - Tor tunnels (Linux): `driver = "tor"` runs the system `tor` as a child of shuntd and offers it as a route (`tunnel:tor`) with a transparent TCP proxy, DNS over Tor's DNSPort, `.onion` names only through Tor, own circuits per rule, UDP and ICMP rejected. Bridges (obfs4, snowflake, meek, webtunnel, or your own lines) come with lyrebird, shipped in the release archive, the .deb (`Depends: tor`) and the installer. Tor can run through another tunnel or link (`via`).
 - `shunt tor status|newnym` and `shunt tor-all on|off|status` (emergency switch: everything through Tor, survives restarts); the window gets a Tor form, an overview card with the bootstrap state, a "New identity" button and an "All via Tor" button. German texts included.
+- Linux: shuntd checks every second that its firewall rules are still loaded and puts them back (with a warning in the log) when something else removed them – another VPN, a firewall tool, `nft flush ruleset`. Before, traffic left directly until the next reload (lab N01).
+- Linux: a tunnel's own address is no longer reachable from other interfaces. Neighbours on the local network could ask "who has 10.66.0.12?" (ARP) and learn that this machine uses a VPN and which address, or send packets to it (CVE-2019-14899). New chain `tunnel_addr_guard` and arp table `shunt_arp`; found by the test lab (M01, M02).
+- Linux: forwarded traffic (containers, VMs and devices behind this machine) now follows the default route. It used to take the main table, past the tunnel and its kill switch, also with the tunnel up (lab M06, M09).
+- App firewall (`ask`/`block`): programs that start at once are held too – shuntd rescans when exec events are lost and every 250 ms while the firewall is on.
+- Panic mode: one renderer for the panic, boot lockdown and the coming emergency tables (output byte-identical, golden tests). `panic_kill = true` also ends every program in a tunnel group when panic goes on (default off; via `cgroup.kill`, no extra capability).
+- shuntd compares the system clock with the time web servers report through the tunnel (every 20 minutes, default route a tunnel) and warns in `shunt status` when it is more than 90 seconds off. It sets nothing, and nothing is asked in the clear.
+- Linux: `daemon.tcp_timestamps = "off"` switches TCP timestamps off while shuntd runs (default keeps the system setting): direct connections no longer show a neighbour the uptime.
+- Linux: ICMP timestamp, address-mask and info requests are not answered (no clock/uptime fingerprint for neighbours).
 
 ## v0.7.1-rc17
 

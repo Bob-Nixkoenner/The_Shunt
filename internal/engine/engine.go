@@ -62,6 +62,9 @@ type TunnelInfo struct {
 	HasV4      bool
 	HasV6      bool
 	AllowedIPs []netip.Prefix
+	// Addrs: the tunnel interface's own addresses (empty when the tunnel
+	// gets them from a server).
+	Addrs []netip.Addr
 	// Gateway: the far end of the interface (a Tailscale tunnel's network
 	// namespace); its routes go "via" it. Invalid: plain device routes.
 	Gateway netip.Addr
@@ -82,6 +85,8 @@ type Route struct {
 	V6    bool // tunnel carries IPv6
 	// Prefixes routed into the tunnel (union of the peers' AllowedIPs).
 	AllowedIPs []netip.Prefix
+	// Addrs: see TunnelInfo.
+	Addrs []netip.Addr
 	// Gateway: see TunnelInfo.
 	Gateway netip.Addr
 	// Forward: see TunnelInfo. FwdMark is what the packets arriving on
@@ -148,6 +153,32 @@ type Rule struct {
 	// route they take.
 	Filter       string
 	FilterRoutes []*Route
+}
+
+// TunnelGroups are the groups whose programs go through a tunnel: groups of
+// rules with a tunnel route, and the implicit via-groups of `shunt run --via`.
+func (p *Plan) TunnelGroups() []Group {
+	var out []Group
+	seen := map[string]bool{}
+	add := func(g Group) {
+		if g.Path != "" && !seen[g.Path] {
+			seen[g.Path] = true
+			out = append(out, g)
+		}
+	}
+	for _, r := range p.Rules {
+		if r.Route != nil && r.Route.Kind == config.RouteTunnel {
+			for _, g := range r.Groups {
+				add(g)
+			}
+		}
+	}
+	for _, g := range p.Groups {
+		if strings.HasPrefix(g.Name, "via:tunnel:") {
+			add(g)
+		}
+	}
+	return out
 }
 
 // Plan is everything a backend needs to enforce the config.
@@ -360,6 +391,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
+			r.Addrs = ti.Addrs
 			r.Gateway, r.Forward = ti.Gateway, ti.Forward
 			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
 			r.Filter = filter.Default

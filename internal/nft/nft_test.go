@@ -48,8 +48,8 @@ route = "tunnel:vps"
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0"), netip.MustParsePrefix("::/0")}
 	p, err := engine.Compile(c, "system.slice/shuntd.service", map[string]engine.TunnelInfo{
-		"vps":  {Iface: "sh-vps", HasV4: true, AllowedIPs: all},
-		"home": {Iface: "sh-home", HasV4: true, HasV6: true, AllowedIPs: all},
+		"vps":  {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}},
+		"home": {Iface: "sh-home", HasV4: true, HasV6: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.9.0.2"), netip.MustParseAddr("fd00:9::2")}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ dns_filter = "off"
 		t.Fatal(err)
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
-	p, err := engine.CompileOn(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}}, "work", nil)
+	p, err := engine.CompileOn(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}}}, "work", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ dns_filter = "paranoid"
 		t.Fatal(err)
 	}
 	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
-	p, err := engine.Compile(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all}})
+	p, err := engine.Compile(c, "s/shuntd.service", map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all, Addrs: []netip.Addr{netip.MustParseAddr("10.66.0.12")}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,5 +487,49 @@ func TestTorViaRejectsTorTarget(t *testing.T) {
 	}
 	if _, err := config.Parse("[tunnel.v]\nconfig = \"v\"\n[tunnel.t]\ndriver = \"tor\"\nvia = \"v\"\n"); err != nil {
 		t.Errorf("tor via a WireGuard tunnel: %v", err)
+	}
+}
+
+// Panic and boot lockdown are rendered by RenderStrict; their text must not
+// change by accident (a changed ruleset at boot or in an emergency is a leak
+// nobody sees until it matters).
+func TestStrictGolden(t *testing.T) {
+	for name, got := range map[string]string{"panic": RenderPanic(), "lockdown": RenderLockdown()} {
+		golden := "testdata/" + name + ".nft"
+		if *update {
+			if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Errorf("%s differs from %s (run with -update after checking):\n%s", name, golden, got)
+		}
+	}
+}
+
+func TestStrictEmergency(t *testing.T) {
+	g := engine.Group{Path: "shunt/tor"}
+	out, err := RenderStrict(Strict{Table: "shunt_emergency", Priority: -300, Inbound: true, AllowCgroup: g,
+		AllowDst: []netip.Prefix{netip.MustParsePrefix("203.0.113.5/32"), netip.MustParsePrefix("2001:db8::1/128")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{`socket cgroupv2 level 2 "shunt/tor" ip daddr { 203.0.113.5/32 } accept`,
+		`ip6 daddr { 2001:db8::1/128 } accept`, "policy drop"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in:\n%s", w, out)
+		}
+	}
+	// no relays yet: the cgroup alone opens nothing
+	out, _ = RenderStrict(Strict{Table: "shunt_emergency", Priority: -300, AllowCgroup: g})
+	if strings.Contains(out, "cgroupv2") {
+		t.Errorf("cgroup rule without destinations:\n%s", out)
+	}
+	if _, err := RenderStrict(Strict{Table: "t", AllowCgroup: engine.Group{Path: `a"b`}, AllowDst: []netip.Prefix{netip.MustParsePrefix("1.1.1.1/32")}}); err == nil {
+		t.Error("unsafe cgroup path accepted")
 	}
 }
