@@ -101,6 +101,10 @@ type config struct {
 	// and a private folder for its files. Empty: no OpenVPN tunnels.
 	OpenVPN string `json:"openvpn"`
 	WorkDir string `json:"work_dir"`
+	// TorExe: the Tor program the app brings (libtor.so); PTExe: lyrebird, for
+	// bridges. Empty: only Orbot (a Tor client on the phone) can be used.
+	TorExe string `json:"tor_exe"`
+	PTExe  string `json:"pt_exe"`
 }
 
 func parseConfig(js string) (*config, error) {
@@ -136,9 +140,9 @@ func parseConfig(js string) (*config, error) {
 		switch t.Type {
 		case "":
 			c.Tunnels[i].Type = typeWireGuard
-		case typeWireGuard, typeOpenVPN, typeTailscale:
+		case typeWireGuard, typeOpenVPN, typeTailscale, typeTor:
 		default:
-			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn | tailscale)", t.Name, t.Type)
+			return nil, fmt.Errorf("tunnel %q: type %q (wireguard | openvpn | tailscale | tor)", t.Name, t.Type)
 		}
 		names[t.Name] = true
 	}
@@ -222,6 +226,8 @@ type Engine struct {
 	onDemand atomic.Bool
 	dnsGood  dnsGoods
 	ovpnExe  string // openvpn program, "" = none
+	torExe   string // built-in Tor, "" = none
+	ptExe    string // lyrebird, "" = none
 	workDir  string
 
 	mu         sync.RWMutex
@@ -277,7 +283,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if o.NewBind == nil {
 		o.NewBind = conn.NewDefaultBind
 	}
-	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, mtu: c.MTU, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir}
+	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, mtu: c.MTU, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir, torExe: c.TorExe, ptExe: c.PTExe}
 	book, err := stats.Open(c.StatsPath)
 	if err != nil {
 		e.logf("traffic statistics in memory only: %v", err)
@@ -311,6 +317,8 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt, err = e.newOVPNTunnel(t, c.MTU)
 		} else if t.Type == typeTailscale {
 			wt, err = e.newTSTunnel(t)
+		} else if t.Type == typeTor {
+			wt, err = e.newTorWT(t)
 		} else if t.Via != "" {
 			wt, err = e.newWGVia(t, c.MTU)
 		} else {
@@ -327,6 +335,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 			}
 			wt.ovpnConf.Type = t.Type
 			wt.tsType = t.Type == typeTailscale
+			wt.torType = t.Type == typeTor
 			wt.err = err.Error()
 		}
 		e.setTunnel(t.Name, wt)
@@ -590,7 +599,7 @@ func (e *Engine) NetworkChanged() {
 			}
 			continue
 		}
-		if t.dev == nil {
+		if t.dev == nil || t.isTor() {
 			continue
 		}
 		if err := t.dev.BindUpdate(); err != nil {
@@ -619,7 +628,7 @@ func (e *Engine) Resumed() {
 	e.tunMu.RUnlock()
 	n := 0
 	for _, t := range ts {
-		if t.isOVPN() || t.dev == nil {
+		if t.isOVPN() || t.isTor() || t.dev == nil {
 			continue
 		}
 		if err := t.dev.Down(); err != nil {
@@ -708,6 +717,18 @@ func (e *Engine) Stop() {
 	})
 }
 
+// TorNewIdentity asks the built-in Tor of the tunnel for new circuits ("" = done).
+func (e *Engine) TorNewIdentity(name string) string {
+	t := e.tunnel(name)
+	if t == nil || t.tor == nil || t.tor.proc == nil {
+		return "no built-in Tor on this tunnel"
+	}
+	if err := t.tor.proc.NewIdentity(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 func (e *Engine) closeTunnels() {
 	for _, t := range e.allTunnels() {
 		t.close()
@@ -721,7 +742,8 @@ type tunnelStatus struct {
 	Up        bool          `json:"up"`
 	Idle      bool          `json:"idle,omitempty"` // asleep (on demand): made on the first connection
 	Error     string        `json:"error,omitempty"`
-	Handshake int64         `json:"handshake"` // unix seconds, 0 = never
+	Bootstrap int           `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
+	Handshake int64         `json:"handshake"`           // unix seconds, 0 = never
 	RX        int64         `json:"rx"`
 	TX        int64         `json:"tx"`
 	Health    health.Report `json:"health"`

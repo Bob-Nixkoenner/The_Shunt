@@ -58,14 +58,22 @@ type wgTunnel struct {
 	// Tailscale/Headscale (tailscale.go): tsnet instead of a netstack
 	tsType bool // the tunnel is a Tailscale one (ts may be nil: failed to start)
 	ts     *tsTunnel
+
+	// Tor (tor.go): SOCKS5 to a Tor client
+	torType bool
+	tor     *torTunnel
 }
 
 func (t *wgTunnel) isOVPN() bool { return t.ovpnConf.Type == typeOpenVPN }
 func (t *wgTunnel) isTS() bool   { return t.tsType }
+func (t *wgTunnel) isTor() bool  { return t.torType }
 
 // reachable: connections can be tried through the tunnel (it may still be
 // without a connection); false = its apps are blocked.
 func (t *wgTunnel) reachable() bool {
+	if t.isTor() {
+		return t.tor != nil
+	}
 	if t.isTS() {
 		return t.ts != nil
 	}
@@ -74,6 +82,12 @@ func (t *wgTunnel) reachable() bool {
 
 // dialAP opens a TCP or UDP connection to ap through the tunnel.
 func (t *wgTunnel) dialAP(ctx context.Context, tcp bool, ap netip.AddrPort) (net.Conn, error) {
+	if t.isTor() {
+		if t.tor == nil {
+			return nil, errors.New("tunnel not connected")
+		}
+		return t.tor.dial(ctx, tcp, ap)
+	}
 	if t.isTS() {
 		if t.ts == nil {
 			return nil, errors.New("tunnel not connected")
@@ -93,6 +107,9 @@ func (t *wgTunnel) dialAP(ctx context.Context, tcp bool, ap netip.AddrPort) (net
 // up: the tunnel exists (WireGuard device made, openvpn started); it may
 // still have no connection.
 func (t *wgTunnel) up() bool {
+	if t.isTor() {
+		return t.tor != nil
+	}
 	if t.isOVPN() {
 		return t.ovpnTunnel() != nil
 	}
@@ -116,6 +133,9 @@ func (t *wgTunnel) netw() *netstack.Net {
 
 // dnsAddr is the DNS server reached through the tunnel.
 func (t *wgTunnel) dnsAddr() netip.Addr {
+	if t.isTor() {
+		return torDNS
+	}
 	if t.isTS() {
 		return tsDNS
 	}
@@ -130,6 +150,9 @@ func (t *wgTunnel) dnsAddr() netip.Addr {
 
 // families: whether the tunnel has an IPv4 / IPv6 address.
 func (t *wgTunnel) families() (v4, v6 bool) {
+	if t.isTor() {
+		return true, false
+	}
 	if t.isTS() {
 		return true, false // IPv4 only, like the Linux driver
 	}
@@ -269,6 +292,9 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 }
 
 func (t *wgTunnel) close() {
+	if t.tor != nil {
+		t.tor.close()
+	}
 	if t.ts != nil {
 		t.ts.close()
 	}
@@ -284,6 +310,16 @@ func (t *wgTunnel) close() {
 }
 
 func (t *wgTunnel) status() (st tunnelStatus) {
+	if t.isTor() {
+		if t.tor == nil {
+			return tunnelStatus{Name: t.name, Type: typeTor, Error: t.err, Health: health.Report{State: health.Down, HandshakeAge: -1}}
+		}
+		st = t.tor.status(t.name)
+		if t.err != "" {
+			st.Error = t.err
+		}
+		return st
+	}
 	if t.dormant {
 		return t.dormantStatus()
 	}
@@ -357,7 +393,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 				pctx, cancel := context.WithTimeout(ctx, min(5*time.Second, every))
 				t.mon.Probed(e.probeDNS(pctx, t))
 				cancel()
-				if first && st.Handshake == 0 && !t.isOVPN() && !t.isTS() { // the probe made the first handshake: count it now
+				if first && st.Handshake == 0 && !t.isOVPN() && !t.isTS() && !t.isTor() { // the probe made the first handshake: count it now
 					if st2 := t.status(); st2.Handshake > 0 {
 						t.mon.Observe(time.Unix(st2.Handshake, 0), st2.RX, st2.TX, time.Now())
 						e.book.Observe(t.name, st2.RX, st2.TX, time.Now())
@@ -384,7 +420,7 @@ func (t *wgTunnel) dialUDP(_ context.Context, _, addr string) (net.Conn, error) 
 
 // reconnect resolves the endpoints again (DDNS) and re-opens the socket.
 func (e *Engine) reconnect(t *wgTunnel) error {
-	if t.isTS() {
+	if t.isTS() || t.isTor() {
 		return nil // tsnet keeps its own connections alive
 	}
 	if t.isOVPN() {

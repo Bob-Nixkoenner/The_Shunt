@@ -21,14 +21,24 @@ data class Tunnel(
     val via: String = "",
 ) {
     val isOpenVPN get() = type == OPENVPN
+    /** A Tor tunnel: TCP and names go to a Tor client on this phone (Orbot), see conf. */
+    val isTor get() = type == TOR
 
     fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).put("via", via).apply {
         if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
+        if (isTor) put("type", TOR)
     }
 
     companion object {
         const val WIREGUARD = "wireguard"
         const val OPENVPN = "openvpn"
+        const val TOR = "tor"
+
+        /** Orbot (the Tor app of the Guardian Project): SOCKS 9050; names go through SOCKS (Orbot's DNSPort is random). */
+        const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\n"
+        /** The Tor the app brings along (libtor.so). */
+        const val TOR_BUILTIN_CONF = "client = builtin\n"
+        const val ORBOT = "org.torproject.android"
     }
 }
 
@@ -63,6 +73,8 @@ data class Settings(
     val ignoreTunnelDns: Boolean = false,
     /** Another default route on Wi-Fi or mobile data (network profiles of the core). */
     val networks: List<NetProfile> = emptyList(),
+    /** Emergency: every app goes through the Tor tunnel (routes are kept, not used). */
+    val torAll: Boolean = false,
 ) {
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
@@ -78,6 +90,7 @@ data class Settings(
         put("dns_servers", JSONArray(dnsServers))
         put("ignore_tunnel_dns", ignoreTunnelDns)
         put("networks", JSONArray(networks.map { it.toJson() }))
+        put("tor_all", torAll)
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -95,6 +108,20 @@ data class Settings(
             val f = Blocklists.file(ctx, name)
             if (f.exists()) lists.put(JSONObject().put("name", name).put("path", f.path))
         }
+        val tor = tunnels.firstOrNull { it.isTor }
+        if (torAll && tor != null) {
+            // everything on the Tor tunnel: the default, every app, no per-network profile
+            val route = "tunnel:${tor.name}"
+            for (k in uids.keys().asSequence().toList()) uids.put(k, route)
+            return toJson().put("default", route).put("networks", JSONArray())
+                .put("apps", uids)
+                .put("blocklists", lists)
+                .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
+                .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
+                .put("block_doh", true)
+                .apply { engineExes(ctx) }
+                .toString()
+        }
         return toJson()
             .put("apps", uids)
             .put("blocklists", lists)
@@ -103,12 +130,21 @@ data class Settings(
             // as on the desktop: public DoH endpoints and Firefox's canary get NXDOMAIN,
             // so browsers stay on our DNS (route + filter)
             .put("block_doh", true)
-            .apply {
-                // openvpn ships as lib/<abi>/libopenvpn.so (Android runs programs only from there)
-                val exe = File(ctx.applicationInfo.nativeLibraryDir, "libopenvpn.so")
-                if (exe.exists()) put("openvpn", exe.path).put("work_dir", ctx.filesDir.path)
-            }
+            .apply { engineExes(ctx) }
             .toString()
+    }
+
+    /** The programs the app brings (Android runs programs only from lib/<abi>/lib….so). */
+    private fun JSONObject.engineExes(ctx: Context) {
+        val dir = ctx.applicationInfo.nativeLibraryDir
+        val ovpn = File(dir, "libopenvpn.so")
+        if (ovpn.exists()) put("openvpn", ovpn.path).put("work_dir", ctx.filesDir.path)
+        // the Tor program of tor-android (libtor.so), for Tor tunnels without Orbot
+        val tor = File(dir, "libtor.so")
+        if (tor.exists()) put("tor_exe", tor.path).put("work_dir", ctx.filesDir.path)
+        // lyrebird: the bridge transports (obfs4, snowflake, meek, webtunnel)
+        val pt = File(dir, "liblyrebird.so")
+        if (pt.exists()) put("pt_exe", pt.path)
     }
 
     companion object {
@@ -129,6 +165,7 @@ data class Settings(
                 onDemand = o.optBoolean("on_demand", true),
                 dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
                 ignoreTunnelDns = o.optBoolean("ignore_tunnel_dns", false),
+                torAll = o.optBoolean("tor_all", false),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
                         .map { NetProfile(it.getString("link"), it.optString("default", "block")) }

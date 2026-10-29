@@ -130,6 +130,9 @@ func (e *Engine) LeakTest() string {
 }
 
 // ResetStats deletes the traffic totals.
+// TorNewIdentity gives the built-in Tor of the tunnel new circuits; "" = done, else the reason.
+func (e *Engine) TorNewIdentity(name string) string { return e.e.TorNewIdentity(name) }
+
 func (e *Engine) ResetStats() error { return e.e.ResetStats() }
 
 // Stop ends everything; the Engine cannot be started again.
@@ -143,6 +146,9 @@ func CheckWireGuard(conf string) (string, error) { return splitstack.CheckWireGu
 // "needs_auth", "removed" (lines taken out: scripts, management, …) and
 // "clean" (the text to store).
 func CheckOpenVPN(conf string) (string, error) { return splitstack.CheckOpenVPN(conf) }
+
+// CheckTor validates the file of a Tor tunnel: JSON with "socks" and "dns".
+func CheckTor(conf string) (string, error) { return splitstack.CheckTor(conf) }
 
 // VerifyUpdate checks the release signature of a downloaded SHA256SUMS file
 // (error if it was not signed by the release key) and returns the SHA-256

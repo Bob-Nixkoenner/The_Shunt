@@ -51,7 +51,7 @@ func (g *dnsGoods) set(route string, a netip.Addr) { g.m.Store(route, dnsGood{a,
 
 // dnsList is the DNS servers a tunnel brings along.
 func (t *wgTunnel) dnsList() []netip.Addr {
-	if t.isTS() || t.isOVPN() {
+	if t.isTS() || t.isOVPN() || t.isTor() {
 		return []netip.Addr{t.dnsAddr()}
 	}
 	if len(t.dnsAll) > 0 {
@@ -76,7 +76,7 @@ func (e *Engine) dnsServers(route string) []netip.Addr {
 		add(e.directDNS())
 	} else if name, ok := strings.CutPrefix(route, tunnelPref); ok {
 		t = e.tunnel(name)
-		if t != nil && (!ignore || t.isTS()) {
+		if t != nil && (!ignore || t.isTS() || t.isTor()) {
 			for _, a := range t.dnsList() {
 				add(a)
 			}
