@@ -96,6 +96,7 @@ function renderConfig() {
   const ups = Object.keys(model.dns.upstream).sort();
   fill("#c-default", modelRoutes(), model.daemon.default_route || "direct");
   $("#c-killswitch").checked = model.daemon.kill_switch !== false; // unset = on
+  $("#c-clockcheck").checked = !!model.daemon.clock_check;
   defaultHint();
   fillVia();
   renderNetworks();
@@ -224,6 +225,7 @@ function editRuleFromPorts(i) {
 }
 $("#p-new").addEventListener("click", () => editRuleFromPorts(-1));
 
+$("#c-clockcheck").addEventListener("change", (e) => { model.daemon.clock_check = e.target.checked || undefined; markDirty(); });
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
 $("#c-mac").addEventListener("change", (e) => { model.daemon.mac = e.target.value || undefined; markDirty(); });

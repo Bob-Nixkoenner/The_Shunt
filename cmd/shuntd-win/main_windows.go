@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -36,9 +37,12 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsvc"
 )
@@ -182,13 +186,14 @@ func runCore(ctx context.Context, ready func()) error {
 	// blocking (the service itself may send).
 	var ksMu sync.Mutex
 	ksOn, ksWant := false, false
+	var ksApps []string // programs that carry a Tor tunnel (tor.exe, transports)
 	var ksLUID uint64
 	applyKS := func() {
 		ksMu.Lock()
 		defer ksMu.Unlock()
 		switch {
 		case ksWant && !ksOn && ksLUID != 0:
-			if err := winsplit.EnableKillSwitch(ksLUID, netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
+			if err := winsplit.EnableKillSwitch(ksLUID, netip.MustParseAddr(splitstack.DNSAddr), ksApps...); err != nil {
 				log.Printf("kill switch: %v", err)
 				return
 			}
@@ -200,13 +205,66 @@ func runCore(ctx context.Context, ready func()) error {
 			log.Print("kill switch off")
 		}
 	}
+	var torRuns []*tunnel.Tor
+	// SOCKS5 exits of tunnels ("socks = ..."): programs that speak SOCKS can
+	// use a tunnel directly; the engine dials, nothing leaves the tunnel
+	var (
+		socksMu  sync.Mutex
+		socksCfg *config.Config
+		eng      *splitstack.Engine
+		sm       = &socks.Manager{Log: slog.Default()}
+	)
+	applySocks := func() {
+		socksMu.Lock()
+		defer socksMu.Unlock()
+		if eng == nil || socksCfg == nil {
+			return
+		}
+		exits := map[string]socks.Exit{}
+		for name, t := range socksCfg.Tunnels {
+			if t.Socks == "" || t.Disabled {
+				continue
+			}
+			route := "tunnel:" + name
+			exits[name] = socks.Exit{Listen: t.Socks, Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return eng.DialRoute(ctx, route, network, addr)
+			}}
+		}
+		sm.Update(exits)
+	}
+	defer sm.Close()
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
 			ksMu.Lock()
 			ksWant = c.Daemon.KillSwitchOn()
+			socksMu.Lock()
+			socksCfg = c
+			socksMu.Unlock()
+			applySocks()
+			ksApps = nil
+			for _, t := range c.Tunnels {
+				if t.IsTor() && !t.Disabled {
+					ksApps = tunnel.TorApps()
+					break
+				}
+			}
 			ksMu.Unlock()
 			applyKS()
 		}}
+	m.StartTor = func(name string, t config.Tunnel) (string, error) {
+		tr, err := tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join(dataDir, "tor", name),
+			Bridges: t.Bridges, Isolate: t.Isolate}, slog.Default(), nil)
+		if err != nil {
+			return "", err
+		}
+		torRuns = append(torRuns, tr)
+		return tr.SocksAddr(), nil
+	}
+	defer func() {
+		for _, tr := range torRuns {
+			tr.Down()
+		}
+	}()
 	cfg, warns, err := m.Load()
 	if err != nil {
 		return fmt.Errorf("%s: %w", filepath.Join(dataDir, "shunt.toml"), err)
@@ -277,6 +335,10 @@ func runCore(ctx context.Context, ready func()) error {
 		return err
 	}
 	defer e.Stop()
+	socksMu.Lock()
+	eng = e
+	socksMu.Unlock()
+	applySocks()
 	var netInfo atomic.Value // netdetect.Info
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
@@ -309,6 +371,50 @@ func runCore(ctx context.Context, ready func()) error {
 	m.ApplyFilter()
 	go fm.Run(ctx)
 
+	// clock check (opt-in: [daemon] clock_check): the time as web servers
+	// show it, asked through the default route
+	var clockMu sync.Mutex
+	var clockWarn string
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for first := true; ; first = false {
+			if !first {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+			}
+			socksMu.Lock()
+			on := socksCfg != nil && socksCfg.Daemon.ClockCheck
+			socksMu.Unlock()
+			msg := ""
+			if on {
+				cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+				cl := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DialContext: e.DialDefault, Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
+				off, err := clockcheck.Median(cctx, cl, clockcheck.Sites)
+				cancel()
+				if err == nil && clockcheck.Skewed(off, 90*time.Second) {
+					dir := "ahead of"
+					if off > 0 {
+						dir = "behind"
+					}
+					msg = fmt.Sprintf("the system clock is %s %s the time seen through the default route: handshakes and certificate checks may fail (turn on automatic time in Windows settings)", (off.Abs() / time.Second * time.Second).String(), dir)
+				}
+			}
+			clockMu.Lock()
+			clockWarn = msg
+			clockMu.Unlock()
+		}
+	}()
+
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
 	m.Restart = func() {
@@ -317,7 +423,14 @@ func runCore(ctx context.Context, ready func()) error {
 		default:
 		}
 	}
-	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
+	s := &winsvc.Server{Core: e, Warnings: func() []string {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		if clockWarn == "" {
+			return nil
+		}
+		return []string{clockWarn}
+	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
 		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
 		Procs: func(name string) ([]api.ProcRoute, error) {

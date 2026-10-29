@@ -123,8 +123,8 @@ func remove(session uintptr) {
 // Enable installs the kill switch, replacing an earlier one: the process
 // running it (the service) may send anywhere, apps only through the
 // interface tunLUID (the Shunt adapter), and DNS (port 53) is blocked
-// except towards dns. The filters persist until Disable.
-func Enable(tunLUID uint64, dns netip.Addr) error {
+// except towards dns; apps (full paths) may send anywhere, too. The filters persist until Disable.
+func Enable(tunLUID uint64, dns netip.Addr, apps ...string) error {
 	session, err := openSession()
 	if err != nil {
 		return err
@@ -138,7 +138,7 @@ func Enable(tunLUID uint64, dns netip.Addr) error {
 			return err
 		}
 		steps := []func() error{
-			func() error { return permitWireGuardService(session, bo, 15) },
+			func() error { return permitWireGuardService(session, bo, 15, "") },
 			func() error { return blockDNS([]netip.Addr{dns}, session, bo, 15, 14) },
 			func() error { return permitLoopback(session, bo, 13) },
 			func() error { return permitTunInterface(session, bo, 12, tunLUID) },
@@ -147,6 +147,12 @@ func Enable(tunLUID uint64, dns netip.Addr) error {
 			func() error { return permitNdp(session, bo, 12) },
 			func() error { return permitLAN(session, bo, 11) },
 			func() error { return blockAll(session, bo, 0) },
+		}
+		// programs that carry a tunnel themselves (tor.exe and its transports
+		// for a Tor tunnel): like the service they may send anywhere
+		for _, a := range apps {
+			a := a
+			steps = append([]func() error{func() error { return permitWireGuardService(session, bo, 15, a) }}, steps...)
 		}
 		for _, s := range steps {
 			if err := s(); err != nil {

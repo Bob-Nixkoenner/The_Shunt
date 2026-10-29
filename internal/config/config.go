@@ -203,6 +203,11 @@ type Daemon struct {
 	// does not go out directly, i.e. what is meant for a tunnel must not
 	// leave in clear text before shuntd runs.
 	BootLockdown string `toml:"boot_lockdown,omitempty" json:"boot_lockdown,omitempty"`
+	// ClockCheck (Windows, off by default): every 10 minutes ask a few web
+	// servers for the time through the default route and warn when the
+	// system clock is more than 90 s off (WireGuard handshakes and
+	// certificate checks fail). Linux always does this check.
+	ClockCheck bool `toml:"clock_check,omitempty" json:"clock_check,omitempty"`
 	// PanicKill (default off): switching panic mode on also ends every
 	// program running in a tunnel group (apps with a tunnel rule, `shunt run
 	// --via`). The network is blocked first. Lifting panic does not restart
