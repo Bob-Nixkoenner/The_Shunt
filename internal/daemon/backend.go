@@ -43,6 +43,10 @@ type Backend interface {
 	// Stopped adapts the ruleset for the time shuntd is down: tunnels stay
 	// blocked, direct traffic (DNS included) goes on.
 	Stopped(p *engine.Plan) error
+	// Intact tells whether the rules the last Apply installed are still
+	// there (something else may have flushed them: another VPN, a firewall
+	// tool, the user).
+	Intact() bool
 	// LiftLockdown ends the boot lockdown once the plan is in place.
 	LiftLockdown() error
 	// Cleanup removes every trace (lifts all kill switches).

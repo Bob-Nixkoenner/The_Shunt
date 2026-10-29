@@ -88,8 +88,9 @@ type Daemon struct {
 	linkDNS  sync.Map
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
-	routeSoft string
-	tsOrig    string // system tcp_timestamps before we switched it off
+	routeSoft     string
+	tsOrig        string // system tcp_timestamps before we switched it off
+	rulesRestored int    // times checkRules had to put the firewall rules back
 	// clock check through the default route (see runClockCheck)
 	clockOff time.Duration
 	clockSet bool
@@ -533,6 +534,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	ruleTick := time.NewTicker(time.Second)
+	defer ruleTick.Stop()
 	netTick := time.NewTicker(5 * time.Second)
 	defer netTick.Stop()
 	hup := make(chan os.Signal, 1)
@@ -553,6 +556,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
 			go d.applyNetPrivacy()
+		case <-ruleTick.C:
+			d.checkRules()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -575,6 +580,30 @@ func (d *Daemon) Run(ctx context.Context) error {
 				go d.probeCaptive()
 			}
 		}
+	}
+}
+
+// checkRules notices when something else removed our firewall rules (another
+// VPN, "nft flush ruleset", a firewall tool) and puts them back: without
+// them the kill switch and every route are gone and traffic leaves directly.
+func (d *Daemon) checkRules() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.prep == nil || d.plan == nil || d.Backend.Intact() {
+		return
+	}
+	d.Log.Warn("our firewall rules were removed by something else; putting them back")
+	var held map[string]engine.Group
+	if d.fw != nil {
+		held = d.fw.HeldFor(d.plan.CgroupRoot)
+	}
+	if err := d.Backend.Apply(d.prep.Ruleset, held); err != nil {
+		d.Log.Error("could not restore the firewall rules", "err", err)
+		return
+	}
+	d.rulesRestored++
+	if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+		d.Log.Warn("routing sync", "err", err)
 	}
 }
 
