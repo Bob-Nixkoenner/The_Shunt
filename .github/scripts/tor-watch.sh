@@ -55,4 +55,18 @@ sec=0; grep -qiE 'security|CVE-|TROVE-|denial of service|remote crash' <<<"$tor_
 	issue lyrebird "$(pinned lyrebird)" "$lyre_new" 0 "https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/-/tags"
 [ "$android_new" != "null" ] && [ "$android_new" != "$(pinned tor-android)" ] && \
 	issue tor-android "$(pinned tor-android)" "$android_new" 0 "https://github.com/guardianproject/tor-android/tags (the Guardian Project builds libtor.so; its tor version may lag the newest tor)"
+
+# Windows Tor Expert Bundle (packaging/windows/build.sh): newest Tor Browser version, and the pin must verify
+# (sha256 against the list Tor signed, signature of the Tor Browser Developers key)
+bundle_new=$(bash .github/scripts/tor-bundle.sh newest)
+[ "$bundle_new" != "$(pinned tor-bundle-windows)" ] && [ "$(printf '%s\n%s\n' "$(pinned tor-bundle-windows)" "$bundle_new" | sort -V | tail -1)" = "$bundle_new" ] && \
+	issue "Windows Tor Expert Bundle" "$(pinned tor-bundle-windows)" "$bundle_new" "$sec" "Bundle: https://dist.torproject.org/torbrowser/$bundle_new/ . New pin: sha256 from sha256sums-signed-build.txt (verify the signature: \`bash .github/scripts/tor-bundle.sh verify\` after editing \`tor-bundle-windows\` and \`tor-bundle-windows-sha256\` in packaging/tor-versions.json). The bundle brings its own tor.exe and lyrebird.exe: check the Windows lab tests (Tor route, bridges)."
+if ! out=$(bash .github/scripts/tor-bundle.sh verify 2>&1); then
+	issue "Windows Tor bundle pin" "$(pinned tor-bundle-windows)" "does not verify" 1 "\`tor-bundle.sh verify\` failed: $out"
+fi
+# lyrebird: the pinned commit in packaging/pt/go.mod must be the one of tag lyrebird-<pinned>
+lyre_commit=$(curl -fsS "$GL/tpo%2Fanti-censorship%2Fpluggable-transports%2Flyrebird/repository/tags/lyrebird-$(pinned lyrebird)" | jq -r .commit.id)
+if ! grep -q "lyrebird v0.0.0-[0-9]*-${lyre_commit:0:12}" packaging/pt/go.mod; then
+	issue "lyrebird pin" "$(pinned lyrebird)" "differs from packaging/pt/go.mod" 0 "tag lyrebird-$(pinned lyrebird) is commit $lyre_commit, go.mod pins something else."
+fi
 echo "tor $(pinned tor) -> $tor_new, lyrebird $(pinned lyrebird) -> $lyre_new, tor-android $(pinned tor-android) -> $android_new"

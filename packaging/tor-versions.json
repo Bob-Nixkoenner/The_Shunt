@@ -1,5 +1,8 @@
 {
   "tor": "0.4.9.14",
   "tor-android": "v15-beta-2",
-  "lyrebird": "0.8.1"
+  "lyrebird": "0.8.1",
+  "tor-bundle-windows": "15.0.26",
+  "tor-bundle-windows-sha256": "c1988c701de2f24f7d098d1d6d7f507b58f27740d097f29c246e0524d639b252",
+  "lyrebird-commit": "0b10edbb61e0"
 }

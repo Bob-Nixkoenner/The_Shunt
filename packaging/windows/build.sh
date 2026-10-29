@@ -23,10 +23,13 @@ unzip -oq "$tmp/wintun.zip" -d "$tmp" && cp "$tmp/wintun/bin/amd64/wintun.dll" "
 # Tor (Tor Expert Bundle: tor.exe + lyrebird.exe for obfs4/snowflake/meek), pinned by checksum;
 # installed in <app>\tor, used by tunnels with driver = "tor". NO_TOR=1 leaves it out.
 if [ -z "${NO_TOR:-}" ]; then
-  TOR_VER=15.0.26
-  TOR_SHA=c1988c701de2f24f7d098d1d6d7f507b58f27740d097f29c246e0524d639b252
+  # pins live in packaging/tor-versions.json; .github/scripts/tor-bundle.sh verifies them
+  # (sha256 + GPG signature of the Tor Browser Developers key) and tor-watch.yml checks weekly
+  TOR_VER=$(sed -n 's/.*"tor-bundle-windows": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
+  TOR_SHA=$(sed -n 's/.*"tor-bundle-windows-sha256": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
   curl -fsSL -o "$tmp/tor.tgz" "https://dist.torproject.org/torbrowser/$TOR_VER/tor-expert-bundle-windows-x86_64-$TOR_VER.tar.gz"
   echo "$TOR_SHA  $tmp/tor.tgz" | sha256sum -c -
+  if command -v gpg >/dev/null && [ "${VERIFY_SIG:-1}" = 1 ]; then bash .github/scripts/tor-bundle.sh verify; fi
   mkdir -p "$tmp/torx" "$OUT/tor/pt" "$OUT/tor/licenses"
   tar xzf "$tmp/tor.tgz" -C "$tmp/torx"
   cp "$tmp/torx/tor/tor.exe" "$OUT/tor/"
