@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
@@ -43,6 +44,11 @@ type Status struct {
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
 	DNS      map[string][]string `json:"dns,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
+	// Notices are the same warnings, translatable (see check.Note).
+	Notices []check.Finding `json:"notices,omitempty"`
+	// Findings: the config check (package check); the text is English with
+	// {placeholders}, the front end translates it.
+	Findings []check.Finding `json:"findings,omitempty"`
 	// Network is the matched [[network]] profile ("" = none), NetInfo what
 	// the machine is connected to right now.
 	Network string `json:"network,omitempty"`
@@ -178,6 +184,8 @@ type CheckResult struct {
 	OK       bool     `json:"ok"`
 	Error    string   `json:"error,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
+	// Notices: the same, translatable (see check.Note); Warnings are English.
+	Notices []check.Finding `json:"notices,omitempty"`
 }
 
 // TunnelImport is the body of POST /v1/tunnels.
