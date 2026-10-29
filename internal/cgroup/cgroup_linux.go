@@ -72,6 +72,12 @@ func (m Manager) Procs(rel string) ([]int, error) {
 	return out, nil
 }
 
+// Kill ends every process in the cgroup and its children (cgroup.kill,
+// kernel 5.14+). It needs no CAP_KILL, which shuntd's unit does not have.
+func (m Manager) Kill(rel string) error {
+	return os.WriteFile(filepath.Join(m.abs(rel), "cgroup.kill"), []byte("1"), 0)
+}
+
 // Remove deletes an empty cgroup (errors are ignored by most callers: a
 // group that still has processes simply stays).
 func (m Manager) Remove(rel string) error { return os.Remove(m.abs(rel)) }

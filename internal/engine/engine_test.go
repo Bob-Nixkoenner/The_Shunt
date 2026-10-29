@@ -60,3 +60,38 @@ route = "tunnel:vps"
 		t.Errorf("got %v", got)
 	}
 }
+
+func TestTunnelGroups(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "direct"
+[tunnel.vps]
+config = "x"
+[[rule]]
+app = ["firefox"]
+route = "tunnel:vps"
+[[rule]]
+app = ["steam"]
+route = "direct"
+[[rule]]
+app = ["telegram"]
+route = "block"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Compile(c, "shunt", map[string]TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.TunnelGroups()
+	// the tunnel app's group and the via-group of `shunt run --via`; not the
+	// direct or blocked apps
+	names := map[string]bool{}
+	for _, g := range got {
+		names[g.Name] = true
+	}
+	if len(got) != 2 || !names["app:rule 1"] || !names["via:tunnel:vps"] {
+		t.Errorf("got %v", got)
+	}
+}
