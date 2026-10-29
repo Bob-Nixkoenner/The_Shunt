@@ -717,6 +717,18 @@ func (e *Engine) Stop() {
 	})
 }
 
+// TorNewIdentity asks the built-in Tor of the tunnel for new circuits ("" = done).
+func (e *Engine) TorNewIdentity(name string) string {
+	t := e.tunnel(name)
+	if t == nil || t.tor == nil || t.tor.proc == nil {
+		return "no built-in Tor on this tunnel"
+	}
+	if err := t.tor.proc.NewIdentity(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 func (e *Engine) closeTunnels() {
 	for _, t := range e.allTunnels() {
 		t.close()
@@ -730,7 +742,8 @@ type tunnelStatus struct {
 	Up        bool          `json:"up"`
 	Idle      bool          `json:"idle,omitempty"` // asleep (on demand): made on the first connection
 	Error     string        `json:"error,omitempty"`
-	Handshake int64         `json:"handshake"` // unix seconds, 0 = never
+	Bootstrap int           `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
+	Handshake int64         `json:"handshake"`           // unix seconds, 0 = never
 	RX        int64         `json:"rx"`
 	TX        int64         `json:"tx"`
 	Health    health.Report `json:"health"`

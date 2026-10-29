@@ -339,7 +339,13 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
                 tone,
             )
         }
+        val boot = t.optInt("bootstrap", 100) // built-in Tor only
+        if (boot in 1..99) {
+            androidx.compose.material3.LinearProgressIndicator(progress = { boot / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = LocalShunt.current.accent)
+            KV("Tor", "$boot %")
+        }
         if (asleep) Hint("Not used right now – saves battery. Connects when an app needs it.")
+        else if (!up && boot in 1..99 && t.optString("error").startsWith("Tor is starting")) Unit
         else if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
         else {
             val hs = t.optLong("handshake")
@@ -483,11 +489,14 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
                         if (t.isTor) {
                             if (it.optString("client") == "builtin") {
-                                KV("Tor", "built in", mono = true)
+                                KV("Tor", T("built in"), mono = true)
                                 if (it.optString("bridges").isNotEmpty()) KV("bridges", it.optString("bridges"), mono = true)
                             } else KV("SOCKS", it.optString("socks"), mono = true)
                             it.optString("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
-                            TorHelp(t, builtin = it.optString("client") == "builtin", onSwitch = { c -> save(t.copy(conf = c), "") })
+                            TorHelp(t, builtin = it.optString("client") == "builtin", onSwitch = { c ->
+                                update(settings.copy(tunnels = settings.tunnels.map { x -> if (x.name == t.name) x.copy(conf = c) else x }))
+                                say(T("Saved. Restart the VPN to use it."))
+                            })
                         } else if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
@@ -831,7 +840,21 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, onSwitch: (String) -> Unit) {
     val ctx = LocalContext.current
     if (builtin) {
         Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
-        ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
+            ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
+        }
+        if (java.io.File(ctx.applicationInfo.nativeLibraryDir, "liblyrebird.so").exists()) {
+            val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
+            Hint("Bridges help where Tor is blocked. They are slower.")
+            for (row in listOf(listOf("No bridge" to "", "obfs4" to "obfs4"), listOf("snowflake" to "snowflake", "meek" to "meek"))) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((label, b) in row) {
+                        ShuntButton(label, { onSwitch(Tunnel.TOR_BUILTIN_CONF + if (b.isEmpty()) "" else "bridge = $b\n") }, kind = if (cur == b) Tone.Ok else Tone.Neutral)
+                    }
+                }
+            }
+        }
         return
     }
     if (hasBuiltinTor(ctx)) ShuntButton("Use the built-in Tor", { onSwitch(Tunnel.TOR_BUILTIN_CONF) })

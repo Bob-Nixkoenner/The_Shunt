@@ -130,6 +130,9 @@ func (e *Engine) LeakTest() string {
 }
 
 // ResetStats deletes the traffic totals.
+// TorNewIdentity gives the built-in Tor of the tunnel new circuits; "" = done, else the reason.
+func (e *Engine) TorNewIdentity(name string) string { return e.e.TorNewIdentity(name) }
+
 func (e *Engine) ResetStats() error { return e.e.ResetStats() }
 
 // Stop ends everything; the Engine cannot be started again.

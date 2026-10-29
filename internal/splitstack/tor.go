@@ -207,6 +207,12 @@ func (t *torTunnel) status(name string) tunnelStatus {
 	t.mu.Lock()
 	st.RX, st.TX = t.rx, t.tx
 	t.mu.Unlock()
+	if t.proc != nil {
+		st.Bootstrap = t.proc.Bootstrap()
+		if st.Bootstrap == 0 {
+			st.Bootstrap = 1 // "starting" is visible even before the first answer
+		}
+	}
 	if !st.Up && t.proc != nil {
 		st.Error = fmt.Sprintf("Tor is starting: %d %%", t.proc.Bootstrap())
 		if e := t.proc.Err(); e != "" {
