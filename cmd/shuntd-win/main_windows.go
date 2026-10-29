@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -38,6 +39,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
@@ -203,10 +205,41 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}
 	var torRuns []*tunnel.Tor
+	// SOCKS5 exits of tunnels ("socks = ..."): programs that speak SOCKS can
+	// use a tunnel directly; the engine dials, nothing leaves the tunnel
+	var (
+		socksMu  sync.Mutex
+		socksCfg *config.Config
+		eng      *splitstack.Engine
+		sm       = &socks.Manager{Log: slog.Default()}
+	)
+	applySocks := func() {
+		socksMu.Lock()
+		defer socksMu.Unlock()
+		if eng == nil || socksCfg == nil {
+			return
+		}
+		exits := map[string]socks.Exit{}
+		for name, t := range socksCfg.Tunnels {
+			if t.Socks == "" || t.Disabled {
+				continue
+			}
+			route := "tunnel:" + name
+			exits[name] = socks.Exit{Listen: t.Socks, Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return eng.DialRoute(ctx, route, network, addr)
+			}}
+		}
+		sm.Update(exits)
+	}
+	defer sm.Close()
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
 			ksMu.Lock()
 			ksWant = c.Daemon.KillSwitchOn()
+			socksMu.Lock()
+			socksCfg = c
+			socksMu.Unlock()
+			applySocks()
 			ksApps = nil
 			for _, t := range c.Tunnels {
 				if t.IsTor() && !t.Disabled {
@@ -301,6 +334,10 @@ func runCore(ctx context.Context, ready func()) error {
 		return err
 	}
 	defer e.Stop()
+	socksMu.Lock()
+	eng = e
+	socksMu.Unlock()
+	applySocks()
 	var netInfo atomic.Value // netdetect.Info
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
