@@ -1,0 +1,42 @@
+// Messpunkt 1: which process sent which packet out of which interface.
+// One line per packet: mono_ns pid comm dev proto src dst dport len
+// (pid 0 / comm "-": no user socket owns it, e.g. WireGuard's own UDP)
+
+kprobe:tcp_connect,
+kprobe:udp_sendmsg,
+kprobe:udpv6_sendmsg,
+kprobe:ping_v4_sendmsg,
+kprobe:ping_v6_sendmsg
+{
+	@pid[arg0] = pid;
+	@comm[arg0] = comm;
+}
+
+kprobe:__sk_destruct
+{
+	delete(@pid[arg0]);
+	delete(@comm[arg0]);
+}
+
+kprobe:__dev_queue_xmit
+{
+	$skb = (struct sk_buff *)arg0;
+	if ($skb->dev->name == "lo") { return; }
+	$sk = (uint64)$skb->sk;
+	$p = @pid[$sk];
+	$c = @comm[$sk];
+	$th = $skb->head + $skb->transport_header;
+	$dport = (*(uint8 *)($th + 2) << 8) | *(uint8 *)($th + 3);
+	if ($skb->protocol == 0x0008) {
+		$ip = (struct iphdr *)($skb->head + $skb->network_header);
+		printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $p ? $c : "-", $skb->dev->name,
+			$ip->protocol, ntop($ip->saddr), ntop($ip->daddr), $dport, $skb->len);
+	} else if ($skb->protocol == 0xDD86) {
+		$ip6 = (struct ipv6hdr *)($skb->head + $skb->network_header);
+		printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $p ? $c : "-", $skb->dev->name,
+			$ip6->nexthdr, ntop($ip6->saddr.in6_u.u6_addr8), ntop($ip6->daddr.in6_u.u6_addr8),
+			$dport, $skb->len);
+	}
+}
+
+END { clear(@pid); clear(@comm); }

@@ -73,6 +73,7 @@ type Backend interface {
 type AppWatcher interface {
 	SetTargets(t []appwatch.Target, skip string)
 	SetRecheck(prefix string)
+	SetFast(on bool)
 	Place(pid int, path string)
 	Run(stop <-chan struct{})
 }

@@ -49,7 +49,19 @@ CGMNT=/sys/fs/cgroup
 
 echo "== build"
 mkdir -p "$BIN"
-(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+if [[ -n ${PREBUILT:-} ]]; then
+	# binaries built elsewhere (a machine without the Go version go.mod wants)
+	cp "$PREBUILT"/{shuntd,shunt,fakedns,wireguard-go} "$BIN/"
+else
+	(cd "$ROOT" && go build -o "$BIN/" ./cmd/shuntd ./cmd/shunt ./test/integration/fakedns && go build -o "$BIN/wireguard-go" golang.zx2c4.com/wireguard)
+fi
+
+# Ubuntu 26.04 confines /usr/bin/wg with AppArmor: it may not talk to the
+# sockets of wireguard-go ("Unable to modify interface: Permission denied").
+# A copy elsewhere is not confined.
+mkdir -p "$WORK/wgbin"
+cp "$(command -v wg)" "$WORK/wgbin/wg"
+export PATH="$WORK/wgbin:$PATH"
 
 # Ubuntu 26.04 confines /usr/bin/wg with AppArmor: it may not talk to the
 # sockets of wireguard-go ("Unable to modify interface: Permission denied").
@@ -105,6 +117,7 @@ export SHUNT_LINK_KINDS=cli0=ethernet,cli1=wifi
 export SHUNT_POLKIT_NO_DIALOG=1
 # the leak test probes are started by shuntd: it must know the test's IP echo
 export SHUNT_PROBE_IP_URL=http://10.99.0.1:8080
+export SHUNT_SPEEDTEST_URL=http://10.99.0.1:8080
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
@@ -346,6 +359,13 @@ lt=$(SHUNT_PROBE_IP_URL=$URL fetch_long "$BIN/shunt" -s "$SOCK" leaktest)
 check "leaktest: direct ok" yes "$(grep -qE '^direct +10.99.0.2 +10.99.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: tunnel ok" yes "$(grep -qE '^tunnel:vps +10.66.0.2 +10.66.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: block blocked" yes "$(grep -qE '^block +- +- +BLOCKED' <<<"$lt" && echo yes || echo "no: $lt")"
+
+# speed test: every route measured from inside it; the server sees the exit address of that route
+st=$(cli timeout 120 "$BIN/shunt" -s "$SOCK" speedtest --route direct,tunnel:vps,block --rounds 1 --size-mb 2 --json 2>"$WORK/speed.err" || true)
+[[ -n $st ]] || { echo "speedtest printed nothing:"; cat "$WORK/speed.err"; grep -i speed "$WORK/shuntd.log" | tail -5; }
+sp() { python3 -c 'import json,sys; r={x["route"]:x for x in json.load(sys.stdin)["routes"]}; x=r.get(sys.argv[1], {}); print(x.get("state","missing"), x.get("ip",""), "mbit" if x.get("down_mbit",0) > 0 and x.get("up_mbit",0) > 0 and x.get("latency_ms",0) > 0 else "nomeasure", "block" if "block" in r else "")' "$1" <<<"$st"; }
+check "speedtest: direct measured, exit address direct" "ok 10.99.0.2 mbit " "$(sp direct)"
+check "speedtest: tunnel measured, exit address is the tunnel's" "ok 10.66.0.2 mbit " "$(sp tunnel:vps)"
 check "status lists tunnel" yes "$(shunt status | gq '^vps .*up/' && echo yes || echo no)"
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 
@@ -641,6 +661,27 @@ check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps'
 check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
+# six programs that start at the same time, a moment after joining the scope
+# (a burst: exec events can get lost; a program that opens its first socket
+# within milliseconds of the exec cannot be caught by watching, that is the
+# start guard's job and needs a known rule)
+cp "$(command -v curl)" "$BIN/fwcurl3"
+fwfast() { # program url: joins the scope, 0.6 s, exec
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; sleep 0.6; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 35 '"$2"
+}
+FASTPIDS=()
+for i in 1 2 3 4 5 6; do
+	fwfast "$BIN/fwcurl3" $URL >"$WORK/fast$i.out" &
+	FASTPIDS+=($!)
+done
+got=
+for _ in $(seq 80); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $got ]] && break; sleep 0.05; done
+# (the question times out after 4 s in this config: look at once)
+check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
+shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
+wait "${FASTPIDS[@]}" || true
+check "fast starts: all six went through the tunnel after the decision" "6 10.66.0.2" "$(cat "$WORK"/fast?.out | sort | uniq -c | tr -s ' ' | sed 's/^ //' | tr '\n' ' ' | sed 's/ $//')"
+shunt firewall forget "$BIN/fwcurl3" || true # the later "forget" check looks for fwcurl
 # started from the system-service cgroup: a caller without a terminal (CI
 # runner, ssh without -t) is held by the app firewall itself otherwise
 insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }
