@@ -203,6 +203,18 @@ type Daemon struct {
 	// does not go out directly, i.e. what is meant for a tunnel must not
 	// leave in clear text before shuntd runs.
 	BootLockdown string `toml:"boot_lockdown,omitempty" json:"boot_lockdown,omitempty"`
+	// PanicKill (default off): switching panic mode on also ends every
+	// program running in a tunnel group (apps with a tunnel rule, `shunt run
+	// --via`). The network is blocked first. Lifting panic does not restart
+	// them.
+	PanicKill bool `toml:"panic_kill,omitempty" json:"panic_kill,omitempty"`
+	// TCPTimestamps (Linux): "" or "keep" leaves the system setting; "off"
+	// switches TCP timestamps off while shuntd runs (the system value comes
+	// back when it stops). Timestamps tell a neighbour on a foreign network
+	// how long this machine has been up (uptime fingerprint, also to
+	// recognise it again); tunnel traffic is not affected, only what leaves
+	// directly.
+	TCPTimestamps string `toml:"tcp_timestamps,omitempty" json:"tcp_timestamps,omitempty"`
 }
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
@@ -523,6 +535,9 @@ func (c *Config) Validate() error {
 	}
 	if b := c.Daemon.BootLockdown; b != "" && b != "auto" && b != "on" && b != "off" {
 		return fmt.Errorf("daemon.boot_lockdown %q (auto | on | off)", b)
+	}
+	if v := c.Daemon.TCPTimestamps; v != "" && v != "keep" && v != "off" {
+		return fmt.Errorf("daemon.tcp_timestamps %q (keep | off)", v)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {

@@ -53,7 +53,7 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	if err != nil || st == nil {
 		return View{Level: Bad, Unreachable: true, Title: i18n.T("The Shunt service is not reachable"), Down: map[string]bool{}, DNSDown: map[string]bool{}}
 	}
-	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: st.Warnings}
+	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: warnTexts(st)}
 	v.Captive = st.Captive == "portal"
 	v.Pending = st.Pending
 	for r := range st.DNSFailing {
@@ -180,6 +180,19 @@ func Diff(prev, cur View, first bool) []Notification {
 		if !cur.Down[n] && reachable(cur) {
 			out = append(out, Notification{i18n.T("Tunnel {name} is back", "name", n), "", false})
 		}
+	}
+	return out
+}
+
+// warnTexts: the daemon's warnings in the user's language (an older daemon
+// sends only the English ones).
+func warnTexts(st *api.Status) []string {
+	if len(st.Notices) == 0 {
+		return st.Warnings
+	}
+	out := make([]string, len(st.Notices))
+	for i, n := range st.Notices {
+		out[i] = n.Local()
 	}
 	return out
 }
