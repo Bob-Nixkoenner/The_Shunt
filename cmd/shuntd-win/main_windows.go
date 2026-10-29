@@ -37,6 +37,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
@@ -370,6 +371,50 @@ func runCore(ctx context.Context, ready func()) error {
 	m.ApplyFilter()
 	go fm.Run(ctx)
 
+	// clock check (opt-in: [daemon] clock_check): the time as web servers
+	// show it, asked through the default route
+	var clockMu sync.Mutex
+	var clockWarn string
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for first := true; ; first = false {
+			if !first {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+			}
+			socksMu.Lock()
+			on := socksCfg != nil && socksCfg.Daemon.ClockCheck
+			socksMu.Unlock()
+			msg := ""
+			if on {
+				cctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+				cl := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DialContext: e.DialDefault, Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
+				off, err := clockcheck.Median(cctx, cl, clockcheck.Sites)
+				cancel()
+				if err == nil && clockcheck.Skewed(off, 90*time.Second) {
+					dir := "ahead of"
+					if off > 0 {
+						dir = "behind"
+					}
+					msg = fmt.Sprintf("the system clock is %s %s the time seen through the default route: handshakes and certificate checks may fail (turn on automatic time in Windows settings)", (off.Abs() / time.Second * time.Second).String(), dir)
+				}
+			}
+			clockMu.Lock()
+			clockWarn = msg
+			clockMu.Unlock()
+		}
+	}()
+
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
 	m.Restart = func() {
@@ -378,7 +423,14 @@ func runCore(ctx context.Context, ready func()) error {
 		default:
 		}
 	}
-	s := &winsvc.Server{Core: e, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
+	s := &winsvc.Server{Core: e, Warnings: func() []string {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		if clockWarn == "" {
+			return nil
+		}
+		return []string{clockWarn}
+	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
 		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
 		Procs: func(name string) ([]api.ProcRoute, error) {

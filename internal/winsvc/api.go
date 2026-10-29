@@ -59,6 +59,8 @@ type Server struct {
 	// Procs lists running processes by file name with the route they were
 	// started in ("" = none; GET /v1/procs). nil: empty list.
 	Procs func(name string) ([]api.ProcRoute, error)
+	// Warnings adds service warnings to the status (clock check); may be nil.
+	Warnings func() []string
 }
 
 // engineStatus is the part of splitstack's Status JSON we map.
@@ -117,6 +119,9 @@ func (s *Server) Status() (api.Status, error) {
 	}
 	if s.NetInfo != nil {
 		st.NetInfo = s.NetInfo()
+	}
+	if s.Warnings != nil {
+		st.Warnings = append(st.Warnings, s.Warnings()...)
 	}
 	if s.Cfg != nil {
 		if def, lists, on := s.Cfg.FilterStatus(); on {
