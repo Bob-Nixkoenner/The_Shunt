@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -81,7 +82,7 @@ route = "link:wifi"
 				t.Error("tor-all: the rule has no proxy port of its own")
 			}
 		}
-		warns := strings.Join(p.Warnings, " ")
+		warns := strings.Join(check.Texts(p.Notes), " ")
 		if all != "" && !strings.Contains(warns, "tor-all") {
 			t.Errorf("tor-all=%q: no warning", all)
 		}

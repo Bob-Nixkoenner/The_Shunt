@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# Lab gateway control (runs as root on shunt-lab-gw).
+#
+#   labctl mode <name>        switch the network's behaviour (see modes below)
+#   labctl apply              re-apply the current mode (boot)
+#   labctl netem <args>|off   tc netem on the lab LAN, e.g. "loss 30% delay 200ms"
+#   labctl cap start <id>     start capturing the lab LAN into cap/<id>/
+#   labctl cap stop <id>      stop it, add the unbound/dnsmasq/web log slices
+#   labctl scan <id> [ip]     nmap the client (TCP all ports, UDP top 200, IPv4+v6)
+#   labctl client             print the newest client lease: "mac ipv4 ipv6-ll"
+#   labctl status
+#
+# Modes:
+#   normal        plain café Wi-Fi: DHCP, SLAAC (ULA), DNS via our unbound
+#   tunnelvision  DHCP option 121 pushes 0/1 + 128/1 via us (CVE-2024-3661)
+#   localnet      LAN is 1.1.1.0/24 and we are 1.1.1.1 (TunnelCrack LocalNet)
+#   rogue-ra      RA with a global-looking prefix + RDNSS = us (IPv6 bypass)
+#   dnsspoof      every DNS answer points at us
+#   captive       all HTTP goes to our portal, nothing else gets out
+#   tunnelkill    tunnel endpoints are unreachable, everything else works
+#   portsonly     only tcp/80 + tcp/443 get out (hotel/guest Wi-Fi)
+#   dhcpv6        like normal, but IPv6 addresses come from stateful DHCPv6 (clients send their DUID)
+set -euo pipefail
+
+LAN=${LAN:-enp0s8}
+WAN=${WAN:-enp0s3}
+ETC=/etc/shuntlab
+RUN=/var/lib/shuntlab/run
+CAP=/var/lib/shuntlab/cap
+LOG=/var/log/shuntlab
+GW4=10.77.0.1
+ULA=fd77:77::
+GUA=2001:db8:77:: # documentation prefix: looks global, routes nowhere
+MODES="normal tunnelvision localnet rogue-ra dnsspoof captive tunnelkill portsonly dhcpv6"
+
+# tunnel endpoints the clients use (ip:port/proto per line), for tunnelkill
+ENDPOINTS=$ETC/endpoints
+# (lab.sh gw-setup writes it from LAB_ENDPOINTS in local.env)
+
+die() { echo "labctl: $*" >&2; exit 1; }
+
+write_dnsmasq() { # $1 = mode
+	local range="10.77.0.100,10.77.0.199,255.255.255.0,1h" router=$GW4 dns=$GW4 extra=""
+	case $1 in
+	tunnelvision) extra="dhcp-option=121,0.0.0.0/1,$GW4,128.0.0.0/1,$GW4,10.77.0.0/24,0.0.0.0" ;;
+	localnet) range="1.1.1.100,1.1.1.199,255.255.255.0,1h" router=1.1.1.1 dns=1.1.1.1 ;;
+	esac
+	local ra="dhcp-range=$ULA,ra-only,64,1h"
+	[[ $1 == dhcpv6 ]] && ra="dhcp-range=${ULA}100,${ULA}1ff,64,1h" # managed flag: clients ask by DHCPv6
+	[[ $1 == rogue-ra ]] && ra="dhcp-range=$GUA,ra-only,64,1h
+ra-param=$LAN,high,60
+dhcp-option=option6:dns-server,[${GUA}1]"
+	cat >"$RUN/dnsmasq.conf" <<EOF
+interface=$LAN
+bind-interfaces
+port=0
+dhcp-authoritative
+dhcp-range=$range
+dhcp-option=3,$router
+dhcp-option=6,$dns
+enable-ra
+$ra
+$extra
+dhcp-leasefile=$RUN/leases
+log-dhcp
+log-facility=$LOG/dnsmasq.log
+EOF
+}
+
+write_unbound() { # $1 = mode
+	local ifs="interface: $GW4
+	interface: ${ULA}1" spoof=""
+	[[ $1 == localnet ]] && ifs+="
+	interface: 1.1.1.1"
+	[[ $1 == rogue-ra ]] && ifs+="
+	interface: ${GUA}1"
+	[[ $1 == dnsspoof || $1 == captive ]] && spoof='local-zone: "." redirect
+	local-data: ". A '$GW4'"
+	local-data: ". AAAA '${ULA}1'"'
+	cat >"$RUN/unbound.conf" <<EOF
+server:
+	$ifs
+	interface-automatic: no
+	access-control: 0.0.0.0/0 allow
+	access-control: ::/0 allow
+	do-ip6: yes
+	username: ""
+	chroot: ""
+	directory: "$RUN"
+	pidfile: "$RUN/unbound.pid"
+	logfile: "$LOG/unbound.log"
+	log-time-ascii: yes
+	log-queries: yes
+	log-replies: yes
+	verbosity: 1
+	# canary names: answer locally so the lab web server sees the follow-up
+	local-zone: "shuntlab.test." redirect
+	local-data: "shuntlab.test. A $GW4"
+	local-data: "shuntlab.test. AAAA ${ULA}1"
+	$spoof
+forward-zone:
+	name: "."
+	forward-addr: 9.9.9.9
+	forward-addr: 149.112.112.112
+EOF
+}
+
+write_nft() { # $1 = mode
+	local fwd="" pre=""
+	case $1 in
+	tunnelkill)
+		[[ -s $ENDPOINTS ]] || { echo "no $ENDPOINTS: set LAB_ENDPOINTS in local.env, run lab.sh gw-setup" >&2; exit 1; }
+		while IFS=: read -r ip rest; do
+			[[ -n $ip ]] || continue
+			fwd+="		ip daddr $ip ${rest#*/} dport ${rest%/*} counter drop
+"
+		done <"$ENDPOINTS" ;;
+	captive)
+		pre="		iifname \"$LAN\" tcp dport 80 dnat ip to $GW4:80
+"
+		fwd="		iifname \"$LAN\" counter drop
+" ;;
+	portsonly)
+		fwd="		iifname \"$LAN\" tcp dport { 80, 443 } accept
+		iifname \"$LAN\" counter drop
+" ;;
+	esac
+	nft -f - <<EOF
+table inet shuntlab
+delete table inet shuntlab
+table inet shuntlab {
+	chain forward {
+		type filter hook forward priority 0; policy accept;
+		# mode rules first: they must also cut flows that are already established
+$fwd		ct state established,related accept
+		# no IPv6 uplink on purpose: anything v6 leaving the LAN is a finding
+		iifname "$LAN" meta nfproto ipv6 counter drop
+	}
+	chain prerouting {
+		type nat hook prerouting priority -100;
+$pre	}
+	chain postrouting {
+		type nat hook postrouting priority 100;
+		oifname "$WAN" meta nfproto ipv4 masquerade
+	}
+}
+EOF
+}
+
+addrs() { # $1 = mode
+	ip link set "$LAN" up
+	ip addr flush dev "$LAN" scope global
+	ip addr add $GW4/24 dev "$LAN"
+	ip -6 addr add ${ULA}1/64 dev "$LAN" nodad
+	[[ $1 == localnet ]] && ip addr add 1.1.1.1/24 dev "$LAN"
+	[[ $1 == rogue-ra ]] && ip -6 addr add ${GUA}1/64 dev "$LAN" nodad
+	return 0
+}
+
+apply() {
+	local mode
+	mode=$(cat $ETC/mode)
+	[[ " $MODES " == *" $mode "* ]] || die "unknown mode $mode"
+	addrs "$mode"
+	write_dnsmasq "$mode"
+	write_unbound "$mode"
+	write_nft "$mode"
+}
+
+restart() {
+	systemctl restart shuntlab-dnsmasq shuntlab-unbound shuntlab-web 2>/dev/null || true
+}
+
+case ${1:-status} in
+apply) apply ;;
+mode)
+	[[ " $MODES " == *" ${2:-} "* ]] || die "mode: one of $MODES"
+	echo "$2" >$ETC/mode
+	apply
+	restart
+	echo "mode $2" ;;
+netem)
+	tc qdisc del dev "$LAN" root 2>/dev/null || true
+	[[ ${2:-off} == off ]] || tc qdisc add dev "$LAN" root netem ${*:2}
+	tc qdisc show dev "$LAN" ;;
+cap)
+	id=${3:?id}
+	d=$CAP/$id
+	case ${2:-} in
+	start)
+		rm -rf "$d"; mkdir -p "$d"
+		date +%s.%N >"$d/start"
+		cat $ETC/mode >"$d/mode"
+		for f in unbound dnsmasq web; do stat -c %s "$LOG/$f.log" 2>/dev/null >"$d/.$f.off" || echo 0 >"$d/.$f.off"; done
+		setsid tcpdump -i "$LAN" -U -s 0 -w "$d/gw.pcap" -Z root </dev/null >/dev/null 2>"$d/tcpdump.err" &
+		echo $! >"$d/.tcpdump.pid"
+		sleep 1 ;;
+	stop)
+		[[ -f $d/.tcpdump.pid ]] || die "no capture $id"
+		sleep 1
+		kill "$(cat "$d/.tcpdump.pid")" 2>/dev/null || true
+		sleep 1
+		date +%s.%N >"$d/stop"
+		for f in unbound dnsmasq web; do
+			off=$(cat "$d/.$f.off")
+			tail -c +$((off + 1)) "$LOG/$f.log" 2>/dev/null >"$d/$f.log" || true
+		done
+		rm -f "$d"/.*.off "$d/.tcpdump.pid"
+		chmod -R a+rX "$d"
+		ls "$d" ;;
+	*) die "cap start|stop <id>" ;;
+	esac ;;
+scan)
+	id=${2:?id}
+	d=$CAP/$id
+	mkdir -p "$d"
+	read -r _ ip4 ip6 < <("$0" client)
+	ip4=${3:-$ip4}
+	nmap -Pn -sS -p- --min-rate 3000 -oN "$d/scan-tcp4.txt" "$ip4" >/dev/null
+	nmap -Pn -sU --top-ports 200 --min-rate 1000 -oN "$d/scan-udp4.txt" "$ip4" >/dev/null
+	if [[ -n ${ip6:-} ]]; then
+		nmap -6 -Pn -sS -p- --min-rate 3000 -oN "$d/scan-tcp6.txt" "$ip6%$LAN" >/dev/null
+	fi
+	chmod -R a+rX "$d"
+	grep -hE '^[0-9]+/(tcp|udp) ' "$d"/scan-*.txt || echo "no open ports" ;;
+client)
+	# newest lease; v6 link-local from the neighbour table
+	# IPv4 lines only (expiry mac ip host id); DHCPv6 leases (mode dhcpv6) have an IAID there
+	read -r _ mac ip4 _ < <(awk '$2 ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/' "$RUN/leases" 2>/dev/null | sort -rn | head -1) ||
+		read -r ip4 _ mac _ < <(ip -4 neigh show dev "$LAN" | grep lladdr | head -1) ||
+		die "no client seen yet"
+	ll=$(ip -6 neigh show dev "$LAN" | awk -v m="$mac" '$3==m && $1 ~ /^fe80/ {print $1; exit}')
+	if [[ -z $ll ]]; then
+		ping -6 -c1 -W1 "ff02::1%$LAN" >/dev/null 2>&1 || true
+		ll=$(ip -6 neigh show dev "$LAN" | awk -v m="$mac" '$3==m && $1 ~ /^fe80/ {print $1; exit}')
+	fi
+	echo "$mac $ip4 ${ll:-}" ;;
+status)
+	echo "mode: $(cat $ETC/mode)"
+	ip -br addr show dev "$LAN"
+	systemctl is-active shuntlab-dnsmasq shuntlab-unbound shuntlab-web | paste -sd' '
+	tc qdisc show dev "$LAN" | grep netem || true
+	cat "$RUN/leases" 2>/dev/null || true ;;
+*) sed -n '2,/^set -e/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 1 ;;
+esac

@@ -15,6 +15,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -30,6 +31,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/speedtest"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 )
@@ -51,6 +53,8 @@ type Server struct {
 
 	token string
 	host  string
+
+	speed speedtest.Job // the speed test the page started (one at a time)
 }
 
 // AppSource lists programs and sets the route of one by its ID ("" route =
@@ -432,6 +436,29 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]string{"ok": "1"})
+	})
+	mux.HandleFunc("GET /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, s.speed.State())
+	})
+	mux.HandleFunc("POST /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
+		var o speedtest.Options
+		if !decode(w, r, &o) {
+			return
+		}
+		o.MaxPause = 0 // the default pause; not for callers to shorten
+		started, err := s.speed.Start(s.Client.SpeedStep, o)
+		switch {
+		case err != nil:
+			writeErr(w, http.StatusBadRequest, err)
+		case !started:
+			writeErr(w, http.StatusConflict, errors.New("a speed test is running already"))
+		default:
+			writeJSON(w, s.speed.State())
+		}
+	})
+	mux.HandleFunc("DELETE /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
+		s.speed.Cancel()
+		writeJSON(w, s.speed.State())
 	})
 	mux.HandleFunc("POST /api/leaktest", func(w http.ResponseWriter, r *http.Request) {
 		var st api.Status

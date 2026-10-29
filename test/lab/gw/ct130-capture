@@ -1,0 +1,21 @@
+#!/bin/sh
+# Forced command on CT130 for the lab key of a second controller (desktop):
+# only the capture commands run-test.sh sends. Install as
+# /usr/local/sbin/shuntlab-capture and in root's authorized_keys:
+#   restrict,command="/usr/local/sbin/shuntlab-capture" ssh-ed25519 AAAA… shuntlab-ct130@<host>
+c=$SSH_ORIGINAL_COMMAND
+f='/tmp/shuntlab-[A-Za-z0-9]*-[0-9]*-[0-9]*\.pcap'
+if [ "$c" = true ]; then
+	exit 0
+elif printf '%s' "$c" | grep -Eqx "nohup timeout 900 tcpdump -i wgt0 -U -s 0 -w $f </dev/null >/dev/null 2>&1 & echo \\\$!"; then
+	exec sh -c "$c"
+elif printf '%s' "$c" | grep -Eqx 'kill [0-9]+; sleep 1'; then
+	pid=${c#kill }; pid=${pid%%;*}
+	# only our own tcpdump
+	grep -q tcpdump "/proc/$pid/cmdline" 2>/dev/null && kill "$pid"; sleep 1
+elif printf '%s' "$c" | grep -Eqx "(cat|rm -f) $f"; then
+	exec sh -c "$c"
+else
+	echo "shuntlab-capture: not allowed: $c" >&2
+	exit 1
+fi

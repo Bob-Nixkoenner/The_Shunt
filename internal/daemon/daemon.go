@@ -30,6 +30,8 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/captive"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
@@ -89,8 +91,13 @@ type Daemon struct {
 	linkDNS  sync.Map
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
-	routeSoft string
-	restart   chan struct{}
+	routeSoft     string
+	tsOrig        string // system tcp_timestamps before we switched it off
+	rulesRestored int    // times checkRules had to put the firewall rules back
+	// clock check through the default route (see runClockCheck)
+	clockOff time.Duration
+	clockSet bool
+	restart  chan struct{}
 
 	fw *firewall.Manager
 
@@ -128,7 +135,9 @@ type Prepared struct {
 	// DirectSystem: the direct route uses the system resolvers, re-read
 	// whenever resolv.conf changes (not in DNSUpstreams).
 	DirectSystem bool
-	Warnings     []string
+	Notes        []check.Finding // warnings of the daemon (translatable, see check.Note)
+	// Findings: what the config check (package check) says about the config.
+	Findings []check.Finding
 	// Network is the matched [[network]] ("" = none: daemon.default_route).
 	Network string
 }
@@ -239,6 +248,9 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		p.Confs[name] = wc
 		p.Hashes[name] = hash
 		ti := engine.TunnelInfo{Iface: t.Interface, HasV4: wc.HasIPv4(), HasV6: wc.HasIPv6()}
+		for _, a := range wc.Addresses {
+			ti.Addrs = append(ti.Addrs, a.Addr())
+		}
 		for _, peer := range wc.Peers {
 			ti.AllowedIPs = append(ti.AllowedIPs, peer.AllowedIPs...)
 		}
@@ -275,9 +287,9 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 				}
 			}
 			eff = &cc
-			p.Warnings = append(p.Warnings, fmt.Sprintf("tor-all: everything goes through the Tor tunnel %q (shunt tor-all off ends it)", torAll))
+			p.Notes = append(p.Notes, check.Note("tor.all", "tor-all: everything goes through the Tor tunnel \"{name}\" (shunt tor-all off ends it)", "name", torAll))
 		} else {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("tor-all names %q, which is not a running Tor tunnel: the switch is ignored (shunt tor-all off clears it)", env.TorAll))
+			p.Notes = append(p.Notes, check.Note("tor.allbad", "tor-all names \"{name}\", which is not a running Tor tunnel: the switch is ignored (shunt tor-all off clears it)", "name", env.TorAll))
 		}
 	}
 	if env.Pass {
@@ -292,7 +304,7 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 			}
 		}
 		eff = &cc
-		p.Warnings = append(p.Warnings, "pass: everything goes direct, past tunnels and blocks, until it ends")
+		p.Notes = append(p.Notes, check.Note("pass", "Pass: everything goes direct, past tunnels and blocks, until it ends."))
 	}
 	ifaces := map[string]string{}
 	for k, l := range ls {
@@ -315,7 +327,7 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	}
 	for _, r := range usedLinks(eff, p.Plan) {
 		if ifaces[r] == "" {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("route link:%s is used, but no %s connection is up: its traffic is blocked until it is", r, linkLabel(r)))
+			p.Notes = append(p.Notes, check.Note("link.down", "Route link:{route} is used, but no {link} connection is up: its traffic is blocked until it is.", "route", r, "link", linkLabel(r)))
 		}
 	}
 	if env.Backend == nil {
@@ -327,9 +339,8 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	}
 	if p.Plan.DNS {
 		p.prepareDNS(eff)
-	} else {
-		p.Warnings = append(p.Warnings, "DNS routing is disabled: DNS queries leak past the tunnels")
-	}
+	} // DNS routing off: the config check says so (dns.off)
+	p.Findings = check.Config(c, check.Env{OVPN: func(n string) *ovpnconf.Config { return p.OVPN[n] }})
 	return p, nil
 }
 
@@ -389,12 +400,12 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			}
 		}
 		if len(p.DNSUpstreams[route]) == 0 {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("tunnel %q has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names", name))
+			p.Notes = append(p.Notes, check.Note("tunnel.nodns", "Tunnel “{tunnel}” has no DNS server (DNS= in its config or dns = \"<upstream>\"): its apps cannot resolve names.", "tunnel", name))
 		}
 	}
 	p.addDNSFallback(c)
 	if d := c.Filter().Duplicates(); len(d) > 0 { // harmless: every list is loaded once
-		p.Warnings = append(p.Warnings, fmt.Sprintf("dns_filter: %d redundant list entries (e.g. %s); Configure → DNS filter → Tidy lists removes them", len(d), d[0]))
+		p.Notes = append(p.Notes, check.Note("filter.redundant", "dns_filter: {n} redundant list entries (e.g. {example}); Configure → DNS filter → Tidy lists removes them.", "n", strconv.Itoa(len(d)), "example", d[0]))
 	}
 	// Domain rules trust the DNS server of their route: on a foreign network a
 	// plain-DNS "direct" resolver could answer with any IP and so pull other
@@ -406,12 +417,12 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 	}
 	for _, r := range p.Plan.DomainRules() {
 		if r.Route.Kind == config.RouteDirect && directPlain && len(c.Tunnels) > 0 {
-			p.Warnings = append(p.Warnings, fmt.Sprintf("rule %q routes domains to direct using plain DNS: a hostile network could answer with other IPs and pull that traffic out of the tunnel. Use an encrypted dns.direct (tls:// or https://) when travelling", r.Name))
+			p.Notes = append(p.Notes, check.Note("rule.plaindns", "Rule “{rule}” routes domains to direct using plain DNS: a hostile network could answer with other IPs and pull that traffic out of the tunnel. Use an encrypted dns.direct (tls:// or https://) when travelling.", "rule", r.Name))
 			break
 		}
 	}
 	if nsswitchUsesResolved() {
-		p.Warnings = append(p.Warnings, "/etc/nsswitch.conf uses 'resolve' (systemd-resolved via varlink): those lookups bypass per-route DNS. Fix: sudo shuntd fix-nsswitch")
+		p.Notes = append(p.Notes, check.Note("nsswitch", "/etc/nsswitch.conf uses 'resolve' (systemd-resolved via varlink): those lookups bypass per-route DNS. Fix: sudo shuntd fix-nsswitch"))
 	}
 }
 
@@ -533,6 +544,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	go d.filter.Run(ctx)
+	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
 	go func() {
 		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
@@ -580,6 +592,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	ruleTick := time.NewTicker(time.Second)
+	defer ruleTick.Stop()
 	netTick := time.NewTicker(5 * time.Second)
 	defer netTick.Stop()
 	hup := make(chan os.Signal, 1)
@@ -600,6 +614,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 				d.Log.Error("reload failed, keeping previous state", "err", err)
 			}
 			go d.applyNetPrivacy()
+		case <-ruleTick.C:
+			d.checkRules()
 		case <-tick.C:
 			d.watchdog()
 			go d.checkHealth()
@@ -622,6 +638,94 @@ func (d *Daemon) Run(ctx context.Context) error {
 				go d.probeCaptive()
 			}
 		}
+	}
+}
+
+// checkRules notices when something else removed our firewall rules (another
+// VPN, "nft flush ruleset", a firewall tool) and puts them back: without
+// them the kill switch and every route are gone and traffic leaves directly.
+func (d *Daemon) checkRules() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.prep == nil || d.plan == nil || d.Backend.Intact() {
+		return
+	}
+	d.Log.Warn("our firewall rules were removed by something else; putting them back")
+	var held map[string]engine.Group
+	if d.fw != nil {
+		held = d.fw.HeldFor(d.plan.CgroupRoot)
+	}
+	if err := d.Backend.Apply(d.prep.Ruleset, held); err != nil {
+		d.Log.Error("could not restore the firewall rules", "err", err)
+		return
+	}
+	d.rulesRestored++
+	if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
+		d.Log.Warn("routing sync", "err", err)
+	}
+}
+
+// clockLimit: a system clock more off than this compared with the time seen
+// through the tunnel gets a warning.
+const clockLimit = 90 * time.Second
+
+// runClockCheck compares the system clock with web servers asked over the
+// default route, when that is a tunnel (the idea of Tails/Whonix; never in
+// the clear on a foreign network). It only warns, it sets nothing.
+func (d *Daemon) runClockCheck(ctx context.Context) {
+	wait := 25 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = 20 * time.Minute
+		d.mu.Lock()
+		viaTunnel := d.plan != nil && d.plan.DefaultRoute.Kind == config.RouteTunnel
+		d.mu.Unlock()
+		if !viaTunnel {
+			continue
+		}
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		off, err := clockcheck.Median(cctx, d.downloadClient(), clockcheck.Sites)
+		cancel()
+		if err != nil {
+			wait = 2 * time.Minute // tunnel not up yet, try again soon
+			continue
+		}
+		d.mu.Lock()
+		was := d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit)
+		d.clockOff, d.clockSet = off, true
+		d.mu.Unlock()
+		if clockcheck.Skewed(off, clockLimit) {
+			d.Log.Warn("the system clock differs from the time seen through the tunnel", "offset", off.Round(time.Second))
+		} else if was {
+			d.Log.Info("the system clock agrees with the time seen through the tunnel again")
+		}
+	}
+}
+
+// applyTCPTimestamps follows daemon.tcp_timestamps: "off" switches TCP
+// timestamps off (remembering the system value), anything else gives the
+// remembered value back. Caller holds d.mu.
+func (d *Daemon) applyTCPTimestamps(want string) {
+	switch {
+	case want == "off" && d.tsOrig == "":
+		d.tsOrig = tcpTimestamps()
+		if d.tsOrig == "" || d.tsOrig == "0" {
+			d.tsOrig = ""
+			return
+		}
+		if err := setTCPTimestamps("0"); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot switch off", "err", err)
+			d.tsOrig = ""
+		}
+	case want != "off" && d.tsOrig != "":
+		if err := setTCPTimestamps(d.tsOrig); err != nil {
+			d.Log.Warn("tcp_timestamps: cannot restore", "err", err)
+		}
+		d.tsOrig = ""
 	}
 }
 
@@ -684,10 +788,11 @@ func (d *Daemon) reload(selfCgroup string) error {
 		}
 		d.filter.Configure(p.Config.Filter(), used)
 	}
-	for _, w := range p.Warnings {
-		d.Log.Warn(w)
+	for _, n := range p.Notes {
+		d.Log.Warn(n.Text())
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	d.applyTCPTimestamps(p.Config.Daemon.TCPTimestamps)
 	wasPassing := d.passing
 	d.passing = d.ov.Passing(time.Now())
 	if wasPassing && !d.passing {
@@ -709,6 +814,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.fw.Placed = d.watcher.Place
 	}
 	d.watcher.SetRecheck(path.Join(p.Plan.CgroupRoot, "apps", "ask"))
+	fwMode := p.Config.FirewallMode(p.Network)
+	d.watcher.SetFast(fwMode == config.FirewallAsk || fwMode == config.FirewallBlock)
 	var targets []appwatch.Target
 	for _, r := range p.Plan.AppRules() {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
@@ -1103,6 +1210,7 @@ func (d *Daemon) linkAbsent(route string) bool {
 func (d *Daemon) shutdown() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.applyTCPTimestamps("keep")
 	for _, t := range d.tunnels {
 		t.Down()
 	}
@@ -1281,6 +1389,42 @@ func (d *Daemon) routes() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(out)
 	})
+	mux.HandleFunc("POST /v1/speedtest/step", func(w http.ResponseWriter, r *http.Request) {
+		var req api.SpeedStepRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := req.Step.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Route == "block" {
+			writeErr(w, http.StatusBadRequest, errors.New("the block route has no internet to measure"))
+			return
+		}
+		d.mu.Lock()
+		g, ok := d.plan.Group(engine.ViaGroupName(req.Route))
+		d.mu.Unlock()
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown route %q", req.Route))
+			return
+		}
+		// one at a time: two measurements would disturb each other
+		select {
+		case speedSlot <- struct{}{}:
+			defer func() { <-speedSlot }()
+		case <-r.Context().Done():
+			return
+		}
+		out, err := d.runIn(r.Context(), g.Path, 60*time.Second, "speedtest-step", req.Step.Provider, req.Step.Kind, strconv.FormatInt(req.Step.Bytes, 10))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
+	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -1344,7 +1488,7 @@ func (d *Daemon) routes() http.Handler {
 			writeJSON(w, http.StatusOK, api.CheckResult{Error: err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: check.Texts(p.Notes), Notices: p.Notes})
 	})
 	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
@@ -1370,7 +1514,7 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: check.Texts(p.Notes), Notices: p.Notes})
 	})
 	mux.HandleFunc("POST /v1/tunnels", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
@@ -1387,7 +1531,7 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: p.Warnings})
+		writeJSON(w, http.StatusOK, api.CheckResult{OK: true, Warnings: check.Texts(p.Notes), Notices: p.Notes})
 	})
 	mux.HandleFunc("DELETE /v1/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
@@ -1572,8 +1716,13 @@ func (d *Daemon) routes() http.Handler {
 		}
 		d.mu.Lock()
 		d.panic = req.On
+		killTunnelApps := req.On && d.cfg.Daemon.PanicKill
+		plan := d.plan
 		d.mu.Unlock()
 		d.Log.Warn("panic mode", "on", req.On)
+		if killTunnelApps { // the network is closed already
+			d.Log.Warn("panic: ended programs in tunnel groups", "count", d.killGroups(plan.TunnelGroups()))
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux
@@ -1581,6 +1730,9 @@ func (d *Daemon) routes() http.Handler {
 
 // probeSlots limits concurrent leak test probes (one per route is normal).
 var probeSlots = make(chan struct{}, 16)
+
+// speedSlot: one speed measurement at a time.
+var speedSlot = make(chan struct{}, 1)
 
 // runProbe runs `shuntd probe` (fixed targets, nothing the caller chooses)
 // inside the cgroup at path, so its traffic takes exactly that route. The
@@ -1592,9 +1744,15 @@ func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	return d.runIn(ctx, path, 30*time.Second, "probe")
+}
+
+// runIn runs `shuntd args...` inside the cgroup at path and returns what it
+// prints; it starts only after it was moved (it waits for a line on stdin).
+func (d *Daemon) runIn(ctx context.Context, path string, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, selfExe(), "probe")
+	cmd := exec.CommandContext(ctx, selfExe(), args...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -1623,7 +1781,7 @@ func (d *Daemon) status() api.Status {
 	ovs := d.ov.Status(time.Now())
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, TorAll: d.torAll, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
-		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version}
+		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
 	}
@@ -1631,7 +1789,11 @@ func (d *Daemon) status() api.Status {
 		st.Inbound = d.plan.Inbound.Mode
 		st.InboundAsk = d.inboundAsk()
 	}
-	st.Warnings = append(st.Warnings, d.prep.Warnings...)
+	notes := append([]check.Finding(nil), d.prep.Notes...)
+	st.Findings = d.prep.Findings
+	if d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit) {
+		notes = append(notes, check.Note("clock", "The system clock differs by {offset} from the time seen through the tunnel (negative: the clock is ahead): handshakes and certificate checks may fail (fix it with timedatectl set-ntp true).", "offset", d.clockOff.Round(time.Second).String()))
+	}
 	if d.book != nil {
 		st.Traffic = d.book.Summaries(time.Now())
 	}
@@ -1639,12 +1801,12 @@ func (d *Daemon) status() api.Status {
 		for _, u := range ups {
 			st.DNS[route] = append(st.DNS[route], u.String())
 			if su, ok := u.(*dnsproxy.SystemUpstream); ok && len(su.Servers()) == 0 {
-				st.Warnings = append(st.Warnings, "no system DNS resolver found for the direct route (yet): set dns.direct if this persists")
+				notes = append(notes, check.Note("dns.nosystem", "No system DNS resolver found for the direct route (yet): set dns.direct if this persists."))
 			}
 		}
 	}
 	if d.captive == captive.Portal {
-		st.Warnings = append(st.Warnings, fmt.Sprintf("Wi-Fi login page in the way%s: tunnels can't connect until you log in – shunt captive (or the tray: Wi-Fi login page)", quoteSSID(d.netInfo.SSID)))
+		notes = append(notes, check.Note("captive", "Wi-Fi login page in the way{ssid}: tunnels can't connect until you log in – shunt captive (or the tray: Wi-Fi login page).", "ssid", quoteSSID(d.netInfo.SSID)))
 	}
 	if d.proxy != nil {
 		if f := d.proxy.Health(); len(f) > 0 {
@@ -1666,11 +1828,11 @@ func (d *Daemon) status() api.Status {
 			}
 			sort.Strings(routes)
 			for _, r := range routes {
-				hint := ""
 				if strings.HasPrefix(r, "tunnel:") {
-					hint = " – is that DNS server reachable through the tunnel? A server in your home network usually is not"
+					notes = append(notes, check.Note("dns.fails.tunnel", "DNS for {route} fails ({error}) – is that DNS server reachable through the tunnel? A server in your home network usually is not.", "route", r, "error", f[r]))
+				} else {
+					notes = append(notes, check.Note("dns.fails", "DNS for {route} fails ({error}).", "route", r, "error", f[r]))
 				}
-				st.Warnings = append(st.Warnings, fmt.Sprintf("DNS for %s fails (%s)%s", r, f[r], hint))
 			}
 		}
 	}
@@ -1693,7 +1855,7 @@ func (d *Daemon) status() api.Status {
 				ts.Error = e
 			}
 			if o, ok := t.(tunnel.Pusher); ok && o.Connected() && d.cfg.Tunnels[n].DNS == "" && len(o.DNS()) == 0 {
-				st.Warnings = append(st.Warnings, fmt.Sprintf("tunnel %q: the OpenVPN server pushed no DNS server; set dns = \"<upstream>\" for it", n))
+				notes = append(notes, check.Note("ovpn.nodns", "Tunnel “{tunnel}”: the OpenVPN server pushed no DNS server; set dns = \"<upstream>\" for it.", "tunnel", n))
 			}
 		}
 		st.Tunnels = append(st.Tunnels, ts)
@@ -1737,6 +1899,9 @@ func (d *Daemon) status() api.Status {
 		}
 		st.Rules = append(st.Rules, line)
 	}
+	st.Notices = uniqueNotes(notes)
+	notes = st.Notices
+	st.Warnings = check.Texts(notes) // English, for clients that do not know Notices
 	return st
 }
 
@@ -1940,4 +2105,41 @@ func (d *Daemon) adoptable(p *peer, pid int) error {
 		return fmt.Errorf("already in route %s", from)
 	}
 	return nil
+}
+
+// uniqueNotes drops repeats (the same warning from several routes).
+func uniqueNotes(ns []check.Finding) []check.Finding {
+	seen := map[string]bool{}
+	var out []check.Finding
+	for _, n := range ns {
+		k := n.Msg + "\x00" + fmt.Sprint(n.Vals)
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// killGroups ends every process in the given groups and returns how many.
+func (d *Daemon) killGroups(gs []engine.Group) int {
+	n := 0
+	for _, g := range gs {
+		pids, err := d.cg.Procs(g.Path)
+		if err != nil {
+			continue
+		}
+		// cgroup.kill first: shuntd's unit has no CAP_KILL, a plain kill of
+		// another user's program fails with EPERM
+		if k, ok := d.cg.(interface{ Kill(rel string) error }); ok && len(pids) > 0 && k.Kill(g.Path) == nil {
+			n += len(pids)
+			continue
+		}
+		for _, pid := range pids {
+			if pr, err := os.FindProcess(pid); err == nil && pr.Kill() == nil {
+				n++
+			}
+		}
+	}
+	return n
 }
