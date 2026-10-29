@@ -110,6 +110,7 @@ export SHUNT_LINK_KINDS=cli0=ethernet,cli1=wifi
 export SHUNT_POLKIT_NO_DIALOG=1
 # the leak test probes are started by shuntd: it must know the test's IP echo
 export SHUNT_PROBE_IP_URL=http://10.99.0.1:8080
+export SHUNT_SPEEDTEST_URL=http://10.99.0.1:8080
 # two DNS servers: one reachable directly, one only through the tunnel
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.66.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
@@ -351,6 +352,13 @@ lt=$(SHUNT_PROBE_IP_URL=$URL fetch_long "$BIN/shunt" -s "$SOCK" leaktest)
 check "leaktest: direct ok" yes "$(grep -qE '^direct +10.99.0.2 +10.99.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: tunnel ok" yes "$(grep -qE '^tunnel:vps +10.66.0.2 +10.66.0.2 +OK' <<<"$lt" && echo yes || echo "no: $lt")"
 check "leaktest: block blocked" yes "$(grep -qE '^block +- +- +BLOCKED' <<<"$lt" && echo yes || echo "no: $lt")"
+
+# speed test: every route measured from inside it; the server sees the exit address of that route
+st=$(cli timeout 120 "$BIN/shunt" -s "$SOCK" speedtest --route direct,tunnel:vps,block --rounds 1 --size-mb 2 --json 2>"$WORK/speed.err" || true)
+[[ -n $st ]] || { echo "speedtest printed nothing:"; cat "$WORK/speed.err"; grep -i speed "$WORK/shuntd.log" | tail -5; }
+sp() { python3 -c 'import json,sys; r={x["route"]:x for x in json.load(sys.stdin)["routes"]}; x=r.get(sys.argv[1], {}); print(x.get("state","missing"), x.get("ip",""), "mbit" if x.get("down_mbit",0) > 0 and x.get("up_mbit",0) > 0 and x.get("latency_ms",0) > 0 else "nomeasure", "block" if "block" in r else "")' "$1" <<<"$st"; }
+check "speedtest: direct measured, exit address direct" "ok 10.99.0.2 mbit " "$(sp direct)"
+check "speedtest: tunnel measured, exit address is the tunnel's" "ok 10.66.0.2 mbit " "$(sp tunnel:vps)"
 check "status lists tunnel" yes "$(shunt status | gq '^vps .*up/' && echo yes || echo no)"
 check "unknown group rejected" rejected "$(cli "$BIN/shunt" -s "$SOCK" run --group nope -- true >/dev/null 2>&1 && echo accepted || echo rejected)"
 

@@ -1278,6 +1278,42 @@ func (d *Daemon) routes() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(out)
 	})
+	mux.HandleFunc("POST /v1/speedtest/step", func(w http.ResponseWriter, r *http.Request) {
+		var req api.SpeedStepRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := req.Step.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Route == "block" {
+			writeErr(w, http.StatusBadRequest, errors.New("the block route has no internet to measure"))
+			return
+		}
+		d.mu.Lock()
+		g, ok := d.plan.Group(engine.ViaGroupName(req.Route))
+		d.mu.Unlock()
+		if !ok {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown route %q", req.Route))
+			return
+		}
+		// one at a time: two measurements would disturb each other
+		select {
+		case speedSlot <- struct{}{}:
+			defer func() { <-speedSlot }()
+		case <-r.Context().Done():
+			return
+		}
+		out, err := d.runIn(r.Context(), g.Path, 60*time.Second, "speedtest-step", req.Step.Provider, req.Step.Kind, strconv.FormatInt(req.Step.Bytes, 10))
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(out)
+	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -1555,6 +1591,9 @@ func (d *Daemon) routes() http.Handler {
 // probeSlots limits concurrent leak test probes (one per route is normal).
 var probeSlots = make(chan struct{}, 16)
 
+// speedSlot: one speed measurement at a time.
+var speedSlot = make(chan struct{}, 1)
+
 // runProbe runs `shuntd probe` (fixed targets, nothing the caller chooses)
 // inside the cgroup at path, so its traffic takes exactly that route. The
 // probe waits for a line on stdin: it is moved before it sends anything.
@@ -1565,9 +1604,15 @@ func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	return d.runIn(ctx, path, 30*time.Second, "probe")
+}
+
+// runIn runs `shuntd args...` inside the cgroup at path and returns what it
+// prints; it starts only after it was moved (it waits for a line on stdin).
+func (d *Daemon) runIn(ctx context.Context, path string, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, selfExe(), "probe")
+	cmd := exec.CommandContext(ctx, selfExe(), args...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
