@@ -46,6 +46,7 @@ document.addEventListener("click", (e) => {
   api("POST", "/api/open-url", { url: a.href }).catch((err) => toast(err.message));
 });
 
+// daemon warnings are English; the Tor ones get a translation here
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -128,14 +129,20 @@ function render() {
   const panic = $("#panic");
   panic.textContent = st.panic ? "Release panic" : "PANIC";
   panic.classList.toggle("on", st.panic);
+  panic.title = st.panic ? T("Lift panic mode (needs the admin password)")
+    : st.panic_kill ? T("Blocks all traffic except loopback and ends every program running in a tunnel group.")
+    : T("Blocks all traffic except loopback. Running programs keep running (daemon.panic_kill = true also ends programs in tunnel groups).");
 
   const inq = st.inbound_ask;
-  $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+  $("#banners").replaceChildren(...[...new Set(noticeTexts(st))].map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+    ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
     ...(inq ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
       el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
     ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
     ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, T("Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another {n} min. Connections opened meanwhile are cut when it ends.", { n: Math.ceil(st.pass_left / 60) }))] : []));
+
+  renderChecks(st.findings || []);
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
@@ -146,7 +153,7 @@ function render() {
       el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
-          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : "starting: " + t.bootstrap + " %") : "no")] : [
+          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, T("through {via}", { via: t.via }))] : []),
@@ -162,8 +169,8 @@ function render() {
         ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "Tor builds fresh circuits for new connections (open connections keep theirs)",
           onclick: async (e) => {
             e.target.disabled = true;
-            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast("New identity: " + t.name + " builds fresh circuits for new connections"); }
-            catch (err) { toast("New identity failed: " + err.message); }
+            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }
+            catch (err) { toast(T("New identity failed: {error}", { error: err.message })); }
             setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
           } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
@@ -760,3 +767,22 @@ async function decideFw(route) {
   } catch (e) { toast(e.message); }
 }
 $("#fw-later").addEventListener("click", () => { if (fwCurrent) fwLater.add(fwCurrent.id); closeFw(); });
+
+// Security check (package check): the service sends English sentences with
+// {placeholders}; T() fills and translates them. Only what is really bad
+// shows as a red banner (above). The rest is a quiet, folded list: a few
+// notes about the setup must not look like a broken app.
+function renderChecks(fs) {
+  const box = $("#checks");
+  const rest = fs.filter((f) => f.level !== "bad");
+  box.hidden = !rest.length;
+  if (!rest.length) return;
+  box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
+  $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}))));
+}
+
+// The daemon's warnings, translated here (notices: English sentence + values);
+// an older daemon sends only st.warnings (English).
+function noticeTexts(st) {
+  return st.notices && st.notices.length ? st.notices.map((n) => T(n.msg, n.vals || {})) : (st.warnings || []);
+}
