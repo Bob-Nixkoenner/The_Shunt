@@ -370,6 +370,8 @@ func TestUniqueNotes(t *testing.T) {
 	got := uniqueNotes([]check.Finding{a, a, check.Note("x", "DNS for {route} fails.", "route", "link:wifi")})
 	if len(got) != 2 {
 		t.Fatalf("got %d", len(got))
+	}
+}
 
 // Something else flushes our rules: the next check puts them back (once),
 // and does nothing while they are there.
