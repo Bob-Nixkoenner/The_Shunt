@@ -1,0 +1,11 @@
+table inet shunt_lockdown
+delete table inet shunt_lockdown
+table inet shunt_lockdown {
+	chain out {
+		type filter hook output priority -290; policy drop;
+		oifname "lo" accept
+		udp sport 68 udp dport 67 accept
+		udp sport 546 udp dport 547 accept
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+	}
+}

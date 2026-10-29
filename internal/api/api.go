@@ -21,6 +21,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/speedtest"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -31,7 +32,8 @@ type Status struct {
 	Traffic      map[string]stats.Summary `json:"traffic,omitempty"`
 	DefaultRoute string                   `json:"default_route"`
 	Panic        bool                     `json:"panic"`
-	PassLeft     int64                    `json:"pass_left,omitempty"` // seconds of a running pass
+	PanicKill    bool                     `json:"panic_kill,omitempty"` // panic also ends tunnel apps (daemon.panic_kill)
+	PassLeft     int64                    `json:"pass_left,omitempty"`  // seconds of a running pass
 	Tunnels      []TunnelStatus           `json:"tunnels"`
 	Groups       []GroupStatus            `json:"groups"`
 	Rules        []string                 `json:"rules"`
@@ -127,6 +129,13 @@ type AdoptRequest struct {
 // (POST /v1/probe, answer: probe.Result).
 type ProbeRequest struct {
 	Route string `json:"route"`
+}
+
+// SpeedStepRequest asks the daemon to run one speed measurement inside a route
+// (POST /v1/speedtest/step, answer: speedtest.Measurement).
+type SpeedStepRequest struct {
+	Route string         `json:"route"`
+	Step  speedtest.Step `json:"step"`
 }
 
 // ConfigView is returned by GET /v1/config. Private keys are never included.
@@ -245,6 +254,11 @@ func NewClient(socket string) *Client {
 
 // Do performs a request; in and out may be nil.
 func (c *Client) Do(method, path string, in, out any) error {
+	return c.DoCtx(context.Background(), method, path, in, out)
+}
+
+// DoCtx is Do with a context (cancel a long request).
+func (c *Client) DoCtx(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -253,7 +267,7 @@ func (c *Client) Do(method, path string, in, out any) error {
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, "http://shuntd"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, "http://shuntd"+path, body)
 	if err != nil {
 		return err
 	}
@@ -280,6 +294,13 @@ func (c *Client) Probe(_ context.Context, route string) ([]byte, error) {
 	var raw json.RawMessage
 	err := c.Do("POST", "/v1/probe", ProbeRequest{Route: route}, &raw)
 	return raw, err
+}
+
+// SpeedStep runs one speed measurement in route; it fits speedtest.Runner.
+func (c *Client) SpeedStep(ctx context.Context, route string, s speedtest.Step) (speedtest.Measurement, error) {
+	var m speedtest.Measurement
+	err := c.DoCtx(ctx, "POST", "/v1/speedtest/step", SpeedStepRequest{Route: route, Step: s}, &m)
+	return m, err
 }
 
 // Listening answers GET /v1/listening: what on this machine waits for

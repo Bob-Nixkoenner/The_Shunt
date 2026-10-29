@@ -3,6 +3,11 @@
 ## Unreleased
 
 - Linux: shuntd checks every second that its firewall rules are still loaded and puts them back (with a warning in the log) when something else removed them – another VPN, a firewall tool, `nft flush ruleset`. Before, traffic left directly until the next reload (lab N01).
+- App firewall (`ask`/`block`): programs that start at once are held too – shuntd rescans when exec events are lost and every 250 ms while the firewall is on.
+- Panic mode: one renderer for the panic, boot lockdown and the coming emergency tables (output byte-identical, golden tests). `panic_kill = true` also ends every program in a tunnel group when panic goes on (default off; via `cgroup.kill`, no extra capability).
+- shuntd compares the system clock with the time web servers report through the tunnel (every 20 minutes, default route a tunnel) and warns in `shunt status` when it is more than 90 seconds off. It sets nothing, and nothing is asked in the clear.
+- Linux: `daemon.tcp_timestamps = "off"` switches TCP timestamps off while shuntd runs (default keeps the system setting): direct connections no longer show a neighbour the uptime.
+- Linux: ICMP timestamp, address-mask and info requests are not answered (no clock/uptime fingerprint for neighbours).
 
 ## v0.7.1-rc17
 
