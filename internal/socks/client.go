@@ -146,3 +146,74 @@ func UserOf(ctx context.Context) string {
 	u, _ := ctx.Value(userKey{}).(string)
 	return u
 }
+
+// Resolve asks a Tor SOCKS5 server (the RESOLVE extension, command 0xF0) to
+// resolve name, so no DNSPort is needed. Tor answers with one address.
+func Resolve(ctx context.Context, addr, user, name string) (netip.Addr, error) {
+	d := net.Dialer{Timeout: 10 * time.Second}
+	c, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	defer c.Close()
+	if dl, ok := ctx.Deadline(); ok {
+		_ = c.SetDeadline(dl)
+	} else {
+		_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
+	}
+	method := byte(0)
+	if user != "" {
+		method = 2
+	}
+	if _, err := c.Write([]byte{ver5, 1, method}); err != nil {
+		return netip.Addr{}, err
+	}
+	var m [2]byte
+	if _, err := io.ReadFull(c, m[:]); err != nil {
+		return netip.Addr{}, err
+	}
+	if m[0] != ver5 || m[1] != method {
+		return netip.Addr{}, errors.New("socks server refused the authentication method")
+	}
+	if method == 2 {
+		req := append([]byte{1, byte(len(user))}, user...)
+		req = append(req, 1, 'x')
+		if _, err := c.Write(req); err != nil {
+			return netip.Addr{}, err
+		}
+		var a [2]byte
+		if _, err := io.ReadFull(c, a[:]); err != nil || a[1] != 0 {
+			return netip.Addr{}, errors.New("socks authentication failed")
+		}
+	}
+	if len(name) == 0 || len(name) > 255 {
+		return netip.Addr{}, errors.New("bad name")
+	}
+	req := append([]byte{ver5, 0xF0, 0, atypName, byte(len(name))}, name...)
+	req = append(req, 0, 0)
+	if _, err := c.Write(req); err != nil {
+		return netip.Addr{}, err
+	}
+	var h [4]byte
+	if _, err := io.ReadFull(c, h[:]); err != nil {
+		return netip.Addr{}, err
+	}
+	if h[1] != repOK {
+		return netip.Addr{}, &ReplyError{Code: h[1]}
+	}
+	switch h[3] {
+	case atypIPv4:
+		var b [4]byte
+		if _, err := io.ReadFull(c, b[:]); err != nil {
+			return netip.Addr{}, err
+		}
+		return netip.AddrFrom4(b), nil
+	case atypIPv6:
+		var b [16]byte
+		if _, err := io.ReadFull(c, b[:]); err != nil {
+			return netip.Addr{}, err
+		}
+		return netip.AddrFrom16(b), nil
+	}
+	return netip.Addr{}, errors.New("resolve: unexpected answer type")
+}

@@ -14,7 +14,7 @@ import (
 
 func TestParseTorConf(t *testing.T) {
 	c, err := parseTorConf("")
-	if err != nil || c.Socks != "127.0.0.1:9050" || c.DNS != "127.0.0.1:5400" {
+	if err != nil || c.Socks != "127.0.0.1:9050" || c.DNS != "" {
 		t.Errorf("defaults: %+v %v", c, err)
 	}
 	c, err = parseTorConf("# orbot\nsocks = 127.0.0.1:9150\ndns=127.0.0.1:5353\n")
@@ -131,5 +131,73 @@ func TestEngineTorTunnelType(t *testing.T) {
 	}
 	if v4, v6 := wt.families(); !v4 || v6 {
 		t.Error("families")
+	}
+}
+
+// Without "dns" names are resolved through the SOCKS port (RESOLVE, 0xF0).
+func TestTorResolveViaSocks(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				b := make([]byte, 64)
+				io.ReadFull(c, b[:3]) // greeting
+				c.Write([]byte{5, 2})
+				io.ReadFull(c, b[:2+5+2]) // 1, len("shunt"), user, 1, 'x'
+				c.Write([]byte{1, 0})
+				n, _ := c.Read(b)
+				if n < 5 || b[1] != 0xF0 {
+					return
+				}
+				if string(b[5:5+int(b[4])]) == "nope.example" {
+					c.Write([]byte{5, 4, 0, 1, 0, 0, 0, 0, 0, 0})
+					return
+				}
+				c.Write([]byte{5, 0, 0, 1, 192, 0, 2, 7, 0, 0})
+			}()
+		}
+	}()
+	tt, _ := newTorTunnel("socks = " + l.Addr().String())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d, err := tt.dial(ctx, false, netip.AddrPortFrom(torDNS, 53))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	query := func(name string, qtype byte) []byte {
+		q := []byte{0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+		for _, lab := range strings.Split(name, ".") {
+			q = append(q, byte(len(lab)))
+			q = append(q, lab...)
+		}
+		q = append(q, 0, 0, qtype, 0, 1)
+		d.Write(q)
+		d.SetReadDeadline(time.Now().Add(3 * time.Second))
+		buf := make([]byte, 512)
+		n, err := d.Read(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return buf[:n]
+	}
+	r := query("www.example.org", 1)
+	if r[0] != 0x12 || r[3]&0xF != 0 || r[7] != 1 || string(r[len(r)-4:]) != "\xc0\x00\x02\x07" {
+		t.Errorf("A answer: %x", r)
+	}
+	if r := query("www.example.org", 28); r[3]&0xF != 0 || r[7] != 0 {
+		t.Errorf("AAAA answer: %x", r)
+	}
+	if r := query("nope.example", 1); r[3]&0xF != 3 {
+		t.Errorf("failure should be NXDOMAIN: %x", r)
 	}
 }

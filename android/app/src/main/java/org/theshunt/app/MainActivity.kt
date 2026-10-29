@@ -482,7 +482,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
                         if (t.isTor) {
                             KV("SOCKS", it.optString("socks"), mono = true)
-                            KV("DNS", it.optString("dns"), mono = true)
+                            it.optString("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
                             TorHelp()
                         } else if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
@@ -815,7 +815,7 @@ private fun RoutePicker(current: String, choices: List<String>, onPick: (String)
 private fun TorHelp() {
     val ctx = LocalContext.current
     val orbot = remember { ctx.packageManager.getLaunchIntentForPackage(Tunnel.ORBOT) }
-    Hint("Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – start it (without its own VPN mode) and keep it running.")
+    Hint("Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – turn on Power User Mode in its settings (so it runs without its own VPN), start it and keep it running.")
     if (orbot != null) {
         ShuntButton("Open Orbot", { ctx.startActivity(orbot) })
     } else {
