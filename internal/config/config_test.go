@@ -53,6 +53,7 @@ func TestParseInvalid(t *testing.T) {
 		"bad driver":     "[tunnel.a]\nconfig=\"x\"\ndriver=\"tap\"\n",
 		"bad default":    "[daemon]\ndefault_route=\"somewhere\"\n",
 		"bad lockdown":   "[daemon]\nboot_lockdown=\"yes\"\n",
+		"bad timestamps": "[daemon]\ntcp_timestamps=\"no\"\n",
 		"auth on wg":     "[tunnel.a]\nconfig=\"x\"\nauth=\"p\"\n",
 		"via direct":     "[tunnel.a]\nconfig=\"x\"\nvia=\"direct\"\n",
 		"via self":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:a\"\n",

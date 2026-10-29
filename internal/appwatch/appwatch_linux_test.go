@@ -102,7 +102,7 @@ func TestConnectorLive(t *testing.T) {
 	if os.Getenv("SHUNT_LIVE") == "" {
 		t.Skip("set SHUNT_LIVE=1 (root) to test the real process connector")
 	}
-	ch, err := listenExec()
+	ch, _, err := listenExec()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,4 +124,19 @@ func FuzzParseExecEvents(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_ = parseExecEvents(b) // must never panic on garbage from the socket
 	})
+}
+
+func TestScanInterval(t *testing.T) {
+	w := &Watcher{}
+	if got := w.interval(true); got != scanSlow {
+		t.Fatalf("connector, no firewall: %v", got)
+	}
+	w.SetFast(true)
+	if got := w.interval(true); got != scanFast {
+		t.Fatalf("connector, app firewall on: %v", got)
+	}
+	w.SetFast(false)
+	if got := w.interval(false); got != scanFast {
+		t.Fatalf("no connector: %v", got)
+	}
 }

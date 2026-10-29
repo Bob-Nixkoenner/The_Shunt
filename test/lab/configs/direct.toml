@@ -1,0 +1,17 @@
+# Like base, but everything without a rule goes direct (the vm-tests setup).
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
