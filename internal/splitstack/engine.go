@@ -101,6 +101,10 @@ type config struct {
 	// and a private folder for its files. Empty: no OpenVPN tunnels.
 	OpenVPN string `json:"openvpn"`
 	WorkDir string `json:"work_dir"`
+	// TorExe: the Tor program the app brings (libtor.so); PTExe: lyrebird, for
+	// bridges. Empty: only Orbot (a Tor client on the phone) can be used.
+	TorExe string `json:"tor_exe"`
+	PTExe  string `json:"pt_exe"`
 }
 
 func parseConfig(js string) (*config, error) {
@@ -222,6 +226,8 @@ type Engine struct {
 	onDemand atomic.Bool
 	dnsGood  dnsGoods
 	ovpnExe  string // openvpn program, "" = none
+	torExe   string // built-in Tor, "" = none
+	ptExe    string // lyrebird, "" = none
 	workDir  string
 
 	mu         sync.RWMutex
@@ -277,7 +283,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	if o.NewBind == nil {
 		o.NewBind = conn.NewDefaultBind
 	}
-	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, mtu: c.MTU, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir}
+	e := &Engine{o: o, tunnels: map[string]*wgTunnel{}, mtu: c.MTU, dns: netip.MustParseAddr(DNSAddr), ovpnExe: c.OpenVPN, workDir: c.WorkDir, torExe: c.TorExe, ptExe: c.PTExe}
 	book, err := stats.Open(c.StatsPath)
 	if err != nil {
 		e.logf("traffic statistics in memory only: %v", err)
