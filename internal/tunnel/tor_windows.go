@@ -170,7 +170,9 @@ func (t *Tor) torrc(plugins []string) (string, error) {
 	}
 	var b strings.Builder
 	w := func(f string, a ...any) { fmt.Fprintf(&b, f+"\n", a...) }
-	fwd := func(p string) string { return strings.ReplaceAll(p, `\`, "/") }
+	// the 8.3 names have neither spaces nor quotes: backslashes are fine in the
+	// torrc and keep tor from calling the "C:/..." path relative
+	fwd := func(p string) string { return p }
 	w("DataDirectory %s", fwd(short(t.spec.DataDir)))
 	w("Log notice stdout")
 	w("SafeLogging 1")
@@ -186,7 +188,7 @@ func (t *Tor) torrc(plugins []string) (string, error) {
 	w("VirtualAddrNetworkIPv4 10.192.0.0/10")
 	w("ControlPort 127.0.0.1:%d", t.controlPort)
 	w("CookieAuthentication 1")
-	w("CookieAuthFile %s", fwd(short(t.spec.DataDir))+"/control_auth_cookie")
+	w("CookieAuthFile %s", fwd(short(t.spec.DataDir))+`\control_auth_cookie`)
 	w("ClientUseIPv6 1")
 	if len(t.spec.Bridges) > 0 {
 		w("UseBridges 1")
