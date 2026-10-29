@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ import (
 //
 //	socks = 127.0.0.1:9050
 //	dns   = 127.0.0.1:5400   (only if the client has a fixed DNSPort)
+//	client = builtin         (the Tor the app brings; socks/dns are then chosen by the app)
+//	bridge = snowflake       (builtin only; obfs4 | snowflake | meek or a bridge line, repeatable)
 
 const typeTor = "tor"
 
@@ -37,7 +40,13 @@ var torDNS = netip.MustParseAddr("10.111.0.54")
 // torUser is the SOCKS user name: Tor gives each different one its own circuits.
 const torUser = "shunt"
 
-type torConf struct{ Socks, DNS string }
+type torConf struct {
+	Socks, DNS string
+	// Builtin: run the Tor the app brings (torProc) instead of talking to Orbot.
+	Builtin bool
+	// Bridges: shorthands ("obfs4", "snowflake", "meek") or bridge lines (builtin Tor only).
+	Bridges []string
+}
 
 func parseTorConf(s string) (torConf, error) {
 	c := torConf{Socks: "127.0.0.1:9050"}
@@ -52,6 +61,21 @@ func parseTorConf(s string) (torConf, error) {
 			return c, fmt.Errorf("tor: line %q is not key = value", l)
 		}
 		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		switch k {
+		case "client":
+			switch v {
+			case "builtin":
+				c.Builtin = true
+			case "orbot", "external":
+				c.Builtin = false
+			default:
+				return c, fmt.Errorf("tor: client = %q (builtin | orbot)", v)
+			}
+			continue
+		case "bridge":
+			c.Bridges = append(c.Bridges, v)
+			continue
+		}
 		if _, err := netip.ParseAddrPort(v); err != nil || !netip.MustParseAddrPort(v).Addr().IsLoopback() {
 			return c, fmt.Errorf("tor: %s = %q must be a loopback address with a port (127.0.0.1:9050)", k, v)
 		}
@@ -61,7 +85,7 @@ func parseTorConf(s string) (torConf, error) {
 		case "dns":
 			c.DNS = v
 		default:
-			return c, fmt.Errorf("tor: unknown key %q (socks | dns)", k)
+			return c, fmt.Errorf("tor: unknown key %q (client | socks | dns | bridge)", k)
 		}
 	}
 	return c, nil
@@ -69,6 +93,7 @@ func parseTorConf(s string) (torConf, error) {
 
 type torTunnel struct {
 	conf torConf
+	proc *torProc // builtin Tor, nil for Orbot
 
 	mu      sync.Mutex
 	checked time.Time
@@ -88,8 +113,31 @@ func newTorTunnel(conf string) (*torTunnel, error) {
 	return &torTunnel{conf: c}, nil
 }
 
+// startBuiltin runs the Tor the app brings and points the tunnel at it.
+func (t *torTunnel) startBuiltin(exe, pt, dir string, logf func(string, ...any)) error {
+	if exe == "" || dir == "" {
+		return errors.New("this build has no built-in Tor (use Orbot)")
+	}
+	p, err := startTorProc(exe, dir, t.conf.Bridges, pt, logf)
+	if err != nil {
+		return err
+	}
+	t.proc = p
+	t.conf.Socks = p.Socks()
+	return nil
+}
+
+func (t *torTunnel) close() {
+	if t.proc != nil {
+		t.proc.Close()
+	}
+}
+
 // reachable: something listens on the SOCKS port (checked at most every 3 s).
 func (t *torTunnel) reachable() bool {
+	if t.proc != nil && t.proc.Bootstrap() < 100 {
+		return false // not through the network yet: its apps wait (blocked), no direct fallback
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if time.Since(t.checked) < 3*time.Second {
@@ -117,11 +165,15 @@ func (t *torTunnel) dial(ctx context.Context, tcp bool, ap netip.AddrPort) (net.
 	if ap.Addr() == torDNS {
 		return nil, errors.New("no TCP to the Tor DNS address")
 	}
+	user := torUser
+	if u := socks.UserOf(ctx); u != "" {
+		user = u
+	}
 	target := ap.String()
 	if name, ok := t.onionName(ap.Addr()); ok {
 		target = net.JoinHostPort(name, fmt.Sprint(ap.Port()))
 	}
-	c, err := socks.DialVia(ctx, "tcp", t.conf.Socks, torUser, target)
+	c, err := socks.DialVia(ctx, "tcp", t.conf.Socks, user, target)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +207,13 @@ func (t *torTunnel) status(name string) tunnelStatus {
 	t.mu.Lock()
 	st.RX, st.TX = t.rx, t.tx
 	t.mu.Unlock()
-	if !st.Up {
+	if !st.Up && t.proc != nil {
+		st.Error = fmt.Sprintf("Tor is starting: %d %%", t.proc.Bootstrap())
+		if e := t.proc.Err(); e != "" {
+			st.Error += " (" + e + ")"
+		}
+		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
+	} else if !st.Up {
 		st.Error = "no Tor client answers on " + t.conf.Socks + " (start Orbot)"
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 	}
@@ -167,6 +225,11 @@ func (e *Engine) newTorWT(tc tunnelConf) (*wgTunnel, error) {
 	tt, err := newTorTunnel(tc.Conf)
 	if err != nil {
 		return t, err
+	}
+	if tt.conf.Builtin {
+		if err := tt.startBuiltin(e.torExe, e.ptExe, filepath.Join(e.workDir, "tor", tc.Name), func(f string, a ...any) { e.logf("tunnel "+tc.Name+": "+f, a...) }); err != nil {
+			return t, err
+		}
 	}
 	t.tor = tt
 	return t, nil
