@@ -651,8 +651,8 @@ for i in 1 2 3 4 5 6; do
 	FASTPIDS+=($!)
 done
 got=
-for _ in $(seq 40); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $got ]] && break; sleep 0.5; done
-sleep 2
+for _ in $(seq 80); do got=$(shunt pending | awk '/fwcurl3/{print $1}'); [[ -n $got ]] && break; sleep 0.05; done
+# (the question times out after 4 s in this config: look at once)
 check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
 shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
 wait "${FASTPIDS[@]}" || true
