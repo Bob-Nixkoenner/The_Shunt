@@ -233,6 +233,9 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		p.Confs[name] = wc
 		p.Hashes[name] = hash
 		ti := engine.TunnelInfo{Iface: t.Interface, HasV4: wc.HasIPv4(), HasV6: wc.HasIPv6()}
+		for _, a := range wc.Addresses {
+			ti.Addrs = append(ti.Addrs, a.Addr())
+		}
 		for _, peer := range wc.Peers {
 			ti.AllowedIPs = append(ti.AllowedIPs, peer.AllowedIPs...)
 		}
