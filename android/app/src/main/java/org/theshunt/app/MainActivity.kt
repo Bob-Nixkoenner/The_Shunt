@@ -819,8 +819,17 @@ private fun TorHelp() {
     if (orbot != null) {
         ShuntButton("Open Orbot", { ctx.startActivity(orbot) })
     } else {
+        val fdroid = remember { runCatching { ctx.packageManager.getPackageInfo("org.fdroid.fdroid", 0) }.isSuccess }
+        // F-Droid installed: open Orbot's page in it; otherwise the F-Droid website (Play and Orbot's own page are named in the hint)
         ShuntButton("Get Orbot", {
-            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://guardianproject.info/apps/org.torproject.android/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://f-droid.org/packages/org.torproject.android/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (fdroid) {
+                val store = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=org.torproject.android")).setPackage("org.fdroid.fdroid").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { ctx.startActivity(store) }.onFailure { ctx.startActivity(web) }
+            } else {
+                ctx.startActivity(web)
+            }
         })
+        Hint("Orbot is also on Google Play and on guardianproject.info. If Tor is your default route, the page may not load: pass Orbot or your browser as \"direct\" under Apps, or use a second connection.")
     }
 }
