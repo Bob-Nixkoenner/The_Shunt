@@ -11,7 +11,7 @@ const joinList = (a) => (a || []).join(", ");
 
 // One page per tab. The tabs that edit the config share one copy of it and
 // one save bar, which moves along to the page that is shown.
-const TABS = ["overview", "vpn", "apps", "dns", "ports", "config", "view"];
+const TABS = ["overview", "vpn", "apps", "dns", "ports", "speed", "config", "view"];
 const CFG_TABS = ["vpn", "apps", "dns", "ports", "config"];
 let curTab = "overview";
 function setTab(t) {
@@ -309,7 +309,7 @@ async function checkOrSave(save, body, msgFn) {
   try {
     const res = await api(save ? "PUT" : "POST", save ? "/api/config" : "/api/config/check", body);
     if (!res.ok) { msgFn(res.error, "err"); return false; }
-    const w = (res.warnings || []).length ? " " + T("Warnings: {list}", { list: res.warnings.join(" · ") }) : "";
+    const w = noticeTexts(res).length ? " " + T("Warnings: {list}", { list: noticeTexts(res).join(" · ") }) : "";
     msgFn(T(save ? "Saved and applied." : "Looks good – nothing written yet.") + w, w ? "warn" : "ok");
     return true;
   } catch (e) {
@@ -408,7 +408,7 @@ $("#t-import").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Importing reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Import" }))) return toast("Import cancelled");
   try {
     const res = await api("POST", "/api/tunnels", req);
-    toast((res.warnings || []).length ? T("Tunnel {name} imported – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} imported", { name }));
+    toast(noticeTexts(res).length ? T("Tunnel {name} imported – {warnings}", { name, warnings: noticeTexts(res).join(" · ") }) : T("Tunnel {name} imported", { name }));
     for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
     $("#t-via").value = "";
     updateImportForm();
@@ -429,7 +429,7 @@ $("#ts-add").addEventListener("click", async () => {
   if ($("#savebar").classList.contains("dirty") && !(await ask("Adding reloads the config; your unsaved form changes are discarded. Continue?", { ok: "Add" }))) return toast("Cancelled");
   try {
     const res = await api("POST", "/api/tunnels", { name, conf, driver: "tailscale" });
-    toast((res.warnings || []).length ? T("Tunnel {name} added – {warnings}", { name, warnings: res.warnings.join(" · ") }) : T("Tunnel {name} added", { name }));
+    toast(noticeTexts(res).length ? T("Tunnel {name} added – {warnings}", { name, warnings: noticeTexts(res).join(" · ") }) : T("Tunnel {name} added", { name }));
     for (const id of ["#ts-name", "#ts-server", "#ts-key", "#ts-host", "#ts-exit"]) $(id).value = "";
     await loadConfig();
     refresh();
@@ -456,7 +456,7 @@ function torRow(n, t) {
     markDirty(); renderConfig();
   } },
     el("option", { value: "" }, "no bridge (connect to Tor directly)"),
-    ...BRIDGE_SETS.map((b) => el("option", { value: b }, "built-in " + b)),
+    ...BRIDGE_SETS.map((b) => el("option", { value: b }, T("built-in {name}", { name: b }))),
     el("option", { value: "custom" }, "my own bridge lines"));
   sel.value = kind;
   const iso = el("select", { title: "Which connections share Tor circuits", onchange: (e) => { t.isolate = e.target.value; markDirty(); } },
@@ -469,8 +469,8 @@ function torRow(n, t) {
   const others = Object.keys(model.tunnel).filter((m) => m !== n && (model.tunnel[m] || {}).driver !== "tor").sort();
   const viaSel = el("select", { title: "How Tor itself connects", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); } },
     el("option", { value: "" }, "connects directly"),
-    ...others.map((m) => el("option", { value: "tunnel:" + m }, "through tunnel " + m)),
-    ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
+    ...others.map((m) => el("option", { value: "tunnel:" + m }, T("through tunnel {name}", { name: m }))),
+    ...LINKS.map(([v, l]) => el("option", { value: v }, T("over {link} only", { link: T(l) }))));
   viaSel.value = t.via || "";
   return el("tr", {},
     el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),

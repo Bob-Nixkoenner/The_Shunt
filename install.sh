@@ -318,7 +318,9 @@ else
 	fi
 	die "no connection to github.com within 20 s – check the network (with The Shunt active: shunt status)"
 fi
-WORK=$(mktemp -d)
+# not /tmp: it is a tmpfs on most systems (half the RAM, 1.3 GB in a small VM) and the
+# Go toolchain, the modules and the build of lyrebird need several GB
+WORK=$(mktemp -d /var/tmp/shunt-install.XXXXXX 2>/dev/null || mktemp -d)
 
 # ---------------------------------------------------------------- releases
 # The newest signed release (pre-releases included), installed by the

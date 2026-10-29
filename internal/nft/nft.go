@@ -24,6 +24,8 @@ const (
 	Table         = "shunt"
 	PanicTable    = "shunt_panic"
 	LockdownTable = "shunt_lockdown"
+	// ArpTable (family arp): see tunnelAddrGuard.
+	ArpTable = "shunt_arp"
 )
 
 // Render produces the main ruleset for a plan.
@@ -120,6 +122,22 @@ func Render(p *engine.Plan) (string, error) {
 			w("\t\tiifname %q ct state new ct mark set %#x", r.Iface, r.Mark)
 		}
 	}
+	// Forwarded traffic (containers, VMs and other devices behind this
+	// machine) is not seen by route_out, which only classifies local
+	// sockets: it took the main table, past the tunnel and its kill switch.
+	// A new forwarded connection gets the default route's mark (the same
+	// way, via the tunnel's table or into its kill switch). Not what comes
+	// in from a tunnel, from loopback, or for this machine itself.
+	if p.DefaultRoute.Kind != config.RouteDirect {
+		skip := []string{`"lo"`}
+		for _, r := range p.Routes {
+			if r.Kind == config.RouteTunnel && r.Iface != "" && checkIdent(r.Iface) == nil {
+				skip = append(skip, fmt.Sprintf("%q", r.Iface))
+			}
+		}
+		w("\t\tiifname != { %s } fib daddr type != local ct state new ct mark and %#x != %#x meta mark set %#x ct mark set meta mark",
+			strings.Join(skip, ", "), engine.MarkMask, engine.MarkBase, p.DefaultRoute.Mark)
+	}
 	w("\t\tct mark and %#x == %#x meta mark set ct mark", engine.MarkMask, engine.MarkBase)
 	// Tailscale tunnels: what tailscaled (in its own namespace) sends
 	// arrives on the veth. It leaves like Shunt's own encrypted packets:
@@ -133,6 +151,8 @@ func Render(p *engine.Plan) (string, error) {
 		}
 	}
 	w("\t}")
+
+	tunnelAddrGuard(w, p)
 
 	// Tailscale tunnels need forwarding on the uplinks (the replies of
 	// their encrypted packets arrive there). The machine is no router:
@@ -150,6 +170,14 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t\tiifname { %s } ct state new counter drop", quoteList(ups))
 		w("\t}")
 	}
+
+	// Old ICMP requests that nothing needs any more but whose answers tell a
+	// neighbour the system's clock (timestamp, down to milliseconds: uptime
+	// and clock fingerprint), netmask or existence: not answered.
+	w("\tchain icmp_quiet {")
+	w("\t\ttype filter hook input priority raw; policy accept;")
+	w("\t\ticmp type { timestamp-request, address-mask-request, info-request } counter drop")
+	w("\t}")
 
 	if p.Inbound != nil {
 		lines, err := inboundLines(p.Inbound)
@@ -303,6 +331,7 @@ func Render(p *engine.Plan) (string, error) {
 	}
 	w("\t}")
 	w("}")
+	arpGuard(&b, p)
 	return b.String(), nil
 }
 
@@ -396,49 +425,82 @@ func checkIdent(s string) error {
 	return nil
 }
 
-func replaceHeader(b *strings.Builder, table string) {
+func replaceHeader(b *strings.Builder, table string) { replaceHeaderIn(b, "inet", table) }
+
+func replaceHeaderIn(b *strings.Builder, family, table string) {
 	// "add" creates the table if missing so "delete" never fails; both run in
 	// the same transaction as the new definition.
-	fmt.Fprintf(b, "table inet %s\ndelete table inet %s\n", table, table)
+	fmt.Fprintf(b, "table %s %s\ndelete table %s %s\n", family, table, family, table)
+}
+
+// Strict describes a "nothing gets out except ..." ruleset. Panic, boot
+// lockdown and the emergency mode (only the tor process, only to its
+// relays) are the same thing with different exceptions.
+type Strict struct {
+	Table    string
+	Priority int  // output hook priority (before the main ruleset)
+	Inbound  bool // also drop input (except lo) and forwarding
+	DHCP     bool // DHCPv4/v6 client traffic
+	ND       bool // IPv6 neighbour discovery
+	// Only the processes in AllowCgroup may reach AllowDst, and only they
+	// (emergency mode: the tor process and its guards/bridges). Both must be
+	// set; an empty AllowDst with a cgroup lets nothing through.
+	AllowCgroup engine.Group
+	AllowDst    []netip.Prefix
+}
+
+// RenderStrict renders s: policy drop on output (and input/forward if
+// Inbound) with only loopback and the listed exceptions.
+func RenderStrict(s Strict) (string, error) {
+	var b strings.Builder
+	replaceHeader(&b, s.Table)
+	fmt.Fprintf(&b, "table inet %s {\n\tchain out {\n\t\ttype filter hook output priority %d; policy drop;\n\t\toifname \"lo\" accept\n", s.Table, s.Priority)
+	if s.DHCP {
+		b.WriteString("\t\tudp sport 68 udp dport 67 accept\n\t\tudp sport 546 udp dport 547 accept\n")
+	}
+	if s.ND {
+		b.WriteString("\t\ticmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept\n")
+	}
+	if s.AllowCgroup.Path != "" && len(s.AllowDst) > 0 {
+		m, err := cgroupMatch(s.AllowCgroup)
+		if err != nil {
+			return "", err
+		}
+		var v4, v6 []netip.Prefix
+		for _, p := range s.AllowDst {
+			if p.Addr().Is4() {
+				v4 = append(v4, p)
+			} else {
+				v6 = append(v6, p)
+			}
+		}
+		if len(v4) > 0 {
+			fmt.Fprintf(&b, "\t\t%s ip daddr %s accept\n", m, prefixSet(v4))
+		}
+		if len(v6) > 0 {
+			fmt.Fprintf(&b, "\t\t%s ip6 daddr %s accept\n", m, prefixSet(v6))
+		}
+	}
+	b.WriteString("\t}\n")
+	if s.Inbound {
+		fmt.Fprintf(&b, "\tchain in {\n\t\ttype filter hook input priority %d; policy drop;\n\t\tiifname \"lo\" accept\n\t}\n", s.Priority)
+		fmt.Fprintf(&b, "\tchain fwd_drop {\n\t\ttype filter hook forward priority %d; policy drop;\n\t}\n", s.Priority)
+	}
+	b.WriteString("}\n")
+	return b.String(), nil
 }
 
 // RenderPanic drops everything except loopback, in and out.
 func RenderPanic() string {
-	var b strings.Builder
-	replaceHeader(&b, PanicTable)
-	fmt.Fprintf(&b, `table inet %s {
-	chain out {
-		type filter hook output priority -300; policy drop;
-		oifname "lo" accept
-	}
-	chain in {
-		type filter hook input priority -300; policy drop;
-		iifname "lo" accept
-	}
-	chain fwd_drop {
-		type filter hook forward priority -300; policy drop;
-	}
-}
-`, PanicTable)
-	return b.String()
+	out, _ := RenderStrict(Strict{Table: PanicTable, Priority: -300, Inbound: true})
+	return out
 }
 
 // RenderLockdown is the boot-time ruleset: nothing but loopback, DHCP and
 // IPv6 neighbour discovery until shuntd has applied its plan.
 func RenderLockdown() string {
-	var b strings.Builder
-	replaceHeader(&b, LockdownTable)
-	fmt.Fprintf(&b, `table inet %s {
-	chain out {
-		type filter hook output priority -290; policy drop;
-		oifname "lo" accept
-		udp sport 68 udp dport 67 accept
-		udp sport 546 udp dport 547 accept
-		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
-	}
-}
-`, LockdownTable)
-	return b.String()
+	out, _ := RenderStrict(Strict{Table: LockdownTable, Priority: -290, DHCP: true, ND: true})
+	return out
 }
 
 // dnsRedirectLines are the rules of the dns_redirect chain. Without direct
@@ -517,6 +579,13 @@ func StoppedDNS(p *engine.Plan) (string, error) {
 func DeleteScript(table string) string {
 	var b strings.Builder
 	replaceHeader(&b, table)
+	return b.String()
+}
+
+// DeleteArpScript removes ArpTable.
+func DeleteArpScript() string {
+	var b strings.Builder
+	replaceHeaderIn(&b, "arp", ArpTable)
 	return b.String()
 }
 
@@ -622,4 +691,66 @@ func modeLines(prefix, mode string, allow []config.PortSel) []string {
 		}
 	}
 	return append(out, prefix+"counter drop")
+}
+
+// tunnelAddrs: the interfaces of the tunnels and their own addresses.
+func tunnelAddrs(p *engine.Plan) (ifs, v4, v6 []string) {
+	seen := map[string]bool{}
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteTunnel || r.Iface == "" || checkIdent(r.Iface) != nil {
+			continue
+		}
+		ifs = append(ifs, fmt.Sprintf("%q", r.Iface))
+		for _, a := range r.Addrs {
+			a = a.Unmap()
+			if seen[a.String()] {
+				continue
+			}
+			seen[a.String()] = true
+			if a.Is4() {
+				v4 = append(v4, a.String())
+			} else {
+				v6 = append(v6, a.String())
+			}
+		}
+	}
+	return
+}
+
+// tunnelAddrGuard keeps the tunnels' own addresses off the local network.
+// Linux answers for any local address on any interface (weak host model): a
+// neighbour on the cafe Wi-Fi could ask "who has 10.66.0.12?" (ARP) and learn
+// that this machine uses a VPN and which address, or send packets to it
+// (CVE-2019-14899: inferring TCP connections inside the tunnel). Only the
+// tunnel interfaces themselves may reach those addresses. This is the IP
+// part, a chain of the main table.
+func tunnelAddrGuard(w func(string, ...any), p *engine.Plan) {
+	ifs, v4, v6 := tunnelAddrs(p)
+	if len(v4)+len(v6) == 0 {
+		return
+	}
+	pass := strings.Join(append([]string{`"lo"`}, ifs...), ", ")
+	w("\tchain tunnel_addr_guard {")
+	w("\t\ttype filter hook prerouting priority raw; policy accept;")
+	if len(v4) > 0 {
+		w("\t\tiifname != { %s } ip daddr { %s } counter drop", pass, strings.Join(v4, ", "))
+	}
+	if len(v6) > 0 {
+		w("\t\tiifname != { %s } ip6 daddr { %s } counter drop", pass, strings.Join(v6, ", "))
+	}
+	w("\t}")
+}
+
+// arpGuard is the ARP part, a table of the arp family (loaded in the same
+// transaction; replaced on every plan, so a removed tunnel's address is free
+// again): ARP requests for a tunnel address are not answered.
+func arpGuard(b *strings.Builder, p *engine.Plan) {
+	replaceHeaderIn(b, "arp", ArpTable)
+	ifs, v4, _ := tunnelAddrs(p)
+	if len(v4) == 0 {
+		return
+	}
+	pass := strings.Join(append([]string{`"lo"`}, ifs...), ", ")
+	fmt.Fprintf(b, "table arp %s {\n\tchain in {\n\t\ttype filter hook input priority filter; policy accept;\n", ArpTable)
+	fmt.Fprintf(b, "\t\tiifname != { %s } arp operation request arp daddr ip { %s } counter drop\n\t}\n}\n", pass, strings.Join(v4, ", "))
 }
