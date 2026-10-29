@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
@@ -297,7 +298,9 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 		cleanup()
 		return nil, err
 	}
-	p.Warnings = append(p.Warnings, warn...)
+	for _, w := range warn {
+		p.Notes = append(p.Notes, check.Raw(w))
+	}
 	return p, nil
 }
 

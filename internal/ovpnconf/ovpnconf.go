@@ -29,6 +29,15 @@ type Config struct {
 	// Files referenced by path (ca, cert, key, …), resolved against the
 	// config's directory.
 	Files []string
+
+	// What the file says about its own security, for the config check
+	// (package check). Empty / false = the file does not say.
+	Ciphers       []string // cipher, data-ciphers / ncp-ciphers (upper case)
+	Auth          string   // auth (HMAC digest), upper case
+	Compress      bool     // compress / comp-lzo other than "no" / "stub"
+	TLSWrap       bool     // tls-crypt, tls-crypt-v2 or tls-auth
+	TLSVersionMin string   // tls-version-min, e.g. "1.2"
+	RemoteCertTLS bool     // remote-cert-tls server (or verify-x509-name)
 }
 
 // forbidden directives, with the reason shown to the user.
@@ -163,6 +172,7 @@ func Parse(s, dir string) (*Config, error) {
 			problems = append(problems, fmt.Sprintf("line %d: %q (%s)", line, name, why))
 			continue
 		}
+		c.noteSecurity(name, f[1:])
 		switch {
 		case name == "remote" && len(f) > 1:
 			c.Remotes = append(c.Remotes, strings.Join(f[1:], " "))
@@ -186,6 +196,11 @@ func Parse(s, dir string) (*Config, error) {
 	}
 	if len(c.Remotes) == 0 {
 		return nil, fmt.Errorf("no \"remote\" line: is this an OpenVPN client config?")
+	}
+	for _, b := range []string{"tls-crypt", "tls-crypt-v2", "tls-auth"} {
+		if inline[b] {
+			c.TLSWrap = true
+		}
 	}
 	if sawAuth && !inline["auth-user-pass"] {
 		if authArg != "" {
@@ -211,6 +226,32 @@ func Parse(s, dir string) (*Config, error) {
 	}
 	sort.Strings(c.Files)
 	return c, nil
+}
+
+// noteSecurity records the options the config check cares about.
+func (c *Config) noteSecurity(name string, args []string) {
+	arg := ""
+	if len(args) > 0 {
+		arg = args[0]
+	}
+	switch name {
+	case "cipher":
+		c.Ciphers = append(c.Ciphers, strings.ToUpper(arg))
+	case "data-ciphers", "ncp-ciphers":
+		c.Ciphers = append(c.Ciphers, strings.Split(strings.ToUpper(arg), ":")...)
+	case "auth":
+		c.Auth = strings.ToUpper(arg)
+	case "comp-lzo":
+		c.Compress = arg != "no"
+	case "compress":
+		c.Compress = arg != "" && arg != "stub" && arg != "stub-v2"
+	case "tls-crypt", "tls-crypt-v2", "tls-auth":
+		c.TLSWrap = true
+	case "tls-version-min":
+		c.TLSVersionMin = arg
+	case "remote-cert-tls", "verify-x509-name":
+		c.RemoteCertTLS = true
+	}
 }
 
 // fields splits a config line like openvpn does: whitespace separated,
