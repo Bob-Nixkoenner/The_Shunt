@@ -58,6 +58,9 @@ type TunnelInfo struct {
 	HasV4      bool
 	HasV6      bool
 	AllowedIPs []netip.Prefix
+	// Addrs: the tunnel interface's own addresses (empty when the tunnel
+	// gets them from a server).
+	Addrs []netip.Addr
 	// Gateway: the far end of the interface (a Tailscale tunnel's network
 	// namespace); its routes go "via" it. Invalid: plain device routes.
 	Gateway netip.Addr
@@ -76,6 +79,8 @@ type Route struct {
 	V6    bool // tunnel carries IPv6
 	// Prefixes routed into the tunnel (union of the peers' AllowedIPs).
 	AllowedIPs []netip.Prefix
+	// Addrs: see TunnelInfo.
+	Addrs []netip.Addr
 	// Gateway: see TunnelInfo.
 	Gateway netip.Addr
 	// Forward: see TunnelInfo. FwdMark is what the packets arriving on
@@ -359,6 +364,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
 			r.AllowedIPs = ti.AllowedIPs
+			r.Addrs = ti.Addrs
 			r.Gateway, r.Forward = ti.Gateway, ti.Forward
 			r.AllowLAN = c.Tunnels[cr.Tunnel].AllowLAN
 			r.Filter = filter.Default
