@@ -180,6 +180,18 @@ func (t *torTunnel) dial(ctx context.Context, tcp bool, ap netip.AddrPort) (net.
 	return &countConn{Conn: c, t: t}, nil
 }
 
+// dialName connects to "host:port" through Tor with the name unresolved.
+func (t *torTunnel) dialName(ctx context.Context, addr string) (net.Conn, error) {
+	if !t.reachable() {
+		return nil, errors.New("Tor is not running")
+	}
+	c, err := socks.DialVia(ctx, "tcp", t.conf.Socks, torUser, addr)
+	if err != nil {
+		return nil, err
+	}
+	return &countConn{Conn: c, t: t}, nil
+}
+
 type countConn struct {
 	net.Conn
 	t *torTunnel
