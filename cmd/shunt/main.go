@@ -827,7 +827,7 @@ func leaktest(c *api.Client, sock string) error {
 	fmt.Fprintln(w, "ROUTE\tPUBLIC IP\tDNS RESOLVER\tRESULT")
 	leak := false
 	for _, r := range res {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s %s\n", r.Route, dash(r.Result.IP), dash(r.Result.Resolver), strings.ToUpper(r.Verdict), r.Note)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s %s\n", r.Route, dash(r.Result.IP), dash(r.Result.Resolver), strings.ToUpper(r.Verdict), probeNote(r.Note))
 		leak = leak || r.Verdict == "leak"
 	}
 	_ = w.Flush()
@@ -1014,4 +1014,15 @@ func torAllCmd(c *api.Client, args []string) error {
 		return nil
 	}
 	return errors.New(i18n.T("usage: shunt tor-all on [tunnel] | off | status"))
+}
+
+// probeNote translates the daemon's leak test note (they are English, some carry a detail).
+func probeNote(n string) string {
+	if d, ok := strings.CutPrefix(n, "partly working: "); ok {
+		return i18n.T("partly working: {detail}", "detail", d)
+	}
+	if d, ok := strings.CutPrefix(n, "probe failed: "); ok {
+		return i18n.T("probe failed: {detail}", "detail", d)
+	}
+	return i18n.T(n)
 }
