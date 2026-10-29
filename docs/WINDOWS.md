@@ -66,6 +66,10 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
 `packaging/windows/build.sh` builds `dist/the-shunt-windows-amd64.zip` (wintun.dll pinned by
 checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows/README.txt`.
 
+## Tor and SOCKS
+
+`driver = "tor"` (Configure: Add a tunnel, Tor) runs `tor\tor.exe` from the install folder as a child of the service; bridges `snowflake`, `obfs4`, `meek` use `tor\pt\lyrebird.exe`. tor.exe and the transports always go out direct (the service adds those app rules) and the kill switch lets them send. Apps on the Tor route: TCP only, names through Tor, `.onion` works, an own circuit per app (`isolate`). `socks = "127.0.0.1:1080"` on any tunnel opens a SOCKS5 proxy whose connections leave through that tunnel (TCP; no UDP ASSOCIATE yet).
+
 ## Not yet
 
 OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, DNS filter levels per rule/tunnel/network (the default level works, lists are downloaded straight over the real network), app firewall, restricting
