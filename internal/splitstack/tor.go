@@ -243,6 +243,13 @@ func CheckTor(conf string) (string, error) {
 		return "", err
 	}
 	m := map[string]string{"socks": c.Socks}
+	if c.Builtin {
+		delete(m, "socks") // chosen by the app at start
+		m["client"] = "builtin"
+		if len(c.Bridges) > 0 {
+			m["bridges"] = strings.Join(c.Bridges, " | ")
+		}
+	}
 	if c.DNS != "" {
 		m["dns"] = c.DNS
 	}

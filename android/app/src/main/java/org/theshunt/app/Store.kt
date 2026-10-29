@@ -36,6 +36,8 @@ data class Tunnel(
 
         /** Orbot (the Tor app of the Guardian Project): SOCKS 9050; names go through SOCKS (Orbot's DNSPort is random). */
         const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\n"
+        /** The Tor the app brings along (libtor.so). */
+        const val TOR_BUILTIN_CONF = "client = builtin\n"
         const val ORBOT = "org.torproject.android"
     }
 }
@@ -115,6 +117,9 @@ data class Settings(
                 // openvpn ships as lib/<abi>/libopenvpn.so (Android runs programs only from there)
                 val exe = File(ctx.applicationInfo.nativeLibraryDir, "libopenvpn.so")
                 if (exe.exists()) put("openvpn", exe.path).put("work_dir", ctx.filesDir.path)
+                // the Tor program of tor-android (libtor.so), for Tor tunnels without Orbot
+                val tor = File(ctx.applicationInfo.nativeLibraryDir, "libtor.so")
+                if (tor.exists()) put("tor_exe", tor.path).put("work_dir", ctx.filesDir.path)
             }
             .toString()
     }
