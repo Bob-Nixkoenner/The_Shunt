@@ -301,6 +301,8 @@
   "Look": "Aussehen",
   "Looks good – nothing written yet.": "Sieht gut aus – noch nichts geschrieben.",
   "M-Lab NDT7": "M-Lab NDT7",
+  "M-Lab NDT7 does not work through Tor – choose Cloudflare for Tor routes": "M-Lab NDT7 funktioniert nicht über Tor – für Tor-Wege Cloudflare wählen",
+  "M-Lab NDT7 does not work through Tor (M-Lab resets the connection), so Tor routes are skipped. Use Cloudflare to measure them.": "M-Lab NDT7 funktioniert nicht über Tor (M-Lab setzt die Verbindung zurück), deshalb werden Tor-Wege übersprungen. Zum Messen Cloudflare nehmen.",
   "M-Lab publishes every NDT7 measurement together with the IP address it came from.": "M-Lab veröffentlicht jede NDT7-Messung zusammen mit der IP-Adresse, von der sie kam.",
   "M-Lab publishes every NDT7 measurement together with the IP address it came from. Through a tunnel or Tor that is the exit address; on the direct route it is your real one.": "M-Lab veröffentlicht jede NDT7-Messung zusammen mit der IP-Adresse, von der sie kam. Über einen Tunnel oder Tor ist das die Ausgangsadresse, auf dem direkten Weg deine echte.",
   "M-Lab publishes every NDT7 measurement together with your IP address – click for details": "M-Lab veröffentlicht jede NDT7-Messung zusammen mit deiner IP-Adresse – Klick für Einzelheiten",

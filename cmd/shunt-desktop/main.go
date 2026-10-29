@@ -312,6 +312,8 @@ func (a *trayApp) togglePanic() {
 func (a *trayApp) poll() {
 	var prev desktopapp.View
 	var dnsHold desktopapp.DNSHold
+	var torHold desktopapp.TorHold
+	var prevN desktopapp.View
 	first := true
 	for {
 		var st api.Status
@@ -322,14 +324,15 @@ func (a *trayApp) poll() {
 			st.DNSFailing = dnsHold.Filter(st.DNSFailing, time.Now(), desktopapp.DNSNotifyAfter)
 		}
 		v := desktopapp.Compute(sp, err, time.Now())
-		for _, n := range desktopapp.Diff(prev, v, first) {
+		vn := torHold.Filter(v, sp, time.Now(), desktopapp.TorNotifyAfter) // Tor bootstraps slowly
+		for _, n := range desktopapp.Diff(prevN, vn, first) {
 			a.notifier.Notify(n)
 		}
 		if (v.Captive && (first || !prev.Captive)) || v.Pending > prev.Pending {
 			a.show() // the window asks how to go on
 		}
 		a.render(v)
-		prev, first = v, false
+		prev, prevN, first = v, vn, false
 		time.Sleep(3 * time.Second)
 	}
 }
