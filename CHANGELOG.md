@@ -4,7 +4,7 @@
 
 - SOCKS5 exit per tunnel (Linux): `socks = "127.0.0.1:1080"` under `[tunnel.X]` opens a local SOCKS5 proxy (CONNECT and UDP ASSOCIATE, names resolved inside the tunnel) whose connections leave through that tunnel; `shunt socks` lists them, the form has a field under "Advanced".
 - Tor tunnels (Linux): `driver = "tor"` runs the system `tor` as a child of shuntd and offers it as a route (`tunnel:tor`) with a transparent TCP proxy, DNS over Tor's DNSPort, `.onion` names only through Tor, own circuits per rule, UDP and ICMP rejected. Bridges (obfs4, snowflake, meek, webtunnel, or your own lines) come with lyrebird, shipped in the release archive, the .deb (`Depends: tor`) and the installer. Tor can run through another tunnel or link (`via`).
-- Android (code, untested on a device yet): a Tor tunnel type for the split stack and the app ("Add Tor"): TCP through the SOCKS port of a Tor client on the phone (Orbot), names through its DNS port, no UDP.
+- Android: a Tor tunnel type for the split stack and the app ("Add Tor"), tested in the emulator with Orbot (Power User Mode on, so it runs without its own VPN): TCP through Orbot's SOCKS port, names resolved through the same port (Orbot's DNSPort is random), `.onion` names work, no UDP; the tunnel card says "down" and apps on it are blocked while Orbot is not running.
 - `shunt tor status|newnym` and `shunt tor-all on|off|status` (emergency switch: everything through Tor, survives restarts); the window gets a Tor form, an overview card with the bootstrap state, a "New identity" button and an "All via Tor" button. German texts included.
 
 ## v0.7.1-rc17
