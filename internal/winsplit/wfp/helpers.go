@@ -73,10 +73,12 @@ func wrapErr(err error) error {
 	return fmt.Errorf("Firewall error at %s:%d: %w", file, line, err)
 }
 
-func getCurrentProcessAppID() (*wtFwpByteBlob, error) {
-	currentFile, err := os.Executable()
-	if err != nil {
-		return nil, wrapErr(err)
+func getAppID(currentFile string) (*wtFwpByteBlob, error) {
+	if currentFile == "" {
+		var err error
+		if currentFile, err = os.Executable(); err != nil {
+			return nil, wrapErr(err)
+		}
 	}
 
 	curFilePtr, err := windows.UTF16PtrFromString(currentFile)

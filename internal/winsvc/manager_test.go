@@ -10,6 +10,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 )
 
 func key(b byte) string {
@@ -209,7 +210,7 @@ func TestImportTailscale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, js, _, err := m.build(raw)
+	_, js, _, err := m.build(raw, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,5 +234,29 @@ func TestTranslateFilterScopes(t *testing.T) {
 	c, _ = config.Parse("[dns_filter]\ndefault = \"low\"\n[daemon]\ndefault_route = \"direct\"\n")
 	if _, warn, _ = Translate(c, func(string) ([]byte, error) { return nil, nil }); len(warn) != 0 {
 		t.Fatalf("default level only should not warn: %q", warn)
+	}
+}
+
+func TestTranslateTor(t *testing.T) {
+	c, err := config.Parse("[daemon]\ndefault_route = \"tunnel:t\"\n[tunnel.t]\ndriver = \"tor\"\nbridges = [\"snowflake\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, warn, err := translate(c, func(string) ([]byte, error) { return nil, nil }, func(string, config.Tunnel) string { return "127.0.0.1:9150" })
+	if err != nil || len(warn) != 0 {
+		t.Fatal(err, warn)
+	}
+	for _, want := range []string{`"type":"tor"`, `socks = 127.0.0.1:9150`, `"tor.exe":"direct"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("%s missing in %s", want, js)
+		}
+	}
+	// without tor.exe the tunnel exists but nothing listens: down, no leak
+	js, warn, _ = translate(c, nil, nil)
+	if !strings.Contains(js, `127.0.0.1:9`) || len(warn) == 0 {
+		t.Errorf("no tor: %s %v", js, warn)
+	}
+	if err := splitstack.CheckConfig(js); err != nil {
+		t.Error(err)
 	}
 }

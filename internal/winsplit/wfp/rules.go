@@ -125,13 +125,14 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 	return nil
 }
 
-func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight uint8) error {
+// permitWireGuardService permits all traffic of the program exe ("" = this process).
+func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight uint8, exe string) error {
 	var conditions [1]wtFwpmFilterCondition0
 
 	//
 	// First condition is the exe path of the current process.
 	//
-	appID, err := getCurrentProcessAppID()
+	appID, err := getAppID(exe)
 	if err != nil {
 		return wrapErr(err)
 	}

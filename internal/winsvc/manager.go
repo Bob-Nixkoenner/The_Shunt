@@ -47,7 +47,11 @@ type Manager struct {
 	// the engine). May be nil; set it once the engine runs, then call
 	// ApplyFilter.
 	Filter *blocklist.Manager
+	// StartTor starts tor.exe for a Tor tunnel and returns its SOCKS address
+	// (the process ends with the service). nil: Tor tunnels stay down.
+	StartTor func(name string, t config.Tunnel) (socks string, err error)
 
+	tors    map[string]string // Tor tunnel -> SOCKS address of its tor.exe
 	mu      sync.Mutex
 	saveMu  sync.Mutex
 	cfg     *config.Config
@@ -90,7 +94,7 @@ func (m *Manager) Load() (js string, warnings []string, err error) {
 	if err != nil {
 		return "", nil, err
 	}
-	c, js, warnings, err := m.build(b)
+	c, js, warnings, err := m.build(b, true)
 	if err != nil {
 		return "", nil, err
 	}
@@ -193,7 +197,7 @@ func (m *Manager) Reload() error {
 	if err != nil {
 		return err
 	}
-	c, js, _, err := m.build(raw)
+	c, js, _, err := m.build(raw, false)
 	if err != nil {
 		return err
 	}
@@ -217,7 +221,7 @@ func (m *Manager) Reload() error {
 }
 
 // build parses raw and translates it; nothing is stored.
-func (m *Manager) build(raw []byte) (*config.Config, string, []string, error) {
+func (m *Manager) build(raw []byte, start bool) (*config.Config, string, []string, error) {
 	c, err := config.Parse(string(raw))
 	if err != nil {
 		return nil, "", nil, err
@@ -229,10 +233,15 @@ func (m *Manager) build(raw []byte) (*config.Config, string, []string, error) {
 			}
 		}
 	}
-	js, warn, err := Translate(c, m.readFile)
+	var tw []string
+	if start { // only the real load starts processes, checks must not
+		tw = m.startTors(c)
+	}
+	js, warn, err := translate(c, m.readFile, m.torSocks)
 	if err != nil {
 		return nil, "", nil, err
 	}
+	warn = append(tw, warn...)
 	js = m.withStats(js)
 	if err := splitstack.CheckConfig(js); err != nil {
 		return nil, "", nil, err
@@ -324,6 +333,10 @@ func (m *Manager) View() (api.ConfigView, error) {
 	}
 	v := api.ConfigView{Raw: string(raw), Version: fileVersion(raw), Config: c, DNSFilter: c.Filter(), Tunnels: []api.TunnelConfInfo{}}
 	for name, t := range c.Tunnels {
+		if t.IsTor() {
+			v.Tunnels = append(v.Tunnels, api.TunnelConfInfo{Name: name, Type: "tor", AllowedIPs: []string{"0.0.0.0/0", "::/0"}})
+			continue
+		}
 		b, err := m.readFile(t.Config)
 		if err != nil {
 			continue
@@ -375,7 +388,7 @@ func (m *Manager) RawOf(req api.ConfigSave) ([]byte, error) {
 
 // Check validates raw config text without applying it.
 func (m *Manager) Check(raw []byte) ([]string, error) {
-	_, _, warn, err := m.build(raw)
+	_, _, warn, err := m.build(raw, false)
 	return warn, err
 }
 
@@ -394,7 +407,7 @@ func (m *Manager) Save(raw []byte, expect string) ([]string, error) {
 	if expect != "" && expect != fileVersion(old) {
 		return nil, ErrConflict
 	}
-	c, js, warn, err := m.build(raw)
+	c, js, warn, err := m.build(raw, false)
 	if err != nil {
 		return nil, err
 	}
@@ -595,4 +608,42 @@ func (m *Manager) DeleteTunnel(name string) error {
 		}
 	}
 	return nil
+}
+
+func (m *Manager) torSocks(name string, _ config.Tunnel) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tors[name]
+}
+
+// startTors starts tor.exe for every enabled Tor tunnel once (a change of
+// the tunnels restarts the whole service, see Restart, which ends them).
+func (m *Manager) startTors(c *config.Config) (warn []string) {
+	if m.StartTor == nil {
+		return nil
+	}
+	for _, name := range sortedKeys(c.Tunnels) {
+		t := c.Tunnels[name]
+		if !t.IsTor() || t.Disabled {
+			continue
+		}
+		m.mu.Lock()
+		_, have := m.tors[name]
+		m.mu.Unlock()
+		if have {
+			continue
+		}
+		addr, err := m.StartTor(name, t)
+		if err != nil {
+			warn = append(warn, fmt.Sprintf("tunnel %q: %v", name, err))
+			continue
+		}
+		m.mu.Lock()
+		if m.tors == nil {
+			m.tors = map[string]string{}
+		}
+		m.tors[name] = addr
+		m.mu.Unlock()
+	}
+	return warn
 }
