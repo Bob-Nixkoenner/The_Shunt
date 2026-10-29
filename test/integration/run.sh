@@ -652,7 +652,7 @@ check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl
 # start guard's job and needs a known rule)
 cp "$(command -v curl)" "$BIN/fwcurl3"
 fwfast() { # program url: joins the scope, 0.6 s, exec
-	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; sleep 0.6; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --max-time 35 '"$2"
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; sleep 0.6; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --retry 25 --retry-connrefused --retry-delay 1 --max-time 35 '"$2"
 }
 FASTPIDS=()
 for i in 1 2 3 4 5 6; do
