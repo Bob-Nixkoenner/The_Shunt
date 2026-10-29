@@ -160,7 +160,9 @@ func (p *torProc) readLog(r interface{ Read([]byte) (int, error) }) {
 			p.lastErr = trimTorLine(l)
 			p.mu.Unlock()
 		}
-		p.logf("tor: %s", trimTorLine(l))
+		if tl := trimTorLine(l); strings.Contains(l, "[warn]") || strings.Contains(l, "[err]") || strings.Contains(tl, "Bootstrapped") {
+			p.logf("tor: %s", tl) // not every notice: the control connection is opened each second
+		}
 	}
 }
 
