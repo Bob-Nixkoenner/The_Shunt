@@ -155,7 +155,7 @@ func (p *torProc) readLog(r interface{ Read([]byte) (int, error) }) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		l := sc.Text()
-		if strings.Contains(l, "[err]") || strings.Contains(l, "[warn]") {
+		if strings.Contains(l, "[err]") {
 			p.mu.Lock()
 			p.lastErr = trimTorLine(l)
 			p.mu.Unlock()

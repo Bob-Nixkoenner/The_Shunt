@@ -142,6 +142,9 @@ data class Settings(
         // the Tor program of tor-android (libtor.so), for Tor tunnels without Orbot
         val tor = File(dir, "libtor.so")
         if (tor.exists()) put("tor_exe", tor.path).put("work_dir", ctx.filesDir.path)
+        // lyrebird: the bridge transports (obfs4, snowflake, meek, webtunnel)
+        val pt = File(dir, "liblyrebird.so")
+        if (pt.exists()) put("pt_exe", pt.path)
     }
 
     companion object {
