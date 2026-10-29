@@ -6,11 +6,31 @@ import threading
 
 
 class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):  # speed test upload: swallow the body
+        n = int(self.headers.get("Content-Length", 0))
+        while n > 0:
+            n -= len(self.rfile.read(min(n, 1 << 16)))
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
         ip = self.client_address[0]
         if ip.startswith("::ffff:"):  # IPv4 client on the dual-stack socket
             ip = ip[len("::ffff:"):]
+        if self.path.startswith("/__down?bytes="):  # speed test download
+            n = int(self.path.split("=", 1)[1])
+            self.send_response(200)
+            self.send_header("Content-Length", str(n))
+            self.end_headers()
+            chunk = bytes(1 << 16)
+            while n > 0:
+                self.wfile.write(chunk[:n])
+                n -= min(n, len(chunk))
+            return
         body = (ip + "\n").encode()
+        if self.path == "/cdn-cgi/trace":
+            body = ("ip=" + ip + "\nloc=XX\n").encode()
         if self.path == "/mss":  # the MSS this connection ended up with
             body = (str(self.connection.getsockopt(socket.IPPROTO_TCP, socket.TCP_MAXSEG)) + "\n").encode()
         self.send_response(200)
