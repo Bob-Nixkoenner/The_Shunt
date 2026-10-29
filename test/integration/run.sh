@@ -666,6 +666,7 @@ check "fast starts: held, nothing out while asked" "" "$(cat "$WORK"/fast?.out)"
 shunt allow fwcurl3 --via tunnel:vps >/dev/null || true
 wait "${FASTPIDS[@]}" || true
 check "fast starts: all six went through the tunnel after the decision" "6 10.66.0.2" "$(cat "$WORK"/fast?.out | sort | uniq -c | tr -s ' ' | sed 's/^ //' | tr '\n' ' ' | sed 's/ $//')"
+shunt firewall forget "$BIN/fwcurl3" || true # the later "forget" check looks for fwcurl
 # started from the system-service cgroup: a caller without a terminal (CI
 # runner, ssh without -t) is held by the app firewall itself otherwise
 insvc() { cli sh -c 'echo $$ > /sys/fs/cgroup/'"$SYSSVC"'/cgroup.procs; exec "$@"' _ "$@"; }
