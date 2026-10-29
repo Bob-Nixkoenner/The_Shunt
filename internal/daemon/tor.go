@@ -193,6 +193,19 @@ func (d *Daemon) setTorAll(on bool, tunnelName string) error {
 			return fmt.Errorf("more than one Tor tunnel (%s): name one", strings.Join(tors, ", "))
 		}
 	}
+	if on {
+		if _, ok := d.Backend.(Emergencer); ok {
+			tc := cfg.Tunnels[name]
+			if tc.Via != "" {
+				return fmt.Errorf("tor-all: the Tor tunnel %q runs through another tunnel (via), which the strict mode cannot follow", name)
+			}
+			// without a relay list or bridges, tor could never start once
+			// everything else is shut
+			if _, _, err := emergencyDsts(name, tc); err != nil {
+				return fmt.Errorf("tor-all: Tor must know its relays first (%v): run Tor once without tor-all, or configure bridges", err)
+			}
+		}
+	}
 	d.mu.Lock()
 	old, oldLoad := d.torAll, d.torLoad
 	d.torAll, d.torLoad = name, true
