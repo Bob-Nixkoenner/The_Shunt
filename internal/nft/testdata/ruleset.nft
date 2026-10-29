@@ -50,7 +50,13 @@ table inet shunt {
 		iifname "lo" return
 		iifname "sh-home" ct state new ct mark set 0x530001
 		iifname "sh-vps" ct state new ct mark set 0x530002
+		iifname != { "lo", "sh-home", "sh-vps" } fib daddr type != local ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x530002 ct mark set meta mark
 		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
+	}
+	chain tunnel_addr_guard {
+		type filter hook prerouting priority raw; policy accept;
+		iifname != { "lo", "sh-home", "sh-vps" } ip daddr { 10.9.0.2, 10.66.0.12 } counter drop
+		iifname != { "lo", "sh-home", "sh-vps" } ip6 daddr { fd00:9::2 } counter drop
 	}
 	chain icmp_quiet {
 		type filter hook input priority raw; policy accept;
@@ -94,5 +100,13 @@ table inet shunt {
 		type nat hook postrouting priority srcnat; policy accept;
 		meta mark 0x530001 oifname "sh-home" masquerade
 		meta mark 0x530002 oifname "sh-vps" masquerade
+	}
+}
+table arp shunt_arp
+delete table arp shunt_arp
+table arp shunt_arp {
+	chain in {
+		type filter hook input priority filter; policy accept;
+		iifname != { "lo", "sh-home", "sh-vps" } arp operation request arp daddr ip { 10.9.0.2, 10.66.0.12 } counter drop
 	}
 }
