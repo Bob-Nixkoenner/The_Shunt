@@ -175,3 +175,28 @@ func TestJob(t *testing.T) {
 		t.Errorf("state: %+v", st)
 	}
 }
+
+// A slow upload that runs out of time still gives a speed from what went out.
+func TestUploadCutOffKeepsPartial(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/__up", func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 64<<10)
+		for {
+			if _, err := r.Body.Read(buf); err != nil {
+				return
+			}
+			time.Sleep(20 * time.Millisecond) // about 3 MB/s
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	old := BaseURL
+	BaseURL = srv.URL
+	defer func() { BaseURL = old }()
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	m := Measure(ctx, Step{Provider: Cloudflare, Kind: KindUp, Bytes: 100_000_000})
+	if m.Err != "" || m.Mbit <= 0 || m.Bytes < minPartial || m.Bytes >= 100_000_000 {
+		t.Fatalf("partial upload: %+v", m)
+	}
+}

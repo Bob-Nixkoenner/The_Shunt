@@ -14,6 +14,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,6 +46,9 @@ const (
 )
 
 // Measurement is what one step saw. Zero fields were not measured.
+// minPartial: least number of bytes sent for a cut-off upload to count.
+const minPartial = 1 << 20
+
 type Measurement struct {
 	LatencyMs float64 `json:"latency_ms,omitempty"` // median round trip
 	JitterMs  float64 `json:"jitter_ms,omitempty"`  // mean difference between neighbours
@@ -157,6 +161,12 @@ func measureCloudflare(ctx context.Context, s Step) Measurement {
 		t0 := time.Now()
 		resp, err := c.Do(req)
 		if err != nil {
+			// a slow route (Tor) can run out of time: what went out until then
+			// is still a speed, like for the download
+			if sent := body.sent.Load(); errors.Is(err, context.DeadlineExceeded) && sent >= minPartial {
+				m.Bytes, m.Mbit = sent, mbit(sent, time.Since(t0))
+				return m
+			}
 			m.Err = err.Error()
 			return m
 		}
@@ -259,17 +269,22 @@ func jitter(v []float64) float64 {
 	return sum / float64(len(v)-1)
 }
 
-type zeros struct{ n int64 }
+// zeros is a body of n zero bytes; sent counts what the transport took.
+type zeros struct {
+	n    int64
+	sent atomic.Int64
+}
 
 func (z *zeros) Read(p []byte) (int, error) {
-	if z.n <= 0 {
+	left := z.n - z.sent.Load()
+	if left <= 0 {
 		return 0, io.EOF
 	}
-	if int64(len(p)) > z.n {
-		p = p[:z.n]
+	if int64(len(p)) > left {
+		p = p[:left]
 	}
 	clear(p)
-	z.n -= int64(len(p))
+	z.sent.Add(int64(len(p)))
 	return len(p), nil
 }
 

@@ -29,7 +29,8 @@ function renderSpeedRoutes() {
   speedEstimate();
 }
 
-function speedChosen() { return [...$("#sp-routes").querySelectorAll("input:checked")].map((i) => i.value); }
+// hidden ones (Tor routes in the normal view) are not measured, even if ticked before
+function speedChosen() { return [...$("#sp-routes").querySelectorAll("input:checked")].filter((i) => i.offsetParent !== null).map((i) => i.value); }
 
 function speedEstimate() {
   const n = speedChosen().length, rounds = +$("#sp-rounds").value;
