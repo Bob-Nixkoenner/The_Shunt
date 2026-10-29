@@ -87,18 +87,13 @@ type Daemon struct {
 	linkDNS  sync.Map
 	netRetry bool // a profile switch failed: retry on the next network tick
 	// routeSoft: routes that could not be copied yet (retried every tick)
-<<<<<<< HEAD
 	routeSoft     string
-	rulesRestored int // times checkRules had to put the firewall rules back
-	restart       chan struct{}
-=======
-	routeSoft string
-	tsOrig    string // system tcp_timestamps before we switched it off
+	tsOrig        string // system tcp_timestamps before we switched it off
+	rulesRestored int    // times checkRules had to put the firewall rules back
 	// clock check through the default route (see runClockCheck)
 	clockOff time.Duration
 	clockSet bool
 	restart  chan struct{}
->>>>>>> origin/main
 
 	fw *firewall.Manager
 
@@ -583,7 +578,6 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-<<<<<<< HEAD
 // checkRules notices when something else removed our firewall rules (another
 // VPN, "nft flush ruleset", a firewall tool) and puts them back: without
 // them the kill switch and every route are gone and traffic leaves directly.
@@ -605,7 +599,9 @@ func (d *Daemon) checkRules() {
 	d.rulesRestored++
 	if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 		d.Log.Warn("routing sync", "err", err)
-=======
+	}
+}
+
 // clockLimit: a system clock more off than this compared with the time seen
 // through the tunnel gets a warning.
 const clockLimit = 90 * time.Second
@@ -667,7 +663,6 @@ func (d *Daemon) applyTCPTimestamps(want string) {
 			d.Log.Warn("tcp_timestamps: cannot restore", "err", err)
 		}
 		d.tsOrig = ""
->>>>>>> origin/main
 	}
 }
 
