@@ -456,7 +456,7 @@ function torRow(n, t) {
     markDirty(); renderConfig();
   } },
     el("option", { value: "" }, "no bridge (connect to Tor directly)"),
-    ...BRIDGE_SETS.map((b) => el("option", { value: b }, "built-in " + b)),
+    ...BRIDGE_SETS.map((b) => el("option", { value: b }, T("built-in {name}", { name: b }))),
     el("option", { value: "custom" }, "my own bridge lines"));
   sel.value = kind;
   const iso = el("select", { title: "Which connections share Tor circuits", onchange: (e) => { t.isolate = e.target.value; markDirty(); } },
@@ -469,8 +469,8 @@ function torRow(n, t) {
   const others = Object.keys(model.tunnel).filter((m) => m !== n && (model.tunnel[m] || {}).driver !== "tor").sort();
   const viaSel = el("select", { title: "How Tor itself connects", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); } },
     el("option", { value: "" }, "connects directly"),
-    ...others.map((m) => el("option", { value: "tunnel:" + m }, "through tunnel " + m)),
-    ...LINKS.map(([v, l]) => el("option", { value: v }, "over " + l + " only")));
+    ...others.map((m) => el("option", { value: "tunnel:" + m }, T("through tunnel {name}", { name: m }))),
+    ...LINKS.map(([v, l]) => el("option", { value: v }, T("over {link} only", { link: T(l) }))));
   viaSel.value = t.via || "";
   return el("tr", {},
     el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),

@@ -46,6 +46,15 @@ document.addEventListener("click", (e) => {
   api("POST", "/api/open-url", { url: a.href }).catch((err) => toast(err.message));
 });
 
+// daemon warnings are English; the Tor ones get a translation here
+function warnText(w) {
+  let m = /^tor-all: everything goes through the Tor tunnel "(.*)" \(shunt tor-all off ends it\)$/.exec(w);
+  if (m) return T('tor-all: everything goes through the Tor tunnel "{name}" (shunt tor-all off ends it)', { name: m[1] });
+  m = /^tor-all names "(.*)", which is not a running Tor tunnel: the switch is ignored \(shunt tor-all off clears it\)$/.exec(w);
+  if (m) return T('tor-all names "{name}", which is not a running Tor tunnel: the switch is ignored (shunt tor-all off clears it)', { name: m[1] });
+  return w;
+}
+
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -130,7 +139,7 @@ function render() {
   panic.classList.toggle("on", st.panic);
 
   const inq = st.inbound_ask;
-  $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+  $("#banners").replaceChildren(...(st.warnings || []).map((w) => el("div", { class: "banner" }, "⚠ ", warnText(w))),
     ...(inq ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
       el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
@@ -146,7 +155,7 @@ function render() {
       el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
-          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : "starting: " + t.bootstrap + " %") : "no")] : [
+          el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
         el("span", {}, "interface"), el("span", { class: "mono" }, t.iface + (t.driver ? " · " + t.driver : "")),
         el("span", {}, "endpoint"), el("span", { class: "mono" }, p.endpoint || "–"),
         ...(t.via ? [el("span", {}, "multi-hop"), el("span", {}, T("through {via}", { via: t.via }))] : []),
@@ -162,8 +171,8 @@ function render() {
         ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "Tor builds fresh circuits for new connections (open connections keep theirs)",
           onclick: async (e) => {
             e.target.disabled = true;
-            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast("New identity: " + t.name + " builds fresh circuits for new connections"); }
-            catch (err) { toast("New identity failed: " + err.message); }
+            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }
+            catch (err) { toast(T("New identity failed: {error}", { error: err.message })); }
             setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
           } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
