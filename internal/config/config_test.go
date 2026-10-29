@@ -248,3 +248,34 @@ dns_filter = "low"
 		t.Errorf("hagezi url %s", u)
 	}
 }
+
+func TestSocksAddrLoopbackOnly(t *testing.T) {
+	for a, ok := range map[string]bool{"": true, "127.0.0.1:1080": true, "[::1]:1080": true,
+		"0.0.0.0:1080": false, "192.168.1.5:1080": false, "127.0.0.1": false, "127.0.0.1:0": false} {
+		if err := validSocksAddr(a); (err == nil) != ok {
+			t.Errorf("%q: err=%v", a, err)
+		}
+	}
+}
+
+func TestTorTunnel(t *testing.T) {
+	ok, err := Parse("[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"snowflake\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tt := ok.Tunnels["tor"]; tt.Isolate != "app" || tt.Interface != "" {
+		t.Errorf("defaults: %+v", tt)
+	}
+	for name, toml := range map[string]string{
+		"dns":       "[tunnel.tor]\ndriver = \"tor\"\ndns = \"x\"\n",
+		"config":    "[tunnel.tor]\ndriver = \"tor\"\nconfig = \"a.conf\"\n",
+		"bridge":    "[tunnel.tor]\ndriver = \"tor\"\nbridges = [\"nonsense\"]\n",
+		"isolate":   "[tunnel.tor]\ndriver = \"tor\"\nisolate = \"x\"\n",
+		"not tor":   "[tunnel.v]\nconfig = \"a.conf\"\nbridges = [\"snowflake\"]\n",
+		"allow_lan": "[tunnel.tor]\ndriver = \"tor\"\nallow_lan = true\n",
+	} {
+		if _, err := Parse(toml); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

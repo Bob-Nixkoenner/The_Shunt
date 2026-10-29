@@ -33,6 +33,7 @@ func Render(p *engine.Plan) (string, error) {
 	var b strings.Builder
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 
+	hasTor := false
 	replaceHeader(&b, Table)
 	w("table inet %s {", Table)
 	// Domain rules: two sets per family ("a"/"b") so the DNS proxy can
@@ -199,6 +200,16 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain filter_out {")
 	w("\t\ttype filter hook output priority filter; policy accept;")
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
+	// Tor carries TCP only (and DNS, answered by the proxy on loopback):
+	// UDP and the rest are rejected at once, so QUIC falls back to TCP.
+	// "fib daddr type != local", not "oifname != lo": a DNS query redirected
+	// to the proxy on loopback still reports the interface from before the
+	// redirect (eth0) here, and a resolver on the LAN would be rejected.
+	for _, r := range p.Routes {
+		if r.Tor {
+			w("\t\tmeta mark %#x fib daddr type != local meta l4proto != tcp counter reject with icmpx admin-prohibited", r.Mark)
+		}
+	}
 	w("\t\toifname != \"lo\" jump ask_out")
 	if p.BlockDoT {
 		w("\t\t%s accept", dg)
@@ -221,6 +232,36 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t}")
 	}
 
+	// --- Tor routes: TCP goes to shuntd's transparent proxy, which hands it
+	// to tor. After the DNS redirect (a priority later), which owns port 53.
+	for _, r := range p.Routes {
+		if !r.Tor {
+			continue
+		}
+		if !hasTor {
+			w("\tchain tor_redirect {")
+			w("\t\ttype nat hook output priority dstnat + 1; policy accept;")
+			hasTor = true
+		}
+		// a rule's own port first (its apps keep their own circuits)
+		for _, ru := range p.Rules {
+			if ru.ProxyPort == 0 || ru.Route != r {
+				continue
+			}
+			for _, g := range ru.Groups {
+				m, err := cgroupMatch(g)
+				if err != nil {
+					return "", err
+				}
+				w("\t\t%s meta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", m, r.Mark, ru.ProxyPort)
+			}
+		}
+		w("\t\tmeta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort)
+	}
+	if hasTor {
+		w("\t}")
+	}
+
 	// --- belt and braces: tunnel traffic must really leave through its
 	// tunnel interface. This has to be postrouting: in the output hook the
 	// kernel still reports the interface from *before* the re-route.
@@ -240,6 +281,11 @@ func Render(p *engine.Plan) (string, error) {
 			continue
 		}
 		if r.Kind != config.RouteTunnel {
+			continue
+		}
+		if r.Tor {
+			// only the redirect to shuntd (loopback) may leave
+			w("\t\tmeta mark %#x oifname != \"lo\" counter drop", r.Mark)
 			continue
 		}
 		if err := checkIdent(r.Iface); err != nil {
@@ -265,7 +311,7 @@ func Render(p *engine.Plan) (string, error) {
 	w("\tchain mss_clamp {")
 	w("\t\ttype filter hook postrouting priority mangle; policy accept;")
 	for _, r := range p.Routes {
-		if r.Kind == config.RouteTunnel {
+		if r.Kind == config.RouteTunnel && !r.Tor {
 			w("\t\toifname %q tcp flags syn / syn,rst tcp option maxseg size set rt mtu", r.Iface)
 		}
 	}

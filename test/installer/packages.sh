@@ -16,10 +16,10 @@ LOG=/tmp/shunt-installer-packages.log LOG_ON=1
 echo "package manager: $PM"
 if [[ $PM == pacman ]]; then pacman -Sy --noconfirm >/dev/null; fi # fresh container: empty database
 if [[ $PM == apt ]]; then step "updating package lists (apt)" apt-get -y -q update; fi
-for g in base polkit openvpn ssh go desktop desktop-build; do
+for g in base polkit openvpn tor ssh go desktop desktop-build; do
 	pkg_install "$g" "$g"
 done
-for c in nft wg curl fuser ssh-keygen openvpn go gcc pkg-config; do
+for c in nft wg curl fuser ssh-keygen openvpn tor go gcc pkg-config; do
 	command -v "$c" >/dev/null || die "$c missing after install"
 done
 pkg-config --exists gtk+-3.0 webkit2gtk-4.1 || die "GTK/WebKitGTK development files missing"

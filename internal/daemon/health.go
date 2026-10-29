@@ -7,6 +7,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/miekg/dns"
 )
 
@@ -44,6 +45,9 @@ func (d *Daemon) checkHealth() {
 	book, proxy := d.book, d.proxy
 	var jobs []job
 	for name, t := range d.tunnels {
+		if _, isTor := t.(tunnel.TorStatus); isTor {
+			continue // no peers to look at; its status is the bootstrap
+		}
 		m := d.health[name]
 		if m == nil {
 			m = &health.Monitor{}

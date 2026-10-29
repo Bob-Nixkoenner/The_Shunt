@@ -398,6 +398,98 @@ inbound = "open"
 	}
 }
 
+func TestTorRoute(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "tunnel:vps"
+[tunnel.vps]
+config = "vps.conf"
+[tunnel.tor]
+driver = "tor"
+socks = "127.0.0.1:9050"
+[[rule]]
+name = "browse"
+app = ["firefox"]
+route = "tunnel:tor"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+	p, err := engine.Compile(c, "system.slice/shuntd.service", map[string]engine.TunnelInfo{
+		"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all},
+		"tor": {Tor: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.RouteByName("tunnel:tor")
+	for _, want := range []string{
+		fmt.Sprintf("meta mark %#x meta l4proto tcp th dport != 53 redirect to :%d", r.Mark, r.ProxyPort),
+		fmt.Sprintf("meta mark %#x fib daddr type != local meta l4proto != tcp counter reject", r.Mark),
+		fmt.Sprintf("meta mark %#x oifname != \"lo\" counter drop", r.Mark),
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ruleset lacks %q", want)
+		}
+	}
+	if strings.Contains(out, `oifname ""`) {
+		t.Error("a rule names an empty interface")
+	}
+	if r.Table != 0 || r.Iface != "" {
+		t.Errorf("tor route has table %d iface %q", r.Table, r.Iface)
+	}
+}
+
+// A Tor tunnel with a via runs in a cgroup of its own that is classified into
+// the via route; the tor route itself still has no table or interface.
+func TestTorVia(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "direct"
+[tunnel.vps]
+config = "vps.conf"
+[tunnel.tor]
+driver = "tor"
+via = "vps"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}
+	p, err := engine.Compile(c, "system.slice/shuntd.service", map[string]engine.TunnelInfo{
+		"vps": {Iface: "sh-vps", HasV4: true, AllowedIPs: all},
+		"tor": {Tor: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tor, vps := p.RouteByName("tunnel:tor"), p.RouteByName("tunnel:vps")
+	if tor.TorGroup != "system.slice/shuntd.service/apps/tor/tor" {
+		t.Fatalf("tor group %q", tor.TorGroup)
+	}
+	out, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("socket cgroupv2 level 5 %q meta mark set %#x", tor.TorGroup, vps.Mark); !strings.Contains(strings.ReplaceAll(out, "\t", ""), "cgroupv2") || !strings.Contains(out, tor.TorGroup) {
+		t.Errorf("no classification of the tor group into the via route (%s)", want)
+	}
+}
+
+func TestTorViaRejectsTorTarget(t *testing.T) {
+	if _, err := config.Parse("[tunnel.a]\ndriver = \"tor\"\n[tunnel.b]\nconfig = \"b\"\nvia = \"a\"\n"); err == nil {
+		t.Error("a tunnel through a Tor tunnel was accepted")
+	}
+	if _, err := config.Parse("[tunnel.v]\nconfig = \"v\"\n[tunnel.t]\ndriver = \"tor\"\nvia = \"v\"\n"); err != nil {
+		t.Errorf("tor via a WireGuard tunnel: %v", err)
+	}
+}
+
 // Panic and boot lockdown are rendered by RenderStrict; their text must not
 // change by accident (a changed ruleset at boot or in an emergency is a leak
 // nobody sees until it matters).

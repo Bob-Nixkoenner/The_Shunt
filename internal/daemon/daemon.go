@@ -44,6 +44,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tsconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
@@ -68,6 +69,8 @@ type Daemon struct {
 	tunErrors map[string]string
 	panic     bool
 	proxy     *dnsproxy.Proxy
+	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
+	torProxy  torProxy       // transparent proxies of the Tor routes
 	// sockets names the programs behind sockets (DNS blocks per app, open ports).
 	sockets     sockets.Resolver
 	filter      *blocklist.Manager
@@ -103,6 +106,8 @@ type Daemon struct {
 	probing             bool
 
 	ov      override.State // timed pass (panic stays in the backend)
+	torAll  string         // tunnel the tor-all switch sends everything through
+	torLoad bool           // torAll was read from its file
 	passing bool           // the plan in place was built for a pass
 
 	health     map[string]*health.Monitor // per tunnel, see health.go
@@ -153,6 +158,9 @@ type Env struct {
 	Backend Backend
 	// Pass: a timed pass runs (internal/override): every route is direct.
 	Pass bool
+	// TorAll: the Tor tunnel everything goes through (emergency switch,
+	// see Daemon.setTorAll); "" = off.
+	TorAll string
 }
 
 // PrepareOn is Prepare for the environment env.
@@ -174,6 +182,12 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 		return f
 	}
 	for name, t := range c.Tunnels {
+		if t.IsTor() {
+			// no file, no interface: tor runs under shuntd (see torRoute)
+			p.Hashes[name] = fmt.Sprintf("tor|%s|%s|%s", t.Isolate, t.Via, strings.Join(t.Bridges, "\n"))
+			infos[name] = engine.TunnelInfo{Tor: true}
+			continue
+		}
 		cp := abs(t.Config)
 		if err := checkSecretFile(cp); err != nil {
 			return nil, fmt.Errorf("tunnel %q: %w", name, err)
@@ -257,6 +271,27 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 			eff, p.Network = &cc, n.Name
 		}
 	}
+	torAll := ""
+	if env.TorAll != "" {
+		if tt, ok := c.Tunnels[env.TorAll]; ok && tt.IsTor() && !tt.Disabled {
+			// everything through Tor: default route, network profile, every
+			// rule with a route (blocks stay blocks). Programs started in
+			// another route on purpose follow below, once the plan exists.
+			torAll = env.TorAll
+			cc := *eff
+			cc.Daemon.DefaultRoute = "tunnel:" + torAll
+			cc.Rules = append([]config.Rule(nil), eff.Rules...)
+			for i := range cc.Rules {
+				if r := cc.Rules[i].Route; r != "" && r != "block" {
+					cc.Rules[i].Route = "tunnel:" + torAll
+				}
+			}
+			eff = &cc
+			p.Notes = append(p.Notes, check.Note("tor.all", "tor-all: everything goes through the Tor tunnel \"{name}\" (shunt tor-all off ends it)", "name", torAll))
+		} else {
+			p.Notes = append(p.Notes, check.Note("tor.allbad", "tor-all names \"{name}\", which is not a running Tor tunnel: the switch is ignored (shunt tor-all off clears it)", "name", env.TorAll))
+		}
+	}
 	if env.Pass {
 		// everything direct: default, network profile and every rule (block
 		// too) - for a few minutes only, see Daemon.pass
@@ -278,6 +313,17 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	p.Plan, err = engine.CompileOn(eff, cgroupRoot, infos, p.Network, ifaces)
 	if err != nil {
 		return nil, err
+	}
+	if torAll != "" {
+		tr := p.Plan.RouteByName("tunnel:" + torAll)
+		for i := range p.Plan.Rules {
+			ru := &p.Plan.Rules[i]
+			// `shunt run --via X` groups keep their route otherwise; the login browser
+			// (own route, not in Plan.Routes) and blocks stay
+			if ru.Route != nil && ru.Route != tr && ru.Route.Kind != config.RouteBlock && !ru.Route.Captive && strings.HasPrefix(ru.Name, "via:") {
+				ru.Route = tr
+			}
+		}
 	}
 	for _, r := range usedLinks(eff, p.Plan) {
 		if ifaces[r] == "" {
@@ -340,8 +386,8 @@ func (p *Prepared) prepareDNS(c *config.Config) {
 			p.DNSUpstreams[route] = []config.UpstreamSpec{u}
 			continue
 		}
-		if t.IsOpenVPN() {
-			continue // whatever the server pushes (see Daemon.upstreams)
+		if t.IsOpenVPN() || t.IsTor() {
+			continue // what the server pushes / Tor's DNSPort (see Daemon.upstreams)
 		}
 		if t.IsTailscale() {
 			// tailscaled's resolver: MagicDNS names, the tailnet's nameservers
@@ -405,6 +451,18 @@ func (d *Daemon) upstreams(p *Prepared) dnsproxy.RouteUpstreams {
 		ups["direct"] = []dnsproxy.Upstream{dnsproxy.NewSystemUpstream(p.Plan.RouteByName("direct").Mark)}
 	}
 	for name, t := range p.Config.Tunnels {
+		if t.IsTor() {
+			route := "tunnel:" + name
+			ups[route] = []dnsproxy.Upstream{dnsproxy.NewAddrUpstream("tor", func() string {
+				d.mu.Lock()
+				defer d.mu.Unlock()
+				if ts, ok := d.tunnels[name].(tunnel.TorStatus); ok {
+					return ts.DNSAddr()
+				}
+				return ""
+			})}
+			continue
+		}
 		if t.IsOpenVPN() && t.DNS == "" {
 			route := "tunnel:" + name
 			ups[route] = []dnsproxy.Upstream{dnsproxy.NewPushedUpstream(p.Plan.RouteByName(route).Mark, func() []netip.Addr {
@@ -680,7 +738,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now())})
+	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now()), TorAll: d.loadTorAll()})
 	if err != nil {
 		return err
 	}
@@ -718,6 +776,11 @@ func (d *Daemon) reload(selfCgroup string) error {
 		return err
 	}
 	d.dnsUps = ups
+	if d.socks == nil {
+		d.socks = &socks.Manager{Log: d.Log}
+	}
+	d.socks.Update(d.socksExits(p, ups))
+	d.torProxy.Update(p, d.torDial)
 	if d.filter != nil {
 		var used []string
 		if p.Plan.DNS {
@@ -810,7 +873,17 @@ func (d *Daemon) syncTunnels() error {
 		}
 		var t tunnel.Device
 		var err error
-		if tc.IsTailscale() {
+		if tc.IsTor() {
+			tr := p.Plan.RouteByName("tunnel:" + name)
+			dir := torCgroupDir(tr.TorGroup)
+			if tr.TorGroup != "" && dir == "" {
+				// never start tor outside the group that routes it
+				err = errors.New("cannot place tor in its cgroup (needed for via)")
+			} else {
+				t, err = tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join("/var/lib/shunt", "tor", name),
+					RunDir: filepath.Dir(p.Config.Daemon.Socket), Bridges: tc.Bridges, Isolate: tc.Isolate, CgroupDir: dir}, d.Log, d.signalTunnel)
+			}
+		} else if tc.IsTailscale() {
 			t, err = tunnel.StartTailscale(tunnel.TailscaleSpec{Name: name, Iface: tc.Interface, Conf: p.TS[name],
 				RunDir: filepath.Dir(p.Config.Daemon.Socket), StateDir: filepath.Join("/var/lib/shunt", "ts-"+name)}, d.Log, d.signalTunnel)
 		} else if tc.IsOpenVPN() {
@@ -1076,7 +1149,7 @@ func (d *Daemon) tunnelChanged() {
 func (d *Daemon) ifaceUp(p *Prepared) map[string]bool {
 	up := map[string]bool{}
 	for name := range d.tunnels {
-		if tc, ok := p.Config.Tunnels[name]; ok {
+		if tc, ok := p.Config.Tunnels[name]; ok && !tc.IsTor() {
 			up[tc.Interface] = true
 		}
 	}
@@ -1158,6 +1231,10 @@ func (d *Daemon) shutdown() {
 	if d.proxy != nil {
 		d.proxy.Close()
 	}
+	if d.socks != nil {
+		d.socks.Close()
+	}
+	d.torProxy.Close()
 	_ = os.Remove(d.cfg.Daemon.Socket)
 	d.Log.Info("shuntd stopped; kill switch stays active for tunnels, direct goes on")
 }
@@ -1467,6 +1544,15 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// New circuits for a Tor tunnel (SIGNAL NEWNYM). Any member of the group
+	// may ask: it only makes tor build fresh circuits for new connections.
+	mux.HandleFunc("POST /v1/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.newIdentity(r.PathValue("name")); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/tunnels/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -1591,6 +1677,26 @@ func (d *Daemon) routes() http.Handler {
 		d.Log.Warn("pass", "minutes", req.Minutes, "until", until)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// Emergency switch: everything through a Tor tunnel. Turning it on never
+	// waits for a password (like panic); turning it off does.
+	mux.HandleFunc("POST /v1/torall", func(w http.ResponseWriter, r *http.Request) {
+		var req api.TorAllRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if !req.On {
+			if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+				writeErr(w, http.StatusForbidden, err)
+				return
+			}
+		}
+		if err := d.setTorAll(req.On, req.Tunnel); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -1673,7 +1779,7 @@ func (d *Daemon) status() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ovs := d.ov.Status(time.Now())
-	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, DNS: map[string][]string{},
+	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, TorAll: d.torAll, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
 		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill}
 	if d.fw != nil {
@@ -1736,11 +1842,15 @@ func (d *Daemon) status() api.Status {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Disabled: d.cfg.Tunnels[n].Disabled}
+		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Socks: d.cfg.Tunnels[n].Socks, Disabled: d.cfg.Tunnels[n].Disabled}
 		if t, ok := d.tunnels[n]; ok {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()
 			ts.Health = d.healthReport(n)
+			if tor, ok := t.(tunnel.TorStatus); ok {
+				b := tor.Bootstrap()
+				ts.Bootstrap = &b
+			}
 			if e := t.Err(); e != "" && ts.Error == "" {
 				ts.Error = e
 			}

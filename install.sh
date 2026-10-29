@@ -122,6 +122,9 @@ pkg_names() { # logical name -> this distribution's package names
 	apt:desktop) echo libwebkit2gtk-4.1-0 libgtk-3-0 ;;
 	pacman:desktop) echo webkit2gtk-4.1 gtk3 ;;
 	dnf:desktop) echo webkit2gtk4.1 gtk3 ;;
+	apt:tor) echo tor ;;
+	pacman:tor) echo tor ;;
+	dnf:tor) echo tor ;;
 	apt:go) echo golang-go git ;;
 	pacman:go) echo go git ;;
 	dnf:go) echo golang git ;;
@@ -259,6 +262,7 @@ if [[ $MODE == uninstall ]]; then
 	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt" "$BIN_DIR/shunt-desktop" "$DESKTOP_ENTRY" "$DESKTOP_ICON"
 	if [[ -n ${SUDO_USER:-} ]]; then rm -f "$(user_home "$SUDO_USER")/.config/autostart/the-shunt.desktop"; fi
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
+	rm -rf /usr/local/libexec/shunt
 	systemctl daemon-reload
 	if ((PURGE)); then
 		rm -rf "$ETC" && ok "removed $ETC (including your tunnel keys)"
@@ -314,7 +318,9 @@ else
 	fi
 	die "no connection to github.com within 20 s – check the network (with The Shunt active: shunt status)"
 fi
-WORK=$(mktemp -d)
+# not /tmp: it is a tmpfs on most systems (half the RAM, 1.3 GB in a small VM) and the
+# Go toolchain, the modules and the build of lyrebird need several GB
+WORK=$(mktemp -d /var/tmp/shunt-install.XXXXXX 2>/dev/null || mktemp -d)
 
 # ---------------------------------------------------------------- releases
 # The newest signed release (pre-releases included), installed by the
@@ -429,6 +435,15 @@ pkg_install polkit polkit || warn "polkit not available: config changes will nee
 if yes_no "Install OpenVPN support (for .ovpn configs)?" y; then
 	pkg_install openvpn openvpn
 fi
+# Tor tunnels: shuntd runs its own tor; the package's system service is not
+# needed (left alone if tor was installed before)
+if ! command -v tor >/dev/null; then
+	if pkg_install "Tor (for Tor tunnels)" tor; then
+		systemctl disable --now tor.service tor@default.service >/dev/null 2>&1 || true
+	else
+		warn "tor not available: Tor tunnels will not start until it is installed"
+	fi
+fi
 
 # ---------------------------------------------------------------- desktop app?
 WANT_DESKTOP=0
@@ -453,6 +468,11 @@ build_from() { # source dir
 	step "downloading Go toolchain and modules" env -C "$1" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" go mod download
 	step "compiling shuntd and shunt" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=0 \
 		go build -ldflags "-s -w -X main.version=$ver" -o "$WORK/bin/" ./cmd/shuntd ./cmd/shunt
+	# a subshell: step ends the script on a failure, and a missing lyrebird
+	# (module proxy hiccup) must not stop the install - only bridges need it
+	(step "compiling lyrebird (Tor bridge transports)" env -C "$1/packaging/pt" GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" \
+		GOFLAGS=-trimpath CGO_ENABLED=0 go build -ldflags "-s -w" -o "$WORK/bin/" \
+		gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/cmd/lyrebird) || warn "lyrebird not built: Tor bridges will not work"
 	if ((WANT_DESKTOP)); then
 		pkg_install "build tools for the desktop app" desktop-build
 		step "compiling shunt-desktop" env -C "$1" GOFLAGS=-trimpath GOCACHE="$WORK/cache" GOMODCACHE="$WORK/mod" CGO_ENABLED=1 \
@@ -494,6 +514,10 @@ else
 	SRC_DIR=$WORK/src
 fi
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
+if [[ -f $WORK/bin/lyrebird ]]; then
+	install -d /usr/local/libexec/shunt
+	install -m755 "$WORK/bin/lyrebird" /usr/local/libexec/shunt/
+fi
 if ((WANT_DESKTOP)) && [[ -f $WORK/bin/shunt-desktop ]]; then
 	install -m755 "$WORK/bin/shunt-desktop" "$BIN_DIR/"
 fi

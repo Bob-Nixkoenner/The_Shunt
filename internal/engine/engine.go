@@ -37,6 +37,10 @@ const (
 	DNSPortBase = 53530
 	// DNSPortCaptive is the DNS listener of the login browser.
 	DNSPortCaptive = DNSPortBase - 1
+	// TorPortBase: transparent proxy of a Tor route at TorPortBase + tunnel index.
+	TorPortBase = 53000
+	// TorRulePortBase: transparent proxy of a rule with a Tor route.
+	TorRulePortBase = 52000
 	// DNSFilterPortBase: listeners for programs whose rule sets a DNS
 	// filter level other than their route's, at base + 4*route index + level.
 	DNSFilterPortBase = 54000
@@ -67,6 +71,8 @@ type TunnelInfo struct {
 	// Forward: the tunnel runs behind this interface in another network
 	// namespace. Its (encrypted) packets arrive on Iface and are forwarded.
 	Forward bool
+	// Tor: no interface; the route is a transparent proxy (see Route.Proxy).
+	Tor bool
 }
 
 // Route is a compiled route.
@@ -95,6 +101,15 @@ type Route struct {
 	// Captive: the login browser's route (see MarkCaptive); it is not in
 	// Plan.Routes.
 	Captive bool
+	// Tor: no interface and no routing table. The route's TCP is redirected
+	// to ProxyPort on loopback, where shuntd hands it to tor; everything
+	// else except DNS is rejected.
+	Tor       bool
+	ProxyPort int
+	// TorGroup: a Tor route with a via runs its tor process in this cgroup
+	// (path relative to the cgroup mount); a rule sends the group through
+	// the via route, so tor's own traffic takes that tunnel or link.
+	TorGroup string
 	// Filter: the DNS filter level of queries arriving at DNSPort
 	// (config.FilterOff … FilterParanoid).
 	Filter string
@@ -129,6 +144,10 @@ type Rule struct {
 	// Route is nil for a rule that only sets a DNS filter level.
 	Route *Route
 	// Filter: DNS filter level of the rule's groups ("" = their route's).
+	// ProxyPort: a rule that sends its apps through a Tor route gets a
+	// transparent proxy port of its own (TorRulePortBase + rule number), so
+	// its apps' circuits are not shared with other rules' apps.
+	ProxyPort int
 	// FilterRoutes are copies of every route with that level and their
 	// own DNS listener: the rule's queries are redirected there, whichever
 	// route they take.
@@ -360,6 +379,14 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 				return nil, fmt.Errorf("no tunnel info for %q", cr.Tunnel)
 			}
 			r.Mark = MarkBase | uint32(tIdx)
+			if ti.Tor {
+				r.Tor, r.ProxyPort, r.V4, r.V6 = true, TorPortBase+tIdx, true, true
+				r.Filter = filter.Default
+				if f := c.Tunnels[cr.Tunnel].DNSFilter; f != "" {
+					r.Filter = f
+				}
+				break
+			}
 			r.Table = TableBase + tIdx
 			r.Iface = ti.Iface
 			r.V4, r.V6 = ti.HasV4, ti.HasV6
@@ -406,6 +433,23 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		p.Groups = append(p.Groups, Group{Name: ViaGroupName(r.String()), Path: path.Join(cgroupRoot, "apps", "via", slug)})
 	}
 
+	// Tor tunnels with a via: tor (and its transports) run in a group of
+	// their own that is routed through the via route.
+	var torRules []Rule
+	for _, r := range p.Routes {
+		if r.Kind != config.RouteTunnel || !r.Tor {
+			continue
+		}
+		via := c.Tunnels[r.Tunnel].Via
+		vr := p.RouteByName(via)
+		if via == "" || vr == nil {
+			continue
+		}
+		g := Group{Name: "tor:" + r.Tunnel, Path: path.Join(cgroupRoot, "apps", "tor", r.Tunnel)}
+		p.Groups = append(p.Groups, g)
+		r.TorGroup = g.Path
+		torRules = append(torRules, Rule{Name: g.Name, Groups: []Group{g}, AnyFamily: true, Route: vr})
+	}
 	var override, normal []Rule
 	for i, cr := range c.Rules {
 		if !cr.ActiveOn(network) {
@@ -461,6 +505,9 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 				rule.FilterRoutes = append(rule.FilterRoutes, fr)
 			}
 		}
+		if rule.Route != nil && rule.Route.Tor && len(rule.Groups) > 0 {
+			rule.ProxyPort = TorRulePortBase + i
+		}
 		if cr.OverrideExplicit {
 			override = append(override, rule)
 		} else {
@@ -480,6 +527,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 	p.Groups = append(p.Groups, cg)
 	p.Rules = append(p.Rules, Rule{Name: CaptiveGroup, Groups: []Group{cg}, AnyFamily: true, Route: p.Captive})
 	p.Rules = append(p.Rules, via(p.RouteByName("block")))
+	p.Rules = append(p.Rules, torRules...)
 	p.Rules = append(p.Rules, override...)
 	for _, r := range p.Routes {
 		if r.Kind != config.RouteBlock {

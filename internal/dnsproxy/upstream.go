@@ -310,3 +310,29 @@ func RouteHTTPClient(mark uint32, dnsPort int) *http.Client {
 		},
 	}
 }
+
+// AddrUpstream asks the plain-DNS server addr() names (host:port) right now,
+// without a packet mark: a resolver on this machine (Tor's DNSPort), whose
+// port is only known once it runs.
+type AddrUpstream struct {
+	label string
+	addr  func() string
+}
+
+// NewAddrUpstream creates an AddrUpstream; label is shown in status.
+func NewAddrUpstream(label string, addr func() string) *AddrUpstream {
+	return &AddrUpstream{label: label, addr: addr}
+}
+
+// Exchange implements Upstream.
+func (a *AddrUpstream) Exchange(ctx context.Context, m *dns.Msg) (*dns.Msg, error) {
+	addr := a.addr()
+	if addr == "" {
+		return nil, fmt.Errorf("%s is not running (yet)", a.label)
+	}
+	c := &dns.Client{Net: "udp", Timeout: 15 * time.Second}
+	r, _, err := c.ExchangeContext(ctx, m, addr)
+	return r, err
+}
+
+func (a *AddrUpstream) String() string { return a.label }
