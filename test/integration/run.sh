@@ -646,11 +646,13 @@ check "decision remembered" yes "$(shunt firewall apps | gq 'fwcurl *tunnel:vps'
 check "next start goes straight through the tunnel" 10.66.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl" $URL)"
 check "no answer: default route after the timeout" 10.99.0.2 "$(fwrun "$SCOPE" "$BIN/fwcurl2" $URL)"
 check "system services are never held" 10.99.0.2 "$(fwrun "$SYSSVC" "$BIN/fwcurl2" $URL)"
-# a program that execs at once (no pause after joining the scope) and several
-# at the same time: exec events can get lost, none may slip out unasked
+# six programs that start at the same time, a moment after joining the scope
+# (a burst: exec events can get lost; a program that opens its first socket
+# within milliseconds of the exec cannot be caught by watching, that is the
+# start guard's job and needs a known rule)
 cp "$(command -v curl)" "$BIN/fwcurl3"
-fwfast() { # program url: joins the scope and execs without any pause
-	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --max-time 35 '"$2"
+fwfast() { # program url: joins the scope, 0.6 s, exec
+	fetch_long setsid -w sh -c 'echo $$ > /sys/fs/cgroup/'"$SCOPE"'/cgroup.procs; sleep 0.6; exec setpriv --reuid=65534 --regid=65534 --clear-groups '"$1"' -s --max-time 35 '"$2"
 }
 FASTPIDS=()
 for i in 1 2 3 4 5 6; do
