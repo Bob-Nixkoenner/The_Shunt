@@ -54,8 +54,18 @@ apply_config() { # $1 = config name; restarts shuntd only when it changed
 }
 
 renew_client() {
-	client "c=\$(nmcli -g GENERAL.CONNECTION dev show $CLIENT_IF); sudo -n nmcli -w 30 con up \"\$c\" >/dev/null" || true
+	# a device without active connection has an empty GENERAL.CONNECTION: take the first ethernet profile
+	client "c=\$(nmcli -g GENERAL.CONNECTION dev show $CLIENT_IF); [ -n \"\$c\" ] || c=\$(nmcli -g NAME,TYPE con show | awk -F: '\$2 ~ /ethernet/ {print \$1; exit}'); sudo -n nmcli -w 30 con up \"\$c\" >/dev/null" || true
 	sleep 4
+}
+
+# the tests ask the gateway for the client (P04, M05 need the direct way to it): without a
+# lease the result is a bogus "Fund", so bring the link up first
+ensure_link() {
+	[[ ${CLIENT_OS:-linux} == windows ]] && return 0
+	client "ip -4 -o addr show $CLIENT_IF | grep inet >/dev/null" 2>/dev/null && gw labctl client >/dev/null 2>&1 && return 0
+	echo "   (client has no lease: reconnecting $CLIENT_IF)"
+	renew_client
 }
 
 run_test() {
@@ -94,6 +104,7 @@ run_test() {
 	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
+	ensure_link
 
 	# captures first, so DHCP after a mode change is in them
 	gw labctl cap start "$run" >/dev/null
