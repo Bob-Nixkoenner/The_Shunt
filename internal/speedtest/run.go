@@ -329,6 +329,22 @@ func (j *Job) Cancel() {
 	}
 }
 
+// WithoutDown drops the routes in down (links that are not connected).
+func WithoutDown(routes, down []string) (kept, dropped []string) {
+	gone := map[string]bool{}
+	for _, d := range down {
+		gone[d] = true
+	}
+	for _, r := range routes {
+		if gone[strings.TrimSpace(r)] {
+			dropped = append(dropped, r)
+		} else {
+			kept = append(kept, r)
+		}
+	}
+	return kept, dropped
+}
+
 // WithoutTor drops the routes in tor from routes (M-Lab resets connections
 // that come through Tor exits, so NDT7 is not offered there). dropped lists
 // what was removed.

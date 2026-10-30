@@ -458,12 +458,17 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		o.MaxPause = 0 // the default pause; not for callers to shorten
+		var st api.Status
+		if err := s.Client.Do("GET", "/v1/status", nil, &st); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		var off []string
+		if o.Routes, off = speedtest.WithoutDown(o.Routes, st.RoutesDown); len(off) > 0 {
+			writeErr(w, http.StatusBadRequest, errors.New("not connected right now: "+strings.Join(off, ", ")))
+			return
+		}
 		if o.Provider == speedtest.NDT7 {
-			var st api.Status
-			if err := s.Client.Do("GET", "/v1/status", nil, &st); err != nil {
-				writeErr(w, http.StatusBadGateway, err)
-				return
-			}
 			tor := map[string]bool{}
 			for _, t := range st.Tunnels {
 				if t.Bootstrap != nil {

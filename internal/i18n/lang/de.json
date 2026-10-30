@@ -983,6 +983,7 @@
     "{n} rounds": "{n} Runden",
     "Recent measurements": "Letzte Messungen",
     "show the last 3 stored speed tests (no new test)": "die letzten 3 gespeicherten Geschwindigkeitstests anzeigen (kein neuer Test)",
+  "not connected right now: ": "gerade nicht verbunden: ",
     "routes to test, comma separated (default: all but block)": "zu testende Wege, durch Komma getrennt (Standard: alle außer block)",
   "rule": "Regel",
   "rules that match ports · first match wins": "Regeln, die auf Ports passen · die erste Übereinstimmung gewinnt",
