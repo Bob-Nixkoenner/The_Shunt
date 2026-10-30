@@ -181,13 +181,13 @@ function render() {
 
   // Selects are rebuilt only when the routes change: rebuilding closes a
   // dropdown the user has open.
-  const routesKey = st.routes.join(",");
+  const routesKey = st.routes.join(",") + "|" + (st.routes_down || []).join(",");
   const routesChanged = routesKey !== render.routesKey;
   render.routesKey = routesKey;
   if (routesChanged) {
     const sel = $("#runroute");
     const cur = sel.value;
-    sel.replaceChildren(...st.routes.map((r) => el("option", { value: r }, r)));
+    sel.replaceChildren(...upRoutes(cur).map((r) => el("option", { value: r }, r)));
     sel.value = cur && st.routes.includes(cur) ? cur : (st.routes.find((r) => r.startsWith("tunnel:")) || "direct");
   }
 
@@ -294,8 +294,15 @@ async function warnRunning(a) {
   await ask(T("{name} is still running ({n} processes in {routes}).\n\nNew windows open in that old process and keep its route. Quit it completely – also from the tray or background mode (Brave/Chrome: Settings → System → “Continue running background apps” off) – then start it again.\n\nCheck with: shunt which {process}", { name: a.name, n: wrong.length, routes, process: processName(a.id) }), { ok: "Got it" });
 }
 
+// routes for a NEW choice: links that are not connected are left out; keep
+// is a route already in use (a saved rule on a link that is down stays visible)
+function upRoutes(keep) {
+  const down = (status && status.routes_down) || [];
+  return ((status && status.routes) || []).filter((r) => r === keep || !down.includes(r));
+}
+
 function routeSelect(value, onchange, withDefault) {
-  const routes = (withDefault ? [""] : []).concat(status ? status.routes : []);
+  const routes = (withDefault ? [""] : []).concat(upRoutes(value));
   const s = el("select", { onchange }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
   s.value = value;
   return s;
@@ -389,7 +396,7 @@ function renderLaunchers() {
   lapp.value = cur || ff || (lapp.options[0] && lapp.options[0].value) || "";
   const lroute = $("#lroute");
   const curRoute = lroute.value;
-  lroute.replaceChildren(...status.routes.map((r) => el("option", { value: r }, r)));
+  lroute.replaceChildren(...upRoutes(curRoute).map((r) => el("option", { value: r }, r)));
   lroute.value = curRoute || status.routes.find((r) => r.startsWith("tunnel:")) || "direct";
 }
 
@@ -740,7 +747,7 @@ function showFw(p, st) {
   fwCurrent = p;
   $("#fw-title").textContent = p.name;
   $("#fw-key").textContent = p.key + (p.procs > 1 ? T(" · {n} processes", { n: p.procs }) : "");
-  const routes = st.routes.filter((r) => r !== "block");
+  const routes = st.routes.filter((r) => r !== "block" && !(st.routes_down || []).includes(r));
   $("#fw-routes").replaceChildren(
     ...routes.map((r) => el("button", { class: r === st.default_route ? "primary" : "", onclick: () => decideFw(r) }, r === "direct" ? T("direct (real IP)") : r.replace(/^tunnel:/, T("tunnel ")) )),
     el("button", { class: "danger", onclick: () => decideFw("block") }, "block"));
