@@ -66,7 +66,7 @@ func TestTorAllEmergency(t *testing.T) {
 	const conf = "[daemon]\nsocket = \"/nonexistent/s.sock\"\n[tunnel.tor]\ndriver = \"tor\"\n"
 	path, eb := emergEnv(t, conf)
 	be := fakeRuleset{eb}
-	cons := "r A id d 2026-10-30 10:00:00 192.0.2.1 9001 0\na [2001:db8::1]:9001\n"
+	cons := "r A id 2026-10-30 10:00:00 192.0.2.1 9001 0\na [2001:db8::1]:9001\n"
 	if err := os.MkdirAll(filepath.Join(torDataRoot, "tor"), 0o755); err != nil {
 		t.Fatal(err)
 	}
