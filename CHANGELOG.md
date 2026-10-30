@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Tor bridges explained in plain words (Android card with an info button, window: "What is a bridge?" under the Tor form and in the tunnel list, `shunt tor help`): what a bridge is, when you need one, snowflake / obfs4 / meek / webtunnel / own lines, recommendation. "New identity" and the emergency switch "Everything through Tor" got short explanations. German included.
+- Android: Normal / Pro mode (new Settings tab, default Normal, saved). Adding Tor, bridge choice, "New identity" and the emergency switch show in Pro only; a Tor tunnel that exists stays on its card, and the emergency switch stays visible while it is on.
+
 ## v0.7.1-rc18
 
 - Speedtest tab (Linux): measures every route one after the other (Cloudflare by default, M-Lab NDT7 as an option with an info button – M-Lab publishes the measurement with the IP, not offered over Tor), random order of routes and measurements, median over 1–5 rounds, also `shunt speedtest`.
