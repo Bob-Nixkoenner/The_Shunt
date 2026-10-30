@@ -17,6 +17,7 @@ func TestTorRelays(t *testing.T) {
 		"s Fast Guard\n" +
 		"r B id dig 2026-10-30 10:00:00 198.51.100.7 443 0\n" +
 		"r C id dig 2026-10-30 10:00:00 192.0.2.1 9002 0\n" +
+		"r D id 2026-10-30 10:00:00 203.0.113.4 9001 0\n" + // real microdesc format: no digest
 		"r broken\n"
 	if err := os.WriteFile(filepath.Join(d, "cached-microdesc-consensus"), []byte(cons), 0o600); err != nil {
 		t.Fatal(err)
@@ -25,7 +26,7 @@ func TestTorRelays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"192.0.2.1/32", "198.51.100.7/32", "2001:db8::1/128"}
+	want := []string{"192.0.2.1/32", "198.51.100.7/32", "2001:db8::1/128", "203.0.113.4/32"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}

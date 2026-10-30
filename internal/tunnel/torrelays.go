@@ -33,10 +33,14 @@ func TorRelays(dataDir string) ([]netip.Prefix, error) {
 		l := sc.Text()
 		switch {
 		case strings.HasPrefix(l, "r "):
-			// r nick identity digest date time IP ORPort DirPort
-			if fl := strings.Fields(l); len(fl) >= 7 {
-				if a, err := netip.ParseAddr(fl[6]); err == nil {
+			// microdesc: r nick identity date time IP ORPort DirPort
+			// full:      r nick identity digest date time IP ORPort DirPort
+			// The address is the first field that parses (date and time do not).
+			fl := strings.Fields(l)
+			for i := 4; i < len(fl) && i < 7; i++ {
+				if a, err := netip.ParseAddr(fl[i]); err == nil {
 					seen[netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen())] = true
+					break
 				}
 			}
 		case strings.HasPrefix(l, "a "):
