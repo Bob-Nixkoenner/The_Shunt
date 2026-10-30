@@ -1401,12 +1401,16 @@ func (d *Daemon) routes() http.Handler {
 		}
 		d.mu.Lock()
 		g, ok := d.plan.Group(engine.ViaGroupName(req.Route))
+		torRoute := false
+		if rt := d.plan.RouteByName(req.Route); rt != nil {
+			torRoute = rt.Tor
+		}
 		d.mu.Unlock()
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown route %q", req.Route))
 			return
 		}
-		out, err := d.runProbe(r.Context(), g.Path)
+		out, err := d.runProbe(r.Context(), g.Path, torRoute)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -1762,12 +1766,15 @@ var speedSlot = make(chan struct{}, 1)
 // runProbe runs `shuntd probe` (fixed targets, nothing the caller chooses)
 // inside the cgroup at path, so its traffic takes exactly that route. The
 // probe waits for a line on stdin: it is moved before it sends anything.
-func (d *Daemon) runProbe(ctx context.Context, path string) ([]byte, error) {
+func (d *Daemon) runProbe(ctx context.Context, path string, tor bool) ([]byte, error) {
 	select {
 	case probeSlots <- struct{}{}:
 		defer func() { <-probeSlots }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+	if tor { // Tor's DNS port cannot answer the resolver query: ask check.torproject.org instead
+		return d.runIn(ctx, path, 30*time.Second, "probe", "tor")
 	}
 	return d.runIn(ctx, path, 30*time.Second, "probe")
 }

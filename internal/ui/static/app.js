@@ -557,7 +557,7 @@ async function runLeak(auto) {
       el("div", { class: "leakhead" }, routeTag(r.route), el("span", { class: "pill verdict " + r.verdict }, r.verdict.toUpperCase())),
       r.verdict === "blocked" && !r.result.ip ? el("div", { class: "muted" }, r.note || "nothing gets out") : el("div", { class: "leakkv" },
         el("span", {}, "public IP"), el("span", { class: "mono" }, r.result.ip || "–"),
-        el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || "–")),
+        el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || (r.result.tor ? T("inside Tor") : "–"))),
       r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, r.note) : ""))));
     showLeakPill(res);
   } catch (e) { $("#leakres").textContent = T("Leak test failed: {error}", { error: e.message }); }
@@ -785,7 +785,8 @@ function renderChecks(fs) {
   box.hidden = !rest.length;
   if (!rest.length) return;
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
-  $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}))));
+  $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}),
+    f.help ? el("div", { class: "muted" }, T(f.help)) : "")));
 }
 
 // The daemon's warnings, translated here (notices: English sentence + values);
