@@ -328,6 +328,9 @@ for d, n in captive_checks.items():
 for q, dst, w in gw_dns:
     if allow_dns or allowed_comm(w):
         continue
+    if w == "shuntd" and q.encode() in CAPTIVE_HOSTS:  # name of the portal check: the portal sits in front of any tunnel
+        find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt)")
+        continue
     find("leak", "DNS über das fremde Netz", f"{q} an {dst}, Prozess: {w}")
 
 # unbound log as a second opinion (it also sees what scapy might miss, e.g. TCP DNS)
