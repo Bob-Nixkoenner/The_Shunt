@@ -1882,6 +1882,9 @@ func (d *Daemon) status() api.Status {
 			if tor, ok := t.(tunnel.TorStatus); ok {
 				b := tor.Bootstrap()
 				ts.Bootstrap = &b
+				if b >= 100 {
+					ts.Circuit = tor.Circuit()
+				}
 			}
 			if e := t.Err(); e != "" && ts.Error == "" {
 				ts.Error = e
