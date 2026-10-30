@@ -446,6 +446,17 @@ function bridgeKind(t) {
   if (!b.length) return "";
   return b.length === 1 && BRIDGE_SETS.includes(b[0]) ? b[0] : "custom";
 }
+// bridgeHelp: what bridges are, in plain words (also under the add form).
+function bridgeHelp() {
+  return el("details", { class: "hint" }, el("summary", {}, T("What is a bridge?")),
+    ...["A bridge is a hidden entrance to the Tor network. You only need one if Tor is blocked where you are (for example at school, at work or in a country with censorship). Without a block, use no bridge: that is faster.",
+      "snowflake: usually the easiest. Volunteers lend you their internet connection as an entrance. You enter nothing.",
+      "obfs4: disguised, so it does not look like Tor. Needs a bridge address from bridges.torproject.org; the built-in ones may be blocked already.",
+      "meek: looks like traffic to a big internet service. Works in strict places, but is slow.",
+      "webtunnel: looks like a visit to an ordinary website. Needs a bridge address (own bridge).",
+      "own bridge: paste the bridge lines you got from bridges.torproject.org.",
+      "Tip: no censorship, no bridge. Tor blocked: try snowflake first."].map((x) => el("div", { style: "margin-top:4px" }, x)));
+}
 function torRow(n, t) {
   const kind = bridgeKind(t);
   const own = el("textarea", { rows: 3, style: "width:100%;min-height:60px;margin-top:6px", placeholder: "one bridge line per row, e.g. obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0",
@@ -477,7 +488,7 @@ function torRow(n, t) {
   return el("tr", {},
     el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),
     el("td", {}, el("span", { class: "muted" }, "Tor network"), el("div", { class: "muted", style: "font-size:12px" }, "TCP only; no UDP, no calls. .onion works.")),
-    el("td", {}, sel, own, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
+    el("td", {}, sel, own, bridgeHelp(), el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
       el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "Tor "), viaSel),
       el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { class: "muted" }, "Advanced"),
         el("label", { class: "row muted", title: "A SOCKS5 proxy on this local address that leads into Tor (names are resolved by Tor). Loopback only. Empty = off." },
@@ -505,6 +516,7 @@ $("#tor-add").addEventListener("click", () => {
   renderConfig();
   toast("Tor tunnel " + name + " added – press “Save & apply” to start it");
 });
+$("#tor-help").append(bridgeHelp());
 $("#tor-bridges").addEventListener("change", () => { $("#tor-own").hidden = $("#tor-bridges").value !== "custom"; });
 
 async function deleteTunnel(n) {

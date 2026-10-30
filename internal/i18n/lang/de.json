@@ -1172,6 +1172,24 @@
   "🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ": "🛡 Unbekanntes Netz {name}: Eingehende Verbindungen sind blockiert. Ist das dein eigenes Netz? ",
   "Clock check": "Uhrprüfung",
   "warn when the system clock is off": "warnen, wenn die Systemuhr falsch geht",
-  "Off by default. When on, every 10 minutes The Shunt asks a few web servers for the time (HTTPS \"Date\" header) through your default route, i.e. through the tunnel, and warns if your clock differs by more than 90 seconds. A wrong clock makes tunnel handshakes and certificates fail.": "Standardmäßig aus. Wenn an, fragt The Shunt alle 10 Minuten ein paar Webserver nach der Uhrzeit (HTTPS-Kopfzeile „Date“), und zwar über deine Standardroute, also durch den Tunnel, und warnt, wenn deine Uhr mehr als 90 Sekunden abweicht. Eine falsche Uhr lässt Tunnel-Handshakes und Zertifikate scheitern."
+  "Off by default. When on, every 10 minutes The Shunt asks a few web servers for the time (HTTPS \"Date\" header) through your default route, i.e. through the tunnel, and warns if your clock differs by more than 90 seconds. A wrong clock makes tunnel handshakes and certificates fail.": "Standardmäßig aus. Wenn an, fragt The Shunt alle 10 Minuten ein paar Webserver nach der Uhrzeit (HTTPS-Kopfzeile „Date“), und zwar über deine Standardroute, also durch den Tunnel, und warnt, wenn deine Uhr mehr als 90 Sekunden abweicht. Eine falsche Uhr lässt Tunnel-Handshakes und Zertifikate scheitern.",
+  "A bridge is a hidden entrance to the Tor network. You only need one if Tor is blocked where you are (for example at school, at work or in a country with censorship). Without a block, use no bridge: that is faster.": "Eine Brücke ist ein versteckter Eingang ins Tor-Netzwerk. Du brauchst sie nur, wenn Tor bei dir gesperrt ist (zum Beispiel in der Schule, auf der Arbeit oder in einem Land mit Zensur). Ohne Sperre brauchst du keine Brücke: So ist es schneller.",
+  "Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.": "Notfallschalter: für den Fall, dass nichts außer über Tor dein Gerät verlassen darf. Jede App geht über Tor, egal was ihr eigener Weg sagt. Anrufe und Spiele funktionieren dann nicht. Schaltest du ihn aus, kommen deine Wege zurück.",
+  "Mode": "Modus",
+  "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.": "Neue Identität: Tor baut für neue Verbindungen neue Wege, damit Seiten sie nicht mit deinem früheren Tun verbinden können. Schon offene Verbindungen behalten ihren alten Weg.",
+  "Normal shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their expert buttons show in Pro only.": "Normal zeigt das Wichtigste. Pro blendet Tor dazu: Hinzufügen, Brücken, Neue Identität und Alles über Tor. Vorhandene Tor-Tunnel bleiben auf ihren Karten sichtbar; ihre Experten-Knöpfe gibt es nur in Pro.",
+  "Own bridge lines and webtunnel: only in the desktop app for now.": "Eigene Brücken und webtunnel: bisher nur in der Desktop-App.",
+  "Pro": "Pro",
+  "Settings": "Einstellungen",
+  "Tip: no censorship, no bridge. Tor blocked: try snowflake first.": "Tipp: ohne Zensur keine Brücke. Tor gesperrt: probiere zuerst snowflake.",
+  "Tor help (shunt tor help):": "Tor-Hilfe (shunt tor help):",
+  "What is a bridge?": "Was ist eine Brücke?",
+  "meek: looks like traffic to a big internet service. Works in strict places, but is slow.": "meek: sieht aus wie Verkehr zu einem großen Internetdienst. Funktioniert auch an strengen Orten, ist aber langsam.",
+  "obfs4: disguised, so it does not look like Tor. Needs a bridge address from bridges.torproject.org; the built-in ones may be blocked already.": "obfs4: getarnt, sodass es nicht nach Tor aussieht. Braucht eine Brücken-Adresse von bridges.torproject.org; die eingebauten sind vielleicht schon gesperrt.",
+  "own bridge: paste the bridge lines you got from bridges.torproject.org.": "eigene Brücke: füge die Brücken-Zeilen ein, die du von bridges.torproject.org bekommen hast.",
+  "snowflake: usually the easiest. Volunteers lend you their internet connection as an entrance. You enter nothing.": "snowflake: meist am einfachsten. Freiwillige leihen dir ihre Internetverbindung als Eingang. Du musst nichts eingeben.",
+  "webtunnel: looks like a visit to an ordinary website. Needs a bridge address (own bridge).": "webtunnel: sieht aus wie der Besuch einer normalen Webseite. Braucht eine Brücken-Adresse (eigene Brücke).",
+  "usage: shunt tor status | shunt tor newnym [tunnel] | shunt tor help": "Aufruf: shunt tor status | shunt tor newnym [Tunnel] | shunt tor help",
+  "Tor tunnels: progress; build new circuits for new connections; help explains bridges in plain words": "Tor-Tunnel: Fortschritt; neue Circuits für neue Verbindungen bauen; help erklärt Brücken in einfachen Worten"
  }
 }
