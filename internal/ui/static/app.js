@@ -792,8 +792,17 @@ function renderChecks(fs) {
   box.hidden = !rest.length;
   if (!rest.length) return;
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
-  $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}))));
+  $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}),
+    ...(CHECK_HELP[f.id] ? [el("details", { class: "muted", style: "margin-top:4px" }, el("summary", {}, "What does this mean?"), el("div", { style: "margin-top:4px" }, T(CHECK_HELP[f.id])))] : []))));
 }
+
+// Plain-language help for findings that laypeople ask about (key = finding id)
+const CHECK_HELP = {
+  "ovpn.nowrap": "A VPN server without tls-crypt or tls-auth answers every stranger who knocks, so others can find it with a port scan and try attacks on it. Your own traffic stays encrypted anyway. Many providers (for example free ones) leave it out; you can ignore this note if you trust the provider or cannot change the file. Better: ask the provider for a config with tls-crypt.",
+  "ovpn.cbc": "CBC is an older way to encrypt that does not notice tampering by itself. It still works. Modern files use AES-GCM or ChaCha20-Poly1305; if your provider offers one, use it.",
+  "ovpn.compress": "Compression before encryption can leak parts of the content (the VORACLE attack). Remove the line comp-lzo or compress from the file, or ask the provider for a file without it.",
+  "ovpn.nocerttype": "Without remote-cert-tls server, another customer of the same provider could pretend to be the provider's server. Add the line remote-cert-tls server to the file.",
+};
 
 // The daemon's warnings, translated here (notices: English sentence + values);
 // an older daemon sends only st.warnings (English).
