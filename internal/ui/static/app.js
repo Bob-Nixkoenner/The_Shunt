@@ -166,7 +166,7 @@ function render() {
             { ok: "ok", idle: "idle", stale: "no answers", down: "down" }[t.health.state] || t.health.state),
           t.health.latency_ms ? " " + t.health.latency_ms + " ms" : "",
           t.health.loss > 0 ? T(" · {n} % lost", { n: Math.round(t.health.loss * 100) }) : "")] : []),
-        ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "Tor builds fresh circuits for new connections (open connections keep theirs)",
+        ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.",
           onclick: async (e) => {
             e.target.disabled = true;
             try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }

@@ -49,7 +49,7 @@ var usageEntries = []struct {
 	{`  check [--json]`, "judge the configuration (kill switch, DNS, OpenVPN settings …); exit status 1 if something is bad"},
 	{`  socks`, "list the SOCKS5 exits of the tunnels"},
 	{`  tor-all on [tunnel] | off | status`, "EMERGENCY: everything (every rule, every app) goes through Tor until switched off"},
-	{`  tor status | newnym [tunnel]`, "Tor tunnels: progress; build new circuits for new connections"},
+	{`  tor status | newnym [tunnel] | help`, "Tor tunnels: progress; build new circuits for new connections; help explains bridges in plain words"},
 	{`  pending`, "programs the app firewall holds back, waiting for a route"},
 	{`  allow ID|NAME [--via ROUTE] [--once]`, "let a waiting program out (default: the default route), and remember it unless --once"},
 	{`  firewall apps | forget KEY`, "stored firewall decisions / forget one (asked again next time)"},
@@ -1065,7 +1065,26 @@ func socksCmd(c *api.Client) error {
 	return w.Flush()
 }
 
-// torCmd: shunt tor status | newnym [tunnel]
+// torHelp prints what bridges, "new identity" and the emergency switch are, in plain words.
+func torHelp() {
+	for _, t := range []string{
+		"What is a bridge?",
+		"A bridge is a hidden entrance to the Tor network. You only need one if Tor is blocked where you are (for example at school, at work or in a country with censorship). Without a block, use no bridge: that is faster.",
+		"snowflake: usually the easiest. Volunteers lend you their internet connection as an entrance. You enter nothing.",
+		"obfs4: disguised, so it does not look like Tor. Needs a bridge address from bridges.torproject.org; the built-in ones may be blocked already.",
+		"meek: looks like traffic to a big internet service. Works in strict places, but is slow.",
+		"webtunnel: looks like a visit to an ordinary website. Needs a bridge address (own bridge).",
+		"own bridge: paste the bridge lines you got from bridges.torproject.org.",
+		"Tip: no censorship, no bridge. Tor blocked: try snowflake first.",
+		"New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.",
+		"Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.",
+	} {
+		fmt.Println(i18n.T(t))
+		fmt.Println()
+	}
+}
+
+// torCmd: shunt tor status | newnym [tunnel] | help
 func torCmd(c *api.Client, args []string) error {
 	var st api.Status
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
@@ -1077,8 +1096,12 @@ func torCmd(c *api.Client, args []string) error {
 			tors = append(tors, t)
 		}
 	}
+	if len(args) > 0 && args[0] == "help" {
+		torHelp()
+		return nil
+	}
 	if len(args) == 0 || (args[0] != "status" && args[0] != "newnym") {
-		return errors.New(i18n.T("usage: shunt tor status | shunt tor newnym [tunnel]"))
+		return errors.New(i18n.T("usage: shunt tor status | shunt tor newnym [tunnel] | shunt tor help"))
 	}
 	if len(tors) == 0 {
 		return errors.New(i18n.T("no Tor tunnel is running (driver = \"tor\" in a [tunnel.<name>] section)"))
