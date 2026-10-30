@@ -494,7 +494,12 @@ func TestTorViaRejectsTorTarget(t *testing.T) {
 // change by accident (a changed ruleset at boot or in an emergency is a leak
 // nobody sees until it matters).
 func TestStrictGolden(t *testing.T) {
-	for name, got := range map[string]string{"panic": RenderPanic(), "lockdown": RenderLockdown()} {
+	em, err := RenderEmergency(engine.Group{Name: "daemon", Path: "system.slice/shuntd.service/daemon"},
+		[]netip.Prefix{netip.MustParsePrefix("192.0.2.1/32"), netip.MustParsePrefix("198.51.100.7/32"), netip.MustParsePrefix("2001:db8::1/128")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]string{"panic": RenderPanic(), "lockdown": RenderLockdown(), "emergency": em} {
 		golden := "testdata/" + name + ".nft"
 		if *update {
 			if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {

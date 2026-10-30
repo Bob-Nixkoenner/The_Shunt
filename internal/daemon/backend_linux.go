@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
@@ -45,6 +46,20 @@ func (b *linuxBackend) Init() (string, error) {
 func (b *linuxBackend) Groups() firewall.CGroups { return b.cg }
 
 func (b *linuxBackend) Render(p *engine.Plan) (string, error) { return nft.Render(p) }
+
+func (b *linuxBackend) Emergency(g engine.Group, dst []netip.Prefix) (string, error) {
+	return nft.RenderEmergency(g, dst)
+}
+
+func (b *linuxBackend) EmergencyOff() string { return nft.DeleteScript(nft.EmergencyTable) }
+
+func (b *linuxBackend) EmergencyIntact() bool {
+	out, err := exec.Command("nft", "list", "tables").Output()
+	if err != nil {
+		return true
+	}
+	return strings.Contains("\n"+string(out), "\ntable inet "+nft.EmergencyTable+"\n")
+}
 
 func (b *linuxBackend) Apply(ruleset string, held map[string]engine.Group) error {
 	ask, err := nft.AskRules(held)
@@ -119,7 +134,7 @@ func (b *linuxBackend) LiftLockdown() error {
 
 func (b *linuxBackend) Cleanup() error {
 	var errs []error
-	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable} {
+	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable, nft.EmergencyTable} {
 		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
 	}
 	errs = append(errs, nft.Apply(nft.DeleteArpScript()))

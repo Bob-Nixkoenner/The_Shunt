@@ -24,6 +24,8 @@ const (
 	Table         = "shunt"
 	PanicTable    = "shunt_panic"
 	LockdownTable = "shunt_lockdown"
+	// EmergencyTable: tor-all, only the tor process reaches relays/bridges.
+	EmergencyTable = "shunt_emerg"
 	// ArpTable (family arp): see tunnelAddrGuard.
 	ArpTable = "shunt_arp"
 )
@@ -442,6 +444,10 @@ type Strict struct {
 	Inbound  bool // also drop input (except lo) and forwarding
 	DHCP     bool // DHCPv4/v6 client traffic
 	ND       bool // IPv6 neighbour discovery
+	// LocalDst: packets to 127/8 and ::1 pass whatever the interface. After
+	// the main table's redirect to a local proxy the route (and so the
+	// interface) was chosen for the original destination, not lo.
+	LocalDst bool
 	// Only the processes in AllowCgroup may reach AllowDst, and only they
 	// (emergency mode: the tor process and its guards/bridges). Both must be
 	// set; an empty AllowDst with a cgroup lets nothing through.
@@ -460,6 +466,9 @@ func RenderStrict(s Strict) (string, error) {
 	}
 	if s.ND {
 		b.WriteString("\t\ticmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept\n")
+	}
+	if s.LocalDst {
+		b.WriteString("\t\tip daddr 127.0.0.0/8 accept\n\t\tip6 daddr ::1 accept\n")
 	}
 	if s.AllowCgroup.Path != "" && len(s.AllowDst) > 0 {
 		m, err := cgroupMatch(s.AllowCgroup)
@@ -494,6 +503,16 @@ func RenderStrict(s Strict) (string, error) {
 func RenderPanic() string {
 	out, _ := RenderStrict(Strict{Table: PanicTable, Priority: -300, Inbound: true})
 	return out
+}
+
+// RenderEmergency is the tor-all ruleset: after the main ruleset's redirect
+// to the Tor proxy (the redirected packets still leave via the original route; LocalDst lets them through; the packets of the apps already on
+// loopback), everything that leaves the machine is dropped except DHCP, IPv6
+// neighbour discovery and the processes in torGroup talking to dst (relays
+// or bridges). Nothing falls back to direct, whatever happens to tor,
+// the tunnels or the main table; the table stays when shuntd stops.
+func RenderEmergency(torGroup engine.Group, dst []netip.Prefix) (string, error) {
+	return RenderStrict(Strict{Table: EmergencyTable, Priority: 10, DHCP: true, ND: true, LocalDst: true, AllowCgroup: torGroup, AllowDst: dst})
 }
 
 // RenderLockdown is the boot-time ruleset: nothing but loopback, DHCP and
