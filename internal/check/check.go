@@ -35,6 +35,14 @@ type Finding struct {
 	// Fix names where it is changed ("" = nowhere in the UI yet), as a
 	// config key: "daemon.boot_lockdown".
 	Fix string `json:"fix,omitempty"`
+	// Help: what the term means and what to do, in plain words (English
+	// sentence, translated like Msg; "" = none).
+	Help string `json:"help,omitempty"`
+}
+
+// helps: the plain-words explanation of findings that need one.
+var helps = map[string]string{
+	"ovpn.nowrap": "tls-crypt (or tls-auth) is a shared secret key in the OpenVPN file: with it the server ignores everyone who does not know the key, so strangers cannot probe it or attack it. What to do: ask your provider for a file with tls-crypt. If the provider does not offer one, you can ignore this note: the tunnel still works and is encrypted.",
 }
 
 // Note is a warning of the running daemon (a tunnel without DNS, a login page
@@ -177,7 +185,7 @@ var weakCiphers = map[string]bool{
 func OpenVPN(tunnel string, oc *ovpnconf.Config) []Finding {
 	var out []Finding
 	add := func(level, id, msg string) {
-		out = append(out, Finding{ID: id, Level: level, Msg: msg, Vals: map[string]string{"tunnel": tunnel}})
+		out = append(out, Finding{ID: id, Level: level, Msg: msg, Help: helps[id], Vals: map[string]string{"tunnel": tunnel}})
 	}
 	weak, aead := false, false
 	for _, c := range oc.Ciphers {
