@@ -17,6 +17,7 @@ let curTab = "overview";
 function setTab(t) {
   if (t === "filter") t = "dns"; // old links
   if (!TABS.includes(t) || $("#tab-" + t).offsetParent === null) t = "overview"; // e.g. Ports in Normal view
+  if (t !== curTab) window.scrollTo(0, 0); // a new page starts at the top, not where the last one was scrolled
   curTab = t;
   for (const n of TABS) {
     $("#page-" + n).hidden = t !== n;
