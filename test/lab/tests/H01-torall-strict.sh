@@ -5,7 +5,7 @@ EXPECT_CANARY=any
 ALLOW=(comm:tor)
 NOTE="Gateway darf nur Pakete des Prozesses tor sehen. Vor tor-all laeuft tor einmal an (Konsens). Dann: Web ueber Tor (IsTor), direktes UDP/ICMP/anderes Ziel scheitert, tor wird beendet (kein Rueckfall), shuntd wird gestoppt (Tabelle bleibt)."
 CLIENT='
-tor_ready() { for i in $(seq 90); do sudo -n shunt tor status 2>/dev/null | grep -q "100" && return 0; sleep 2; done; return 1; }
+tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -c "connected")" -ge 1 ] && return 0; sleep 2; done; return 1; }
 istor() { labfree -s -m20 https://check.torproject.org/api/ip 2>/dev/null | grep -q "\"IsTor\":true"; }
 tor_ready || echo "FAIL tor kam nicht hoch (ohne tor-all)"
 sudo -n shunt tor-all on || echo "FAIL tor-all on abgelehnt"
