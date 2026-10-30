@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.7.1-rc18
+
+- Speedtest tab (Linux): measures every route one after the other (Cloudflare by default, M-Lab NDT7 as an option with an info button – M-Lab publishes the measurement with the IP, not offered over Tor), random order of routes and measurements, median over 1–5 rounds, also `shunt speedtest`.
+- Config check: `shunt check` and a folded list in the window point out risky or redundant settings (DNS, kill switch, boot lockdown, network profiles, OpenVPN files); daemon warnings are translatable.
+- German command line (`shunt --help`, status, tor, ports, speedtest, leaktest …) and a German `install.sh`/.deb; `--json` and table headers stay English.
+- Fixes: the header and the save bar are opaque again (WebKit let the content shine through); the Tor "no connection" notice waits 30 s so it does not pop up while Tor is starting; `install.sh` builds lyrebird in `/var/tmp` (a small `/tmp` made the build fail silently).
 - SOCKS5 exit per tunnel (Linux): `socks = "127.0.0.1:1080"` under `[tunnel.X]` opens a local SOCKS5 proxy (CONNECT and UDP ASSOCIATE, names resolved inside the tunnel) whose connections leave through that tunnel; `shunt socks` lists them, the form has a field under "Advanced".
 - Tor tunnels (Linux): `driver = "tor"` runs the system `tor` as a child of shuntd and offers it as a route (`tunnel:tor`) with a transparent TCP proxy, DNS over Tor's DNSPort, `.onion` names only through Tor, own circuits per rule, UDP and ICMP rejected. Bridges (obfs4, snowflake, meek, webtunnel, or your own lines) come with lyrebird, shipped in the release archive, the .deb (`Depends: tor`) and the installer. Tor can run through another tunnel or link (`via`).
 - Android: a Tor tunnel type for the split stack and the app ("Add Tor"), tested in the emulator with Orbot (Power User Mode on, so it runs without its own VPN): TCP through Orbot's SOCKS port, names resolved through the same port (Orbot's DNSPort is random), `.onion` names work, no UDP; the tunnel card says "down" and apps on it are blocked while Orbot is not running.
