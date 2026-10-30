@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Linux: gateway mode (`[gateway]`, `[[gateway.group]]` with `interfaces` and `route`, stage 1, see docs/GATEWAY.md): devices, VMs and containers behind chosen interfaces go through The Shunt with their own route per group. Kill switch for forwarded traffic (no fallback to direct), NAT for direct groups, IPv6 from clients dropped, groups kept apart, clients reach only DHCP/DNS/ICMP of the host, panic and tor-all cut them off. `shunt gateway status`, config check findings, netns integration test. Tor as group route and the Shunt resolver for clients come in stage 2.
+
 - Tor tunnel cards show the current exit (country, relay name, address; local display only) and the number of hops of the circuit new connections use (a bridge counts as first hop), read from tor's control port; new status field `circuit` on Tor tunnels; refreshed after "New identity". Android: planned (docs only).
 
 - Leak test on a Tor tunnel is no longer a WARN: Tor's DNS port cannot answer the TXT query that shows the resolver ("server misbehaving"), so for Tor routes the probe asks check.torproject.org (IsTor) instead and the tile says "inside Tor". New probe fields `tor`, `is_tor`, `tor_error`.
