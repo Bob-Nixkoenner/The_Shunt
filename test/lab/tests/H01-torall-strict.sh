@@ -12,9 +12,9 @@ sudo -n shunt tor-all on || echo "FAIL tor-all on abgelehnt"
 sleep 3
 sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 || echo "FAIL Tabelle shunt_emerg fehlt"
 istor || echo "FAIL Web geht nicht durch Tor"
-labfree -s -m4 -o /dev/null http://1.1.1.1/ && echo "FAIL direktes Ziel 1.1.1.1 erreichbar"
 labfree-dig +time=2 +tries=1 @10.77.0.1 "$1" >/dev/null 2>&1 && echo "FAIL DNS an das Gateway beantwortet"
 ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && echo "FAIL ICMP raus"
+# 1.1.1.1 per TCP geht legitim durch Tor; direkt ist es erst nach Tor-Ausfall
 # tor stirbt: nichts faellt auf direkt
 sudo -n pkill -x tor; sleep 1
 labfree -s -m4 -o /dev/null http://1.1.1.1/ && echo "FAIL direkt nach Tor-Ausfall (1.1.1.1)"
