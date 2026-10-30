@@ -19,6 +19,13 @@ function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
+// kind of a tunnel for the badge on its card (product names are not translated)
+function tunnelTypes(t) {
+  const d = t.driver || "";
+  const kind = isTor(t) || d === "tor" ? "Tor" : d === "openvpn" ? "OpenVPN" : d === "tailscale" ? "Tailscale" : "WireGuard";
+  return t.socks ? [kind, "SOCKS"] : [kind];
+}
+
 function routeTag(r) {
   const cls = r.startsWith("tunnel:") ? "tunnel" : r.startsWith("link:") ? "link" : r;
   return el("span", { class: "route " + cls }, r || "–");
@@ -150,7 +157,7 @@ function render() {
     const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
     const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
-      el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
+      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
           el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
@@ -198,7 +205,7 @@ function render() {
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
 
-  $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
+  $("#dns").replaceChildren(...Object.entries(st.dns || {}).filter(([r]) => !(st.routes_down || []).includes(r)).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
 
   if (routesChanged) { renderApps(); renderLaunchers(); }
@@ -219,11 +226,11 @@ function renderApps() {
   // Default: apps that use the network or are already routed; the rest
   // (hundreds of tools on Kali) only on request or when searching.
   const all = $("#allapps").checked || f !== "";
-  const routes = ["", ...status.routes];
   const shown = apps.filter((a) => !a.clone && (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
   shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
   $("#appcount").textContent = "(" + apps.length + ")";
   $("#apps").replaceChildren(...shown.map((a) => {
+    const routes = ["", ...upRoutes(a.route)]; // links that are down are not offered, a saved one stays
     const s = el("select", {
       onchange: async (e) => {
         try {
@@ -235,7 +242,7 @@ function renderApps() {
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
     // a route that no longer exists (tunnel removed) stays visible instead of an empty box
-    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, T("{route} (gone)", { route: a.route })));
+    if (a.route && !status.routes.includes(a.route)) s.append(el("option", { value: a.route }, T("{route} (gone)", { route: a.route })));
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s), el("td", { class: "linux-only" }, appFilterSelect(a)));
   }));
