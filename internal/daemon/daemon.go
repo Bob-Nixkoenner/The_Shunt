@@ -1887,6 +1887,9 @@ func (d *Daemon) status() api.Status {
 	}
 	for _, r := range d.plan.Routes {
 		st.Routes = append(st.Routes, r.String())
+		if r.Kind == config.RouteLink && r.Iface == "" {
+			st.RoutesDown = append(st.RoutesDown, r.String())
+		}
 	}
 	for _, g := range d.plan.Groups {
 		procs, _ := d.cg.Procs(g.Path)

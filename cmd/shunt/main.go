@@ -932,6 +932,13 @@ func speedtestCmd(c *api.Client, args []string) error {
 	if *routes != "" {
 		o.Routes = strings.Split(*routes, ",")
 	}
+	// links that are not connected are not measured (and not asked for)
+	var off []string
+	if o.Routes, off = speedtest.WithoutDown(o.Routes, st.RoutesDown); len(off) > 0 {
+		if *routes != "" {
+			return fmt.Errorf("%s", i18n.T("not connected right now: ")+strings.Join(off, ", "))
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if !*asJSON {
