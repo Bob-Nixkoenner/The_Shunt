@@ -647,7 +647,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.refreshEmergency(self)
 			d.checkNetwork()
 			d.mu.Lock()
-			if d.routeSoft != "" && d.prep != nil {
+			if (d.routeSoft != "" || d.plan.Gateway != nil) && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 					d.Log.Warn("routing sync", "err", err)
 				}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -51,19 +52,23 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 			break
 		}
 	}
+	// The networks behind the gateway's interfaces: answers to the clients
+	// carry their route's mark too and must find them in its table (without
+	// it they would be sent into the tunnel again).
+	gw := gatewayRoutes(p)
 	for _, r := range p.Routes {
 		if r.Kind == config.RouteLink {
 			wantRules[r.Table] = r.Mark
-			errs = append(errs, syncLinkTable(r))
+			errs = append(errs, syncLinkTable(r, gw))
 			continue
 		}
 		if r.Kind != config.RouteTunnel || r.Tor { // Tor: no table, see nft
 			continue
 		}
 		wantRules[r.Table] = r.Mark
-		var extra []netlink.Route
+		extra := slices.Clone(gw)
 		if r.AllowLAN {
-			extra = lan
+			extra = append(extra, lan...)
 		}
 		errs = append(errs, syncTable(r, ifaceUp[r.Iface], extra))
 	}
@@ -124,7 +129,7 @@ func lanRoutes(p *engine.Plan) []netlink.Route {
 // syncLinkTable fills a link route's table with the main table's routes
 // through its interface (default route via the gateway, the attached
 // subnets). Without the interface only the unreachable routes stay.
-func syncLinkTable(r *engine.Route) error {
+func syncLinkTable(r *engine.Route, extra []netlink.Route) error {
 	var want []*netlink.Route
 	if r.Iface != "" {
 		if link, err := netlink.LinkByName(r.Iface); err == nil {
@@ -153,7 +158,33 @@ func syncLinkTable(r *engine.Route) error {
 			}
 		}
 	}
+	for _, l := range extra {
+		want = append(want, &netlink.Route{LinkIndex: l.LinkIndex, Type: unix.RTN_UNICAST, Table: r.Table, Dst: l.Dst, Scope: netlink.SCOPE_LINK, Src: l.Src})
+	}
 	return applyTable(r.Table, nil, want)
+}
+
+// gatewayRoutes returns the directly attached networks of the gateway's
+// client interfaces (main table).
+func gatewayRoutes(p *engine.Plan) []netlink.Route {
+	if p.Gateway == nil {
+		return nil
+	}
+	ifs := p.Gateway.Ifaces()
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: unix.RT_TABLE_MAIN}, netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return nil
+	}
+	var out []netlink.Route
+	for _, rt := range routes {
+		if rt.Dst == nil || rt.Scope != netlink.SCOPE_LINK || rt.Gw != nil || rt.Dst.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		if l, err := netlink.LinkByIndex(rt.LinkIndex); err == nil && slices.Contains(ifs, l.Attrs().Name) {
+			out = append(out, rt)
+		}
+	}
+	return out
 }
 
 func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {

@@ -823,7 +823,8 @@ if [[ $fwd0 == 0 ]]; then
 fi
 gw_route tunnel:vps
 check "gateway status shows the group" yes "$(shunt gateway status | gq 'vms .*tunnel:vps' && echo yes || echo no)"
-check "gateway: client leaves through the tunnel" 10.66.0.2 "$(gwc curl -s $URL)"
+gw_wait() { local got; for _ in $(seq 20); do got=$(gwc curl -s $URL); [[ $got == "$1" ]] && break; sleep 0.5; done; echo "$got"; }
+check "gateway: client leaves through the tunnel" 10.66.0.2 "$(gw_wait 10.66.0.2)"
 check "gateway: client DNS goes the route too" yes "$(gwc "$BIN/fakedns" query -server 10.99.0.1:53 -type TXT whoami.test | gq 10.66.0.2 && echo yes || echo no)"
 if [[ $fwd0 == 0 ]]; then
 	check "gateway: no global ip_forward" 0 "$(cat /proc/sys/net/ipv4/ip_forward)"
@@ -841,17 +842,17 @@ check "gateway: tunnel down, no packet left directly" 0 "$(leaked)"
 echo "   (waiting for the watchdog to restore the tunnel)"
 for _ in $(seq 45); do cli ip link show sh-vps >/dev/null 2>&1 && break; sleep 1; done
 sleep 2
-check "gateway: tunnel back, client works again" 10.66.0.2 "$(gwc curl -s $URL)"
+check "gateway: tunnel back, client works again" 10.66.0.2 "$(gw_wait 10.66.0.2)"
 shunt panic on
 check "gateway: panic cuts the client" "" "$(gwc curl -s $URL)"
 shunt panic off
 sleep 1
-check "gateway: panic off, client works again" 10.66.0.2 "$(gwc curl -s $URL)"
+check "gateway: panic off, client works again" 10.66.0.2 "$(gw_wait 10.66.0.2)"
 gw_route block
 check "gateway: block route, client gets nothing" "" "$(gwc curl -s $URL)"
 check "gateway: block route, no packet left" 0 "$(leaked)"
 gw_route direct
-check "gateway: direct route, client masqueraded" 10.99.0.2 "$(gwc curl -s $URL)"
+check "gateway: direct route, client masqueraded" 10.99.0.2 "$(gw_wait 10.99.0.2)"
 # an uplink cannot be a client interface: it is left out, nothing breaks
 sed -i 's/interfaces = \["gw0"\]/interfaces = ["gw0", "cli0"]/' "$WORK/etc/shunt.toml"
 shunt reload
