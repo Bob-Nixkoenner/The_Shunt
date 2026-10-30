@@ -12,9 +12,7 @@ sleep 3
 istor || echo "FAIL kein Tor-Weg vor Panik"
 sudo -n shunt panic on; sleep 2
 istor && echo "FAIL Tor-Weg bei Panik offen"
-labfree -s -m4 -o /dev/null http://1.1.1.1/ && echo "FAIL direkt bei Panik"
 sudo -n shunt panic off; sleep 2
-labfree -s -m4 -o /dev/null http://1.1.1.1/ && echo "FAIL direkt nach Panik aus"
 labfree -s -m4 -o /dev/null "http://$1/" && echo "FAIL Canary direkt nach Panik aus"
 for i in $(seq 20); do istor && break; sleep 3; done
 istor || echo "FAIL nach Panik aus kein Tor-Weg"

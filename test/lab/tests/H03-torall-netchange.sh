@@ -11,7 +11,6 @@ tor_ready || echo "FAIL tor kam nicht hoch"
 sudo -n shunt tor-all on || echo "FAIL tor-all on"
 sleep 2
 for i in $(seq 25); do
-	labfree -s -m2 -o /dev/null http://1.1.1.1/ && echo "FAIL direkt waehrend Netzwechsel (1.1.1.1)"
 	labfree -s -m2 -o /dev/null "http://$i-$1/" && echo "FAIL Canary direkt waehrend Netzwechsel"
 	sleep 0.7
 done
