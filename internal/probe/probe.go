@@ -51,6 +51,12 @@ type Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 // resolver (nil: the system's) - for engines that make every connection
 // themselves (internal/splitstack).
 func RunWith(ctx context.Context, dial Dial, resolver *net.Resolver) Result {
+	return RunWithTimeout(ctx, dial, resolver, 8*time.Second)
+}
+
+// RunWithTimeout is RunWith with its own limit per request (routes with
+// slow first connections, such as a fresh Tor, need more than 8 s).
+func RunWithTimeout(ctx context.Context, dial Dial, resolver *net.Resolver, limit time.Duration) Result {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
@@ -59,9 +65,9 @@ func RunWith(ctx context.Context, dial Dial, resolver *net.Resolver) Result {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		c := &http.Client{Timeout: 8 * time.Second}
+		c := &http.Client{Timeout: limit}
 		if dial != nil {
-			c.Transport = &http.Transport{DialContext: dial, Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}
+			c.Transport = &http.Transport{DialContext: dial, Proxy: nil, TLSHandshakeTimeout: limit}
 		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, IPURL, nil)
 		resp, err := c.Do(req)
@@ -79,7 +85,7 @@ func RunWith(ctx context.Context, dial Dial, resolver *net.Resolver) Result {
 	}()
 	go func() {
 		defer wg.Done()
-		dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		dctx, cancel := context.WithTimeout(ctx, limit)
 		defer cancel()
 		txt, err := resolver.LookupTXT(dctx, DNSName)
 		if err != nil {
@@ -111,6 +117,10 @@ type RouteResult struct {
 	Result  Result `json:"result"`
 	Verdict string `json:"verdict"` // ok | leak | blocked | error | warn
 	Note    string `json:"note,omitempty"`
+	// Verdict "starting" (Tor not through the network yet): Progress is its percent
+	Progress int `json:"progress,omitempty"`
+	// Detail: the reason behind the note (untranslated), e.g. the last line of a tor that died
+	Detail string `json:"detail,omitempty"`
 }
 
 // Runner runs the probe inside route and returns its JSON Result.

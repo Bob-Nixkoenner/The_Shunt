@@ -542,6 +542,13 @@ $("#cmd").addEventListener("keydown", (e) => { if (e.key === "Enter") runApp(); 
 
 // runLeak probes every route. auto: started by a tunnel change, not by a click.
 let leakBusy = false;
+// leakNote: the daemon's note in the user's language ("partly working: …" carries a detail).
+function leakNote(n) {
+  if (!n) return "";
+  const pre = "partly working: ";
+  return n.startsWith(pre) ? T("partly working: {detail}", { detail: n.slice(pre.length) }) : T(n);
+}
+
 async function runLeak(auto) {
   if (leakBusy) return;
   leakBusy = true;
@@ -555,10 +562,10 @@ async function runLeak(auto) {
     // (long IPv6 resolvers wrap inside their cell instead of widening it)
     $("#leakres").replaceChildren(el("div", { class: "leaklist" }, ...res.map((r) => el("div", { class: "leakrow " + r.verdict },
       el("div", { class: "leakhead" }, routeTag(r.route), el("span", { class: "pill verdict " + r.verdict }, r.verdict.toUpperCase())),
-      r.verdict === "blocked" && !r.result.ip ? el("div", { class: "muted" }, r.note || "nothing gets out") : el("div", { class: "leakkv" },
+      r.verdict === "blocked" && !r.result.ip ? el("div", { class: "muted" }, leakNote(r.note) || T("nothing gets out")) : el("div", { class: "leakkv" },
         el("span", {}, "public IP"), el("span", { class: "mono" }, r.result.ip || "–"),
         el("span", {}, "DNS seen as"), el("span", { class: "mono" }, r.result.resolver || "–")),
-      r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, r.note) : ""))));
+      r.note && !(r.verdict === "blocked" && !r.result.ip) ? el("div", { class: "muted leaknote" }, leakNote(r.note)) : ""))));
     showLeakPill(res);
   } catch (e) { $("#leakres").textContent = T("Leak test failed: {error}", { error: e.message }); }
   b.disabled = false;
