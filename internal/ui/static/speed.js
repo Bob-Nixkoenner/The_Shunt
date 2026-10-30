@@ -3,7 +3,7 @@
 // The measurement runs in the service (inside each route), this page only
 // starts it and polls.
 const SPEED_MB_PER_STEP = 25; // download and upload each, per route and round
-let speedTimer = null, speedLast = null, speedInfoOpen = false;
+let speedWasRunning = false, speedTimer = null, speedLast = null, speedInfoOpen = false;
 
 function speedRoutes() {
   const st = typeof status !== "undefined" ? status : null;
@@ -65,6 +65,20 @@ function renderSpeedResult(rep) {
   $("#sp-seed").textContent = T("Rounds: {n} · order seed {seed} (the same seed repeats the order)", { n: rep.rounds, seed: rep.seed });
 }
 
+// last stored tests: one table per test, date + routes side by side to compare
+async function loadSpeedHistory() {
+  let h = [];
+  try { h = await api("GET", "/api/speedtest/history"); } catch (e) { /* none */ }
+  $("#sp-hist-sec").hidden = !h.length;
+  $("#sp-hist").replaceChildren(...h.map((e) => el("div", { style: "margin-bottom:12px" },
+    el("div", { class: "muted" }, new Date(e.time).toLocaleString() + (e.network ? " · " + e.network : "") + " · " + e.provider),
+    el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, T("Route")), el("th", {}, T("Ping")), el("th", {}, T("Download")), el("th", {}, T("Upload")))),
+      el("tbody", {}, ...(e.routes || []).map((r) => el("tr", {}, el("td", {}, routeTag(r.route)),
+        el("td", {}, r.state === "failed" ? T("failed") : r.latency_ms > 0 ? num1(r.latency_ms) + " ms" : "–"),
+        el("td", {}, r.down_mbit > 0 ? num1(r.down_mbit) + " Mbit/s" : "–"),
+        el("td", {}, r.up_mbit > 0 ? num1(r.up_mbit) + " Mbit/s" : "–"))))))));
+}
+
 function speedState(s) {
   speedLast = s;
   $("#sp-start").hidden = s.running;
@@ -75,6 +89,8 @@ function speedState(s) {
   m.className = "msg " + (s.error ? (s.error === "cancelled" ? "muted" : "err") : "");
   m.textContent = s.error ? (s.error === "cancelled" ? T("Cancelled.") : s.error) : "";
   renderSpeedResult(s.report);
+  if (speedWasRunning && !s.running) setTimeout(loadSpeedHistory, 1500); // the service stores it just after the end
+  speedWasRunning = s.running;
   clearTimeout(speedTimer);
   if (s.running) speedTimer = setTimeout(pollSpeed, 1000);
 }
@@ -95,7 +111,7 @@ $("#sp-all").addEventListener("click", () => { for (const i of $("#sp-routes").q
 $("#sp-none").addEventListener("click", () => { for (const i of $("#sp-routes").querySelectorAll("input:not(:disabled)")) i.checked = false; speedEstimate(); });
 $("#sp-prov").addEventListener("change", speedEstimate);
 $("#sp-rounds").addEventListener("change", speedEstimate);
-$("#tab-speed").addEventListener("click", () => { renderSpeedRoutes(); pollSpeed(); });
+$("#tab-speed").addEventListener("click", () => { renderSpeedRoutes(); pollSpeed(); loadSpeedHistory(); });
 setInterval(() => { if (!document.hidden && !$("#page-speed").hidden) renderSpeedRoutes(); }, 2000);
 // the Windows service has no speed test yet
 setInterval(() => { const w = typeof status !== "undefined" && status && status.platform === "windows"; $("#tab-speed").hidden = !!w; }, 2000);
