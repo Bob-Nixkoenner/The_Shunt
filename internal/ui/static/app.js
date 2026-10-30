@@ -19,6 +19,13 @@ function el(tag, attrs = {}, ...kids) {
   return e;
 }
 
+// kind of a tunnel for the badge on its card (product names are not translated)
+function tunnelTypes(t) {
+  const d = t.driver || "";
+  const kind = isTor(t) || d === "tor" ? "Tor" : d === "openvpn" ? "OpenVPN" : d === "tailscale" ? "Tailscale" : "WireGuard";
+  return t.socks ? [kind, "SOCKS"] : [kind];
+}
+
 function routeTag(r) {
   const cls = r.startsWith("tunnel:") ? "tunnel" : r.startsWith("link:") ? "link" : r;
   return el("span", { class: "route " + cls }, r || "–");
@@ -150,7 +157,7 @@ function render() {
     const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
     const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
-      el("div", { class: "name" }, t.name, t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
+      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
           el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
@@ -194,14 +201,14 @@ function render() {
     sel.value = cur && st.routes.includes(cur) ? cur : (st.routes.find((r) => r.startsWith("tunnel:")) || "direct");
   }
 
-  $("#groups").replaceChildren(...st.groups.filter((g) => g.procs > 0 || !g.name.startsWith("via:")).map((g) =>
+  $("#groups").replaceChildren(...st.groups.filter((g) => (g.procs > 0 || !g.name.startsWith("via:")) && (g.procs > 0 || !(st.routes_down || []).includes(g.route))).map((g) =>
     el("tr", {},
       el("td", {}, g.name.replace(/^via:/, T("started via ")).replace(/^app:/, T("app rule: "))),
       el("td", {}, routeTag(g.route)),
       el("td", {}, g.apps && g.apps.length ? g.apps.map((a) => el("span", { class: "chip" }, a)) : el("span", { class: "muted" }, "–")))));
   if (!$("#groups").children.length) $("#groups").append(el("tr", {}, el("td", { colspan: 3, class: "muted" }, "Nothing running in a route yet – start an app above. Everything else takes the default route.")));
 
-  $("#dns").replaceChildren(...Object.entries(st.dns || {}).sort().map(([r, ups]) =>
+  $("#dns").replaceChildren(...Object.entries(st.dns || {}).filter(([r]) => !(st.routes_down || []).includes(r)).sort().map(([r, ups]) =>
     el("tr", {}, el("td", {}, routeTag(r)), el("td", { class: "mono" }, ups.join(", ")))));
 
   if (routesChanged) { renderApps(); renderLaunchers(); }
@@ -222,11 +229,11 @@ function renderApps() {
   // Default: apps that use the network or are already routed; the rest
   // (hundreds of tools on Kali) only on request or when searching.
   const all = $("#allapps").checked || f !== "";
-  const routes = ["", ...status.routes];
   const shown = apps.filter((a) => !a.clone && (all || a.online || a.route) && (!f || (a.name + a.id).toLowerCase().includes(f)));
   shown.sort((x, y) => (y.route ? 1 : 0) - (x.route ? 1 : 0));
   $("#appcount").textContent = "(" + apps.length + ")";
   $("#apps").replaceChildren(...shown.map((a) => {
+    const routes = ["", ...upRoutes(a.route)]; // links that are down are not offered, a saved one stays
     const s = el("select", {
       onchange: async (e) => {
         try {
@@ -238,7 +245,7 @@ function renderApps() {
       },
     }, ...routes.map((r) => el("option", { value: r }, r || "system default")));
     // a route that no longer exists (tunnel removed) stays visible instead of an empty box
-    if (a.route && !routes.includes(a.route)) s.append(el("option", { value: a.route }, T("{route} (gone)", { route: a.route })));
+    if (a.route && !status.routes.includes(a.route)) s.append(el("option", { value: a.route }, T("{route} (gone)", { route: a.route })));
     s.value = a.route || "";
     return el("tr", {}, el("td", {}, a.name, " ", el("span", { class: "muted mono" }, a.id)), el("td", {}, s), el("td", { class: "linux-only" }, appFilterSelect(a)));
   }));
@@ -796,8 +803,17 @@ function renderChecks(fs) {
   if (!rest.length) return;
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
   $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}),
+    ...(CHECK_HELP[f.id] && !f.help ? [el("details", { class: "muted", style: "margin-top:4px" }, el("summary", {}, "What does this mean?"), el("div", { style: "margin-top:4px" }, T(CHECK_HELP[f.id])))] : []),
     f.help ? el("div", { class: "muted" }, T(f.help)) : "")));
 }
+
+// Plain-language help for findings that laypeople ask about (key = finding id)
+const CHECK_HELP = {
+  "ovpn.nowrap": "A VPN server without tls-crypt or tls-auth answers every stranger who knocks, so others can find it with a port scan and try attacks on it. Your own traffic stays encrypted anyway. Many providers (for example free ones) leave it out; you can ignore this note if you trust the provider or cannot change the file. Better: ask the provider for a config with tls-crypt.",
+  "ovpn.cbc": "CBC is an older way to encrypt that does not notice tampering by itself. It still works. Modern files use AES-GCM or ChaCha20-Poly1305; if your provider offers one, use it.",
+  "ovpn.compress": "Compression before encryption can leak parts of the content (the VORACLE attack). Remove the line comp-lzo or compress from the file, or ask the provider for a file without it.",
+  "ovpn.nocerttype": "Without remote-cert-tls server, another customer of the same provider could pretend to be the provider's server. Add the line remote-cert-tls server to the file.",
+};
 
 // The daemon's warnings, translated here (notices: English sentence + values);
 // an older daemon sends only st.warnings (English).

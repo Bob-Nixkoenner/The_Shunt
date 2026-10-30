@@ -891,8 +891,8 @@
   "name, e.g. vps": "Name, z. B. vps",
   "named group from the config": "benannte Gruppe aus der Konfiguration",
   "names blocked this month": "diesen Monat blockierte Namen",
-  "names blocked today": "heute blockierte Namen",
-  "names blocked today (DNS filter off)": "heute blockierte Namen (DNS-Filter aus)",
+  "names blocked, {range}": "blockierte Namen, {range}",
+  "names blocked, {range} (DNS filter off)": "blockierte Namen, {range} (DNS-Filter aus)",
   "need exactly one of --via/--group and a command": "genau eines von --via/--group und ein Befehl nötig",
   "netflix.com, nflxvideo.net (subdomains included)": "netflix.com, nflxvideo.net (Subdomains eingeschlossen)",
   "network": "Netz",
@@ -1074,6 +1074,7 @@
   "up": "aktiv",
   "updated {ago}": "aktualisiert {ago}",
   "uploaded": "hochgeladen",
+  "Type of this tunnel": "Art dieses Tunnels",
   "uploaded, {range}": "hochgeladen, {range}",
   "usage: shunt [-s socket] <command>": "Aufruf: shunt [-s Socket] <Befehl>",
   "usage: shunt allow ID|NAME [--via ROUTE] [--once]": "Aufruf: shunt allow ID|NAME [--via WEG] [--once]",
@@ -1204,6 +1205,11 @@
   "snowflake: usually the easiest. Volunteers lend you their internet connection as an entrance. You enter nothing.": "snowflake: meist am einfachsten. Freiwillige leihen dir ihre Internetverbindung als Eingang. Du musst nichts eingeben.",
   "webtunnel: looks like a visit to an ordinary website. Needs a bridge address (own bridge).": "webtunnel: sieht aus wie der Besuch einer normalen Webseite. Braucht eine Brücken-Adresse (eigene Brücke).",
   "usage: shunt tor status | shunt tor newnym [tunnel] | shunt tor help": "Aufruf: shunt tor status | shunt tor newnym [Tunnel] | shunt tor help",
-  "Tor tunnels: progress; build new circuits for new connections; help explains bridges in plain words": "Tor-Tunnel: Fortschritt; neue Circuits für neue Verbindungen bauen; help erklärt Brücken in einfachen Worten"
+  "Tor tunnels: progress; build new circuits for new connections; help explains bridges in plain words": "Tor-Tunnel: Fortschritt; neue Circuits für neue Verbindungen bauen; help erklärt Brücken in einfachen Worten",
+  "What does this mean?": "Was bedeutet das?",
+  "A VPN server without tls-crypt or tls-auth answers every stranger who knocks, so others can find it with a port scan and try attacks on it. Your own traffic stays encrypted anyway. Many providers (for example free ones) leave it out; you can ignore this note if you trust the provider or cannot change the file. Better: ask the provider for a config with tls-crypt.": "Ein VPN-Server ohne tls-crypt oder tls-auth antwortet jedem Fremden, der anklopft; er ist per Portscan zu finden, und man kann ihn angreifen. Dein eigener Verkehr bleibt trotzdem verschlüsselt. Viele Anbieter (z. B. kostenlose) lassen es weg; du kannst den Hinweis ignorieren, wenn du dem Anbieter vertraust oder die Datei nicht ändern kannst. Besser: beim Anbieter eine Konfiguration mit tls-crypt anfragen.",
+  "CBC is an older way to encrypt that does not notice tampering by itself. It still works. Modern files use AES-GCM or ChaCha20-Poly1305; if your provider offers one, use it.": "CBC ist eine ältere Verschlüsselung, die Manipulation nicht selbst bemerkt. Sie funktioniert weiterhin. Moderne Dateien nutzen AES-GCM oder ChaCha20-Poly1305; wenn dein Anbieter eine solche Datei anbietet, nimm sie.",
+  "Compression before encryption can leak parts of the content (the VORACLE attack). Remove the line comp-lzo or compress from the file, or ask the provider for a file without it.": "Komprimierung vor der Verschlüsselung kann Teile des Inhalts verraten (VORACLE-Angriff). Entferne die Zeile comp-lzo oder compress aus der Datei oder frag den Anbieter nach einer Datei ohne sie.",
+  "Without remote-cert-tls server, another customer of the same provider could pretend to be the provider's server. Add the line remote-cert-tls server to the file.": "Ohne remote-cert-tls server könnte ein anderer Kunde desselben Anbieters sich als dessen Server ausgeben. Füge die Zeile remote-cert-tls server in die Datei ein."
  }
 }
