@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android Tor: the leak test no longer calls a Tor that is still starting "BLOCKED". It waits (up to 90 s) until the built-in Tor is through the network, probes with a longer limit (30 s per request, the first circuits are slow) and otherwise says "Tor is still starting (n %) - run the test again in a moment" (verdict `starting`) or "Tor does not start" with the reason (verdict `error`, new `progress` and `detail` fields). The notes are translated on Android and in the window (German included).
+- Android Tor card: shows why Tor does not start (exit code or signal, last log line, exec error) instead of a bare "starting"; a Tor that is up shows "up" (was "waiting" with "handshake never"); while it boots the pill says "starting". Pro mode: button "Start now" ends the wait before the next start. Tor tunnels never sleep with "keep only used tunnels connected" (Tor starts with the app; test added).
 ## v0.7.1-rc19
 
 - Lab tests only: nmcheck DNS counts as info, N01 measures how fast the rules come back, the lab client reconnects without a link.
