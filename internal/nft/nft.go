@@ -285,19 +285,30 @@ func Render(p *engine.Plan) (string, error) {
 	// --- belt and braces: tunnel traffic must really leave through its
 	// tunnel interface. This has to be postrouting: in the output hook the
 	// kernel still reports the interface from *before* the re-route.
+	// Answers to the gateway's clients carry their route's mark and leave
+	// through the client interface: allowed besides the route's own.
+	var gwo string
+	if p.Gateway != nil {
+		for _, i := range p.Gateway.Ifaces() {
+			if err := checkIdent(i); err != nil {
+				return "", err
+			}
+			gwo += fmt.Sprintf(", %q", i)
+		}
+	}
 	w("\tchain leak_guard {")
 	w("\t\ttype filter hook postrouting priority filter; policy accept;")
 	for _, r := range p.Routes {
 		if r.Kind == config.RouteLink {
 			// a link route leaves through its interface or not at all
 			if r.Iface == "" {
-				w("\t\tmeta mark %#x oifname != \"lo\" counter drop", r.Mark)
+				w("\t\tmeta mark %#x oifname != %s counter drop", r.Mark, loSet(gwo))
 				continue
 			}
 			if err := checkIdent(r.Iface); err != nil {
 				return "", err
 			}
-			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } counter drop", r.Mark, r.Iface)
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\"%s } counter drop", r.Mark, r.Iface, gwo)
 			continue
 		}
 		if r.Kind != config.RouteTunnel {
@@ -305,7 +316,7 @@ func Render(p *engine.Plan) (string, error) {
 		}
 		if r.Tor {
 			// only the redirect to shuntd (loopback) may leave
-			w("\t\tmeta mark %#x oifname != \"lo\" counter drop", r.Mark)
+			w("\t\tmeta mark %#x oifname != %s counter drop", r.Mark, loSet(gwo))
 			continue
 		}
 		if err := checkIdent(r.Iface); err != nil {
@@ -314,11 +325,11 @@ func Render(p *engine.Plan) (string, error) {
 		if r.AllowLAN {
 			// allow_lan: private destinations may leave elsewhere (the
 			// routing table only sends directly attached networks there)
-			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } meta nfproto ipv4 ip daddr != { %s } counter drop", r.Mark, r.Iface, strings.Join(engine.LANv4, ", "))
-			w("\t\tmeta mark %#x oifname != { %q, \"lo\" } meta nfproto ipv6 ip6 daddr != { %s } counter drop", r.Mark, r.Iface, strings.Join(engine.LANv6, ", "))
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\"%s } meta nfproto ipv4 ip daddr != { %s } counter drop", r.Mark, r.Iface, gwo, strings.Join(engine.LANv4, ", "))
+			w("\t\tmeta mark %#x oifname != { %q, \"lo\"%s } meta nfproto ipv6 ip6 daddr != { %s } counter drop", r.Mark, r.Iface, gwo, strings.Join(engine.LANv6, ", "))
 			continue
 		}
-		w("\t\tmeta mark %#x oifname != { %q, \"lo\" } counter drop", r.Mark, r.Iface)
+		w("\t\tmeta mark %#x oifname != { %q, \"lo\"%s } counter drop", r.Mark, r.Iface, gwo)
 	}
 	w("\t}")
 
@@ -865,4 +876,13 @@ func gatewayChains(b *strings.Builder, p *engine.Plan) error {
 	w("\t\tiifname { %s } counter drop", all)
 	w("\t}")
 	return nil
+}
+
+// loSet is the oifname set of routes without an interface: "lo" (plus the
+// gateway's client interfaces).
+func loSet(gwo string) string {
+	if gwo == "" {
+		return `"lo"`
+	}
+	return `{ "lo"` + gwo + ` }`
 }
