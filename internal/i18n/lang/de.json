@@ -1,6 +1,14 @@
 {
  "name": "Deutsch",
  "strings": {
+  "Tor is still starting - run the test again in a moment": "Tor startet noch – mach den Test gleich nochmal",
+  "Tor does not start": "Tor startet nicht",
+  "starting": "startet",
+  "Tor is starting: {n} %": "Tor startet: {n} %",
+  "Start now": "Jetzt starten",
+  "Tor starts together with the app and needs about a minute. If it does not come up, the reason shows here; “Start now” tries again at once.": "Tor startet zusammen mit der App und braucht etwa eine Minute. Kommt es nicht hoch, steht der Grund hier; „Jetzt starten“ versucht es sofort nochmal.",
+  "Waiting for Tor to start (up to 90 seconds)…": "Warte, bis Tor gestartet ist (bis zu 90 Sekunden)…",
+  "reason": "Grund",
   " (network “{name}”)": " (Netz „{name}“)",
   " (unused)": " (ungenutzt)",
   " builds fresh circuits for new connections": " baut neue Circuits für neue Verbindungen",

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android Tor: the leak test no longer calls a Tor that is still starting "BLOCKED". It waits (up to 90 s) until the built-in Tor is through the network, probes with a longer limit (30 s per request, the first circuits are slow) and otherwise says "Tor is still starting (n %) - run the test again in a moment" (verdict `starting`) or "Tor does not start" with the reason (verdict `error`, new `progress` and `detail` fields). The notes are translated on Android and in the window (German included).
+- Android Tor card: shows why Tor does not start (exit code or signal, last log line, exec error) instead of a bare "starting"; a Tor that is up shows "up" (was "waiting" with "handshake never"); while it boots the pill says "starting". Pro mode: button "Start now" ends the wait before the next start. Tor tunnels never sleep with "keep only used tunnels connected" (Tor starts with the app; test added).
 - UI: more cards fold (DNS filter, Rules, Never block, DNS settings and servers, Port rules, Speedtest, Routing, Service, Privacy and protection, App firewall, Traffic and blocks, Settings shown, Look); the state is remembered like for the other cards.
 - UI: links (Wi-Fi, cable, mobile) that are not connected are left out of the lists: Apps tab (route choice; a saved route stays), "DNS per route", "In effect now" in the DNS tab.
 - Overview: tunnel cards show their type (WireGuard, OpenVPN, Tailscale, Tor, plus SOCKS when the tunnel has a SOCKS5 exit); the "names blocked" counter follows the range switch (1 h, 24 h, 7 d, 30 d) instead of "today".

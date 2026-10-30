@@ -225,13 +225,16 @@ func (t *torTunnel) status(name string) tunnelStatus {
 			st.Bootstrap = 1 // "starting" is visible even before the first answer
 		}
 	}
-	if !st.Up && t.proc != nil {
-		st.Error = fmt.Sprintf("Tor is starting: %d %%", t.proc.Bootstrap())
+	if st.Up {
+		st.Health = health.Report{State: health.OK, HandshakeAge: -1} // Tor has no handshake: "reachable and through the network" is the whole health
+	} else if t.proc != nil {
 		if e := t.proc.Err(); e != "" {
-			st.Error += " (" + e + ")"
+			st.Error = fmt.Sprintf("Tor failed (%d %%): %s", t.proc.Bootstrap(), e) // the reason, not just "starting"
+		} else {
+			st.Error = fmt.Sprintf("Tor is starting: %d %%", t.proc.Bootstrap())
 		}
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
-	} else if !st.Up {
+	} else {
 		st.Error = "no Tor client answers on " + t.conf.Socks + " (start Orbot)"
 		st.Health = health.Report{State: health.Down, HandshakeAge: -1}
 	}
@@ -251,6 +254,39 @@ func (e *Engine) newTorWT(tc tunnelConf) (*wgTunnel, error) {
 	}
 	t.tor = tt
 	return t, nil
+}
+
+// torWaitMax is how long a leak test waits for a Tor that is still starting; torPoll the step.
+var (
+	torWaitMax = 90 * time.Second
+	torPoll    = 500 * time.Millisecond
+)
+
+// waitReady waits (up to max, or until ctx ends) until the built-in Tor is
+// through the network and returns its progress (100 = ready). A Tor from
+// Orbot has no progress: it is "ready" when its SOCKS port answers.
+func (t *torTunnel) waitReady(ctx context.Context, max time.Duration) int {
+	if t.proc == nil {
+		return 100
+	}
+	end := time.Now().Add(max)
+	for {
+		if n := t.proc.Bootstrap(); n >= 100 || !time.Now().Before(end) {
+			return n
+		}
+		select {
+		case <-ctx.Done():
+			return t.proc.Bootstrap()
+		case <-time.After(torPoll):
+		}
+	}
+}
+
+// Start asks the built-in Tor to start now (it waits a few seconds after a failure).
+func (t *torTunnel) Start() {
+	if t.proc != nil {
+		t.proc.Kick()
+	}
 }
 
 // CheckTor validates the file of a Tor tunnel for the app: JSON with "socks"

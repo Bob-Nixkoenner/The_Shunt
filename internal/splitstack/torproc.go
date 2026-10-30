@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -34,7 +35,10 @@ type torProc struct {
 	mu        sync.Mutex
 	proc      *os.Process
 	lastErr   string
+	errRun    bool   // tor wrote an [err] line in this run
+	lastLine  string // the last line tor wrote to stderr (any level): the reason when it dies without an [err]
 	bootstrap int
+	kick      chan struct{}
 	stopped   bool
 	stop      chan struct{}
 	done      chan struct{}
@@ -51,7 +55,7 @@ func freeTCPPort() (int, error) {
 
 // startTorProc writes the torrc and starts tor in the background.
 func startTorProc(exe, dir string, bridges []string, pt string, logf func(string, ...any)) (*torProc, error) {
-	p := &torProc{exe: exe, dir: dir, pt: pt, logf: logf, stop: make(chan struct{}), done: make(chan struct{})}
+	p := &torProc{exe: exe, dir: dir, pt: pt, logf: logf, stop: make(chan struct{}), done: make(chan struct{}), kick: make(chan struct{}, 1)}
 	p.bridges = tunnel.ExpandBridges(bridges)
 	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o700); err != nil {
 		return nil, err
@@ -103,8 +107,8 @@ func (p *torProc) loop() {
 		started := time.Now()
 		err := p.runOnce()
 		p.mu.Lock()
-		if err != nil {
-			p.lastErr = err.Error()
+		if err != nil && !p.errRun {
+			p.lastErr = p.exitReason(err)
 		}
 		p.bootstrap = 0
 		stopped := p.stopped
@@ -119,6 +123,9 @@ func (p *torProc) loop() {
 		select {
 		case <-p.stop:
 			return
+		case <-p.kick: // "start now": no more waiting
+			backoff = 2 * time.Second
+			continue
 		case <-time.After(backoff):
 		}
 		if backoff < 30*time.Second {
@@ -127,39 +134,71 @@ func (p *torProc) loop() {
 	}
 }
 
+// exitReason says why tor ended: the error or exit code, with its last line
+// (on a phone a program often dies silently: killed by a signal, no [err]).
+// Call with p.mu held.
+func (p *torProc) exitReason(err error) string {
+	var ee *exec.ExitError
+	msg := err.Error()
+	if errors.As(err, &ee) {
+		msg = "tor ended: " + ee.String()
+	}
+	if p.lastLine != "" {
+		msg += " (last line: " + p.lastLine + ")"
+	}
+	return msg
+}
+
+// Kick ends the wait before the next start of tor (a tor that is running is left alone).
+func (p *torProc) Kick() {
+	select {
+	case p.kick <- struct{}{}:
+	default:
+	}
+}
+
 func (p *torProc) runOnce() error {
 	cmd := exec.Command(p.exe, "-f", filepath.Join(p.dir, "torrc"))
 	cmd.Dir = p.dir
-	out, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	pr, pw := io.Pipe() // Wait then returns only after all of stderr is copied: the last line is the reason tor died
+	cmd.Stderr = pw
 	cmd.Stdout = nil
 	if err := cmd.Start(); err != nil {
+		pw.Close()
 		return err
 	}
 	p.mu.Lock()
 	p.proc = cmd.Process
-	p.lastErr = ""
+	p.errRun = false
 	stopped := p.stopped
 	p.mu.Unlock()
 	if stopped {
 		_ = cmd.Process.Kill()
 	}
-	go p.readLog(out)
+	logged := make(chan struct{})
+	go func() { p.readLog(pr); close(logged) }()
 	go p.watchBootstrap(cmd.Process.Pid)
-	return cmd.Wait()
+	err := cmd.Wait()
+	pw.Close()
+	select {
+	case <-logged:
+	case <-time.After(time.Second):
+	}
+	return err
 }
 
 func (p *torProc) readLog(r interface{ Read([]byte) (int, error) }) {
 	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		l := sc.Text()
-		if strings.Contains(l, "[err]") {
-			p.mu.Lock()
-			p.lastErr = trimTorLine(l)
-			p.mu.Unlock()
+		p.mu.Lock()
+		if t := trimTorLine(l); t != "" {
+			p.lastLine = t
 		}
+		if strings.Contains(l, "[err]") {
+			p.lastErr, p.errRun = trimTorLine(l), true
+		}
+		p.mu.Unlock()
 		if tl := trimTorLine(l); strings.Contains(l, "[warn]") || strings.Contains(l, "[err]") || strings.Contains(tl, "Bootstrapped") {
 			p.logf("tor: %s", tl) // not every notice: the control connection is opened each second
 		}
