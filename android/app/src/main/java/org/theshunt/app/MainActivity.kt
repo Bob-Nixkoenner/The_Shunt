@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -111,6 +112,7 @@ private fun App() {
                 listOf(
                     "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
                     "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
+                    "Settings" to rememberVectorPainter(Icons.Filled.Settings),
                 ).forEachIndexed { i, (label, icon) ->
                     NavigationBarItem(
                         selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
@@ -130,6 +132,7 @@ private fun App() {
                 1 -> TunnelsScreen(settings, update) { message = it }
                 2 -> AppsScreen(settings, update)
                 3 -> FilterScreen(settings, update, status)
+                4 -> SettingsScreen(settings, update)
             }
         }
     }
@@ -465,7 +468,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         Section("Tunnels") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
-                if (settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
+                if (settings.pro && settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
                     val conf = if (hasBuiltinTor(ctx)) Tunnel.TOR_BUILTIN_CONF else Tunnel.TOR_DEFAULT_CONF
                     save(Tunnel(Store.tunnelName("tor", settings.tunnels.map { it.name }), conf, Tunnel.TOR), "")
                 })
@@ -493,7 +496,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                                 if (it.optString("bridges").isNotEmpty()) KV("bridges", it.optString("bridges"), mono = true)
                             } else KV("SOCKS", it.optString("socks"), mono = true)
                             it.optString("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
-                            TorHelp(t, builtin = it.optString("client") == "builtin", onSwitch = { c ->
+                            TorHelp(t, builtin = it.optString("client") == "builtin", pro = settings.pro, onSwitch = { c ->
                                 update(settings.copy(tunnels = settings.tunnels.map { x -> if (x.name == t.name) x.copy(conf = c) else x }))
                                 say(T("Saved. Restart the VPN to use it."))
                             })
@@ -613,7 +616,8 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
         }
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
     }
-    if (settings.tunnels.any { it.isTor }) Section("Emergency") {
+    // Normal hides it, but never while it is on (it must be possible to turn it off)
+    if (settings.tunnels.any { it.isTor } && (settings.pro || settings.torAll)) Section("Emergency") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
@@ -621,6 +625,7 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
             }
             Switch(settings.torAll, { update(settings.copy(torAll = it)) })
         }
+        Hint("Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.")
     }
     Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -834,19 +839,40 @@ private fun RoutePicker(current: String, choices: List<String>, onPick: (String)
 
 fun hasBuiltinTor(ctx: android.content.Context) = java.io.File(ctx.applicationInfo.nativeLibraryDir, "libtor.so").exists()
 
-/** Tor on the phone: the Tor the app brings, or Orbot (say so, open it or its page with one tap). */
+/** The bridge texts for laypeople (the same ones as in the desktop window and `shunt tor help`). */
 @Composable
-private fun TorHelp(t: Tunnel, builtin: Boolean, onSwitch: (String) -> Unit) {
+private fun BridgeInfo() {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(T("What is a bridge?"), color = LocalShunt.current.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Hint("A bridge is a hidden entrance to the Tor network. You only need one if Tor is blocked where you are (for example at school, at work or in a country with censorship). Without a block, use no bridge: that is faster.")
+        Hint("snowflake: usually the easiest. Volunteers lend you their internet connection as an entrance. You enter nothing.")
+        Hint("obfs4: disguised, so it does not look like Tor. Needs a bridge address from bridges.torproject.org; the built-in ones may be blocked already.")
+        Hint("meek: looks like traffic to a big internet service. Works in strict places, but is slow.")
+        Hint("Own bridge lines and webtunnel: only in the desktop app for now.")
+        Hint("Tip: no censorship, no bridge. Tor blocked: try snowflake first.")
+    }
+}
+
+/** Tor on the phone: the Tor the app brings, or Orbot (say so, open it or its page with one tap). Buttons only in Pro mode. */
+@Composable
+private fun TorHelp(t: Tunnel, builtin: Boolean, pro: Boolean, onSwitch: (String) -> Unit) {
     val ctx = LocalContext.current
     if (builtin) {
         Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
+        if (!pro) return
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
             ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
         }
+        Hint("New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.")
         if (java.io.File(ctx.applicationInfo.nativeLibraryDir, "liblyrebird.so").exists()) {
             val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
-            Hint("Bridges help where Tor is blocked. They are slower.")
+            var info by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Hint("Bridges help where Tor is blocked. They are slower.") }
+                TextButton({ info = !info }) { Text("ⓘ", fontSize = 18.sp) }
+            }
+            if (info) BridgeInfo()
             for (row in listOf(listOf("No bridge" to "", "obfs4" to "obfs4"), listOf("snowflake" to "snowflake", "meek" to "meek"))) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for ((label, b) in row) {
@@ -855,6 +881,10 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, onSwitch: (String) -> Unit) {
                 }
             }
         }
+        return
+    }
+    if (!pro) {
+        Hint("Tor carries TCP only: no calls, games or QUIC. The Tor client is Orbot – turn on Power User Mode in its settings (so it runs without its own VPN), start it and keep it running.")
         return
     }
     if (hasBuiltinTor(ctx)) ShuntButton("Use the built-in Tor", { onSwitch(Tunnel.TOR_BUILTIN_CONF) })
@@ -875,5 +905,19 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, onSwitch: (String) -> Unit) {
             }
         })
         Hint("Orbot is also on Google Play and on guardianproject.info. If Tor is your default route, the page may not load: pass Orbot or your browser as \"direct\" under Apps, or use a second connection.")
+    }
+}
+
+/** Settings tab: Normal or Pro mode (Pro shows the Tor functions). */
+@Composable
+private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("Mode") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ShuntButton("Normal", { update(settings.copy(pro = false)) }, kind = if (!settings.pro) Tone.Ok else Tone.Neutral)
+                ShuntButton("Pro", { update(settings.copy(pro = true)) }, kind = if (settings.pro) Tone.Ok else Tone.Neutral)
+            }
+            Hint("Normal shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their expert buttons show in Pro only.")
+        }
     }
 }
