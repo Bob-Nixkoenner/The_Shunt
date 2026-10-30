@@ -437,6 +437,18 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]string{"ok": "1"})
 	})
+	s.speed.OnDone = func(rep *speedtest.Report) {
+		var st api.Status
+		_ = s.Client.Do("GET", "/v1/status", nil, &st)
+		_ = speedtest.AddHistory(speedtest.HistoryPath(), rep, st.Network)
+	}
+	mux.HandleFunc("GET /api/speedtest/history", func(w http.ResponseWriter, r *http.Request) {
+		h := speedtest.LoadHistory(speedtest.HistoryPath())
+		if h == nil {
+			h = []speedtest.HistEntry{}
+		}
+		writeJSON(w, h)
+	})
 	mux.HandleFunc("GET /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.speed.State())
 	})

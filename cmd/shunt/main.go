@@ -71,6 +71,7 @@ var usageEntries = []struct {
 	{`  desktop clone <app-id> <route> --name NAME [--args ARGS]`, "extra menu entry, e.g. one per Firefox profile: desktop clone firefox-esr tunnel:vps --name \"Firefox SM\" --args \"--new-instance -P sm\""},
 	{`  desktop profiles`, "list Firefox profiles"},
 	{`  speedtest [--route R,...] [--rounds N] [--provider P] [--size-mb N] [--json]`, "measure latency, download and upload of each route (default: all but block), one after the other, in random order, N rounds (default 3), result = median. Contacts speed.cloudflare.com (ndt7: M-Lab, which publishes the measurement together with the IP). P = cloudflare | ndt7."},
+	{`  speedtest --history [--json]`, "show the last 3 stored speed tests (no new test)"},
 	{`  version`, ""},
 }
 
@@ -923,7 +924,11 @@ func speedtestCmd(c *api.Client, args []string) error {
 	prov := fs.String("provider", speedtest.Cloudflare, i18n.T("cloudflare | ndt7"))
 	sizeMB := fs.Int("size-mb", 25, i18n.T("megabytes moved per download and upload step (1-100)"))
 	asJSON := fs.Bool("json", false, i18n.T("print the report as JSON"))
+	hist := fs.Bool("history", false, i18n.T("show the last measurements (no new test)"))
 	_ = fs.Parse(args)
+	if *hist {
+		return speedHistory(*asJSON)
+	}
 	var st api.Status
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
 		return err
@@ -977,7 +982,41 @@ func speedtestCmd(c *api.Client, args []string) error {
 	}
 	_ = w.Flush()
 	fmt.Println(i18n.T("Seed {seed}: the same seed repeats the order.", "seed", rep.Seed))
+	if rep != nil && err == nil {
+		_ = speedtest.AddHistory(speedtest.HistoryPath(), rep, st.Network)
+	}
 	return err
+}
+
+// speedHistory prints the stored last tests (shunt speedtest --history).
+func speedHistory(asJSON bool) error {
+	h := speedtest.LoadHistory(speedtest.HistoryPath())
+	if asJSON {
+		if h == nil {
+			h = []speedtest.HistEntry{}
+		}
+		e := json.NewEncoder(os.Stdout)
+		e.SetIndent("", "  ")
+		return e.Encode(h)
+	}
+	if len(h) == 0 {
+		fmt.Println(i18n.T("No measurements stored yet."))
+		return nil
+	}
+	for _, e := range h {
+		net := e.Network
+		if net == "" {
+			net = "-"
+		}
+		fmt.Printf("%s  %s  %s  %s\n", e.Time.Local().Format("2006-01-02 15:04"), net, e.Provider, i18n.T("{n} rounds", "n", e.Rounds))
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "  ROUTE\tPING ms\tDOWN Mbit/s\tUP Mbit/s\tRESULT")
+		for _, r := range e.Routes {
+			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", r.Route, num(r.LatencyMs), num(r.DownMbit), num(r.UpMbit), strings.ToUpper(r.State))
+		}
+		_ = w.Flush()
+	}
+	return nil
 }
 
 func num(f float64) string {
