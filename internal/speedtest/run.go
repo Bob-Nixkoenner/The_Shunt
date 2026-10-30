@@ -259,6 +259,8 @@ type Job struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	state  JobState
+	// OnDone, if set, is called with the report of every run that ran to the end.
+	OnDone func(*Report)
 }
 
 // JobState is what the UI shows.
@@ -305,6 +307,9 @@ func (j *Job) Start(run Runner, o Options) (bool, error) {
 		j.state.Running = false
 		if rep != nil {
 			j.state.Report = rep
+		}
+		if rep != nil && err == nil && j.OnDone != nil {
+			go j.OnDone(rep)
 		}
 		if err != nil && !errors.Is(err, context.Canceled) {
 			j.state.Error = err.Error()
