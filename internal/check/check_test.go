@@ -135,3 +135,16 @@ default_route = "direct"
 		}
 	}
 }
+
+func TestHelpTLSWrap(t *testing.T) {
+	fs := OpenVPN("x", &ovpnconf.Config{})
+	for _, f := range fs {
+		if f.ID == "ovpn.nowrap" {
+			if f.Help == "" {
+				t.Fatal("no help text")
+			}
+			return
+		}
+	}
+	t.Fatal("no ovpn.nowrap finding")
+}

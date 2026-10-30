@@ -2,7 +2,6 @@ package tunnel
 
 import (
 	"bufio"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -301,41 +300,7 @@ func (t *Tor) control(cmds ...string) ([]string, error) {
 		return nil, err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-	rd := bufio.NewReader(c)
-	var out []string
-	send := func(cmd string) error {
-		if _, err := fmt.Fprintf(c, "%s\r\n", cmd); err != nil {
-			return err
-		}
-		for {
-			l, err := rd.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			l = strings.TrimRight(l, "\r\n")
-			if len(l) < 4 {
-				continue
-			}
-			out = append(out, l[4:])
-			if l[3] == ' ' {
-				if l[0] != '2' {
-					return errors.New(l[4:])
-				}
-				return nil
-			}
-		}
-	}
-	if err := send("AUTHENTICATE " + hex.EncodeToString(cookie)); err != nil {
-		return nil, err
-	}
-	out = nil
-	for _, cmd := range cmds {
-		if err := send(cmd); err != nil {
-			return out, err
-		}
-	}
-	return out, nil
+	return controlExchange(c, cookie, cmds)
 }
 
 // Bootstrap returns tor's progress, 0 to 100.
@@ -364,6 +329,7 @@ func (t *Tor) Bootstrap() int {
 
 // NewIdentity asks tor for fresh circuits (SIGNAL NEWNYM).
 func (t *Tor) NewIdentity() error {
+	circuitCache.Delete(t)
 	_, err := t.control("SIGNAL NEWNYM")
 	return err
 }

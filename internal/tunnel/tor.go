@@ -18,4 +18,5 @@ type TorStatus interface {
 	SocksPath() string
 	DNSAddr() string // 127.0.0.1:port, Tor's DNSPort
 	NewIdentity() error
+	Circuit() *TorCircuit // nil: none yet
 }
