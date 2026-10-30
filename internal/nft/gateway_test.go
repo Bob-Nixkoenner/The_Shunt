@@ -88,6 +88,8 @@ func TestGatewayRules(t *testing.T) {
 		`oifname { "br-guest", "br-iot", "virbr1", "virbr2" } ct state new counter drop`,
 		// direct group gets NAT, the others through their route's marks
 		`iifname { "br-guest" } oifname != { "br-guest" } masquerade`,
+		// answers to clients may leave through their interface
+		`meta mark 0x530002 oifname != { "sh-vps", "lo", "br-guest", "br-iot", "virbr1", "virbr2" } counter drop`,
 		// host: DHCP and DNS only
 		`iifname { "br-guest", "br-iot", "virbr1", "virbr2" } counter drop`,
 	} {
