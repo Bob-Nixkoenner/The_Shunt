@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- UI: more cards fold (DNS filter, Rules, Never block, DNS settings and servers, Port rules, Speedtest, Routing, Service, Privacy and protection, App firewall, Traffic and blocks, Settings shown, Look); the state is remembered like for the other cards.
+- UI: links (Wi-Fi, cable, mobile) that are not connected are left out of the lists: Apps tab (route choice; a saved route stays), "DNS per route", "In effect now" in the DNS tab.
+- Overview: tunnel cards show their type (WireGuard, OpenVPN, Tailscale, Tor, plus SOCKS when the tunnel has a SOCKS5 exit); the "names blocked" counter follows the range switch (1 h, 24 h, 7 d, 30 d) instead of "today".
+- Security check: "What does this mean?" in plain words for the OpenVPN findings (no tls-crypt/tls-auth, CBC, compression, remote-cert-tls).
+
 ## v0.7.1-rc19
 
 - Lab tests only: nmcheck DNS counts as info, N01 measures how fast the rules come back, the lab client reconnects without a link.
