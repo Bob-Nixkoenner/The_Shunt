@@ -41,6 +41,10 @@ type Status struct {
 	Rules        []string                 `json:"rules"`
 	// Routes lists every route name ("direct", "block", "tunnel:vps").
 	Routes []string `json:"routes"`
+	// RoutesDown: the link routes ("link:ethernet") whose connection is not
+	// up right now; they are still in Routes (rules on them stay valid), but
+	// no new choice should offer them.
+	RoutesDown []string `json:"routes_down,omitempty"`
 	// DNS lists the upstreams per route ("direct", "tunnel:vps").
 	DNS      map[string][]string `json:"dns,omitempty"`
 	Warnings []string            `json:"warnings,omitempty"`
