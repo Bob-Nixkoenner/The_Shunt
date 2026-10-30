@@ -10,7 +10,7 @@ tor_ready || echo "FAIL tor kam nicht hoch"
 for i in 1 2 3 4 5; do
 	sudo -n shunt tor-all on >/dev/null || echo "FAIL on $i abgelehnt"
 	labfree -s -m3 -o /dev/null "http://$i-$1/" && echo "FAIL Canary direkt gleich nach on ($i)"
-	[ -n "$(labfree-dig +short +time=1 +tries=1 @10.77.0.1 "$1" 2>/dev/null)" ] && echo "FAIL DNS ans Gateway gleich nach on ($i)"
+	[ -n "$(labfree-dig +short +time=1 +tries=1 @10.77.0.1 "q$i-$1" 2>/dev/null)" ] && echo "FAIL DNS ans Gateway gleich nach on ($i)"
 	sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 || echo "FAIL Tabelle fehlt nach on ($i)"
 	sudo -n shunt tor-all off >/dev/null
 	sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 && echo "FAIL Tabelle nach off noch da ($i)"
