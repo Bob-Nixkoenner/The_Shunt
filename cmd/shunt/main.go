@@ -1055,6 +1055,9 @@ func checkCmd(c *api.Client, args []string) error {
 		}
 		mark := map[string]string{check.Bad: "BAD ", check.Warn: "WARN", check.Info: "INFO"}[f.Level]
 		fmt.Printf("%s  %s\n", mark, i18n.T(f.Msg, kv...))
+		if f.Help != "" {
+			fmt.Printf("      %s\n", i18n.T(f.Help))
+		}
 		if f.Fix != "" {
 			fmt.Printf("      %s\n", i18n.T("Change: {key}", "key", f.Fix))
 		}

@@ -6,6 +6,10 @@
 - UI: links (Wi-Fi, cable, mobile) that are not connected are left out of the lists: Apps tab (route choice; a saved route stays), "DNS per route", "In effect now" in the DNS tab.
 - Overview: tunnel cards show their type (WireGuard, OpenVPN, Tailscale, Tor, plus SOCKS when the tunnel has a SOCKS5 exit); the "names blocked" counter follows the range switch (1 h, 24 h, 7 d, 30 d) instead of "today".
 - Security check: "What does this mean?" in plain words for the OpenVPN findings (no tls-crypt/tls-auth, CBC, compression, remote-cert-tls).
+- Tor tunnel cards show the current exit (country, relay name, address; local display only) and the number of hops of the circuit new connections use (a bridge counts as first hop), read from tor's control port; new status field `circuit` on Tor tunnels; refreshed after "New identity". Android: planned (docs only).
+
+- Leak test on a Tor tunnel is no longer a WARN: Tor's DNS port cannot answer the TXT query that shows the resolver ("server misbehaving"), so for Tor routes the probe asks check.torproject.org (IsTor) instead and the tile says "inside Tor". New probe fields `tor`, `is_tor`, `tor_error`.
+- Config check: findings can carry a plain-words `help` text; the missing tls-crypt/tls-auth note now explains what it is and what to do (window and `shunt check`, German included).
 
 ## v0.7.1-rc19
 
