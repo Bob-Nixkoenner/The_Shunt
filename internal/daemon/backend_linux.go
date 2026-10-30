@@ -53,6 +53,14 @@ func (b *linuxBackend) Emergency(g engine.Group, dst []netip.Prefix) (string, er
 
 func (b *linuxBackend) EmergencyOff() string { return nft.DeleteScript(nft.EmergencyTable) }
 
+func (b *linuxBackend) EmergencyIntact() bool {
+	out, err := exec.Command("nft", "list", "tables").Output()
+	if err != nil {
+		return true
+	}
+	return strings.Contains("\n"+string(out), "\ntable inet "+nft.EmergencyTable+"\n")
+}
+
 func (b *linuxBackend) Apply(ruleset string, held map[string]engine.Group) error {
 	ask, err := nft.AskRules(held)
 	if err != nil {

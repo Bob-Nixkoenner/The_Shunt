@@ -21,6 +21,8 @@ type Emergencer interface {
 	Emergency(torGroup engine.Group, dst []netip.Prefix) (string, error)
 	// EmergencyOff is the script that removes the emergency table.
 	EmergencyOff() string
+	// EmergencyIntact: the emergency table is still loaded.
+	EmergencyIntact() bool
 }
 
 // torDataRoot holds the tor data directories (a variable for tests).

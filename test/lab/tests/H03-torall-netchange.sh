@@ -5,7 +5,7 @@ EXPECT_CANARY=any
 ALLOW=(comm:tor)
 during() { sleep 12; renew_client; }
 CLIENT='
-tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -c "connected")" -ge 1 ] && return 0; sleep 2; done; return 1; }
+tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -Ec "connected|verbunden")" -ge 1 ] && return 0; sleep 2; done; return 1; }
 istor() { labfree -s -m20 https://check.torproject.org/api/ip 2>/dev/null | grep -q "\"IsTor\":true"; }
 tor_ready || echo "FAIL tor kam nicht hoch"
 sudo -n shunt tor-all on || echo "FAIL tor-all on"

@@ -14,13 +14,36 @@ type emergBackend struct {
 	*fakeBackend
 	group engine.Group
 	dst   []netip.Prefix
+	gone  bool // the emergency table was removed from outside
 }
 
 func (e *emergBackend) Emergency(g engine.Group, dst []netip.Prefix) (string, error) {
 	e.group, e.dst = g, dst
 	return "emergency-on", nil
 }
-func (e *emergBackend) EmergencyOff() string { return "emergency-off" }
+func (e *emergBackend) EmergencyOff() string  { return "emergency-off" }
+func (e *emergBackend) EmergencyIntact() bool { return !e.gone }
+
+func TestRulesIntactWatchesEmergencyTable(t *testing.T) {
+	eb := &emergBackend{fakeBackend: newFake()}
+	d := &Daemon{Backend: eb, prep: &Prepared{}}
+	eb.gone = true
+	if !d.rulesIntact() {
+		t.Error("tor-all off: a missing emergency table is fine")
+	}
+	d.prep.EmergOn = true
+	if d.rulesIntact() {
+		t.Error("tor-all on: missing emergency table must count as removed")
+	}
+	eb.gone = false
+	if !d.rulesIntact() {
+		t.Error("everything there: intact")
+	}
+	eb.flushed = true
+	if d.rulesIntact() {
+		t.Error("main table removed: not intact")
+	}
+}
 
 type fakeRuleset struct{ *emergBackend }
 
@@ -60,6 +83,9 @@ func TestTorAllEmergency(t *testing.T) {
 	p, err = PrepareOn(path, "shunt", Env{Backend: be, TorAll: "tor"})
 	if err != nil || !strings.HasSuffix(p.Ruleset, "emergency-on") || !strings.HasPrefix(p.Ruleset, "main") {
 		t.Fatalf("on: %v %q", err, p.Ruleset)
+	}
+	if !p.EmergOn {
+		t.Error("EmergOn not set")
 	}
 	if eb.group.Path != p.Plan.DaemonGroup.Path || len(eb.dst) != 2 || p.EmergKey == "" {
 		t.Errorf("group %v dst %v key %q", eb.group, eb.dst, p.EmergKey)
