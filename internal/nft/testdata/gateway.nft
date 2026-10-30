@@ -1,0 +1,104 @@
+table inet shunt
+delete table inet shunt
+table inet shunt {
+	chain route_out {
+		type route hook output priority mangle; policy accept;
+		meta mark 0x5300ff return
+		udp sport 68 udp dport 67 return
+		udp sport 546 udp dport 547 return
+		icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } return
+		meta mark and 0xffff00 == 0x530000 ct mark set meta mark return
+		meta l4proto tcp ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
+		ct direction reply oifname != "lo" ct mark and 0xffff00 == 0x530000 meta mark set ct mark return
+		ct direction reply return
+		oifname "lo" meta l4proto != { tcp, udp } return
+		oifname "lo" th dport != 53 return
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		socket cgroupv2 level 4 "system.slice/shuntd.service/apps/captive" meta mark set 0x5300f1 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/block" meta mark set 0x5300fe ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/direct" meta mark set 0x5300f0 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-home" meta mark set 0x530001 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/tunnel-vps" meta mark set 0x530002 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-wifi" meta mark set 0x5300e0 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-ethernet" meta mark set 0x5300e1 ct mark set meta mark accept
+		socket cgroupv2 level 5 "system.slice/shuntd.service/apps/via/link-mobile" meta mark set 0x5300e2 ct mark set meta mark accept
+		meta mark set 0x530001 ct mark set meta mark accept
+	}
+	chain mark_in {
+		type filter hook prerouting priority mangle; policy accept;
+		iifname "lo" return
+		iifname "sh-home" ct state new ct mark set 0x530001
+		iifname "sh-vps" ct state new ct mark set 0x530002
+		iifname { "virbr1", "virbr2" } fib daddr type unicast ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x530002 ct mark set meta mark
+		iifname { "br-iot" } fib daddr type unicast ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x5300fe ct mark set meta mark
+		iifname { "br-guest" } fib daddr type unicast ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x5300f0 ct mark set meta mark
+		iifname != { "lo", "sh-home", "sh-vps" } fib daddr type != local ct state new ct mark and 0xffff00 != 0x530000 meta mark set 0x530001 ct mark set meta mark
+		ct mark and 0xffff00 == 0x530000 meta mark set ct mark
+	}
+	chain gw_fwd {
+		type filter hook forward priority filter; policy accept;
+		iifname { "br-guest", "br-iot", "virbr1", "virbr2" } oifname { "br-guest", "br-iot", "virbr1", "virbr2" } counter drop
+		oifname { "br-guest", "br-iot", "virbr1", "virbr2" } ct state new counter drop
+		iifname { "virbr1", "virbr2" } meta nfproto ipv6 counter drop
+		iifname { "virbr1", "virbr2" } meta mark != { 0x530001, 0x530002, 0x5300e0, 0x5300e1, 0x5300e2 } counter drop
+		iifname { "virbr1", "virbr2" } meta l4proto { tcp, udp } th dport 853 counter drop
+		iifname { "br-iot" } meta nfproto ipv6 counter drop
+		iifname { "br-iot" } counter drop
+		iifname { "br-guest" } meta nfproto ipv6 counter drop
+		iifname { "br-guest" } meta l4proto { tcp, udp } th dport 853 counter drop
+	}
+	chain gw_in {
+		type filter hook input priority filter; policy accept;
+		iifname { "br-guest", "br-iot", "virbr1", "virbr2" } udp dport { 53, 67, 547 } accept
+		iifname { "br-guest", "br-iot", "virbr1", "virbr2" } tcp dport 53 accept
+		iifname { "br-guest", "br-iot", "virbr1", "virbr2" } meta l4proto { icmp, ipv6-icmp } accept
+		iifname { "br-guest", "br-iot", "virbr1", "virbr2" } counter drop
+	}
+	chain icmp_quiet {
+		type filter hook input priority raw; policy accept;
+		icmp type { timestamp-request, address-mask-request, info-request } counter drop
+	}
+	chain ask_out {
+	}
+	chain filter_out {
+		type filter hook output priority filter; policy accept;
+		meta mark 0x5300fe counter reject with icmpx admin-prohibited
+		oifname != "lo" jump ask_out
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" accept
+		meta l4proto { tcp, udp } th dport 853 counter reject with icmpx admin-prohibited
+	}
+	chain dns_redirect {
+		type nat hook output priority dstnat; policy accept;
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		meta mark 0x5300f0 meta l4proto { tcp, udp } th dport 53 redirect to :53530
+		meta mark 0x530001 meta l4proto { tcp, udp } th dport 53 redirect to :53532
+		meta mark 0x530002 meta l4proto { tcp, udp } th dport 53 redirect to :53533
+		meta mark 0x5300e0 meta l4proto { tcp, udp } th dport 53 redirect to :53534
+		meta mark 0x5300e1 meta l4proto { tcp, udp } th dport 53 redirect to :53535
+		meta mark 0x5300e2 meta l4proto { tcp, udp } th dport 53 redirect to :53536
+		meta mark 0x5300f1 meta l4proto { tcp, udp } th dport 53 redirect to :53529
+		meta mark and 0xffff00 != 0x530000 meta l4proto { tcp, udp } th dport 53 redirect to :53530
+	}
+	chain leak_guard {
+		type filter hook postrouting priority filter; policy accept;
+		meta mark 0x530001 oifname != { "sh-home", "lo" } counter drop
+		meta mark 0x530002 oifname != { "sh-vps", "lo" } counter drop
+		meta mark 0x5300e0 oifname != { "wlan0", "lo" } counter drop
+		meta mark 0x5300e1 oifname != "lo" counter drop
+		meta mark 0x5300e2 oifname != "lo" counter drop
+	}
+	chain mss_clamp {
+		type filter hook postrouting priority mangle; policy accept;
+		oifname "sh-home" tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+		oifname "sh-vps" tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+	}
+	chain nat_post {
+		type nat hook postrouting priority srcnat; policy accept;
+		meta mark 0x530001 oifname "sh-home" masquerade
+		meta mark 0x530002 oifname "sh-vps" masquerade
+		meta mark 0x5300e0 oifname "wlan0" masquerade
+		iifname { "br-guest" } oifname != { "br-guest" } masquerade
+	}
+}
+table arp shunt_arp
+delete table arp shunt_arp

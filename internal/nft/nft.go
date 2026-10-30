@@ -124,6 +124,20 @@ func Render(p *engine.Plan) (string, error) {
 			w("\t\tiifname %q ct state new ct mark set %#x", r.Iface, r.Mark)
 		}
 	}
+	// Gateway groups: new forwarded connections from a group's interfaces
+	// get the group's own route (not the default route's, see below).
+	// Unicast only: broadcasts and what is for this machine (DHCP, DNS)
+	// stay unmarked, or their answers would be routed into the tunnel.
+	if g := p.Gateway; g != nil {
+		for _, gr := range g.Groups {
+			l, err := quoteIfaces(gr.Ifaces)
+			if err != nil {
+				return "", err
+			}
+			w("\t\tiifname { %s } fib daddr type unicast ct state new ct mark and %#x != %#x meta mark set %#x ct mark set meta mark",
+				l, engine.MarkMask, engine.MarkBase, gr.Route.Mark)
+		}
+	}
 	// Forwarded traffic (containers, VMs and other devices behind this
 	// machine) is not seen by route_out, which only classifies local
 	// sockets: it took the main table, past the tunnel and its kill switch.
@@ -171,6 +185,10 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t\tct status dnat return")
 		w("\t\tiifname { %s } ct state new counter drop", quoteList(ups))
 		w("\t}")
+	}
+
+	if err := gatewayChains(&b, p); err != nil {
+		return "", err
 	}
 
 	// Old ICMP requests that nothing needs any more but whose answers tell a
@@ -329,6 +347,15 @@ func Render(p *engine.Plan) (string, error) {
 		}
 		if r.Kind == config.RouteTunnel && r.Forward && r.Iface != "" {
 			w("\t\tiifname %q oifname != %q masquerade", r.Iface, r.Iface)
+		}
+	}
+	if g := p.Gateway; g != nil {
+		for _, gr := range g.Groups {
+			if gr.Route.Kind != config.RouteDirect {
+				continue
+			}
+			l, _ := quoteIfaces(gr.Ifaces) // checked in gatewayChains
+			w("\t\tiifname { %s } oifname != { %s } masquerade", l, l)
 		}
 	}
 	w("\t}")
@@ -772,4 +799,70 @@ func arpGuard(b *strings.Builder, p *engine.Plan) {
 	pass := strings.Join(append([]string{`"lo"`}, ifs...), ", ")
 	fmt.Fprintf(b, "table arp %s {\n\tchain in {\n\t\ttype filter hook input priority filter; policy accept;\n", ArpTable)
 	fmt.Fprintf(b, "\t\tiifname != { %s } arp operation request arp daddr ip { %s } counter drop\n\t}\n}\n", pass, strings.Join(v4, ", "))
+}
+
+func quoteIfaces(ifs []string) (string, error) {
+	for _, i := range ifs {
+		if err := checkIdent(i); err != nil {
+			return "", err
+		}
+	}
+	return quoteList(ifs), nil
+}
+
+// gatewayChains renders the forward and input rules of the gateway mode.
+// A client may only use the route of its group: IPv6 is dropped, the block
+// route drops everything, and a group with a tunnel or link route drops
+// whatever does not carry one of those marks (never direct, whatever went
+// wrong when classifying; leak_guard then holds the packet to the
+// interface). Clients are kept apart, nothing starts a connection towards
+// them from outside, and they reach this machine's DHCP and DNS only.
+func gatewayChains(b *strings.Builder, p *engine.Plan) error {
+	g := p.Gateway
+	if g == nil || len(g.Groups) == 0 {
+		return nil
+	}
+	all, err := quoteIfaces(g.Ifaces())
+	if err != nil {
+		return err
+	}
+	var marks []string
+	for _, r := range p.Routes {
+		if (r.Kind == config.RouteTunnel || r.Kind == config.RouteLink) && !r.Tor {
+			marks = append(marks, fmt.Sprintf("%#x", r.Mark))
+		}
+	}
+	w := func(format string, a ...any) { fmt.Fprintf(b, format+"\n", a...) }
+	w("\tchain gw_fwd {")
+	w("\t\ttype filter hook forward priority filter; policy accept;")
+	w("\t\tiifname { %s } oifname { %s } counter drop", all, all)
+	w("\t\toifname { %s } ct state new counter drop", all)
+	for _, gr := range g.Groups {
+		l, _ := quoteIfaces(gr.Ifaces)
+		w("\t\tiifname { %s } meta nfproto ipv6 counter drop", l)
+		switch gr.Route.Kind {
+		case config.RouteBlock:
+			w("\t\tiifname { %s } counter drop", l)
+			continue
+		case config.RouteDirect:
+		default:
+			if len(marks) == 0 {
+				w("\t\tiifname { %s } counter drop", l)
+				continue
+			}
+			w("\t\tiifname { %s } meta mark != { %s } counter drop", l, strings.Join(marks, ", "))
+		}
+		if p.BlockDoT {
+			w("\t\tiifname { %s } meta l4proto { tcp, udp } th dport 853 counter drop", l)
+		}
+	}
+	w("\t}")
+	w("\tchain gw_in {")
+	w("\t\ttype filter hook input priority filter; policy accept;")
+	w("\t\tiifname { %s } udp dport { 53, 67, 547 } accept", all)
+	w("\t\tiifname { %s } tcp dport 53 accept", all)
+	w("\t\tiifname { %s } meta l4proto { icmp, ipv6-icmp } accept", all)
+	w("\t\tiifname { %s } counter drop", all)
+	w("\t}")
+	return nil
 }

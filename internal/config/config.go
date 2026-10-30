@@ -33,6 +33,9 @@ type Config struct {
 	DNSFilter *DNSFilter `toml:"dns_filter,omitempty" json:"dns_filter,omitempty"`
 	// Inbound: protection against incoming connections (nil = off).
 	Inbound *Inbound `toml:"inbound,omitempty" json:"inbound,omitempty"`
+	// Gateway: route the traffic of other devices/VMs behind this machine
+	// (nil = off).
+	Gateway *Gateway `toml:"gateway,omitempty" json:"gateway,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -661,7 +664,7 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	return nil
+	return c.validateGateway()
 }
 
 // checkHops rejects via chains that loop.
