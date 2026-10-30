@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tor tunnel cards show the current exit (country, relay name, address; local display only) and the number of hops of the circuit new connections use (a bridge counts as first hop), read from tor's control port; new status field `circuit` on Tor tunnels; refreshed after "New identity". Android: planned (docs only).
+
 - Leak test on a Tor tunnel is no longer a WARN: Tor's DNS port cannot answer the TXT query that shows the resolver ("server misbehaving"), so for Tor routes the probe asks check.torproject.org (IsTor) instead and the tile says "inside Tor". New probe fields `tor`, `is_tor`, `tor_error`.
 - Config check: findings can carry a plain-words `help` text; the missing tls-crypt/tls-auth note now explains what it is and what to do (window and `shunt check`, German included).
 
