@@ -825,6 +825,15 @@ gw_route tunnel:vps
 check "gateway status shows the group" yes "$(shunt gateway status | gq 'vms .*tunnel:vps' && echo yes || echo no)"
 gw_wait() { local got; for _ in $(seq 20); do got=$(gwc curl -s $URL); [[ $got == "$1" ]] && break; sleep 0.5; done; echo "$got"; }
 check "gateway: client leaves through the tunnel" 10.66.0.2 "$(gw_wait 10.66.0.2)"
+if [[ $(gwc curl -s $URL) != 10.66.0.2 ]]; then
+	echo "--- gateway debug"
+	cli ip rule; cli ip route show table all | grep -v '^local\|^broadcast'
+	cli sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.gw0.rp_filter net.ipv4.conf.sh-vps.rp_filter net.ipv4.conf.sh-vps.forwarding net.ipv4.conf.gw0.forwarding net.ipv4.conf.all.src_valid_mark
+	cli ip -s link show gw0; cli ip -s link show sh-vps
+	cli nft list chain inet shunt mark_in; cli nft list chain inet shunt gw_fwd
+	cli conntrack -L 2>&1 | head -8
+	echo "--- end debug"
+fi
 check "gateway: client DNS goes the route too" yes "$(gwc "$BIN/fakedns" query -server 10.99.0.1:53 -type TXT whoami.test | gq 10.66.0.2 && echo yes || echo no)"
 if [[ $fwd0 == 0 ]]; then
 	check "gateway: no global ip_forward" 0 "$(cat /proc/sys/net/ipv4/ip_forward)"
