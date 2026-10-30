@@ -54,7 +54,9 @@ h2 .spacer { flex: 1; }
 .card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); }
 .card.up { border-left-color: var(--accent); }
 .card.down { border-left-color: var(--bad); }
-.card .name { font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+.card .name .tname { min-width: 0; overflow-wrap: anywhere; }
+.pill.type { font-size: 10.5px; padding: 1px 7px; margin-left: 2px; white-space: nowrap; vertical-align: 2px; font-weight: 600; }
+.card .name { gap: 8px; font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin-top: 8px; font-size: 13px; }
 .kv span:nth-child(odd) { color: var(--muted); white-space: nowrap; }
 .kv span:nth-child(even) { overflow-wrap: anywhere; }
@@ -249,7 +251,7 @@ body.normal .expert { display: none !important; }
     <div id="tunnels" class="cards"></div>
   </section>
 
-  <section id="traffic">
+  <section data-fold id="traffic">
     <h2>Traffic and blocks <span class="spacer"></span>
       <span class="seg" id="t-range" role="group" aria-label="Time range"><button data-r="1h">1 h</button><button data-r="24h" class="active">24 h</button><button data-r="7d">7 d</button><button data-r="30d">30 d</button></span></h2>
     <div class="kpis" id="t-kpis"></div>
@@ -379,7 +381,7 @@ body.normal .expert { display: none !important; }
     <div class="hint linux-only" data-i18n="html">Each launcher starts its own instance with its own route. Firefox: <span class="mono">--new-instance -P &lt;profile&gt;</span>. Chromium/Brave/Chrome: leave the arguments empty and the launcher gets its own, new profile folder (<span class="mono">--user-data-dir</span>). Existing profiles are listed above: each launcher gets its own data folder in <span class="mono">~/ShuntProfiles</span> that links to the profile, because all profiles of one data folder share one process and therefore one route. Run a profile either in its launcher or in the normal browser window, not both at once.</div>
   </section>
 
-  <section class="linux-only">
+  <section data-fold class="linux-only">
     <h2>App firewall <span class="muted" style="text-transform:none;letter-spacing:0">programs without a rule</span><span class="spacer"></span>
       <span class="row" style="text-transform:none;letter-spacing:0"><span class="muted" style="font-size:12px">presets:</span>
         <button id="fw-p-paranoid" title="Unknown programs blocked until you decide; everything else through the first tunnel">Paranoid</button>
@@ -403,7 +405,7 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-dns" hidden>
-  <section class="half">
+  <section data-fold class="half">
     <h2>DNS filter <span class="muted" style="text-transform:none;letter-spacing:0">blocked names never reach a DNS server</span></h2>
     <div class="form">
       <label for="f-default">Everything else</label><select id="f-default"></select>
@@ -428,7 +430,7 @@ body.normal .expert { display: none !important; }
     <div class="hint" data-i18n="html">Lists: <a href="https://github.com/hagezi/dns-blocklists" target="_blank" rel="noopener">HaGeZi</a> and <a href="https://github.com/RPiList/specials/tree/master/Blocklisten" target="_blank" rel="noopener">RPiList/specials</a> – thank you to both projects for building and maintaining them; they are downloaded when used, not part of The Shunt. Big lists cost memory (roughly 3× their size).</div>
   </section>
 
-  <section class="half">
+  <section data-fold class="half">
     <h2>Never block</h2>
     <textarea id="f-allow" spellcheck="false" placeholder="one name per line, subdomains included&#10;e.g. example.com" style="min-height:100px"></textarea>
     <div class="hint" style="margin:10px 0 4px" data-i18n="html">Allowlists: names on these lists are never blocked, whatever the blocklists say. One https:// URL per line (hosts file, domain list, <code>@@||name^</code>).</div>
@@ -446,7 +448,7 @@ body.normal .expert { display: none !important; }
     <div class="hint">Every DNS query on this machine goes to the resolver of its route.</div>
   </section>
 
-  <section class="half">
+  <section data-fold class="half">
     <h2>DNS settings</h2>
     <div class="form">
       <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
@@ -457,7 +459,7 @@ body.normal .expert { display: none !important; }
     </div>
   </section>
 
-  <section class="half expert">
+  <section data-fold class="half expert">
     <h2>DNS servers <span class="muted" style="text-transform:none;letter-spacing:0">Pi-hole, Unbound, AdGuard…</span></h2>
     <table><tbody id="c-upstreams"></tbody></table>
     <div class="row" style="margin-top:10px">
@@ -470,7 +472,7 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-ports" hidden>
-  <section>
+  <section data-fold>
     <h2>Port rules <span class="muted" style="text-transform:none;letter-spacing:0">rules that match ports · first match wins</span><span class="spacer"></span><button id="p-new">+ New port rule</button></h2>
     <table><tbody id="p-rules"></tbody></table>
     <div class="hint" data-i18n="html">Edited in the rule list under <b>Configure</b>, where their order with the other rules shows.</div>
@@ -487,7 +489,7 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-speed" hidden>
-  <section>
+  <section data-fold>
     <h2>Speedtest <span class="spacer"></span><button id="sp-start">Start</button><button id="sp-cancel" hidden>Cancel</button></h2>
     <div class="hint">Measures ping, download and upload of every route you tick, one after the other, in random order and in several rounds; the result is the middle value. A route that does not work shows as failed – nothing is ever measured through another route instead.</div>
     <div class="row" style="flex-wrap:wrap;gap:6px 14px"><span class="muted">Routes</span><span id="sp-routes" class="row" style="flex-wrap:wrap;gap:6px 14px"></span><button class="iconbtn" id="sp-all">All</button><button class="iconbtn" id="sp-none">None</button></div>
@@ -520,7 +522,7 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-config" hidden>
-  <section class="half">
+  <section data-fold class="half">
     <h2>Routing</h2>
     <div class="form">
       <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
@@ -538,13 +540,13 @@ body.normal .expert { display: none !important; }
     </div>
   </section>
 
-  <section class="half">
+  <section data-fold class="half">
     <h2>Service</h2>
     <div class="row"><button id="restart" title="Restart the shuntd service (asks for the admin password)">Restart service</button><button id="reload" title="Re-read /etc/shunt/shunt.toml">Reload config</button></div>
     <div class="hint" data-i18n="html">Reload after editing <span class="mono">/etc/shunt/shunt.toml</span> by hand. Both are in the tray menu as well.</div>
   </section>
 
-  <section class="linux-only">
+  <section data-fold class="linux-only">
     <h2>Privacy and protection <span class="muted" style="text-transform:none;letter-spacing:0">on networks you have not trusted · a network profile below can differ</span></h2>
     <div class="settings">
       <div class="expert"><label class="t" for="c-hostname">Host name in DHCP</label>
@@ -569,7 +571,7 @@ body.normal .expert { display: none !important; }
     <div id="c-networks"></div>
   </section>
 
-  <section class="expert">
+  <section data-fold class="expert">
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">order: apps started in “block” · rules marked “also for started apps” · apps started in a route · other rules · default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>
@@ -609,12 +611,12 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-view" hidden>
-  <section class="half">
+  <section data-fold class="half">
     <h2>Settings shown</h2>
     <div class="seg" id="v-mode" role="group" aria-label="Settings shown"><button data-m="normal">Normal</button><button data-m="expert">Expert</button></div>
     <div class="hint">Normal hides the fine-tuning: rules, ports, own DNS servers and lists, multi-hop, launchers. Hidden settings keep working.</div>
   </section>
-  <section class="half">
+  <section data-fold class="half">
     <h2>Look</h2>
     <div class="form">
       <label for="v-lang">Language</label><select id="v-lang"></select>

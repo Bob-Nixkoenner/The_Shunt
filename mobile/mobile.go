@@ -122,17 +122,21 @@ func (e *Engine) Pass(minutes int) int64 {
 
 // LeakTest checks every route (public IP, DNS resolver; contacts
 // api.ipify.org and Google DNS through each route) and returns JSON.
-// Blocks for up to ~10 s: call it off the main thread.
+// Blocks for up to ~10 s, a Tor that is still starting up to ~2 minutes:
+// call it off the main thread.
 func (e *Engine) LeakTest() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()
 	return e.e.LeakTest(ctx)
 }
 
-// ResetStats deletes the traffic totals.
 // TorNewIdentity gives the built-in Tor of the tunnel new circuits; "" = done, else the reason.
 func (e *Engine) TorNewIdentity(name string) string { return e.e.TorNewIdentity(name) }
 
+// TorStart makes the built-in Tor of the tunnel start now; "" = done, else the reason.
+func (e *Engine) TorStart(name string) string { return e.e.TorStart(name) }
+
+// ResetStats deletes the traffic totals.
 func (e *Engine) ResetStats() error { return e.e.ResetStats() }
 
 // Stop ends everything; the Engine cannot be started again.

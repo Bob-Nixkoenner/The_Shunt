@@ -1,6 +1,14 @@
 {
  "name": "Deutsch",
  "strings": {
+  "Tor is still starting - run the test again in a moment": "Tor startet noch – mach den Test gleich nochmal",
+  "Tor does not start": "Tor startet nicht",
+  "starting": "startet",
+  "Tor is starting: {n} %": "Tor startet: {n} %",
+  "Start now": "Jetzt starten",
+  "Tor starts together with the app and needs about a minute. If it does not come up, the reason shows here; “Start now” tries again at once.": "Tor startet zusammen mit der App und braucht etwa eine Minute. Kommt es nicht hoch, steht der Grund hier; „Jetzt starten“ versucht es sofort nochmal.",
+  "Waiting for Tor to start (up to 90 seconds)…": "Warte, bis Tor gestartet ist (bis zu 90 Sekunden)…",
+  "reason": "Grund",
   " (network “{name}”)": " (Netz „{name}“)",
   " (unused)": " (ungenutzt)",
   " builds fresh circuits for new connections": " baut neue Circuits für neue Verbindungen",
@@ -891,8 +899,8 @@
   "name, e.g. vps": "Name, z. B. vps",
   "named group from the config": "benannte Gruppe aus der Konfiguration",
   "names blocked this month": "diesen Monat blockierte Namen",
-  "names blocked today": "heute blockierte Namen",
-  "names blocked today (DNS filter off)": "heute blockierte Namen (DNS-Filter aus)",
+  "names blocked, {range}": "blockierte Namen, {range}",
+  "names blocked, {range} (DNS filter off)": "blockierte Namen, {range} (DNS-Filter aus)",
   "need exactly one of --via/--group and a command": "genau eines von --via/--group und ein Befehl nötig",
   "netflix.com, nflxvideo.net (subdomains included)": "netflix.com, nflxvideo.net (Subdomains eingeschlossen)",
   "network": "Netz",
@@ -1074,6 +1082,7 @@
   "up": "aktiv",
   "updated {ago}": "aktualisiert {ago}",
   "uploaded": "hochgeladen",
+  "Type of this tunnel": "Art dieses Tunnels",
   "uploaded, {range}": "hochgeladen, {range}",
   "usage: shunt [-s socket] <command>": "Aufruf: shunt [-s Socket] <Befehl>",
   "usage: shunt allow ID|NAME [--via ROUTE] [--once]": "Aufruf: shunt allow ID|NAME [--via WEG] [--once]",
@@ -1215,6 +1224,11 @@
     "IPv6 from the devices: {mode}": "IPv6 von den Geräten: {mode}",
     "Gateway group “{name}” goes out directly: its devices have no protection from The Shunt.": "Gateway-Gruppe „{name}“ geht direkt raus: ihre Geräte haben keinen Schutz durch The Shunt.",
     "Gateway group “{name}” has no route and is blocked (set route = \"tunnel:<name>\").": "Gateway-Gruppe „{name}“ hat keinen Weg und ist gesperrt (route = \"tunnel:<name>\" setzen).",
-    "The gateway mode is on but the boot lockdown is off: while the computer starts, devices behind it can reach the network unprotected.": "Der Gateway-Modus ist an, aber die Start-Sperre ist aus: Beim Hochfahren können die Geräte dahinter ungeschützt ins Netz."
-  }
+    "The gateway mode is on but the boot lockdown is off: while the computer starts, devices behind it can reach the network unprotected.": "Der Gateway-Modus ist an, aber die Start-Sperre ist aus: Beim Hochfahren können die Geräte dahinter ungeschützt ins Netz.",
+  "What does this mean?": "Was bedeutet das?",
+  "A VPN server without tls-crypt or tls-auth answers every stranger who knocks, so others can find it with a port scan and try attacks on it. Your own traffic stays encrypted anyway. Many providers (for example free ones) leave it out; you can ignore this note if you trust the provider or cannot change the file. Better: ask the provider for a config with tls-crypt.": "Ein VPN-Server ohne tls-crypt oder tls-auth antwortet jedem Fremden, der anklopft; er ist per Portscan zu finden, und man kann ihn angreifen. Dein eigener Verkehr bleibt trotzdem verschlüsselt. Viele Anbieter (z. B. kostenlose) lassen es weg; du kannst den Hinweis ignorieren, wenn du dem Anbieter vertraust oder die Datei nicht ändern kannst. Besser: beim Anbieter eine Konfiguration mit tls-crypt anfragen.",
+  "CBC is an older way to encrypt that does not notice tampering by itself. It still works. Modern files use AES-GCM or ChaCha20-Poly1305; if your provider offers one, use it.": "CBC ist eine ältere Verschlüsselung, die Manipulation nicht selbst bemerkt. Sie funktioniert weiterhin. Moderne Dateien nutzen AES-GCM oder ChaCha20-Poly1305; wenn dein Anbieter eine solche Datei anbietet, nimm sie.",
+  "Compression before encryption can leak parts of the content (the VORACLE attack). Remove the line comp-lzo or compress from the file, or ask the provider for a file without it.": "Komprimierung vor der Verschlüsselung kann Teile des Inhalts verraten (VORACLE-Angriff). Entferne die Zeile comp-lzo oder compress aus der Datei oder frag den Anbieter nach einer Datei ohne sie.",
+  "Without remote-cert-tls server, another customer of the same provider could pretend to be the provider's server. Add the line remote-cert-tls server to the file.": "Ohne remote-cert-tls server könnte ein anderer Kunde desselben Anbieters sich als dessen Server ausgeben. Füge die Zeile remote-cert-tls server in die Datei ein."
+ }
 }
