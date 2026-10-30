@@ -198,7 +198,7 @@ function render() {
     sel.value = cur && st.routes.includes(cur) ? cur : (st.routes.find((r) => r.startsWith("tunnel:")) || "direct");
   }
 
-  $("#groups").replaceChildren(...st.groups.filter((g) => g.procs > 0 || !g.name.startsWith("via:")).map((g) =>
+  $("#groups").replaceChildren(...st.groups.filter((g) => (g.procs > 0 || !g.name.startsWith("via:")) && (g.procs > 0 || !(st.routes_down || []).includes(g.route))).map((g) =>
     el("tr", {},
       el("td", {}, g.name.replace(/^via:/, T("started via ")).replace(/^app:/, T("app rule: "))),
       el("td", {}, routeTag(g.route)),
