@@ -84,7 +84,8 @@ function renderTraffic() {
   $("#t-kpis").replaceChildren(
     kpi("down", "↓ " + bytes(h.rx), T("downloaded, {range}", { range: T(names[h.range]) })),
     kpi("up", "↑ " + bytes(h.tx), T("uploaded, {range}", { range: T(names[h.range]) })),
-    kpi("dns", filterOn || h.dns_month ? String(h.dns_today) : "–", filterOn ? "names blocked today" : "names blocked today (DNS filter off)"),
+    // the blocked-names counter follows the range switch (1 h / 24 h / 7 d / 30 d)
+    kpi("dns", filterOn || h.dns_month ? String(h.dns) : "–", T(filterOn ? "names blocked, {range}" : "names blocked, {range} (DNS filter off)", { range: T(names[h.range]) })),
     kpi("dns", filterOn || h.dns_month ? String(h.dns_month) : "–", "names blocked this month"));
   const c1 = drawTraffic(h), c2 = drawBlocks(h);
   $("#t-from").textContent = fmtTime(h.from);
