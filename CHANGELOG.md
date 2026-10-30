@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Speedtest history: the last 3 finished tests (date, network profile, median ping/download/upload per route) are kept in `speedtest-history.json` in the user config folder (mode 0600, no addresses or network names); list "Recent measurements" in the tab and `shunt speedtest --history`.
 - `tor-all` is now a strict emergency mode (Linux): besides sending every app through Tor, a second nftables table (`shunt_emerg`) drops everything that leaves the machine except the tor process talking to its bridges (or, without bridges, to the relays of its cached consensus, refreshed every 20 minutes), DHCP and IPv6 neighbour discovery. No fall back to direct when tor dies, on panic off, on a network change or while shuntd is stopped (the table stays). Snowflake/meek/webtunnel bridges hide their destination: then the tor process may connect anywhere, nothing else. Switching on is refused without a relay list or bridges, and for a Tor tunnel with `via`.
 
 ## v0.7.1-rc18
