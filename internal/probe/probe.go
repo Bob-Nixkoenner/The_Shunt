@@ -59,7 +59,7 @@ func init() {
 
 // RunTor is Run for a Tor route: the public IP plus check.torproject.org
 // instead of the resolver query (Tor's DNSPort refuses TXT lookups).
-func RunTor(ctx context.Context) Result { return run(ctx, nil, nil, true) }
+func RunTor(ctx context.Context) Result { return run(ctx, nil, nil, true, 8*time.Second) }
 
 // Run performs the probe from the current process.
 func Run(ctx context.Context) Result { return RunWith(ctx, nil, nil) }
@@ -71,10 +71,16 @@ type Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 // resolver (nil: the system's) - for engines that make every connection
 // themselves (internal/splitstack).
 func RunWith(ctx context.Context, dial Dial, resolver *net.Resolver) Result {
-	return run(ctx, dial, resolver, false)
+	return RunWithTimeout(ctx, dial, resolver, 8*time.Second)
 }
 
-func run(ctx context.Context, dial Dial, resolver *net.Resolver, tor bool) Result {
+// RunWithTimeout is RunWith with its own limit per request (routes with
+// slow first connections, such as a fresh Tor, need more than 8 s).
+func RunWithTimeout(ctx context.Context, dial Dial, resolver *net.Resolver, limit time.Duration) Result {
+	return run(ctx, dial, resolver, false, limit)
+}
+
+func run(ctx context.Context, dial Dial, resolver *net.Resolver, tor bool, limit time.Duration) Result {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
@@ -84,9 +90,9 @@ func run(ctx context.Context, dial Dial, resolver *net.Resolver, tor bool) Resul
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		c := &http.Client{Timeout: 8 * time.Second}
+		c := &http.Client{Timeout: limit}
 		if dial != nil {
-			c.Transport = &http.Transport{DialContext: dial, Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}
+			c.Transport = &http.Transport{DialContext: dial, Proxy: nil, TLSHandshakeTimeout: limit}
 		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, IPURL, nil)
 		resp, err := c.Do(req)
@@ -108,7 +114,7 @@ func run(ctx context.Context, dial Dial, resolver *net.Resolver, tor bool) Resul
 			r.IsTor, r.TorErr = isTor(ctx, dial)
 			return
 		}
-		dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		dctx, cancel := context.WithTimeout(ctx, limit)
 		defer cancel()
 		txt, err := resolver.LookupTXT(dctx, DNSName)
 		if err != nil {
@@ -159,6 +165,10 @@ type RouteResult struct {
 	Result  Result `json:"result"`
 	Verdict string `json:"verdict"` // ok | leak | blocked | error | warn
 	Note    string `json:"note,omitempty"`
+	// Verdict "starting" (Tor not through the network yet): Progress is its percent
+	Progress int `json:"progress,omitempty"`
+	// Detail: the reason behind the note (untranslated), e.g. the last line of a tor that died
+	Detail string `json:"detail,omitempty"`
 }
 
 // Runner runs the probe inside route and returns its JSON Result.

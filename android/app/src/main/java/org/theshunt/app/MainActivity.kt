@@ -268,7 +268,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
         val ts = status?.optJSONArray("tunnels")
         if (ts != null && ts.length() > 0) {
             Section("Tunnels") {
-                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history)
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history, settings.pro)
             }
         }
 
@@ -289,6 +289,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
                     Thread { val r = VpnState.engine?.leakTest(); leak = r?.let { JSONArray(it) }; leakRunning = false }.start()
                 }, enabled = !leakRunning)
             }) {
+                if (leakRunning && torBooting(status)) Hint("Waiting for Tor to start (up to 90 seconds)…")
                 leak?.let { rs -> for (i in 0 until rs.length()) LeakRow(rs.getJSONObject(i)) }
                     ?: Hint("Asks api.ipify.org (public IP) and Google DNS (which resolver) through every route.")
             }
@@ -319,14 +320,16 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
 }
 
 @Composable
-private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) {
+private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, pro: Boolean = false) {
     val ctx = LocalContext.current
     val h = t.optJSONObject("health")
     val state = h?.optString("state") ?: "unknown"
     val up = t.optBoolean("up")
     val asleep = t.optBoolean("idle") // on demand: made on the first connection
+    val boot = t.optInt("bootstrap", 100) // built-in Tor only
+    val torStarting = !up && boot in 1..99 && t.optString("error").startsWith("Tor is starting")
     val tone = when {
-        asleep -> Tone.Neutral
+        asleep || torStarting -> Tone.Neutral
         !up || state == "down" -> Tone.Bad
         state == "stale" -> Tone.Warn
         state == "ok" || state == "idle" -> Tone.Ok
@@ -337,27 +340,31 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null) 
             Text(t.getString("name"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
             Pill(
                 when {
-                    t.optBoolean("idle") -> T("asleep"); !up -> T("down"); state == "ok" -> T("up"); state == "idle" -> T("idle"); state == "stale" -> T("no answers"); state == "down" -> T("down"); else -> T("waiting")
+                    t.optBoolean("idle") -> T("asleep"); torStarting -> T("starting"); !up -> T("down"); state == "ok" -> T("up"); state == "idle" -> T("idle"); state == "stale" -> T("no answers"); state == "down" -> T("down"); else -> T("waiting")
                 },
                 tone,
             )
         }
-        val boot = t.optInt("bootstrap", 100) // built-in Tor only
         if (boot in 1..99) {
             androidx.compose.material3.LinearProgressIndicator(progress = { boot / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = LocalShunt.current.accent)
             KV("Tor", "$boot %")
         }
         if (asleep) Hint("Not used right now – saves battery. Connects when an app needs it.")
-        else if (!up && boot in 1..99 && t.optString("error").startsWith("Tor is starting")) Unit
+        else if (torStarting) Unit
         else if (!up) KV("error", t.optString("error"), valueColor = LocalShunt.current.bad)
         else {
             val hs = t.optLong("handshake")
-            KV("handshake", if (hs == 0L) T("never") else T("{n}s ago", "n" to (st.optLong("time") - hs)))
+            if (t.optString("type") != "tor") KV("handshake", if (hs == 0L) T("never") else T("{n}s ago", "n" to (st.optLong("time") - hs)))
             val ms = h?.optLong("latency_ms") ?: 0
             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
             if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) T(" · {n} % lost", "n" to loss) else "")
             KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
             Sparkline(history?.tunnel(t.getString("name")), Modifier.padding(top = 8.dp))
+        }
+        // the Tor the app brings: not through yet (starting, or it failed: the reason is above)
+        if (!up && !asleep && t.optString("type") == "tor" && t.has("bootstrap")) {
+            Hint("Tor starts together with the app and needs about a minute. If it does not come up, the reason shows here; “Start now” tries again at once.")
+            if (pro) ShuntButton("Start now", { Thread { VpnState.engine?.torStart(t.getString("name")) }.start() })
         }
     }
 }
@@ -384,21 +391,35 @@ private fun TrafficRows(traffic: JSONObject, tunnels: JSONArray?) {
     }
 }
 
+/** A built-in Tor that is not through the network yet (the leak test waits for it). */
+private fun torBooting(status: JSONObject?): Boolean {
+    val ts = status?.optJSONArray("tunnels") ?: return false
+    return (0 until ts.length()).any { val t = ts.getJSONObject(it); t.optString("type") == "tor" && !t.optBoolean("up") && t.optInt("bootstrap", 100) in 1..99 }
+}
+
+/** The leak test note in the user's language: the daemon's notes are English; "partly working: " carries a detail. */
+internal fun leakNote(n: String): String {
+    val pre = "partly working: "
+    return if (n.startsWith(pre)) T("partly working: {detail}", "detail" to n.removePrefix(pre)) else T(n)
+}
+
 @Composable
 private fun LeakRow(r: JSONObject) {
     val c = LocalShunt.current
     val v = r.optString("verdict")
-    val tone = when (v) { "ok" -> Tone.Ok; "leak" -> Tone.Bad; "warn" -> Tone.Warn; "blocked" -> Tone.Info; else -> Tone.Neutral }
+    val tone = when (v) { "ok" -> Tone.Ok; "leak" -> Tone.Bad; "warn" -> Tone.Warn; "blocked" -> Tone.Info; "error" -> Tone.Bad; else -> Tone.Neutral }
     val res = r.optJSONObject("result")
     EdgeCard(tone) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             RouteTag(r.optString("route"))
             Spacer(Modifier.weight(1f))
-            Pill(v.uppercase(), tone)
+            Pill(if (v == "starting") T("starting").uppercase() else v.uppercase(), tone)
         }
+        if (v == "starting") KV("Tor", T("Tor is starting: {n} %", "n" to r.optInt("progress")))
         res?.optString("ip")?.takeIf { it.isNotEmpty() }?.let { KV("public IP", it, mono = true) }
         res?.optString("resolver")?.takeIf { it.isNotEmpty() }?.let { KV("DNS resolver", it, mono = true) }
-        r.optString("note").takeIf { it.isNotEmpty() }?.let { Text(it, color = c.muted, fontSize = 12.sp) }
+        r.optString("note").takeIf { it.isNotEmpty() }?.let { Text(leakNote(it), color = c.muted, fontSize = 12.sp) }
+        r.optString("detail").takeIf { it.isNotEmpty() }?.let { KV("reason", it, valueColor = c.bad) }
     }
 }
 

@@ -729,6 +729,21 @@ func (e *Engine) TorNewIdentity(name string) string {
 	return ""
 }
 
+// TorStart makes the built-in Tor of the tunnel start now (it waits a few
+// seconds after a failure) ("" = done, else the reason). Tor tunnels never
+// sleep on demand: the program starts with the engine; this only ends a wait.
+func (e *Engine) TorStart(name string) string {
+	t := e.tunnel(name)
+	if t == nil || t.tor == nil || t.tor.proc == nil {
+		if t != nil && t.err != "" {
+			return t.err
+		}
+		return "no built-in Tor on this tunnel"
+	}
+	t.tor.Start()
+	return ""
+}
+
 func (e *Engine) closeTunnels() {
 	for _, t := range e.allTunnels() {
 		t.close()

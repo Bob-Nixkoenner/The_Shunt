@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 )
@@ -69,14 +70,40 @@ func (e *Engine) routeNet(route string) (probe.Dial, *net.Resolver, error) {
 // probe.RouteResult; blocks for up to ~10 s.
 func (e *Engine) LeakTest(ctx context.Context) string {
 	routes := []string{RouteDirect, RouteBlock}
+	var early []probe.RouteResult
 	for _, t := range e.allTunnels() {
-		if t = e.wake(t.name); t != nil && t.reachable() { // a leak test is asked for: sleeping tunnels wake up
+		if t = e.wake(t.name); t == nil {
+			continue // a leak test is asked for: sleeping tunnels wake up
+		}
+		if t.isTor() && t.tor != nil {
+			// Tor needs up to a minute from its start: wait for it instead of calling a Tor that is still starting "blocked"
+			if n := t.tor.waitReady(ctx, torWaitMax); n < 100 {
+				early = append(early, torNotReady(tunnelPref+t.name, t.tor, n))
+				continue
+			}
+		}
+		if t.reachable() {
 			routes = append(routes, tunnelPref+t.name)
 		}
 	}
-	b, _ := json.Marshal(probe.LeakTest(ctx, e.ProbeRoute, routes))
+	res := probe.LeakTest(ctx, e.ProbeRoute, routes)
+	b, _ := json.Marshal(append(res, early...))
 	return string(b)
 }
+
+// torNotReady is the leak test row of a Tor that is not through the network:
+// "starting" while it makes progress, "error" with the reason when it failed.
+func torNotReady(route string, t *torTunnel, n int) probe.RouteResult {
+	r := probe.RouteResult{Route: route, Verdict: "starting", Progress: n,
+		Note: "Tor is still starting - run the test again in a moment"}
+	if e := t.proc.Err(); e != "" {
+		r.Verdict, r.Note, r.Detail = "error", "Tor does not start", e
+	}
+	return r
+}
+
+// torProbeLimit: the limit per request of the probe through Tor (a fresh Tor builds its first circuits slowly).
+var torProbeLimit = 30 * time.Second
 
 // ProbeRoute runs the leak-test probe through one route; the JSON is a
 // probe.Result (it fits probe.Runner).
@@ -84,6 +111,9 @@ func (e *Engine) ProbeRoute(ctx context.Context, route string) ([]byte, error) {
 	dial, res, err := e.routeNet(route)
 	if err != nil {
 		return nil, err
+	}
+	if t := e.tunnel(strings.TrimPrefix(route, tunnelPref)); strings.HasPrefix(route, tunnelPref) && t != nil && t.isTor() {
+		return json.Marshal(probe.RunWithTimeout(ctx, dial, res, torProbeLimit)) // the first circuits of a fresh Tor take their time
 	}
 	return json.Marshal(probe.RunWith(ctx, dial, res))
 }
