@@ -75,6 +75,8 @@ data class Settings(
     val networks: List<NetProfile> = emptyList(),
     /** Emergency: every app goes through the Tor tunnel (routes are kept, not used). */
     val torAll: Boolean = false,
+    /** Pro mode (Settings tab): shows the Tor functions; Normal hides them. */
+    val pro: Boolean = false,
 ) {
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
@@ -91,6 +93,7 @@ data class Settings(
         put("ignore_tunnel_dns", ignoreTunnelDns)
         put("networks", JSONArray(networks.map { it.toJson() }))
         put("tor_all", torAll)
+        put("pro", pro)
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -166,6 +169,7 @@ data class Settings(
                 dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
                 ignoreTunnelDns = o.optBoolean("ignore_tunnel_dns", false),
                 torAll = o.optBoolean("tor_all", false),
+                pro = o.optBoolean("pro", false),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
                         .map { NetProfile(it.getString("link"), it.optString("default", "block")) }

@@ -223,7 +223,7 @@ body.normal .expert { display: none !important; }
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
   <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" class="expert">Ports</button><button id="tab-speed">Speedtest</button><button id="tab-config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
-  <button id="torall" hidden title="Emergency: send every app through Tor until you switch it off (TCP only)">All via Tor</button>
+  <button id="torall" hidden title="Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.">All via Tor</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
   <button id="panic" class="danger" title="Drop all traffic except loopback">PANIC</button>
 </header>
@@ -322,6 +322,7 @@ body.normal .expert { display: none !important; }
         </select>
         <button id="tor-add" class="primary">Add</button>
       </div>
+      <div id="tor-help"></div>
       <textarea id="tor-own" hidden placeholder="one bridge line per row, from bridges.torproject.org, e.g. obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0" style="min-height:70px;margin-top:10px"></textarea>
       <div class="muted" style="margin-top:8px">Tor carries TCP only: no calls, games or QUIC (those apps fall back to TCP or fail). Apps use it through a rule “route = Tor”; each rule gets its own circuits. For ordinary browsing the Tor Browser stays the better choice.</div>
     </div>
