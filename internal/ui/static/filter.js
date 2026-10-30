@@ -164,7 +164,7 @@ function renderFilterStatus() {
   const lvl = (l) => el("span", { class: "chip" }, l || "off");
   $("#f-now").replaceChildren(el("div", { class: "muted", style: "margin-bottom:4px" }, status.network ? T("In effect now (network “{name}”):", { name: status.network }) : T("In effect now:")),
     el("table", {}, el("tbody", {},
-      ...Object.entries(fs.routes).map(([r, l]) => el("tr", {}, el("td", {}, routeTag(r)), el("td", {}, lvl(l)))),
+      ...Object.entries(fs.routes).filter(([r]) => !(status.routes_down || []).includes(r)).map(([r, l]) => el("tr", {}, el("td", {}, routeTag(r)), el("td", {}, lvl(l)))),
       ...Object.entries(fs.rules || {}).map(([r, l]) => el("tr", {}, el("td", {}, "rule ", el("b", {}, r)), el("td", {}, lvl(l)))))));
   const st = fs.stats || {};
   const by = Object.entries(st.by_level || {}).map(([l, n]) => l + " " + n).join(" · ");
