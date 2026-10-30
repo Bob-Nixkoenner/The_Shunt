@@ -201,6 +201,9 @@ type Plan struct {
 	FilterRoutes []*Route
 	// Inbound: incoming connections (nil = not filtered).
 	Inbound *Inbound
+	// Gateway: groups of client interfaces routed through The Shunt
+	// (nil = off).
+	Gateway *Gateway
 }
 
 // Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
@@ -550,7 +553,80 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		}
 		p.Inbound = in
 	}
+	p.Gateway = compileGateway(c, p)
 	return p, nil
+}
+
+// Gateway is the compiled gateway mode: forwarded traffic of the groups'
+// interfaces follows the group's route, whatever the default route is.
+type Gateway struct {
+	Groups []GatewayGroup
+	// Uplinks: interfaces the replies come in on (physical links and
+	// tunnels); forwarding is switched on there, per interface.
+	Uplinks []string
+	// Rejected: interfaces left out because they are uplinks or tunnels.
+	Rejected []string
+}
+
+// GatewayGroup is one group of client interfaces with its route.
+type GatewayGroup struct {
+	Name   string
+	Ifaces []string // sorted
+	Route  *Route
+}
+
+// Ifaces returns the interfaces of all groups, sorted.
+func (g *Gateway) Ifaces() []string {
+	var out []string
+	for _, gr := range g.Groups {
+		out = append(out, gr.Ifaces...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func compileGateway(c *config.Config, p *Plan) *Gateway {
+	if !c.GatewayOn() {
+		return nil
+	}
+	g := &Gateway{}
+	for _, r := range p.Routes {
+		if (r.Kind == config.RouteLink || r.Kind == config.RouteTunnel) && !r.Forward && !r.Tor && r.Iface != "" && !slices.Contains(g.Uplinks, r.Iface) {
+			g.Uplinks = append(g.Uplinks, r.Iface)
+		}
+	}
+	for _, l := range p.LinkIfaces {
+		if !slices.Contains(g.Uplinks, l) {
+			g.Uplinks = append(g.Uplinks, l)
+		}
+	}
+	sort.Strings(g.Uplinks)
+	for _, gc := range c.Gateway.Group {
+		cr, err := c.ParseRoute(gc.RouteOrBlock())
+		if err != nil {
+			continue // Validate checked it
+		}
+		rt := p.RouteByName(cr.String())
+		if rt == nil || rt.Tor {
+			rt = p.RouteByName("block")
+		}
+		gr := GatewayGroup{Name: gc.Name, Route: rt}
+		for _, i := range gc.Interfaces {
+			if slices.Contains(g.Uplinks, i) || slices.Contains(p.LinkIfaces, i) {
+				g.Rejected = append(g.Rejected, i)
+				continue
+			}
+			gr.Ifaces = append(gr.Ifaces, i)
+		}
+		sort.Strings(gr.Ifaces)
+		if len(gr.Ifaces) > 0 {
+			g.Groups = append(g.Groups, gr)
+		}
+	}
+	if len(g.Groups) == 0 && len(g.Rejected) == 0 {
+		return nil
+	}
+	return g
 }
 
 // Inbound is the protection against incoming connections in effect.
