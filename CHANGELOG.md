@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## v0.7.1-rc19
+
+- Lab tests only: nmcheck DNS counts as info, N01 measures how fast the rules come back, the lab client reconnects without a link.
 - Tor bridges explained in plain words (Android card with an info button, window: "What is a bridge?" under the Tor form and in the tunnel list, `shunt tor help`): what a bridge is, when you need one, snowflake / obfs4 / meek / webtunnel / own lines, recommendation. "New identity" and the emergency switch "Everything through Tor" got short explanations. German included.
 - Android: Normal / Pro mode (new Settings tab, default Normal, saved). Adding Tor, bridge choice, "New identity" and the emergency switch show in Pro only; a Tor tunnel that exists stays on its card, and the emergency switch stays visible while it is on.
 - Speedtest history: the last 3 finished tests (date, network profile, median ping/download/upload per route) are kept in `speedtest-history.json` in the user config folder (mode 0600, no addresses or network names); list "Recent measurements" in the tab and `shunt speedtest --history`.
