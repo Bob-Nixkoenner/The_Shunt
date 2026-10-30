@@ -14,3 +14,12 @@ func StartTor(TorSpec, *slog.Logger, func()) (Device, error) {
 
 // ptDirs: no extra search directories here, only PATH is used.
 var ptDirs []string
+
+// TorCircuit is the circuit a Tor tunnel's traffic currently uses (see tor_circuit.go).
+type TorCircuit struct {
+	Hops    int    `json:"hops"`
+	Bridge  bool   `json:"bridge,omitempty"`
+	Country string `json:"country,omitempty"`
+	Relay   string `json:"relay,omitempty"`
+	IP      string `json:"ip,omitempty"`
+}
