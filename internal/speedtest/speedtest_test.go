@@ -207,3 +207,13 @@ func TestWithoutTor(t *testing.T) {
 		t.Errorf("kept %v dropped %v", kept, dropped)
 	}
 }
+
+func TestWithoutDown(t *testing.T) {
+	kept, dropped := WithoutDown([]string{"direct", "link:wifi", "link:ethernet", "link:mobile"}, []string{"link:ethernet", "link:mobile"})
+	if strings.Join(kept, ",") != "direct,link:wifi" || strings.Join(dropped, ",") != "link:ethernet,link:mobile" {
+		t.Fatalf("kept %v dropped %v", kept, dropped)
+	}
+	if k, d := WithoutDown([]string{"direct"}, nil); len(k) != 1 || len(d) != 0 {
+		t.Fatalf("%v %v", k, d)
+	}
+}

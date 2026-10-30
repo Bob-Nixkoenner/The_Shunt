@@ -7,7 +7,7 @@ let speedTimer = null, speedLast = null, speedInfoOpen = false;
 
 function speedRoutes() {
   const st = typeof status !== "undefined" ? status : null;
-  return ((st && st.routes) || []).filter((r) => r !== "block");
+  return ((st && st.routes) || []).filter((r) => r !== "block" && !(st.routes_down || []).includes(r));
 }
 
 function isTorRoute(r) {
