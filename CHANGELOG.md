@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Link routes (Wi-Fi, cable, mobile) are only offered while that connection is really up: speedtest tab and `shunt speedtest` (also its data estimate), the run, launcher and firewall-prompt route lists and the per-app route list. A saved rule on a link that is down stays visible and editable. New status field `routes_down`.
 - `tor-all` is now a strict emergency mode (Linux): besides sending every app through Tor, a second nftables table (`shunt_emerg`) drops everything that leaves the machine except the tor process talking to its bridges (or, without bridges, to the relays of its cached consensus, refreshed every 20 minutes), DHCP and IPv6 neighbour discovery. No fall back to direct when tor dies, on panic off, on a network change or while shuntd is stopped (the table stays). Snowflake/meek/webtunnel bridges hide their destination: then the tor process may connect anywhere, nothing else. Switching on is refused without a relay list or bridges, and for a Tor tunnel with `via`.
 
 ## v0.7.1-rc18
