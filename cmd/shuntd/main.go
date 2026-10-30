@@ -112,7 +112,11 @@ func main() {
 	case "probe": // internal: started by the daemon, which moves it into a route
 		// and then says go; nothing is sent before that
 		if _, err = bufio.NewReader(os.Stdin).ReadString('\n'); err == nil {
-			err = json.NewEncoder(os.Stdout).Encode(probe.Run(context.Background()))
+			if len(flag.Args()) > 1 && flag.Args()[1] == "tor" {
+				err = json.NewEncoder(os.Stdout).Encode(probe.RunTor(context.Background()))
+			} else {
+				err = json.NewEncoder(os.Stdout).Encode(probe.Run(context.Background()))
+			}
 		}
 	case "cgexec": // internal: shuntd cgexec <cgroup dir> <program> [args…]: move into the
 		// cgroup, then become the program (tor for a Tor tunnel with a via), so not

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Leak test on a Tor tunnel is no longer a WARN: Tor's DNS port cannot answer the TXT query that shows the resolver ("server misbehaving"), so for Tor routes the probe asks check.torproject.org (IsTor) instead and the tile says "inside Tor". New probe fields `tor`, `is_tor`, `tor_error`.
+- Config check: findings can carry a plain-words `help` text; the missing tls-crypt/tls-auth note now explains what it is and what to do (window and `shunt check`, German included).
+
 ## v0.7.1-rc19
 
 - Lab tests only: nmcheck DNS counts as info, N01 measures how fast the rules come back, the lab client reconnects without a link.
