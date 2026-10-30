@@ -69,6 +69,11 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 	}
 	errs = append(errs, syncRules(wantRules))
 	errs = append(errs, enableForwarding(p.Uplinks()))
+	if g := p.Gateway; g != nil {
+		// per interface: the clients' side and the interfaces the answers
+		// come in on; the ruleset's gw_fwd decides what is forwarded
+		errs = append(errs, enableForwarding(append(g.Ifaces(), g.Uplinks...)))
+	}
 	return errors.Join(errs...)
 }
 

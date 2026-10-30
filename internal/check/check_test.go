@@ -11,7 +11,7 @@ import (
 
 // allIDs is every finding the package can make; worstCase must trigger each.
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
-	"network.ssid_only", "stealth.unset", "inbound.off",
+	"network.ssid_only", "stealth.unset", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype"}
 
 func parse(t *testing.T, s string) *config.Config {
@@ -58,7 +58,7 @@ default_route = "direct"
 		}
 	}
 	// default_route direct hides bootlock.off: use a tunnel default for it
-	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n")
+	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n")
 	for _, f := range Config(c2, Env{}) {
 		seen[f.ID] = true
 	}
@@ -128,7 +128,7 @@ default_route = "direct"
 	weak := &ovpnconf.Config{Ciphers: []string{"BF-CBC"}, Auth: "SHA1", Compress: true, TLSVersionMin: "1.0"}
 	all := append(Config(c, Env{Windows: true, OVPN: func(string) *ovpnconf.Config { return weak }}), Config(c, Env{OVPN: func(string) *ovpnconf.Config { return weak }})...)
 	all = append(all, OpenVPN("a", &ovpnconf.Config{Ciphers: []string{"AES-256-CBC"}})...)
-	all = append(all, Config(parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n"), Env{})...)
+	all = append(all, Config(parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n"), Env{})...)
 	for _, f := range all {
 		if _, ok := de[f.Msg]; !ok {
 			t.Errorf("no German for %q", f.Msg)

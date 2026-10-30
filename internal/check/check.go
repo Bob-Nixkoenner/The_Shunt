@@ -145,6 +145,21 @@ func Config(c *config.Config, env Env) []Finding {
 	if env.linux() && c.Inbound == nil {
 		add(Info, "inbound.off", "Incoming connections are not filtered (inbound protection is off): services on this computer are reachable from every network.", "inbound")
 	}
+	if env.linux() && c.GatewayOn() {
+		for _, g := range c.Gateway.Group {
+			switch g.RouteOrBlock() {
+			case "direct":
+				add(Warn, "gateway.direct", "Gateway group “{name}” goes out directly: its devices have no protection from The Shunt.", "gateway", "name", g.Name)
+			case "block":
+				if g.Route == "" {
+					add(Info, "gateway.noroute", "Gateway group “{name}” has no route and is blocked (set route = \"tunnel:<name>\").", "gateway", "name", g.Name)
+				}
+			}
+		}
+		if c.Daemon.BootLockdown == "off" {
+			add(Warn, "gateway.bootlock", "The gateway mode is on but the boot lockdown is off: while the computer starts, devices behind it can reach the network unprotected.", "daemon.boot_lockdown")
+		}
+	}
 
 	names := make([]string, 0, len(c.Tunnels))
 	for n := range c.Tunnels {
