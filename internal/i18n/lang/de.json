@@ -655,6 +655,7 @@
   "The current network can't be recognised (no Wi-Fi name, router MAC unknown)": "Das aktuelle Netz lässt sich nicht erkennen (kein WLAN-Name, Router-MAC unbekannt)",
   "The default route is \"block\": only apps with their own rule get out. Change \"All other apps\" under Apps.": "Die Standardroute ist „block“: Nur Apps mit eigener Regel kommen raus. Ändere „Alle anderen Apps“ unter Apps.",
   "The default route is direct: programs without a rule are not protected by a tunnel.": "Der Standardweg ist direkt: Programme ohne Regel sind nicht durch einen Tunnel geschützt.",
+  "Rule “{rule}” sends traffic direct, past every tunnel.": "Regel „{rule}“ schickt Verkehr direkt, an allen Tunneln vorbei.",
   "The kill switch is off: if a tunnel or the service stops, traffic can leave directly.": "Der Kill-Switch ist aus: Fällt ein Tunnel oder der Dienst aus, kann Verkehr direkt hinaus.",
   "The tunnels connect now.": "Die Tunnel verbinden sich jetzt.",
   "There is a network called {name} already": "Es gibt schon ein Netz namens {name}",
