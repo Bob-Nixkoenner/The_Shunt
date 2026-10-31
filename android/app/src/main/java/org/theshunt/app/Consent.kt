@@ -59,7 +59,7 @@ fun ConsentGate(onDecline: () -> Unit, content: @Composable () -> Unit) {
                 ).joinToString("\n"),
                 color = c.text,
             )
-            TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text(T("Read the privacy policy")) }
+            ShuntLink("Read the privacy policy", { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) })
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ShuntButton("Decline", onDecline, modifier = Modifier.weight(1f))
@@ -74,6 +74,6 @@ fun PrivacySection() {
     val ctx = LocalContext.current
     Section("Privacy") {
         Hint("No account, no analytics. Settings, keys and statistics stay on this phone.")
-        TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) }) { Text(T("Privacy policy")) }
+        ShuntLink("Privacy policy", { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PRIVACY_URL))) })
     }
 }
