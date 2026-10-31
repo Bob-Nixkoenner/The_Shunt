@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"os"
 	"slices"
+	"strings"
+	"sync"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -78,13 +80,62 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 	}
 	errs = append(errs, syncRules(wantRules, replyIfaces))
 	errs = append(errs, enableForwarding(p.Uplinks()))
+	var clients []string
 	if g := p.Gateway; g != nil {
 		// per interface: the clients' side and the interfaces the answers
 		// come in on; the ruleset's gw_fwd decides what is forwarded
-		errs = append(errs, enableForwarding(append(g.Ifaces(), g.Uplinks...)))
+		clients = g.Ifaces()
+		errs = append(errs, enableForwarding(g.Uplinks))
+	}
+	errs = append(errs, syncClientForwarding(clients))
+	return errors.Join(errs...)
+}
+
+// clientFwd remembers the forwarding value a gateway client interface had
+// before the gateway switched it on, so that turning the gateway (or a
+// group) off gives the interface back as it was: otherwise its clients would
+// keep being forwarded like any other traffic.
+var (
+	clientFwdMu sync.Mutex
+	clientFwd   = map[string]string{}
+)
+
+func syncClientForwarding(ifaces []string) error {
+	clientFwdMu.Lock()
+	defer clientFwdMu.Unlock()
+	var errs []error
+	for iface, before := range clientFwd {
+		if slices.Contains(ifaces, iface) {
+			continue
+		}
+		if _, err := netlink.LinkByName(iface); err == nil {
+			if err := os.WriteFile(fwdPath(iface), []byte(before), 0); err != nil {
+				errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+				continue
+			}
+		}
+		delete(clientFwd, iface)
+	}
+	for _, iface := range ifaces {
+		if _, err := netlink.LinkByName(iface); err != nil {
+			continue // not up (yet): the next sync does it
+		}
+		if _, ok := clientFwd[iface]; !ok {
+			b, err := os.ReadFile(fwdPath(iface))
+			if err != nil {
+				errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+				continue
+			}
+			clientFwd[iface] = strings.TrimSpace(string(b))
+		}
+		if err := os.WriteFile(fwdPath(iface), []byte("1"), 0); err != nil {
+			errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+		}
 	}
 	return errors.Join(errs...)
 }
+
+func fwdPath(iface string) string { return "/proc/sys/net/ipv4/conf/" + iface + "/forwarding" }
 
 // lanRoutes returns the directly attached private networks of the main
 // table (what allow_lan routes may reach past their tunnel).
@@ -384,6 +435,7 @@ func syncRules(want map[int]uint32, replies []string) error {
 // Cleanup removes all Shunt rules and tables. This lifts the kill switch;
 // only used by an explicit `shuntd cleanup`.
 func Cleanup() error {
+	_ = syncClientForwarding(nil)
 	if err := syncRules(nil, nil); err != nil {
 		return err
 	}
