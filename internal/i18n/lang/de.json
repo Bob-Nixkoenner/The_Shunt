@@ -1,6 +1,7 @@
 {
  "name": "Deutsch",
  "strings": {
+  "the service did not accept the config": "der Dienst hat die Konfiguration nicht angenommen",
   "Simple": "Einfach",
   "Opsec": "Opsec",
   "OPSEC": "OPSEC",
