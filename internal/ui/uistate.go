@@ -76,3 +76,36 @@ func mergeUIState(changes map[string]*string) (map[string]string, error) {
 	}
 	return st, os.Rename(tmp, p)
 }
+
+// levelOf maps the old Normal/Expert view mode to the level that replaced
+// it (Simple/Pro/Opsec); "" = not decided yet.
+func levelOf(viewMode string) string {
+	switch viewMode {
+	case "normal":
+		return "simple"
+	case "expert":
+		return "pro"
+	}
+	return ""
+}
+
+// migrateUIState loads the ui-state and stores the level under its new key
+// "shunt-level" when only the old "shunt-view-mode" is there. The old key
+// stays, for an older version of the page.
+func migrateUIState() map[string]string {
+	uiStateMu.Lock()
+	st := loadUIState()
+	uiStateMu.Unlock()
+	if st["shunt-level"] != "" {
+		return st
+	}
+	l := levelOf(st["shunt-view-mode"])
+	if l == "" {
+		return st
+	}
+	if saved, err := mergeUIState(map[string]*string{"shunt-level": &l}); err == nil {
+		return saved
+	}
+	st["shunt-level"] = l
+	return st
+}

@@ -409,10 +409,7 @@ func (s *Server) handler() http.Handler {
 		writeJSON(w, desktop.FirefoxProfiles())
 	})
 	mux.HandleFunc("GET /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
-		uiStateMu.Lock()
-		st := loadUIState()
-		uiStateMu.Unlock()
-		writeJSON(w, st)
+		writeJSON(w, migrateUIState())
 	})
 	mux.HandleFunc("PUT /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
 		var changes map[string]*string

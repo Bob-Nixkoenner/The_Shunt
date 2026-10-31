@@ -54,6 +54,7 @@ func TestParseInvalid(t *testing.T) {
 		"bad default":    "[daemon]\ndefault_route=\"somewhere\"\n",
 		"bad lockdown":   "[daemon]\nboot_lockdown=\"yes\"\n",
 		"bad timestamps": "[daemon]\ntcp_timestamps=\"no\"\n",
+		"bad check mode": "[daemon]\nconfig_check=\"paranoid\"\n",
 		"auth on wg":     "[tunnel.a]\nconfig=\"x\"\nauth=\"p\"\n",
 		"via direct":     "[tunnel.a]\nconfig=\"x\"\nvia=\"direct\"\n",
 		"via self":       "[tunnel.a]\nconfig=\"x\"\nvia=\"tunnel:a\"\n",
