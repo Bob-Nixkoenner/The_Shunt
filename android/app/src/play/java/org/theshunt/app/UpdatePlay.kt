@@ -54,10 +54,7 @@ fun UpdateSection(say: (String) -> Unit) {
             Hint("Google Play installs the update. It can take a little while until Play offers a new version.")
         }
         note?.let { Hint(it) }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(T("Include pre-releases (rc)"), fontSize = 14.sp, modifier = Modifier.weight(1f))
-            Switch(pre, { pre = it; Updater.setPrereleases(ctx, it) })
-        }
+        SwitchRow("Include pre-releases (rc)", pre, { pre = it; Updater.setPrereleases(ctx, it) }, bold = false)
         Hint("Only asks GitHub which version is the newest when you press Check. Nothing runs in the background.")
     }
 }

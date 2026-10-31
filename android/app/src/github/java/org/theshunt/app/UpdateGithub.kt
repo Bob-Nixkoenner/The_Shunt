@@ -131,10 +131,7 @@ fun UpdateSection(say: (String) -> Unit) {
             Hint("The app is checked against the release's signed checksum list first. The VPN stops while Android installs the update.")
         }
         note?.let { Hint(it) }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(T("Include pre-releases (rc)"), fontSize = 14.sp, modifier = Modifier.weight(1f))
-            Switch(pre, { pre = it; Updater.setPrereleases(ctx, it) })
-        }
+        SwitchRow("Include pre-releases (rc)", pre, { pre = it; Updater.setPrereleases(ctx, it) }, bold = false)
         Hint("Only asks GitHub when you press Check. Nothing runs in the background.")
     }
 }
