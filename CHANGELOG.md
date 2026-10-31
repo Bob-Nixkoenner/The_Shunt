@@ -12,6 +12,7 @@
 - Android Opsec: violet accent (same colours as the window; status green/red unchanged), a slim OPSEC band in the header, the emergency switch on the Status tab (red frame). The assistant lists what Opsec means on Android: the stricter check (a switch of the app, on by default, offered back when leaving Opsec), Android's own kill switch and Private DNS (shown with their state and a button to the system settings: only the user can change them), DoH blocking (always on), random MAC (set by Android), and honestly as "not available on Android": Wi-Fi login check, incoming connections, clock check, TCP/ICMP timestamps. Statistics and history stay.
 - Android strict check: with Opsec's "Stricter security check" the Status tab shows banners: all other apps going direct (also per Wi-Fi/mobile profile) and OpenVPN files without tls-crypt/tls-auth as bad, apps going direct as warnings (Pro and Opsec only). The core's `CheckOpenVPN` summary has a new field `tls_wrap`.
 - Fix: the "Port rules" list on the Ports tab stayed empty (a function of the open-ports table had the same name); the open-ports table no longer fails when nothing listens.
+- Linux: replies to connections forwarded for containers and VMs behind this machine now come back through a tunnel that is the default route. The leak guard dropped them (they carried the tunnel's mark); packets that arrive from the tunnel are exempt now.
 
 ## v0.7.1-rc20
 
