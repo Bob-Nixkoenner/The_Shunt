@@ -1,0 +1,13 @@
+# Lab client: Tor with the built-in obfs4 bridges (H06).
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.tor]
+driver = "tor"
+bridges = ["obfs4"]
+
+[[rule]]
+name = "lab: tor"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:tor"
