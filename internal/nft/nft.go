@@ -191,6 +191,16 @@ func Render(p *engine.Plan) (string, error) {
 		return "", err
 	}
 
+	// Default route = block: forwarded traffic (containers, VMs) got the
+	// block mark in mark_in, but filter_out only sees local sockets. Drop it
+	// here too, or the main table would let it out.
+	if p.DefaultRoute.Kind == config.RouteBlock {
+		w("\tchain fwd_block {")
+		w("\t\ttype filter hook forward priority filter; policy accept;")
+		w("\t\tmeta mark %#x counter drop", engine.MarkBlock)
+		w("\t}")
+	}
+
 	// Old ICMP requests that nothing needs any more but whose answers tell a
 	// neighbour the system's clock (timestamp, down to milliseconds: uptime
 	// and clock fingerprint), netmask or existence: not answered.

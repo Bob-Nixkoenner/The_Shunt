@@ -45,6 +45,7 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 	}
 	var errs []error
 	wantRules := map[int]uint32{}
+	var replyIfaces []string
 	var lan []netlink.Route
 	for _, r := range p.Routes {
 		if r.AllowLAN {
@@ -66,13 +67,16 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 			continue
 		}
 		wantRules[r.Table] = r.Mark
+		if !r.Forward && r.Iface != "" {
+			replyIfaces = append(replyIfaces, r.Iface)
+		}
 		extra := slices.Clone(gw)
 		if r.AllowLAN {
 			extra = append(extra, lan...)
 		}
 		errs = append(errs, syncTable(r, ifaceUp[r.Iface], extra))
 	}
-	errs = append(errs, syncRules(wantRules))
+	errs = append(errs, syncRules(wantRules, replyIfaces))
 	errs = append(errs, enableForwarding(p.Uplinks()))
 	if g := p.Gateway; g != nil {
 		// per interface: the clients' side and the interfaces the answers
@@ -314,7 +318,12 @@ func defaultDst(fam int) *net.IPNet {
 	return &net.IPNet{IP: net.IPv4zero.To4(), Mask: net.CIDRMask(0, 32)}
 }
 
-func syncRules(want map[int]uint32) error {
+// replies lists tunnel interfaces: a packet coming in from one, for a
+// network behind this machine (containers, VMs, devices), is answered from
+// the main table's specific routes before the fwmark rules send it back into
+// the tunnel (its connection carries the tunnel's mark). Without them, a
+// reply to a forwarded connection would loop through the tunnel again.
+func syncRules(want map[int]uint32, replies []string) error {
 	var errs []error
 	for _, fam := range families {
 		have, err := netlink.RuleList(fam)
@@ -322,7 +331,17 @@ func syncRules(want map[int]uint32) error {
 			return err
 		}
 		present := map[int]bool{}
+		presentReply := map[string]bool{}
 		for _, h := range have {
+			if h.Priority == engine.RulePriority-1 && h.IifName != "" && h.Table == unix.RT_TABLE_MAIN && h.SuppressPrefixlen == 0 {
+				if slices.Contains(replies, h.IifName) {
+					presentReply[h.IifName] = true
+					continue
+				}
+				h := h
+				errs = append(errs, netlink.RuleDel(&h))
+				continue
+			}
 			if h.Priority != engine.RulePriority {
 				continue
 			}
@@ -346,6 +365,18 @@ func syncRules(want map[int]uint32) error {
 			r.Table = table
 			errs = append(errs, netlink.RuleAdd(r))
 		}
+		for _, ifc := range replies {
+			if presentReply[ifc] {
+				continue
+			}
+			r := netlink.NewRule()
+			r.Family = fam
+			r.Priority = engine.RulePriority - 1
+			r.IifName = ifc
+			r.Table = unix.RT_TABLE_MAIN
+			r.SuppressPrefixlen = 0
+			errs = append(errs, netlink.RuleAdd(r))
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -353,7 +384,7 @@ func syncRules(want map[int]uint32) error {
 // Cleanup removes all Shunt rules and tables. This lifts the kill switch;
 // only used by an explicit `shuntd cleanup`.
 func Cleanup() error {
-	if err := syncRules(nil); err != nil {
+	if err := syncRules(nil, nil); err != nil {
 		return err
 	}
 	for _, fam := range families {

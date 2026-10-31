@@ -876,6 +876,50 @@ check "gateway off: status says so" yes "$(shunt gateway status | gq 'off' && ec
 cli nft delete table ip gwleak
 ip netns del $GWC
 
+echo "== forwarded traffic (Docker/VMs behind this machine, no gateway mode)"
+# a namespace NATed by the host like a Docker network: the default route
+# decides for it too (tunnel: replies find it again; block: nothing leaves)
+FWC=shunt-fwc
+ip netns add $FWC
+ip -n $CLI link add fw0 type veth peer name fwc0
+ip -n $CLI link set fwc0 netns $FWC
+ip -n $CLI addr add 10.89.0.1/24 dev fw0
+ip -n $CLI link set fw0 up
+ip -n $FWC addr add 10.89.0.2/24 dev fwc0
+ip -n $FWC link set fwc0 up
+ip -n $FWC link set lo up
+ip -n $FWC route add default via 10.89.0.1
+fwc() { ip netns exec $FWC timeout 5 "$@" 2>/dev/null || true; }
+fwd1=$(ip netns exec $CLI cat /proc/sys/net/ipv4/ip_forward)
+ip netns exec $CLI sysctl -qw net.ipv4.ip_forward=1
+# the host's own NAT for its direct uplink (like Docker's), and a counter
+# for what leaves the uplink with the namespace's address
+cli nft add table ip fwleak
+cli nft add chain ip fwleak p '{ type filter hook postrouting priority 50; }'
+cli nft add rule ip fwleak p oifname cli0 ip saddr 10.89.0.0/24 counter
+cli nft add chain ip fwleak n '{ type nat hook postrouting priority 100; }'
+cli nft add rule ip fwleak n oifname cli0 ip saddr 10.89.0.0/24 masquerade
+fwleaked() { cli nft list chain ip fwleak p | sed -n 's/.*packets \([0-9]*\).*/\1/p'; }
+fw_wait() { local got; for _ in $(seq 20); do got=$(fwc curl -s $URL); [[ $got == "$1" ]] && break; sleep 0.5; done; echo "$got"; }
+cp "$WORK/etc/shunt.toml" "$WORK/etc/shunt.toml.prefwd"
+write_config tunnel:vps
+shunt reload
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+sleep 1
+check "forwarded: default tunnel, namespace gets its answers" 10.66.0.2 "$(fw_wait 10.66.0.2)"
+check "forwarded: default tunnel, nothing left directly" 0 "$(fwleaked)"
+write_config block
+shunt reload
+sleep 1.5
+check "forwarded: default block, namespace gets nothing" "" "$(fwc curl -s $URL)"
+check "forwarded: default block, no packet left" 0 "$(fwleaked)"
+cp "$WORK/etc/shunt.toml.prefwd" "$WORK/etc/shunt.toml"
+shunt reload
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+ip netns exec $CLI sysctl -qw net.ipv4.ip_forward=$fwd1
+cli nft delete table ip fwleak
+ip netns del $FWC
+
 echo "== panic"
 shunt panic on
 check "panic blocks everything" "" "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- curl -s $URL)"
