@@ -103,6 +103,8 @@ run_test() {
 	# the guest set (mac = "random"/"stable"): without promisc the DHCP
 	# answers never reach NetworkManager
 	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n ip link set $CLIENT_IF promisc on" || true
+	# … and again after a reboot of the client (D05, H11), before NetworkManager asks for a lease
+	[[ ${CLIENT_OS:-linux} == windows ]] || client "[ -e /etc/systemd/system/shuntlab-promisc.service ] || { printf '[Unit]\nBefore=NetworkManager.service\nAfter=sys-subsystem-net-devices-$CLIENT_IF.device\nBindsTo=sys-subsystem-net-devices-$CLIENT_IF.device\n[Service]\nType=oneshot\nExecStart=/usr/sbin/ip link set $CLIENT_IF promisc on\n[Install]\nWantedBy=multi-user.target\n' | sudo -n tee /etc/systemd/system/shuntlab-promisc.service >/dev/null && sudo -n systemctl enable -q shuntlab-promisc.service; }" || true
 	# a system tor.service (pulled in with the tor package, shuntd runs its own
 	# tor) keeps relay connections open that go direct with default route
 	# direct: lab noise, not shuntd's traffic
@@ -163,7 +165,12 @@ import json, sys
 json.dump({
  "id": "$ID", "title": """$TITLE""", "mode": "$MODE", "config": "$CONFIG",
  "canary": "$canary", "expect_canary": "$EXPECT_CANARY",
- "allow": [$(jarr "${ALLOW[@]}")], "checks": [$(jarr "${CHECKS[@]}")],
+ # LABALLOW <entry> lines in the client output/during.log extend ALLOW (e.g. the
+ # Tor relays of the client's consensus when no process trace exists, H11)
+ "allow": [$(jarr "${ALLOW[@]}")] + __import__("re").findall(r"^LABALLOW (\S+)$",
+     "".join(open(f, errors="replace").read() + "\n" for f in ("$out/client.out", "$out/during.log")
+             if __import__("os").path.exists(f)), 8),
+ "checks": [$(jarr "${CHECKS[@]}")],
  "expect_open": [$(jarr "${EXPECT_OPEN[@]}")],
  "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))'),
  "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$TUNNEL_IP",
