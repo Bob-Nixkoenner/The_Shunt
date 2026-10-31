@@ -871,7 +871,9 @@ cp "$WORK/etc/shunt.toml.nogw" "$WORK/etc/shunt.toml"
 shunt reload
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 sleep 1
-check "gateway off again: client gets nothing" "" "$(gwc curl -s $URL)"
+# gateway off: the client network is an ordinary network behind the host
+# now; the default route (the tunnel) decides for it (see below)
+check "gateway off again: client follows the default route" 10.66.0.2 "$(gw_wait 10.66.0.2)"
 check "gateway off: status says so" yes "$(shunt gateway status | gq 'off' && echo yes || echo no)"
 cli nft delete table ip gwleak
 ip netns del $GWC
