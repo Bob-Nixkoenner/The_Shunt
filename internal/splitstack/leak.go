@@ -108,12 +108,20 @@ var torProbeLimit = 30 * time.Second
 // ProbeRoute runs the leak-test probe through one route; the JSON is a
 // probe.Result (it fits probe.Runner).
 func (e *Engine) ProbeRoute(ctx context.Context, route string) ([]byte, error) {
+	if t := e.tunnel(strings.TrimPrefix(route, tunnelPref)); strings.HasPrefix(route, tunnelPref) && t != nil && t.isTor() && t.tor != nil {
+		if !t.reachable() {
+			return nil, fmt.Errorf("%s is not up", route)
+		}
+		// like the apps (DialRoute): names go to Tor unresolved. Tor carries no
+		// UDP, so a lookup through the tunnel's DNS server never answers and the
+		// probe saw no IP ("blocked") although Tor worked. The first circuits of
+		// a fresh Tor take their time.
+		dial := func(ctx context.Context, _, addr string) (net.Conn, error) { return t.tor.dialName(ctx, addr) }
+		return json.Marshal(probe.RunTorWith(ctx, dial, torProbeLimit))
+	}
 	dial, res, err := e.routeNet(route)
 	if err != nil {
 		return nil, err
-	}
-	if t := e.tunnel(strings.TrimPrefix(route, tunnelPref)); strings.HasPrefix(route, tunnelPref) && t != nil && t.isTor() {
-		return json.Marshal(probe.RunWithTimeout(ctx, dial, res, torProbeLimit)) // the first circuits of a fresh Tor take their time
 	}
 	return json.Marshal(probe.RunWith(ctx, dial, res))
 }
