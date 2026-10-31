@@ -1,0 +1,17 @@
+# Lab client: Tor over the WireGuard tunnel (H07); everything else in the
+# tunnel too, so the café network may only see WireGuard.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.tor]
+driver = "tor"
+via = "tunnel:intern"
+
+[[rule]]
+name = "lab: tor"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:tor"

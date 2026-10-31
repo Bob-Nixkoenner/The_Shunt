@@ -12,6 +12,16 @@ kprobe:ping_v6_sendmsg
 	@comm[arg0] = comm;
 }
 
+// sockets opened before the trace started (e.g. tor's guard connections):
+// learn the owner when it sends or reads, so later ACKs/RSTs get its name
+kprobe:tcp_sendmsg,
+kprobe:tcp_recvmsg
+/@pid[arg0] == 0/
+{
+	@pid[arg0] = pid;
+	@comm[arg0] = comm;
+}
+
 kprobe:__sk_destruct
 {
 	delete(@pid[arg0]);
