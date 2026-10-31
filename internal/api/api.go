@@ -80,6 +80,28 @@ type Status struct {
 	// network waits for a decision.
 	Inbound    string      `json:"inbound,omitempty"`
 	InboundAsk *InboundAsk `json:"inbound_ask,omitempty"`
+	// Gateway: the gateway mode (devices behind this machine), nil = off.
+	Gateway *GatewayStatus `json:"gateway,omitempty"`
+}
+
+// GatewayStatus describes the gateway mode in effect.
+type GatewayStatus struct {
+	IPv6   string               `json:"ipv6"` // block
+	Groups []GatewayGroupStatus `json:"groups"`
+	// Rejected: interfaces left out (uplinks or tunnels cannot be clients).
+	Rejected []string `json:"rejected,omitempty"`
+}
+
+// GatewayGroupStatus is one group of client interfaces.
+type GatewayGroupStatus struct {
+	Name   string   `json:"name"`
+	Route  string   `json:"route"`
+	Ifaces []string `json:"ifaces"`
+	// Present: the interfaces that exist right now.
+	Present []string `json:"present,omitempty"`
+	// RouteUp: the route can carry traffic (tunnel up, link connected);
+	// block is always "up" (it blocks).
+	RouteUp bool `json:"route_up"`
 }
 
 // DNSFilterStatus describes the DNS filter.

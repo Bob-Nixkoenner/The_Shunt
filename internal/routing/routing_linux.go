@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"os"
 	"slices"
+	"strings"
+	"sync"
 
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
@@ -53,10 +55,14 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 			break
 		}
 	}
+	// The networks behind the gateway's interfaces: answers to the clients
+	// carry their route's mark too and must find them in its table (without
+	// it they would be sent into the tunnel again).
+	gw := gatewayRoutes(p)
 	for _, r := range p.Routes {
 		if r.Kind == config.RouteLink {
 			wantRules[r.Table] = r.Mark
-			errs = append(errs, syncLinkTable(r))
+			errs = append(errs, syncLinkTable(r, gw))
 			continue
 		}
 		if r.Kind != config.RouteTunnel || r.Tor { // Tor: no table, see nft
@@ -66,16 +72,70 @@ func Sync(p *engine.Plan, ifaceUp map[string]bool) error {
 		if !r.Forward && r.Iface != "" {
 			replyIfaces = append(replyIfaces, r.Iface)
 		}
-		var extra []netlink.Route
+		extra := slices.Clone(gw)
 		if r.AllowLAN {
-			extra = lan
+			extra = append(extra, lan...)
 		}
 		errs = append(errs, syncTable(r, ifaceUp[r.Iface], extra))
 	}
 	errs = append(errs, syncRules(wantRules, replyIfaces))
 	errs = append(errs, enableForwarding(p.Uplinks()))
+	var clients []string
+	if g := p.Gateway; g != nil {
+		// per interface: the clients' side and the interfaces the answers
+		// come in on; the ruleset's gw_fwd decides what is forwarded
+		clients = g.Ifaces()
+		errs = append(errs, enableForwarding(g.Uplinks))
+	}
+	errs = append(errs, syncClientForwarding(clients))
 	return errors.Join(errs...)
 }
+
+// clientFwd remembers the forwarding value a gateway client interface had
+// before the gateway switched it on, so that turning the gateway (or a
+// group) off gives the interface back as it was: otherwise its clients would
+// keep being forwarded like any other traffic.
+var (
+	clientFwdMu sync.Mutex
+	clientFwd   = map[string]string{}
+)
+
+func syncClientForwarding(ifaces []string) error {
+	clientFwdMu.Lock()
+	defer clientFwdMu.Unlock()
+	var errs []error
+	for iface, before := range clientFwd {
+		if slices.Contains(ifaces, iface) {
+			continue
+		}
+		if _, err := netlink.LinkByName(iface); err == nil {
+			if err := os.WriteFile(fwdPath(iface), []byte(before), 0); err != nil {
+				errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+				continue
+			}
+		}
+		delete(clientFwd, iface)
+	}
+	for _, iface := range ifaces {
+		if _, err := netlink.LinkByName(iface); err != nil {
+			continue // not up (yet): the next sync does it
+		}
+		if _, ok := clientFwd[iface]; !ok {
+			b, err := os.ReadFile(fwdPath(iface))
+			if err != nil {
+				errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+				continue
+			}
+			clientFwd[iface] = strings.TrimSpace(string(b))
+		}
+		if err := os.WriteFile(fwdPath(iface), []byte("1"), 0); err != nil {
+			errs = append(errs, fmt.Errorf("forwarding on %s: %w", iface, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func fwdPath(iface string) string { return "/proc/sys/net/ipv4/conf/" + iface + "/forwarding" }
 
 // lanRoutes returns the directly attached private networks of the main
 // table (what allow_lan routes may reach past their tunnel).
@@ -124,7 +184,7 @@ func lanRoutes(p *engine.Plan) []netlink.Route {
 // syncLinkTable fills a link route's table with the main table's routes
 // through its interface (default route via the gateway, the attached
 // subnets). Without the interface only the unreachable routes stay.
-func syncLinkTable(r *engine.Route) error {
+func syncLinkTable(r *engine.Route, extra []netlink.Route) error {
 	var want []*netlink.Route
 	if r.Iface != "" {
 		if link, err := netlink.LinkByName(r.Iface); err == nil {
@@ -153,7 +213,33 @@ func syncLinkTable(r *engine.Route) error {
 			}
 		}
 	}
+	for _, l := range extra {
+		want = append(want, &netlink.Route{LinkIndex: l.LinkIndex, Type: unix.RTN_UNICAST, Table: r.Table, Dst: l.Dst, Scope: netlink.SCOPE_LINK, Src: l.Src})
+	}
 	return applyTable(r.Table, nil, want)
+}
+
+// gatewayRoutes returns the directly attached networks of the gateway's
+// client interfaces (main table).
+func gatewayRoutes(p *engine.Plan) []netlink.Route {
+	if p.Gateway == nil {
+		return nil
+	}
+	ifs := p.Gateway.Ifaces()
+	routes, err := netlink.RouteListFiltered(netlink.FAMILY_ALL, &netlink.Route{Table: unix.RT_TABLE_MAIN}, netlink.RT_FILTER_TABLE)
+	if err != nil {
+		return nil
+	}
+	var out []netlink.Route
+	for _, rt := range routes {
+		if rt.Dst == nil || rt.Scope != netlink.SCOPE_LINK || rt.Gw != nil || rt.Dst.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		if l, err := netlink.LinkByIndex(rt.LinkIndex); err == nil && slices.Contains(ifs, l.Attrs().Name) {
+			out = append(out, rt)
+		}
+	}
+	return out
 }
 
 func syncTable(r *engine.Route, up bool, lan []netlink.Route) error {
@@ -349,6 +435,7 @@ func syncRules(want map[int]uint32, replies []string) error {
 // Cleanup removes all Shunt rules and tables. This lifts the kill switch;
 // only used by an explicit `shuntd cleanup`.
 func Cleanup() error {
+	_ = syncClientForwarding(nil)
 	if err := syncRules(nil, nil); err != nil {
 		return err
 	}
