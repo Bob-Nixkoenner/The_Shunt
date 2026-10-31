@@ -1,0 +1,19 @@
+# Lab client: Tor as the route of single apps (labtun, labdir), default
+# route direct. H04 (tor dies), H05 (isolation), H08 (.onion names).
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.tor]
+driver = "tor"
+
+[[rule]]
+name = "lab: tor"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:tor"
+
+# a second rule: Tor isolates per rule (isolate = "app"), H05
+[[rule]]
+name = "lab: tor 2"
+app = ["labdir", "labdir-dig"]
+route = "tunnel:tor"
