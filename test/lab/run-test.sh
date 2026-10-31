@@ -101,6 +101,10 @@ run_test() {
 	# the guest set (mac = "random"/"stable"): without promisc the DHCP
 	# answers never reach NetworkManager
 	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n ip link set $CLIENT_IF promisc on" || true
+	# a system tor.service (pulled in with the tor package, shuntd runs its own
+	# tor) keeps relay connections open that go direct with default route
+	# direct: lab noise, not shuntd's traffic
+	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n systemctl disable --now tor.service 2>/dev/null" || true
 	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
