@@ -40,12 +40,15 @@ import androidx.compose.ui.unit.sp
 
 /**
  * The colours of the desktop web UI (internal/ui/static/index.html, :root),
- * so the app and the desktop look like one product.
+ * so the app and the desktop look like one product. [ok] is the status green
+ * ("up", "protected"): it stays green in every level, while [accent] turns
+ * violet in Opsec.
  */
 @Immutable
 data class ShuntColors(
     val bg: Color, val panel: Color, val panel2: Color, val line: Color,
     val text: Color, val muted: Color, val accent: Color, val accentInk: Color,
+    val ok: Color = accent,
     val warn: Color = Color(0xFFF5B942), val bad: Color = Color(0xFFF2555A), val info: Color = Color(0xFF6AA8FF),
 )
 
@@ -59,6 +62,13 @@ val LightShunt = ShuntColors(
     // darker than the dark theme's: yellow text on a pale yellow pill was hard to read
     warn = Color(0xFFA15C07), bad = Color(0xFFC9262C), info = Color(0xFF2563EB),
 )
+
+/**
+ * Opsec: violet accent, the same tokens as the desktop (text contrast at least
+ * 4.5:1 on every background). Status colours (ok, bad, warn) stay as they are.
+ */
+val DarkOpsec = DarkShunt.copy(accent = Color(0xFFB794F6), accentInk = Color(0xFF1E0B3A))
+val LightOpsec = LightShunt.copy(accent = Color(0xFF6D28D9), accentInk = Color(0xFFFFFFFF))
 
 val LocalShunt = staticCompositionLocalOf { DarkShunt }
 
@@ -102,8 +112,11 @@ fun AppearanceSection() {
 val Mono = FontFamily.Monospace
 
 @Composable
-fun ShuntTheme(dark: Boolean, content: @Composable () -> Unit) {
-    val c = if (dark) DarkShunt else LightShunt
+fun ShuntTheme(dark: Boolean, opsec: Boolean = false, content: @Composable () -> Unit) {
+    val c = when {
+        opsec -> if (dark) DarkOpsec else LightOpsec
+        else -> if (dark) DarkShunt else LightShunt
+    }
     val base = if (dark) darkColorScheme() else lightColorScheme()
     val scheme = base.copy(
         primary = c.accent, onPrimary = c.accentInk,
@@ -171,7 +184,7 @@ enum class Tone { Neutral, Ok, Bad, Warn, Info }
 private fun toneColor(t: Tone): Color {
     val c = LocalShunt.current
     return when (t) {
-        Tone.Ok -> c.accent; Tone.Bad -> c.bad; Tone.Warn -> c.warn; Tone.Info -> c.info; Tone.Neutral -> c.muted
+        Tone.Ok -> c.ok; Tone.Bad -> c.bad; Tone.Warn -> c.warn; Tone.Info -> c.info; Tone.Neutral -> c.muted
     }
 }
 
