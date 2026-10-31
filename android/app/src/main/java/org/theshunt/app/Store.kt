@@ -75,9 +75,16 @@ data class Settings(
     val networks: List<NetProfile> = emptyList(),
     /** Emergency: every app goes through the Tor tunnel (routes are kept, not used). */
     val torAll: Boolean = false,
-    /** Pro mode (Settings tab): shows the Tor functions; Simple hides them. */
-    val pro: Boolean = false,
+    /** What the app shows (Settings tab): Simple, Pro or Opsec, see Levels.kt. */
+    val level: Level = Level.Simple,
+    /** The strict check (Opsec): findings on the Status tab, see StrictCheck. */
+    val strictCheck: Boolean = false,
+    /** What Opsec switched on, with the value from before (offered back when leaving Opsec). */
+    val opsecUndo: Map<String, Boolean> = emptyMap(),
 ) {
+    /** Whether a part of the app shows in the current level (Levels.TABLE). */
+    fun shows(key: String) = Levels.shows(key, level)
+
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
 
@@ -93,7 +100,11 @@ data class Settings(
         put("ignore_tunnel_dns", ignoreTunnelDns)
         put("networks", JSONArray(networks.map { it.toJson() }))
         put("tor_all", torAll)
-        put("pro", pro)
+        put("level", level.key)
+        // older versions read "pro" (Normal/Pro): going back keeps the choice
+        put("pro", level != Level.Simple)
+        put("strict_check", strictCheck)
+        put("opsec_undo", JSONObject(opsecUndo))
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -169,7 +180,9 @@ data class Settings(
                 dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
                 ignoreTunnelDns = o.optBoolean("ignore_tunnel_dns", false),
                 torAll = o.optBoolean("tor_all", false),
-                pro = o.optBoolean("pro", false),
+                level = Level.from(o.optString("level").ifEmpty { null }, if (o.has("pro")) o.optBoolean("pro") else null),
+                strictCheck = o.optBoolean("strict_check", false),
+                opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
                         .map { NetProfile(it.getString("link"), it.optString("default", "block")) }

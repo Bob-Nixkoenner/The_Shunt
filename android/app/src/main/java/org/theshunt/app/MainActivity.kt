@@ -34,7 +34,10 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.border
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -101,49 +104,52 @@ private fun App() {
         Store.save(ctx, s)
         ShuntVpnService.applyRules(ctx, s)?.let { message = it }
     }
-    val c = LocalShunt.current
+    // Opsec: the violet accent over the whole app (status colours stay)
+    ShuntTheme(UiPrefs.dark(), opsec = settings.level == Level.Opsec) {
+        val c = LocalShunt.current
 
-    Scaffold(
-        containerColor = c.bg,
-        topBar = { Header(status) },
-        bottomBar = {
-            NavigationBar(containerColor = c.panel) {
-                val filterIcon = painterResource(R.drawable.ic_tab_filter)
-                listOf(
-                    "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
-                    "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
-                    "Settings" to rememberVectorPainter(Icons.Filled.Settings),
-                ).forEachIndexed { i, (label, icon) ->
-                    NavigationBarItem(
-                        selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
-                        label = { Text(T(label), fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
-                            selectedIconColor = c.accent, unselectedIconColor = c.muted,
-                        ),
-                    )
+        Scaffold(
+            containerColor = c.bg,
+            topBar = { Header(status, settings.shows("opsec.band")) },
+            bottomBar = {
+                NavigationBar(containerColor = c.panel) {
+                    val filterIcon = painterResource(R.drawable.ic_tab_filter)
+                    listOf(
+                        "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
+                        "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
+                        "Settings" to rememberVectorPainter(Icons.Filled.Settings),
+                    ).forEachIndexed { i, (label, icon) ->
+                        NavigationBarItem(
+                            selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
+                            label = { Text(T(label), fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
+                                selectedIconColor = c.accent, unselectedIconColor = c.muted,
+                            ),
+                        )
+                    }
+                }
+            },
+        ) { pad ->
+            Box(Modifier.padding(pad).fillMaxSize()) {
+                when (tab) {
+                    0 -> StatusScreen(settings, status, update) { message = it }
+                    1 -> TunnelsScreen(settings, update) { message = it }
+                    2 -> AppsScreen(settings, update)
+                    3 -> FilterScreen(settings, update, status)
+                    4 -> SettingsScreen(settings, update)
                 }
             }
-        },
-    ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
-            when (tab) {
-                0 -> StatusScreen(settings, status) { message = it }
-                1 -> TunnelsScreen(settings, update) { message = it }
-                2 -> AppsScreen(settings, update)
-                3 -> FilterScreen(settings, update, status)
-                4 -> SettingsScreen(settings, update)
-            }
         }
-    }
-    message?.let {
-        AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton({ message = null }) { Text(T("OK")) } }, text = { Text(it) })
+        message?.let {
+            AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton({ message = null }) { Text(T("OK")) } }, text = { Text(it) })
+        }
     }
 }
 
-/** Sticky header like the web UI: logo, state pill, PANIC. */
+/** Sticky header like the web UI: logo, state pill, PANIC; in Opsec a slim "OPSEC" band above it. */
 @Composable
-private fun Header(status: JSONObject?) {
+private fun Header(status: JSONObject?, band: Boolean = false) {
     val c = LocalShunt.current
     val running by VpnState.running.collectAsStateWithLifecycle()
     val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
@@ -151,6 +157,12 @@ private fun Header(status: JSONObject?) {
     val panic = ov?.optBoolean("panic") ?: false
     val passLeft = ov?.optLong("pass_left") ?: 0L
     Column(Modifier.background(c.bg).statusBarsPadding()) {
+        if (band) Text(
+            "OPSEC", Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
+                .semantics { contentDescription = T("Opsec level") },
+            color = c.accentInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ShuntLogo()
             Spacer(Modifier.width(10.dp))
@@ -170,12 +182,12 @@ private fun Header(status: JSONObject?) {
                 }, kind = Tone.Bad)
             }
         }
-        HorizontalDivider(color = c.line)
+        HorizontalDivider(color = if (band) c.accent else c.line)
     }
 }
 
 @Composable
-private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) -> Unit) {
+private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Settings) -> Unit, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     val running by VpnState.running.collectAsStateWithLifecycle()
@@ -235,6 +247,9 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
                 "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. Set Private DNS to \"Off\" so every app resolves through its route.",
             ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text(T("Open network settings")) } }
         }
+        if (settings.strictCheck) StrictBanners(settings)
+        // Opsec: the emergency switch where you see it first
+        if (settings.shows("opsec.emergency")) EmergencySection(settings, update, prominent = true)
 
         Section("VPN") {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -268,7 +283,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, say: (String) 
         val ts = status?.optJSONArray("tunnels")
         if (ts != null && ts.length() > 0) {
             Section("Tunnels") {
-                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history, settings.pro)
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history, settings.shows("tor.client"))
             }
         }
 
@@ -489,7 +504,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
         Section("Tunnels") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
-                if (settings.pro && settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
+                if (settings.shows("tor.add") && settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
                     val conf = if (hasBuiltinTor(ctx)) Tunnel.TOR_BUILTIN_CONF else Tunnel.TOR_DEFAULT_CONF
                     save(Tunnel(Store.tunnelName("tor", settings.tunnels.map { it.name }), conf, Tunnel.TOR), "")
                 })
@@ -517,7 +532,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                                 if (it.optString("bridges").isNotEmpty()) KV("bridges", it.optString("bridges"), mono = true)
                             } else KV("SOCKS", it.optString("socks"), mono = true)
                             it.optString("dns").takeIf { d -> d.isNotEmpty() }?.let { d -> KV("DNS", d, mono = true) }
-                            TorHelp(t, builtin = it.optString("client") == "builtin", pro = settings.pro, onSwitch = { c ->
+                            TorHelp(t, builtin = it.optString("client") == "builtin", settings = settings, onSwitch = { c ->
                                 update(settings.copy(tunnels = settings.tunnels.map { x -> if (x.name == t.name) x.copy(conf = c) else x }))
                                 say(T("Saved. Restart the VPN to use it."))
                             })
@@ -534,7 +549,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         val carriers = settings.tunnels.filter { !it.isOpenVPN && !it.isTor && it.name != t.name && it.via.isEmpty() }
                             .filter { t.isOpenVPN || settings.tunnels.none { o -> o.via == t.name } }
                             .map { "tunnel:${it.name}" }
-                        if (!t.isTor && (carriers.isNotEmpty() || t.via.isNotEmpty())) Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Simple hides the choice, but shows it while one is set
+                        if (!t.isTor && (t.via.isNotEmpty() || (carriers.isNotEmpty() && settings.shows("tunnel.multihop")))) Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(T("through"), Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
                             RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
                                 val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
@@ -637,18 +653,10 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
         }
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
     }
-    // Normal hides it, but never while it is on (it must be possible to turn it off)
-    if (settings.tunnels.any { it.isTor } && (settings.pro || settings.torAll)) Section("Emergency") {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
-                Text(T("Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off."), color = c.muted, fontSize = 12.sp)
-            }
-            Switch(settings.torAll, { update(settings.copy(torAll = it)) })
-        }
-        Hint("Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.")
-    }
-    Section("DNS servers") {
+    // Simple hides it, but never while it is on (it must be possible to turn it off);
+    // in Opsec it sits on the Status tab
+    if (settings.tunnels.any { it.isTor } && !settings.shows("opsec.emergency") && (settings.shows("tor.emergency") || settings.torAll)) EmergencySection(settings, update)
+    if (settings.shows("dns.servers")) Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(T("Ignore the DNS of the tunnels"), color = c.text, fontWeight = FontWeight.SemiBold)
@@ -726,6 +734,8 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
             // network profiles: another default on Wi-Fi or on mobile data
             for ((link, label) in listOf("wifi" to "… on Wi-Fi", "mobile" to "… on mobile data")) {
                 val p = settings.networks.find { it.link == link }
+                // Simple hides the network profiles, but shows one while it is set
+                if (p == null && !settings.shows("apps.netprofiles")) continue
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(T(label), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
                     RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
@@ -874,19 +884,19 @@ private fun BridgeInfo() {
     }
 }
 
-/** Tor on the phone: the Tor the app brings, or Orbot (say so, open it or its page with one tap). Buttons only in Pro mode. */
+/** Tor on the phone: the Tor the app brings, or Orbot (say so, open it or its page with one tap). Buttons only in Pro and Opsec (Levels.TABLE). */
 @Composable
-private fun TorHelp(t: Tunnel, builtin: Boolean, pro: Boolean, onSwitch: (String) -> Unit) {
+private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (String) -> Unit) {
     val ctx = LocalContext.current
+    val pro = settings.shows("tor.client")
     if (builtin) {
         Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
-        if (!pro) return
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
-            ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
+            if (settings.shows("tor.newnym")) ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
+            if (pro) ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
         }
-        Hint("New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.")
-        if (java.io.File(ctx.applicationInfo.nativeLibraryDir, "liblyrebird.so").exists()) {
+        if (settings.shows("tor.newnym")) Hint("New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.")
+        if (settings.shows("tor.bridges") && java.io.File(ctx.applicationInfo.nativeLibraryDir, "liblyrebird.so").exists()) {
             val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
             var info by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -929,16 +939,175 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, pro: Boolean, onSwitch: (String
     }
 }
 
-/** Settings tab: Simple or Pro mode (Pro shows the Tor functions). */
+/** The emergency switch (everything through Tor); [prominent] = on the Status tab in Opsec, with a red frame. */
+@Composable
+private fun EmergencySection(settings: Settings, update: (Settings) -> Unit, prominent: Boolean = false) {
+    val c = LocalShunt.current
+    val hasTor = settings.tunnels.any { it.isTor }
+    val m = if (prominent) Modifier.border(2.dp, c.bad, androidx.compose.foundation.shape.RoundedCornerShape(10.dp)) else Modifier
+    Section("Emergency", m) {
+        if (!hasTor) {
+            Hint("The emergency switch needs a Tor tunnel: add one under Tunnels.")
+            return@Section
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
+                Text(T("Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off."), color = c.muted, fontSize = 12.sp)
+            }
+            Switch(settings.torAll, { update(settings.copy(torAll = it)) })
+        }
+        Hint("Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.")
+    }
+}
+
+/**
+ * The findings of the strict check (Opsec) as banners: bad ones always, the
+ * warnings (apps going direct) in Pro and Opsec only (Levels "checks.notes").
+ */
+@Composable
+private fun StrictBanners(settings: Settings) {
+    val ctx = LocalContext.current
+    val noWrap = remember(settings.tunnels) {
+        settings.tunnels.filter { it.isOpenVPN }.filter { t ->
+            runCatching { !JSONObject(Mobile.checkOpenVPN(t.conf)).optBoolean("tls_wrap") }.getOrDefault(false)
+        }.map { it.name }
+    }
+    val pm = ctx.packageManager
+    val fs = remember(settings, noWrap) {
+        StrictCheck.findings(settings, noWrap) { pkg -> runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg) }
+    }
+    fun text(f: Finding) = T(f.msg, *f.args.toTypedArray())
+    for (f in fs.filter { it.bad }) Banner(T("Stricter security check"), text(f), bad = true)
+    val notes = fs.filter { !it.bad }
+    if (notes.isNotEmpty() && settings.shows("checks.notes")) Banner(T("Stricter security check"), notes.joinToString("\n") { "• " + text(it) })
+}
+
+/** Settings tab: the level (Simple, Pro, Opsec); switching to and from Opsec runs the Opsec assistant. */
 @Composable
 private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Section("Mode") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ShuntButton("Simple", { update(settings.copy(pro = false)) }, kind = if (!settings.pro) Tone.Ok else Tone.Neutral)
-                ShuntButton("Pro", { update(settings.copy(pro = true)) }, kind = if (settings.pro) Tone.Ok else Tone.Neutral)
-            }
-            Hint("Simple shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their extra buttons show in Pro only.")
+    var opsecOn by remember { mutableStateOf(false) }
+    var leaveTo by remember { mutableStateOf<Level?>(null) }
+    val pick: (Level) -> Unit = { l ->
+        when {
+            l == settings.level -> Unit
+            l == Level.Opsec -> opsecOn = true
+            settings.level == Level.Opsec && Opsec.undoable(settings).isNotEmpty() -> leaveTo = l
+            else -> update(settings.copy(level = l, opsecUndo = if (settings.level == Level.Opsec) emptyMap() else settings.opsecUndo))
         }
     }
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Section("Settings shown") {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
+            }
+            Hint(
+                when (settings.level) {
+                    Level.Simple -> T("Simple shows the basics. Tor (adding it, bridges, New identity, Everything through Tor), tunnels through other tunnels, routes per network and the DNS server list are hidden. Tor tunnels you already have stay on their cards. Hidden settings keep working.")
+                    Level.Pro -> T("Pro shows everything.")
+                    Level.Opsec -> T("Opsec shows everything, marks the app violet, puts the emergency switch on the Status tab and switches on strict settings you confirmed once (switching back offers to undo them).")
+                }
+            )
+        }
+    }
+    if (opsecOn) OpsecOnDialog(settings, onDone = { s -> opsecOn = false; s?.let(update) })
+    leaveTo?.let { to -> OpsecOffDialog(settings, to, onDone = { s -> leaveTo = null; s?.let(update) }) }
+}
+
+/** The Opsec list: what it sets, what Android does itself, what is not available here. Nothing changes before "Switch to Opsec". */
+@Composable
+private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
+    val ctx = LocalContext.current
+    val c = LocalShunt.current
+    val running by VpnState.running.collectAsStateWithLifecycle()
+    val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
+    val privateDns by VpnState.privateDns.collectAsStateWithLifecycle()
+    // switches of this app: on by default, except what is set already
+    val ticked = remember { mutableStateMapOf<String, Boolean>().apply { for (it in Opsec.ITEMS) if (it.kind == OpsecItem.Kind.SET) put(it.id, true) } }
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(T("What Opsec sets")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(T("Each switch is one setting of this app. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it. Some things only Android can do: they show their state and where to set them."), color = c.text, fontSize = 13.sp)
+                for (it in Opsec.ITEMS) {
+                    val already = it.kind == OpsecItem.Kind.SET && it.isOn(settings)
+                    // state of Android's own settings, when the app can see it
+                    val sys: Boolean? = when (it.id) {
+                        "killswitch" -> if (running) lockdown else null
+                        "privatedns" -> if (running) !privateDns else null
+                        else -> null
+                    }
+                    val note = when (it.kind) {
+                        OpsecItem.Kind.SET -> if (already) T("Already set.") + " " + T(it.help) else T(it.help)
+                        OpsecItem.Kind.SYSTEM -> T(it.help) + " " + T(it.note) + when (sys) {
+                            true -> " " + T("Now: on.")
+                            false -> " " + T("Now: off.")
+                            null -> if (it.id == "stealth") "" else " " + T("The state shows once the VPN runs.")
+                        }
+                        OpsecItem.Kind.BUILTIN -> T(it.note) + " " + T(it.help)
+                        OpsecItem.Kind.NA -> T(it.note)
+                    }
+                    Row(verticalAlignment = Alignment.Top) {
+                        Checkbox(
+                            checked = when (it.kind) {
+                                OpsecItem.Kind.SET -> already || ticked[it.id] == true
+                                OpsecItem.Kind.SYSTEM -> sys == true
+                                OpsecItem.Kind.BUILTIN -> true
+                                OpsecItem.Kind.NA -> false
+                            },
+                            onCheckedChange = { on -> ticked[it.id] = on },
+                            enabled = it.kind == OpsecItem.Kind.SET && !already,
+                        )
+                        Column(Modifier.weight(1f).padding(top = 10.dp)) {
+                            Text(T(it.text), color = if (it.kind == OpsecItem.Kind.NA) c.muted else c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(note, color = c.muted, fontSize = 12.sp)
+                            when (it.id) {
+                                "killswitch" -> if (sys != true) TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text(T("Open VPN settings")) }
+                                "privatedns" -> if (sys != true) TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text(T("Open network settings")) }
+                            }
+                        }
+                    }
+                }
+                Text(T("Opsec is no guarantee."), color = c.text, fontWeight = FontWeight.Bold)
+                Text(T("These settings close common leaks of this phone; they do not make you anonymous. Your VPN provider still sees your traffic, and websites still recognise you by logins, cookies and your browser."), color = c.text, fontSize = 13.sp)
+                if (settings.defaultRoute.startsWith("direct") || settings.defaultRoute.startsWith("link:")) {
+                    Text(T("All other apps go direct, past every tunnel. Opsec does not change that for you: choose a tunnel under Apps → “All other apps”."), color = c.warn, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = { TextButton({ onDone(Opsec.switchOn(settings, ticked.filterValues { it }.keys)) }) { Text(T("Switch to Opsec")) } },
+        dismissButton = { TextButton({ onDone(null) }) { Text(T("Cancel")) } },
+    )
+}
+
+/** Leaving Opsec: offer to put back what Opsec changed (ticked = back to how it was). */
+@Composable
+private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) -> Unit) {
+    val c = LocalShunt.current
+    val items = Opsec.undoable(settings)
+    val ticked = remember { mutableStateMapOf<String, Boolean>().apply { for (it in items) put(it.id, true) } }
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(T("Undo the Opsec settings?")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(T("Opsec changed these settings. Ticked ones go back to how they were before; the others stay as they are."), color = c.text, fontSize = 13.sp)
+                for (it in items) Row(verticalAlignment = Alignment.Top) {
+                    Checkbox(ticked[it.id] == true, { on -> ticked[it.id] = on })
+                    Column(Modifier.weight(1f).padding(top = 10.dp)) {
+                        Text(T(it.text), color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(T("Set by Opsec. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) } },
+        dismissButton = {
+            Row {
+                TextButton({ onDone(null) }) { Text(T("Cancel")) }
+                TextButton({ onDone(Opsec.switchOff(settings, to, emptySet())) }) { Text(T("Keep all")) }
+            }
+        },
+    )
 }
