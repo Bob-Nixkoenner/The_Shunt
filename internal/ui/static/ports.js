@@ -14,11 +14,12 @@ function renderPorts() {
   if (!l) { $("#ports").replaceChildren(el("tr", {}, el("td", { class: "muted" }, "Daemon not reachable."))); return; }
   if (l.error) { $("#ports").replaceChildren(el("tr", {}, el("td", { style: "color:var(--bad)" }, l.error))); return; }
   const all = $("#ports-all").checked;
-  const shown = l.ports.filter((p) => all || p.reach !== "localhost");
-  const exposed = l.ports.filter((p) => p.exposed && !p.blocked);
+  const ports = l.ports || []; // none listening: the service may send null
+  const shown = ports.filter((p) => all || p.reach !== "localhost");
+  const exposed = ports.filter((p) => p.exposed && !p.blocked);
   // the heading stays visible when the section is folded: warn there too
   const sum = $("#ports-sum");
-  sum.textContent = T("{n} reachable from the network · {m} only from this machine", { n: exposed.length, m: l.ports.filter((p) => p.reach === "localhost").length });
+  sum.textContent = T("{n} reachable from the network · {m} only from this machine", { n: exposed.length, m: ports.filter((p) => p.reach === "localhost").length });
   sum.style.color = exposed.length && !l.network ? "var(--bad)" : "";
   const reach = (p) => p.reach === "localhost" ? el("span", { class: "muted" }, "this machine") :
     p.reach === "all" ? "all interfaces" : (p.ifaces || []).join(", ") || p.addr;

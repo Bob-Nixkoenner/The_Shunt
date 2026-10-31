@@ -10,7 +10,7 @@
 // attribute of el() in the scripts); a key missing from the table shows
 // everywhere. Scripts ask shows("key") for parts they draw themselves.
 
-const LEVELS = ["simple", "pro", "opsec"];
+const UI_LEVELS = ["simple", "pro", "opsec"];
 const LV_ALL = ["simple", "pro", "opsec"], LV_PRO = ["pro", "opsec"];
 
 const LEVEL_TABLE = {
@@ -51,7 +51,7 @@ const LEVEL_TABLE = {
   "opsec.band": ["opsec"],
 };
 
-function levelOK(l) { return LEVELS.includes(l); }
+function levelOK(l) { return UI_LEVELS.includes(l); }
 
 // levelFrom: the level stored, or the one the old Normal/Expert view mode
 // becomes ("" = not decided yet). The service does the same with the
@@ -79,6 +79,6 @@ function shows(key, lv) {
 // again for parts drawn later (el() does it for its own elements).
 function applyLevel(root) {
   const lv = level();
-  for (const l of LEVELS) document.body.classList.toggle("lv-" + l, l === lv);
+  for (const l of UI_LEVELS) document.body.classList.toggle("lv-" + l, l === lv);
   for (const e of (root || document).querySelectorAll("[data-lv]")) e.classList.toggle("lv-off", !shows(e.dataset.lv, lv));
 }
