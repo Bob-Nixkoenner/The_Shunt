@@ -180,9 +180,23 @@ def eui64(addr, mac):
         ipaddress.ip_address("::" + iid).exploded[-19:])
 
 
+# strict window of the test (LABMARK lines, written right after the switch
+# returned; client clock = gateway clock in the lab, guest time sync)
+strict = meta.get("strict") or []
+strict_from = bool(strict)
+outside = 0
+
+
+def in_strict(t):
+    return any(a <= t and (b is None or t <= b) for a, b in strict)
+
+
 if os.path.exists(p("gw.pcap")):
     for pkt in PcapReader(p("gw.pcap")):
         if Ether not in pkt:
+            continue
+        if strict and not in_strict(float(pkt.time)):
+            outside += 1
             continue
         learn_names(pkt)
         if not is_client(pkt):
@@ -281,7 +295,8 @@ if os.path.exists(p("gw.pcap")):
             if (dst, dport, sport) in inbound:
                 replies_lan[(dst, f"tcp/{sport}")] += 1
                 continue
-            if (fl & 0x04 or fl & 0x12 == 0x12) and (dst, dport, sport) not in outbound:
+            if (fl & 0x04 or fl & 0x12 == 0x12) and (dst, dport, sport) not in outbound \
+                    and not allowed_comm(who(dst, dport)):
                 # RST/SYN-ACK for a connection that never came in through this network,
                 # e.g. one that arrived through the tunnel
                 gw_flows[(dst, dport, "tcp-Antwort", who(dst, dport))] += 1
@@ -461,6 +476,7 @@ r += ["## Funde", ""]
 r += [f"- **{g}** ({s}): {t}" for s, g, t in findings] or ["- keine"]
 r += ["", "## Fremdes Netz (Lab-Gateway)", "",
       f"- Tunnel-Transport: " + (", ".join(f"{i}:{pt}/{pr} {n} Pakete" for (i, pt, pr), n in tunnel_pkts.items()) or "keiner"),
+      *([f"- Nur der strenge Teil gewertet (LABMARK): {outside} Pakete davor/danach nicht beurteilt"] if strict_from else []),
       f"- DNS-Anfragen über das fremde Netz: {len(gw_dns)} (unbound-Protokoll: {len(unbound_q)})",
       f"- HTTP-Aufrufe am Gateway: " + (", ".join(sorted({h for _, h, _ in web_hits})) or "keine")]
 r += ["", "### Was das Netz über das Gerät erfährt", ""]
