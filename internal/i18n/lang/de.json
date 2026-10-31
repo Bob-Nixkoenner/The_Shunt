@@ -1259,7 +1259,7 @@
   "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.": "Neue Identität: Tor baut für neue Verbindungen neue Wege, damit Seiten sie nicht mit deinem früheren Tun verbinden können. Schon offene Verbindungen behalten ihren alten Weg.",
   "Normal shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their expert buttons show in Pro only.": "Normal zeigt das Wichtigste. Pro blendet Tor dazu: Hinzufügen, Brücken, Neue Identität und Alles über Tor. Vorhandene Tor-Tunnel bleiben auf ihren Karten sichtbar; ihre Experten-Knöpfe gibt es nur in Pro.",
   "Own bridge lines and webtunnel: only in the desktop app for now.": "Eigene Brücken und webtunnel: bisher nur in der Desktop-App.",
-  "Pro": "Pro",
+  "Pro": "Profi",
   "Settings": "Einstellungen",
   "Tip: no censorship, no bridge. Tor blocked: try snowflake first.": "Tipp: ohne Zensur keine Brücke. Tor gesperrt: probiere zuerst snowflake.",
   "Tor help (shunt tor help):": "Tor-Hilfe (shunt tor help):",

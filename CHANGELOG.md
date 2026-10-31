@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Window (Linux and Windows): three levels instead of Normal/Expert, chosen under View: **Simple** (Overview, VPN, Apps, DNS and View; Tor, ports, speedtest, Configure, rules, network profiles, incoming protection and the fine-tuning are hidden, existing Tor tunnels stay as a plain card, the emergency switch stays visible while it is on, "Everything else goes" moves to the VPN tab, only really bad check findings show), **Pro** (everything) and **Opsec** (everything, violet accent and an "OPSEC" band in the header; status colours stay green/red and always come with a word). Fresh installs start in Simple; Normal becomes Simple and Expert becomes Pro (also in the ui-state file). Hidden settings keep working, and a banner lists the ones in use.
+- One table (`levels.js`) says which tab, card and field shows in which level, instead of checks spread over the page.
+- Incoming protection (`[inbound]`: the switch, allowed ports, per tunnel, per network profile, notes on the Ports tab, the question on a new network) shows in Pro and Opsec only. On Windows the switch, the allowed ports and the per-network setting are now in the window too (the service supported them already); per-tunnel inbound stays Linux only.
+- Opsec assistant: switching to Opsec lists what it sets, one switch each (on by default), and changes nothing before you confirm: kill switch (Windows), network blocked at boot (Linux), random MAC and no DHCP host name (Linux), no Wi-Fi login check (Linux), incoming connections closed, clock check (Windows), TCP timestamps off (Linux), stricter security check (warnings as banners), no speed test history. Settings a system always has, or does not have, show as such; "no ICMP timestamp answers" and "no traffic statistics" show as not available yet. Switching back offers to undo each change. The help says honestly that Opsec is no guarantee.
+- Speed test history can be switched off (ui-state `shunt-no-history`, set by the opsec assistant): the window and `shunt speedtest` then store nothing, and the stored tests are deleted.
+- Fix: the "Port rules" list on the Ports tab stayed empty (a function of the open-ports table had the same name); the open-ports table no longer fails when nothing listens.
+
 ## v0.7.1-rc20
 
 - Android Tor: the leak test no longer calls a Tor that is still starting "BLOCKED". It waits (up to 90 s) until the built-in Tor is through the network, probes with a longer limit (30 s per request, the first circuits are slow) and otherwise says "Tor is still starting (n %) - run the test again in a moment" (verdict `starting`) or "Tor does not start" with the reason (verdict `error`, new `progress` and `detail` fields). The notes are translated on Android and in the window (German included).
