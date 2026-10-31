@@ -43,6 +43,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -799,7 +804,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                         }
                         if (!big) controls()
                     }
-                    if (big) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { controls() }
+                    if (big) Row(Modifier.fillMaxWidth().padding(start = 46.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) { controls() }
                 }
                 HorizontalDivider(color = c.line)
             }
@@ -920,8 +925,17 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (
             val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
             var info by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Hint("Bridges help where Tor is blocked. They are slower.", Modifier.weight(1f, fill = false))
-                Text("ⓘ", Modifier.clip(RoundedCornerShape(50)).clickable { info = !info }.padding(horizontal = 8.dp, vertical = 4.dp), color = LocalShunt.current.accent, fontSize = 18.sp)
+                // the ⓘ right after the last word, also when the text wraps; tapping the text toggles too
+                val accent = LocalShunt.current.accent
+                Text(
+                    buildAnnotatedString {
+                        append(T("Bridges help where Tor is blocked. They are slower."))
+                        append(" ")
+                        withStyle(SpanStyle(color = accent, fontSize = 16.sp)) { append("ⓘ") }
+                    },
+                    Modifier.clickable { info = !info }.padding(vertical = 4.dp),
+                    color = LocalShunt.current.muted, style = TextStyle(fontSize = 12.5.sp, lineHeight = 1.3.em),
+                )
             }
             if (info) BridgeInfo()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
@@ -1114,17 +1128,16 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
                         Text(T("Set by Opsec. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
                     }
                 }
-            }
-        },
-        confirmButton = {
-            // one block: the three buttons do not fit one line, and two button rows of the dialog leave a big gap
-            Column(horizontalAlignment = Alignment.End) {
-                TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) }
-                Row {
-                    TextButton({ onDone(null) }) { Text(T("Cancel")) }
-                    TextButton({ onDone(Opsec.switchOff(settings, to, emptySet())) }) { Text(T("Keep all")) }
+                // the buttons here, as one block: in the dialog's own button row they wrap with big gaps
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                    TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) }
+                    Row {
+                        TextButton({ onDone(null) }) { Text(T("Cancel")) }
+                        TextButton({ onDone(Opsec.switchOff(settings, to, emptySet())) }) { Text(T("Keep all")) }
+                    }
                 }
             }
         },
+        confirmButton = {},
     )
 }
