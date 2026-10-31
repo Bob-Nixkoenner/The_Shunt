@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Linux: replies to connections forwarded for containers and VMs behind this machine now come back through a tunnel that is the default route. The leak guard dropped them (they carried the tunnel's mark); packets that arrive from the tunnel are exempt now.
+
 ## v0.7.1-rc20
 
 - Android Tor: the leak test no longer calls a Tor that is still starting "BLOCKED". It waits (up to 90 s) until the built-in Tor is through the network, probes with a longer limit (30 s per request, the first circuits are slow) and otherwise says "Tor is still starting (n %) - run the test again in a moment" (verdict `starting`) or "Tor does not start" with the reason (verdict `error`, new `progress` and `detail` fields). The notes are translated on Android and in the window (German included).
