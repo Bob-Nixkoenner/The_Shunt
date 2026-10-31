@@ -36,10 +36,15 @@ func TestCheckOpenVPN(t *testing.T) {
 		Remotes []string
 		Removed []string
 		Clean   string
+		TLSWrap bool `json:"tls_wrap"`
 	}
 	json.Unmarshal([]byte(out), &sum)
-	if len(sum.Remotes) != 1 || len(sum.Removed) != 2 || strings.Contains(sum.Clean, "\nup ") {
+	if len(sum.Remotes) != 1 || len(sum.Removed) != 2 || strings.Contains(sum.Clean, "\nup ") || sum.TLSWrap {
 		t.Errorf("summary %s", out)
+	}
+	wrapped := strings.Replace(testOVPN, "<ca>", "<tls-crypt>\nk\n</tls-crypt>\n<ca>", 1)
+	if out, err := CheckOpenVPN(wrapped); err != nil || !strings.Contains(out, `"tls_wrap":true`) {
+		t.Errorf("tls-crypt not seen: %s %v", out, err)
 	}
 	if _, err := CheckOpenVPN("client\nremote a 1194\nca /etc/ca.crt\n"); err == nil || !strings.Contains(err.Error(), "inline") {
 		t.Errorf("file reference: %v", err)
