@@ -78,7 +78,7 @@ class LevelsTest {
         assertTrue(StrictCheck.findings(Settings(defaultRoute = "direct"), emptyList()).isEmpty())
     }
 
-    /** The texts drawn from data (not T("…") literals the Go test finds) have a German translation. */
+    /** The texts drawn from data (not the literals the Go test finds in the code) have a German translation. */
     @Test
     fun germanTexts() {
         val de = File("../../internal/i18n/lang/de.json").readText()
