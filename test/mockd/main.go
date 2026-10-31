@@ -115,6 +115,19 @@ func main() {
 			{Name: "nl", Type: "openvpn", Endpoint: "192.0.2.80:1194", Addresses: []string{"10.9.0.6/24"}, AllowedIPs: []string{"0.0.0.0/0"}},
 		}, DNSFilter: cfg.Filter()})
 	})
+	// saving keeps the edited config in memory (no file, nothing applied)
+	mux.HandleFunc("POST /v1/config/check", func(w http.ResponseWriter, r *http.Request) { js(w, api.CheckResult{OK: true}) })
+	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		var req api.ConfigSave
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Config == nil {
+			js(w, api.CheckResult{Error: "mock: send the config as JSON"})
+			return
+		}
+		mu.Lock()
+		cfg = req.Config
+		mu.Unlock()
+		js(w, api.CheckResult{OK: true})
+	})
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) { js(w, history(r.URL.Query().Get("range"))) })
 	mux.HandleFunc("POST /v1/pass", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PassRequest

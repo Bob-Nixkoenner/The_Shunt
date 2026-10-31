@@ -223,7 +223,23 @@ type Daemon struct {
 	// recognise it again); tunnel traffic is not affected, only what leaves
 	// directly.
 	TCPTimestamps string `toml:"tcp_timestamps,omitempty" json:"tcp_timestamps,omitempty"`
+	// ConfigCheck: how strict the security check of the config is (`shunt
+	// check`, the findings in the UI): "" or "normal"; "strict" (the opsec
+	// level sets it) raises every finding one level and makes the hints
+	// that matter for leaving no traces findings of their own: an OpenVPN
+	// file without tls-crypt, DNS that can go past the tunnel, everything
+	// else going direct, rules that send traffic direct.
+	ConfigCheck string `toml:"config_check,omitempty" json:"config_check,omitempty"`
 }
+
+// Config check modes (daemon.config_check).
+const (
+	CheckNormal = "normal"
+	CheckStrict = "strict"
+)
+
+// StrictCheck reports whether daemon.config_check is "strict".
+func (d Daemon) StrictCheck() bool { return d.ConfigCheck == CheckStrict }
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
 func (d Daemon) KillSwitchOn() bool { return d.KillSwitch == nil || *d.KillSwitch }
@@ -546,6 +562,9 @@ func (c *Config) Validate() error {
 	}
 	if v := c.Daemon.TCPTimestamps; v != "" && v != "keep" && v != "off" {
 		return fmt.Errorf("daemon.tcp_timestamps %q (keep | off)", v)
+	}
+	if v := c.Daemon.ConfigCheck; v != "" && v != CheckNormal && v != CheckStrict {
+		return fmt.Errorf("daemon.config_check %q (normal | strict)", v)
 	}
 	validMode := func(m string) bool { return m == "" || m == FirewallOff || m == FirewallAsk || m == FirewallBlock }
 	if c.Firewall != nil && !validMode(c.Firewall.Mode) {
