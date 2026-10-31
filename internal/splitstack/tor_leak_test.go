@@ -3,6 +3,10 @@ package splitstack
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"runtime"
 	"strings"
@@ -10,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 )
 
 func torEngine(t *testing.T, exe string) *Engine {
@@ -137,3 +142,61 @@ func TestTorFailureIsVisible(t *testing.T) {
 		t.Errorf("exec error not shown: %+v", st)
 	}
 }
+
+// The leak test reaches the outside through Tor like the apps: the names go
+// to Tor unresolved (Tor carries no UDP DNS), and Tor is confirmed.
+func TestLeakProbeTorHandsNamesToTor(t *testing.T) {
+	ipSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("203.0.113.9")) }))
+	defer ipSrv.Close()
+	torSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"IsTor":true,"IP":"203.0.113.9"}`))
+	}))
+	defer torSrv.Close()
+	// names only the fake Tor knows: a lookup outside of it fails
+	oi, ot := probe.IPURL, probe.TorURL
+	probe.IPURL = "http://ip.tor-only.invalid:" + port(ipSrv.URL)
+	probe.TorURL = "http://check.tor-only.invalid:" + port(torSrv.URL)
+	defer func() { probe.IPURL, probe.TorURL = oi, ot }()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	asked := make(chan string, 4)
+	srv := &socks.Server{Remote: true, Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		asked <- addr
+		host, p, _ := net.SplitHostPort(addr)
+		if !strings.HasSuffix(host, ".tor-only.invalid") {
+			return nil, errors.New("unknown host")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, "127.0.0.1:"+p)
+	}}
+	go srv.Serve(l)
+
+	e, _ := newTestEngine(t, map[string]any{
+		"tunnels": []map[string]string{{"name": "tor", "type": "tor", "conf": "socks = " + l.Addr().String() + "\n"}},
+		"default": "tunnel:tor",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	b, err := e.ProbeRoute(ctx, "tunnel:tor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r probe.Result
+	json.Unmarshal(b, &r)
+	if !r.Tor || !r.IsTor || r.IP != "203.0.113.9" {
+		t.Errorf("probe through Tor: %+v", r)
+	}
+	select {
+	case a := <-asked:
+		if !strings.Contains(a, "tor-only.invalid") {
+			t.Errorf("Tor was asked for %q, not the name", a)
+		}
+	default:
+		t.Error("nothing went through Tor")
+	}
+}
+
+func port(u string) string { return u[strings.LastIndex(u, ":")+1:] }
