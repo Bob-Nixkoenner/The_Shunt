@@ -9,6 +9,7 @@
 - Security check: new `daemon.config_check` (`normal` | `strict`, default normal). Strict raises every finding one level (info → warning → bad); an OpenVPN file without tls-crypt/tls-auth, allowed DoH/DoT and `default_route = "direct"` become bad (`shunt check` exits 1), and every rule with `route = "direct"` becomes a warning of its own (`rule.direct`). Findings raised this way carry `strict: true`; the window shows them as banners.
 - German: the levels are Einfach / Profi / Opsec everywhere, the Android mode too (Simple / Pro in English, was Normal / Pro).
 - Fix: the "Port rules" list on the Ports tab stayed empty (a function of the open-ports table had the same name); the open-ports table no longer fails when nothing listens.
+- Linux: replies to connections forwarded for containers and VMs behind this machine now come back through a tunnel that is the default route. The leak guard dropped them (they carried the tunnel's mark); packets that arrive from the tunnel are exempt now.
 
 ## v0.7.1-rc20
 
