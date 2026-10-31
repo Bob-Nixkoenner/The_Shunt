@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,6 +56,7 @@ var usageEntries = []struct {
 	{`  firewall apps | forget KEY`, "stored firewall decisions / forget one (asked again next time)"},
 	{`  ports [--all] [--json]`, "open ports: who listens, reachable from where (--all: also the ones only this machine can reach)"},
 	{`  blocks`, "which programs asked for names the DNS filter blocked"},
+	{`  gateway [status]`, "devices behind this computer (gateway mode): groups, interfaces, routes"},
 	{`  inbound [trust [NAME] | keep-closed]`, "incoming protection on this network; on an unknown one: trust it as your LAN (adds a network profile, inbound = \"lan\") or keep it closed and stop asking"},
 	{`  which NAME`, "show running processes named like NAME and the route each one takes"},
 	{`  rename OLD NEW`, "rename a tunnel (files, rules, default route, menu entries follow)"},
@@ -150,6 +152,8 @@ func main() {
 		err = ports(c, args[1:])
 	case "blocks":
 		err = blocks(c)
+	case "gateway":
+		err = gatewayCmd(c, args[1:])
 	case "inbound":
 		err = inboundCmd(c, args[1:])
 	case "import":
@@ -562,6 +566,43 @@ func ports(c *api.Client, args []string) error {
 	default:
 		fmt.Println(i18n.Tn(exposed, "Incoming protection: {mode} on this network, tunnels closed. {n} port still reachable from it.", "Incoming protection: {mode} on this network, tunnels closed. {n} ports still reachable from it.", "mode", l.Inbound))
 	}
+	return nil
+}
+
+func gatewayCmd(c *api.Client, args []string) error {
+	if len(args) > 0 && args[0] != "status" {
+		return errors.New(i18n.T("usage: shunt gateway [status]"))
+	}
+	var st api.Status
+	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
+		return err
+	}
+	g := st.Gateway
+	if g == nil {
+		fmt.Println(i18n.T("Gateway mode is off (enable: [gateway] enabled = true with [[gateway.group]] in the config)."))
+		return nil
+	}
+	for _, gr := range g.Groups {
+		state := i18n.T("route ready")
+		switch {
+		case gr.Route == "block":
+			state = i18n.T("blocked")
+		case !gr.RouteUp:
+			state = i18n.T("route down (traffic is held back)")
+		}
+		fmt.Printf("%-12s %-18s %s\n", gr.Name, gr.Route, state)
+		for _, i := range gr.Ifaces {
+			if slices.Contains(gr.Present, i) {
+				fmt.Printf("  %s\n", i)
+			} else {
+				fmt.Printf("  %s (%s)\n", i, i18n.T("not there yet"))
+			}
+		}
+	}
+	for _, i := range g.Rejected {
+		fmt.Println(i18n.T("Left out: {iface} (an uplink or tunnel cannot be a client interface).", "iface", i))
+	}
+	fmt.Println(i18n.T("IPv6 from the devices: {mode}", "mode", g.IPv6))
 	return nil
 }
 

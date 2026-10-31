@@ -19,6 +19,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -291,6 +292,16 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 				if r := cc.Rules[i].Route; r != "" && r != "block" {
 					cc.Rules[i].Route = "tunnel:" + torAll
 				}
+			}
+			if cc.GatewayOn() {
+				// devices behind this machine are cut off until tor-all
+				// ends (stage 2 sends them through Tor)
+				gw := *cc.Gateway
+				gw.Group = append([]config.GatewayGroup(nil), gw.Group...)
+				for i := range gw.Group {
+					gw.Group[i].Route = "block"
+				}
+				cc.Gateway = &gw
 			}
 			eff = &cc
 			p.Notes = append(p.Notes, check.Note("tor.all", "tor-all: everything goes through the Tor tunnel \"{name}\" (shunt tor-all off ends it)", "name", torAll))
@@ -636,7 +647,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.refreshEmergency(self)
 			d.checkNetwork()
 			d.mu.Lock()
-			if d.routeSoft != "" && d.prep != nil {
+			if (d.routeSoft != "" || d.plan.Gateway != nil) && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
 					d.Log.Warn("routing sync", "err", err)
 				}
@@ -1901,6 +1912,9 @@ func (d *Daemon) status() api.Status {
 			st.RoutesDown = append(st.RoutesDown, r.String())
 		}
 	}
+	if g := d.plan.Gateway; g != nil && runtime.GOOS == "linux" {
+		st.Gateway = d.gatewayStatus(g)
+	}
 	for _, g := range d.plan.Groups {
 		procs, _ := d.cg.Procs(g.Path)
 		gs := api.GroupStatus{Name: g.Name, Procs: len(procs), Apps: d.procNames(procs)}
@@ -2180,4 +2194,27 @@ func (d *Daemon) killGroups(gs []engine.Group) int {
 		}
 	}
 	return n
+}
+
+// gatewayStatus describes the gateway groups (d.mu held).
+func (d *Daemon) gatewayStatus(g *engine.Gateway) *api.GatewayStatus {
+	gs := &api.GatewayStatus{IPv6: config.GatewayIPv6Block, Rejected: g.Rejected}
+	for _, gr := range g.Groups {
+		s := api.GatewayGroupStatus{Name: gr.Name, Route: gr.Route.String(), Ifaces: gr.Ifaces}
+		for _, i := range gr.Ifaces {
+			if _, err := net.InterfaceByName(i); err == nil {
+				s.Present = append(s.Present, i)
+			}
+		}
+		switch gr.Route.Kind {
+		case config.RouteTunnel:
+			_, s.RouteUp = d.tunnels[gr.Route.Tunnel]
+		case config.RouteLink:
+			s.RouteUp = gr.Route.Iface != ""
+		default:
+			s.RouteUp = true
+		}
+		gs.Groups = append(gs.Groups, s)
+	}
+	return gs
 }
