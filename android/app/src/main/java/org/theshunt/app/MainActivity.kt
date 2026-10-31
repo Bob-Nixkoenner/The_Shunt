@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package org.theshunt.app
 
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -217,8 +220,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
     val passLeft = ov?.optLong("pass_left") ?: 0L
 
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Gap.screen),
+        verticalArrangement = Arrangement.spacedBy(Gap.sections),
     ) {
         error?.let { Banner("VPN error", it, bad = true) }
         if (panic) Banner("Panic", "Everything is blocked, running connections were cut.", bad = true)
@@ -226,14 +229,14 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
             "Pass – unprotected",
             "Everything goes direct: your real IP, no tunnels, no blocks, no DNS filter. Connections opened meanwhile are cut when it ends.",
             bad = true,
-        ) { TextButton({ VpnState.engine?.pass(0) }) { Text(T("End pass now")) } }
+        ) { ShuntLink("End pass now", { VpnState.engine?.pass(0) }) }
         if (running && !lockdown) {
             // the only real kill switch on Android is the system's: without
             // it, apps get out unprotected while the VPN (re)starts or crashes
             Banner(
                 "No kill switch",
                 "While the VPN starts, restarts or crashes, apps can get out unprotected. Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
-            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text(T("Open VPN settings")) } }
+            ) { ShuntLink("Open VPN settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) }
         }
         if (running && settings.defaultRoute == "block" && !panic) {
             Banner(
@@ -245,7 +248,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
             Banner(
                 "Private DNS is on",
                 "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. Set Private DNS to \"Off\" so every app resolves through its route.",
-            ) { TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text(T("Open network settings")) } }
+            ) { ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) }
         }
         if (settings.strictCheck) StrictBanners(settings)
         // Opsec: the emergency switch where you see it first
@@ -253,11 +256,11 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
 
         Section("VPN") {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).padding(end = Gap.beside)) {
                     Text(if (running) T("On") else T("Off"), fontWeight = FontWeight.Bold, color = c.text)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(T("default route "), color = c.muted, fontSize = 13.sp)
-                        RouteTag(settings.defaultRoute)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(T("default route ").trim(), Modifier.align(Alignment.CenterVertically), color = c.muted, fontSize = 13.sp)
+                        RouteTag(settings.defaultRoute, Modifier.align(Alignment.CenterVertically))
                     }
                 }
                 Switch(
@@ -267,7 +270,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
                 )
             }
             if (running) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
                     ShuntButton(
                         if (passLeft > 0) T("End pass") else T("Pass 5 min"),
                         { if (passLeft > 0) VpnState.engine?.pass(0) else confirmPass = true },
@@ -291,7 +294,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
 
         status?.optJSONObject("traffic")?.optJSONObject("total")?.let { tot ->
             if ((tot.optJSONObject("total")?.let { it.optLong("rx") + it.optLong("tx") } ?: 0L) > 0L) {
-                Section("Traffic", action = { TextButton({ confirmReset = true }) { Text(T("Reset")) } }) {
+                Section("Traffic", action = { ShuntLink("Reset", { confirmReset = true }) }) {
                     TrafficRows(status.optJSONObject("traffic")!!, ts)
                 }
             }
@@ -352,7 +355,7 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, 
     }
     EdgeCard(tone) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(t.getString("name"), Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
+            Text(t.getString("name"), Modifier.weight(1f).padding(end = Gap.buttons), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Pill(
                 when {
                     t.optBoolean("idle") -> T("asleep"); torStarting -> T("starting"); !up -> T("down"); state == "ok" -> T("up"); state == "idle" -> T("idle"); state == "stale" -> T("no answers"); state == "down" -> T("down"); else -> T("waiting")
@@ -500,9 +503,9 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
     var renaming by remember { mutableStateOf<Tunnel?>(null) }
     val vpnRunning by VpnState.running.collectAsStateWithLifecycle()
 
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("Tunnels") {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
                 ShuntButton("Import file", { pickFile.launch(arrayOf("*/*")) }, kind = Tone.Ok)
                 if (settings.shows("tor.add") && settings.tunnels.none { it.isTor }) ShuntButton("Add Tor", {
                     val conf = if (hasBuiltinTor(ctx)) Tunnel.TOR_BUILTIN_CONF else Tunnel.TOR_DEFAULT_CONF
@@ -518,12 +521,21 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                     runCatching { JSONObject(if (t.isTor) Mobile.checkTor(t.conf) else if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf)) }.getOrNull()
                 }
                 EdgeCard(Tone.Ok) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(t.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text)
-                        Pill(if (t.isTor) "Tor" else if (t.isOpenVPN) "OpenVPN" else "WireGuard", Tone.Neutral)
-                        TextButton({ renaming = t }) { Text(T("Rename")) }
-                        TextButton({ confirmDelete = t }) { Text(T("Delete"), color = LocalShunt.current.bad) }
-                    }
+                    // the name first: the buttons move below it when the line is too short
+                    HeadRow(
+                        start = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
+                                Text(t.name, Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(if (t.isTor) "Tor" else if (t.isOpenVPN) "OpenVPN" else "WireGuard", color = LocalShunt.current.muted, fontSize = 12.sp, maxLines = 1)
+                            }
+                        },
+                        end = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(Gap.sectionH)) {
+                                ShuntLink("Rename", { renaming = t })
+                                ShuntLink("Delete", { confirmDelete = t }, color = LocalShunt.current.bad)
+                            }
+                        },
+                    )
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
                         if (t.isTor) {
@@ -551,7 +563,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                             .map { "tunnel:${it.name}" }
                         // Simple hides the choice, but shows it while one is set
                         if (!t.isTor && (t.via.isNotEmpty() || (carriers.isNotEmpty() && settings.shows("tunnel.multihop")))) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(T("through"), Modifier.weight(1f), color = LocalShunt.current.muted, fontSize = 13.sp)
+                            Text(T("through"), Modifier.width(fontScaled(92.dp)), color = LocalShunt.current.muted, fontSize = 13.sp)
                             RoutePicker(if (t.via.isEmpty()) "direct" else "tunnel:${t.via}", listOf("direct") + carriers) { r ->
                                 val via = r.removePrefix("tunnel:").takeIf { r != "direct" } ?: ""
                                 update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
@@ -644,44 +656,39 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
 private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, vpnRunning: Boolean) {
     val c = LocalShunt.current
     Section("Battery") {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(T("Only keep used tunnels connected"), color = c.text, fontWeight = FontWeight.SemiBold)
-                Text(T("A tunnel no app uses is closed after a few minutes and opens again on the first connection (about a second)."), color = c.muted, fontSize = 12.sp)
-            }
-            Switch(settings.onDemand, { update(settings.copy(onDemand = it)) })
-        }
+        SwitchRow(
+            "Only keep used tunnels connected", settings.onDemand, { update(settings.copy(onDemand = it)) },
+            desc = "A tunnel no app uses is closed after a few minutes and opens again on the first connection (about a second).",
+        )
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
     }
     // Simple hides it, but never while it is on (it must be possible to turn it off);
     // Opsec also puts it on the Status tab
     if (settings.tunnels.any { it.isTor } && (settings.shows("tor.emergency") || settings.torAll)) EmergencySection(settings, update)
     if (settings.shows("dns.servers")) Section("DNS servers") {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(T("Ignore the DNS of the tunnels"), color = c.text, fontWeight = FontWeight.SemiBold)
-                Text(T("Use only the servers below, not the DNS line of the tunnel files. Names that exist only inside a tunnel (home network) stop resolving."), color = c.muted, fontSize = 12.sp)
-            }
-            Switch(settings.ignoreTunnelDns, { update(settings.copy(ignoreTunnelDns = it)) })
-        }
+        SwitchRow(
+            "Ignore the DNS of the tunnels", settings.ignoreTunnelDns, { update(settings.copy(ignoreTunnelDns = it)) },
+            desc = "Use only the servers below, not the DNS line of the tunnel files. Names that exist only inside a tunnel (home network) stop resolving.",
+        )
         HorizontalDivider(color = c.line)
         Hint(
             if (settings.ignoreTunnelDns) T("These servers are asked, in this order, through the route of the app.")
             else T("Asked after the tunnel's own DNS, when that one does not answer within 2 s.")
         )
-        settings.dnsServers.forEach { s ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(s, Modifier.weight(1f), fontFamily = Mono, color = c.text)
+        // one block without the section's row gap: the rows are tall already (touch target of "Remove")
+        Column { settings.dnsServers.forEach { s ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.beside)) {
+                Text(s, Modifier.weight(1f), fontFamily = Mono, fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     when (s) { "1.1.1.1", "1.0.0.1" -> "Cloudflare"; "8.8.8.8", "8.8.4.4" -> "Google"; "9.9.9.9" -> "Quad9"; else -> "" },
-                    color = c.muted, fontSize = 12.sp,
+                    color = c.muted, fontSize = 12.sp, maxLines = 1,
                 )
-                TextButton({ update(settings.copy(dnsServers = settings.dnsServers - s)) }) { Text(T("Remove"), color = c.bad) }
+                ShuntLink("Remove", { update(settings.copy(dnsServers = settings.dnsServers - s)) }, color = c.bad)
             }
-        }
+        } }
         var text by remember { mutableStateOf("") }
         val ok = Settings.isDnsAddress(text.trim()) && text.trim() !in settings.dnsServers && settings.dnsServers.size < Settings.MAX_DNS
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
             OutlinedTextField(
                 text, { text = it }, Modifier.weight(1f), label = { Text(T("Add a DNS server (IP)")) }, singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
@@ -689,7 +696,7 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
             ShuntButton("Add", { update(settings.copy(dnsServers = settings.dnsServers + text.trim())); text = "" }, kind = Tone.Ok, enabled = ok)
         }
         val missing = Settings.DEFAULT_DNS.filter { it !in settings.dnsServers }
-        if (missing.isNotEmpty()) TextButton({ update(settings.copy(dnsServers = settings.dnsServers + missing)) }) { Text(T("Add 1.1.1.1 and 8.8.8.8 again")) }
+        if (missing.isNotEmpty()) ShuntLink("Add 1.1.1.1 and 8.8.8.8 again", { update(settings.copy(dnsServers = settings.dnsServers + missing)) })
     }
 }
 
@@ -725,7 +732,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
         AppCache.apps = list
         apps = list
     }
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("Where traffic goes") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(T("All other apps"), Modifier.weight(1f), color = c.text)
@@ -748,8 +755,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                 query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(T("filter…")) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = c.panel2, focusedContainerColor = c.panel2, unfocusedBorderColor = c.line),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(showSystem, { showSystem = it })
+            CheckRow(showSystem, { showSystem = it }) {
                 Text(T("Show system services"), color = c.muted, fontSize = 13.sp)
             }
         }
@@ -763,8 +769,8 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     icon?.let { Image(it, null, Modifier.size(36.dp)) } ?: Spacer(Modifier.size(36.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(a.label, maxLines = 1, fontWeight = FontWeight.SemiBold, color = c.text)
-                        Text(a.pkg, maxLines = 1, fontFamily = Mono, fontSize = 11.5.sp, color = c.muted)
+                        Text(a.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = c.text)
+                        Text(a.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Mono, fontSize = 11.5.sp, color = c.muted)
                     }
                     if (settings.filterLists.isNotEmpty()) {
                         val filtered = a.pkg !in settings.unfiltered
@@ -776,8 +782,11 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                         ))
                         Spacer(Modifier.width(6.dp))
                     }
-                    RoutePicker(route ?: "default", listOf("default") + settings.routes()) { r ->
-                        update(settings.copy(apps = if (r == "default") settings.apps - a.pkg else settings.apps + (a.pkg to r)))
+                    // a column of its own: the filter chips stay lined up whatever the route's length
+                    Box(Modifier.widthIn(min = fontScaled(104.dp)), contentAlignment = Alignment.CenterEnd) {
+                        RoutePicker(route ?: "default", listOf("default") + settings.routes()) { r ->
+                            update(settings.copy(apps = if (r == "default") settings.apps - a.pkg else settings.apps + (a.pkg to r)))
+                        }
                     }
                 }
                 HorizontalDivider(color = c.line)
@@ -806,7 +815,7 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
         if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
         update(s)
     }
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("DNS filter") {
             Hint("Names on these lists get no answer (NXDOMAIN). Per app: Apps → filter. Tap a list's name to see its source.")
             status?.let { Hint(T("{n} names blocked since the VPN started", "n" to it.optLong("dns_blocked"))) }
@@ -817,10 +826,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
             Section(group) {
                 entries.forEachIndexed { i, e ->
                     if (i > 0) HorizontalDivider(color = c.line)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(e.name in settings.filterLists, { checked ->
-                            if (checked && e.mb >= Blocklists.BIG_MB) bigList = e else switchOn(e.name, checked)
-                        })
+                    CheckRow(e.name in settings.filterLists, { checked ->
+                        if (checked && e.mb >= Blocklists.BIG_MB) bigList = e else switchOn(e.name, checked)
+                    }) {
                         Column(Modifier.weight(1f)) {
                             Text(T(e.what), color = c.text, fontWeight = FontWeight.SemiBold)
                             Text(
@@ -891,7 +899,7 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (
     val pro = settings.shows("tor.client")
     if (builtin) {
         Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
             if (settings.shows("tor.newnym")) ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
             if (pro) ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
         }
@@ -900,15 +908,13 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (
             val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
             var info by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { Hint("Bridges help where Tor is blocked. They are slower.") }
+                Hint("Bridges help where Tor is blocked. They are slower.", Modifier.weight(1f))
                 TextButton({ info = !info }) { Text("ⓘ", fontSize = 18.sp) }
             }
             if (info) BridgeInfo()
-            for (row in listOf(listOf("No bridge" to "", "obfs4" to "obfs4"), listOf("snowflake" to "snowflake", "meek" to "meek"))) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((label, b) in row) {
-                        ShuntButton(label, { onSwitch(Tunnel.TOR_BUILTIN_CONF + if (b.isEmpty()) "" else "bridge = $b\n") }, kind = if (cur == b) Tone.Ok else Tone.Neutral)
-                    }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
+                for ((label, b) in listOf("No bridge" to "", "obfs4" to "obfs4", "snowflake" to "snowflake", "meek" to "meek")) {
+                    ShuntButton(label, { onSwitch(Tunnel.TOR_BUILTIN_CONF + if (b.isEmpty()) "" else "bridge = $b\n") }, kind = if (cur == b) Tone.Ok else Tone.Neutral)
                 }
             }
         }
@@ -950,13 +956,10 @@ private fun EmergencySection(settings: Settings, update: (Settings) -> Unit, pro
             Hint("The emergency switch needs a Tor tunnel: add one under Tunnels.")
             return@Section
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
-                Text(T("TCP only: calls and games stop. Turn it off and your routes come back."), color = c.muted, fontSize = 12.sp)
-            }
-            Switch(settings.torAll, { update(settings.copy(torAll = it)) })
-        }
+        SwitchRow(
+            "Everything through Tor", settings.torAll, { update(settings.copy(torAll = it)) },
+            desc = "TCP only: calls and games stop. Turn it off and your routes come back.",
+        )
         Hint("For when nothing may leave your device except through Tor: every app goes through the Tor tunnel, whatever its own route says.")
     }
 }
@@ -996,9 +999,9 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
             else -> update(settings.copy(level = l, opsecUndo = if (settings.level == Level.Opsec) emptyMap() else settings.opsecUndo))
         }
     }
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("Settings shown") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
                 for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
             }
             Hint(
@@ -1048,23 +1051,23 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                         OpsecItem.Kind.BUILTIN -> T(it.note) + " " + T(it.help)
                         OpsecItem.Kind.NA -> T(it.note)
                     }
-                    Row(verticalAlignment = Alignment.Top) {
-                        Checkbox(
-                            checked = when (it.kind) {
-                                OpsecItem.Kind.SET -> already || ticked[it.id] == true
-                                OpsecItem.Kind.SYSTEM -> sys == true
-                                OpsecItem.Kind.BUILTIN -> true
-                                OpsecItem.Kind.NA -> false
-                            },
-                            onCheckedChange = { on -> ticked[it.id] = on },
-                            enabled = it.kind == OpsecItem.Kind.SET && !already,
-                        )
-                        Column(Modifier.weight(1f).padding(top = 10.dp)) {
+                    CheckRow(
+                        checked = when (it.kind) {
+                            OpsecItem.Kind.SET -> already || ticked[it.id] == true
+                            OpsecItem.Kind.SYSTEM -> sys == true
+                            OpsecItem.Kind.BUILTIN -> true
+                            OpsecItem.Kind.NA -> false
+                        },
+                        onChange = { on -> ticked[it.id] = on },
+                        enabled = it.kind == OpsecItem.Kind.SET && !already,
+                        top = true,
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(T(it.text), color = if (it.kind == OpsecItem.Kind.NA) c.muted else c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Text(note, color = c.muted, fontSize = 12.sp)
                             when (it.id) {
-                                "killswitch" -> if (sys != true) TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) { Text(T("Open VPN settings")) }
-                                "privatedns" -> if (sys != true) TextButton({ ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) { Text(T("Open network settings")) }
+                                "killswitch" -> if (sys != true) ShuntLink("Open VPN settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) })
+                                "privatedns" -> if (sys != true) ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) })
                             }
                         }
                     }
@@ -1093,9 +1096,8 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(T("Opsec changed these settings. Ticked ones go back to how they were before; the others stay as they are."), color = c.text, fontSize = 13.sp)
-                for (it in items) Row(verticalAlignment = Alignment.Top) {
-                    Checkbox(ticked[it.id] == true, { on -> ticked[it.id] = on })
-                    Column(Modifier.weight(1f).padding(top = 10.dp)) {
+                for (it in items) CheckRow(ticked[it.id] == true, { on -> ticked[it.id] = on }, top = true) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(T(it.text), color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text(T("Set by Opsec. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
                     }
