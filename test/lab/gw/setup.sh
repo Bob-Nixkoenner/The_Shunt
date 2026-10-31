@@ -70,8 +70,10 @@ done
 cat >/etc/systemd/system/shuntlab-net.service <<'EOF'
 [Unit]
 Description=shunt lab network (addresses, nftables, configs)
-After=network-online.target
+# the lab NIC can show up after network-online: wait for it, or apply fails
+After=network-online.target sys-subsystem-net-devices-enp0s8.device
 Wants=network-online.target
+BindsTo=sys-subsystem-net-devices-enp0s8.device
 
 [Service]
 Type=oneshot
