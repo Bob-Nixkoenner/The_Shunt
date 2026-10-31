@@ -654,8 +654,8 @@ private fun PowerAndDnsSections(settings: Settings, update: (Settings) -> Unit, 
         if (settings.onDemand && vpnRunning) Hint("Tunnels that are connected now close once they are unused; asleep ones stay asleep.")
     }
     // Simple hides it, but never while it is on (it must be possible to turn it off);
-    // in Opsec it sits on the Status tab
-    if (settings.tunnels.any { it.isTor } && !settings.shows("opsec.emergency") && (settings.shows("tor.emergency") || settings.torAll)) EmergencySection(settings, update)
+    // Opsec also puts it on the Status tab
+    if (settings.tunnels.any { it.isTor } && (settings.shows("tor.emergency") || settings.torAll)) EmergencySection(settings, update)
     if (settings.shows("dns.servers")) Section("DNS servers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
