@@ -117,11 +117,11 @@ private fun App() {
                     listOf(
                         "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
                         "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
-                        "Settings" to rememberVectorPainter(Icons.Filled.Settings),
+                        "View" to rememberVectorPainter(Icons.Filled.Settings),
                     ).forEachIndexed { i, (label, icon) ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
-                            label = { Text(T(label), fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                            label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
                                 selectedIconColor = c.accent, unselectedIconColor = c.muted,
@@ -953,11 +953,11 @@ private fun EmergencySection(settings: Settings, update: (Settings) -> Unit, pro
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(T("Everything through Tor"), color = c.text, fontWeight = FontWeight.SemiBold)
-                Text(T("Every app goes through the Tor tunnel, whatever its own route says (TCP only: calls and games stop). Your routes come back when you turn this off."), color = c.muted, fontSize = 12.sp)
+                Text(T("TCP only: calls and games stop. Turn it off and your routes come back."), color = c.muted, fontSize = 12.sp)
             }
             Switch(settings.torAll, { update(settings.copy(torAll = it)) })
         }
-        Hint("Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.")
+        Hint("For when nothing may leave your device except through Tor: every app goes through the Tor tunnel, whatever its own route says.")
     }
 }
 
