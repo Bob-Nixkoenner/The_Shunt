@@ -1,5 +1,6 @@
 ID=G02
 TITLE="Erreichbar über die Tunnel-Adresse (von CT130 aus)"
+CONFIG=inbound-closed # [inbound] is off by default (opt-in, on in Opsec): the scan checks the protection
 EXPECT_CANARY=any
 NOTE="CT130 klopft an häufige Ports von 10.66.0.12 an. Offen = FAIL."
 during() {

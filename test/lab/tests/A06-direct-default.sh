@@ -1,7 +1,7 @@
 ID=A06
 TITLE="Standardweg direkt: Tunnel-App bleibt trotzdem im Tunnel"
 CONFIG=direct
-ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:185.125.190.0/24:123/udp dst:10.77.0.1:80/tcp) # default route direct: Ubuntu's connectivity check may go direct
+ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:0.0.0.0/0:123/udp net:::/0:123/udp dst:10.77.0.1:80/tcp) # default route direct: the distro's connectivity check and NTP may go direct
 CLIENT='
 labtun -s -m8 -o /dev/null "http://$1/" || true
 ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Tunnel-App: $ip"

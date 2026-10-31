@@ -75,7 +75,7 @@ client_script() { # stdin = script, args = its arguments
 client_cp_to() { # files… dir
 	local dir=${*: -1}
 	client "mkdir -p $dir"
-	VBoxManage "${GC[@]}" copyto --target-directory "$dir" "${@:1:$#-1}"
+	VBoxManage "${GC[@]}" copyto --target-directory "${dir%/}/" "${@:1:$#-1}"  # trailing slash: VirtualBox 7.2 refuses several sources otherwise
 }
 client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
 # CT130_KEY: a key that CT130 only lets run the capture commands (gw/ct130-capture)
