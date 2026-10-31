@@ -279,6 +279,18 @@ func Render(p *engine.Plan) (string, error) {
 	// kernel still reports the interface from *before* the re-route.
 	w("\tchain leak_guard {")
 	w("\t\ttype filter hook postrouting priority filter; policy accept;")
+	// What comes in from a tunnel and is routed on (the replies to forwarded
+	// connections, answered from the main table's networks behind this
+	// machine, see routing.syncRules) carries the tunnel's mark, restored
+	// from its connection: it is not a local program's traffic leaving.
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteTunnel && !r.Forward && !r.Tor && r.Iface != "" {
+			if err := checkIdent(r.Iface); err != nil {
+				return "", err
+			}
+			w("\t\tiifname %q return", r.Iface)
+		}
+	}
 	for _, r := range p.Routes {
 		if r.Kind == config.RouteLink {
 			// a link route leaves through its interface or not at all
