@@ -8,10 +8,10 @@ sudo -n systemctl stop chrony chronyd systemd-timesyncd 2>/dev/null
 sudo -n timedatectl set-ntp false 2>/dev/null
 sudo -n date -s "+10 minutes" >/dev/null
 sudo -n systemctl restart shuntd; sleep 45
-sudo -n shunt status 2>&1 | grep -i "clock" || echo "FAIL Status warnt nicht vor der falschen Uhr"
+sudo -n env LANG=C LC_ALL=C shunt status 2>&1 | grep -Ei "clock|Systemuhr" || echo "FAIL Status warnt nicht vor der falschen Uhr"
 sudo -n date -s "-10 minutes" >/dev/null
 sudo -n timedatectl set-ntp true 2>/dev/null; sudo -n systemctl start chrony 2>/dev/null
 sudo -n systemctl restart shuntd; sleep 45
-sudo -n shunt status 2>&1 | grep -i "system clock" && echo "FAIL Warnung bleibt trotz richtiger Uhr"
+sudo -n env LANG=C LC_ALL=C shunt status 2>&1 | grep -Ei "system clock|Systemuhr" && echo "FAIL Warnung bleibt trotz richtiger Uhr"
 true
 '
