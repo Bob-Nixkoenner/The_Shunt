@@ -177,16 +177,19 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ShuntLogo()
             Spacer(Modifier.width(10.dp))
-            Text(T("The Shunt"), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text)
-            Spacer(Modifier.width(12.dp))
-            when {
-                !running -> Pill("off")
-                panic -> Pill("PANIC", Tone.Bad)
-                passLeft > 0 -> Pill(T("PASS {time}", "time" to "%d:%02d".format(passLeft / 60, passLeft % 60)), Tone.Bad)
-                !lockdown -> Pill("no kill switch", Tone.Warn)
-                else -> Pill("protected", Tone.Ok)
+            // title and pill take what the PANIC button leaves (large font: the title shortens, the button never wraps)
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(T("The Shunt"), Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(12.dp))
+                when {
+                    !running -> Pill("off")
+                    panic -> Pill("PANIC", Tone.Bad)
+                    passLeft > 0 -> Pill(T("PASS {time}", "time" to "%d:%02d".format(passLeft / 60, passLeft % 60)), Tone.Bad)
+                    !lockdown -> Pill("no kill switch", Tone.Warn)
+                    else -> Pill("protected", Tone.Ok)
+                }
             }
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             if (running) {
                 ShuntButton(if (panic) T("Release") else T("PANIC"), {
                     VpnState.engine?.setPanic(!panic)
