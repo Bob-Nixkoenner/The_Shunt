@@ -48,11 +48,15 @@ const OPSEC_ITEMS = [
 
 const opsecOS = () => (typeof onWindows === "function" && onWindows() ? "windows" : "linux");
 const cfgGet = (m, path) => path.reduce((o, k) => (o == null ? undefined : o[k]), m);
+// cfgPut sets a field; null removes it, and a table left empty goes too
+// (no "[inbound]" without content after an undo)
 function cfgPut(m, path, v) {
-  let o = m;
-  for (const k of path.slice(0, -1)) o = o[k] = o[k] || {};
-  const last = path[path.length - 1];
-  if (v === null || v === undefined) delete o[last]; else o[last] = v;
+  const parents = [m];
+  for (const k of path.slice(0, -1)) parents.push(parents[parents.length - 1][k] = parents[parents.length - 1][k] || {});
+  const o = parents[parents.length - 1], last = path[path.length - 1];
+  if (v !== null && v !== undefined) { o[last] = v; return; }
+  delete o[last];
+  for (let i = path.length - 1; i > 0 && !Object.keys(parents[i]).length; i--) delete parents[i - 1][path[i - 1]];
 }
 // state of an item on this system: "set" (can be switched), "builtin", "na"
 function opsecState(it) {
@@ -100,7 +104,7 @@ async function opsecSave() {
   const ok = await checkOrSave(true, { config: model }, (t, cls) => { if (cls === "err") err = t; });
   await loadConfig();
   refresh();
-  if (!ok) toast(T("Nothing was changed: {error}", { error: err }));
+  if (!ok) toast(T("Nothing was changed: {error}", { error: err || T("the service did not accept the config") }));
   return ok;
 }
 
@@ -118,7 +122,7 @@ async function opsecOn() {
   const boxes = {};
   const rows = OPSEC_ITEMS.map((it) => {
     const st = opsecState(it);
-    const on = opsecIsOn(it);
+    const on = st === "set" && opsecIsOn(it);
     const box = el("input", { type: "checkbox" });
     box.checked = st !== "na";
     box.disabled = st !== "set";

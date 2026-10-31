@@ -204,11 +204,11 @@ function renderConfig() {
         el("button", { class: "iconbtn", title: "edit", onclick: () => openRule(i) }, "✎"), " ",
         el("button", { class: "iconbtn", title: "delete", onclick: () => { model.rule.splice(i, 1); markDirty(); renderConfig(); } }, "✕")));
   }) : [el("tr", {}, el("td", { class: "muted" }, "No rules – apps follow the route they were started with, everything else the default."))]));
-  renderPorts();
+  renderPortRules();
   if (typeof viewChanged === "function") viewChanged();
 }
 
-function renderPorts() {
+function renderPortRules() {
   const rs = model.rule.map((r, i) => [r, i]).filter(([r]) => r.port);
   $("#p-rules").replaceChildren(...(rs.length ? rs.map(([r, i]) => el("tr", {},
     el("td", { class: "muted" }, i + 1 + "."),
