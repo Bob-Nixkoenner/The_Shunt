@@ -789,7 +789,8 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                         Spacer(Modifier.width(6.dp))
                     }
                     // a column of its own: the filter chips stay lined up whatever the route's length
-                    Box(Modifier.widthIn(min = fontScaled(104.dp)), contentAlignment = Alignment.CenterEnd) {
+                    // on a line of its own (large font) the routes start at one left edge
+                    Box(Modifier.widthIn(min = fontScaled(104.dp)), contentAlignment = if (big) Alignment.CenterStart else Alignment.CenterEnd) {
                         RoutePicker(route ?: "default", listOf("default") + settings.routes()) { r ->
                             update(settings.copy(apps = if (r == "default") settings.apps - a.pkg else settings.apps + (a.pkg to r)))
                         }
@@ -1111,16 +1112,18 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
 }
 
 /** Leaving Opsec: offer to put back what Opsec changed (ticked = back to how it was). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) -> Unit) {
     val c = LocalShunt.current
     val items = Opsec.undoable(settings)
     val ticked = remember { mutableStateMapOf<String, Boolean>().apply { for (it in items) put(it.id, true) } }
-    AlertDialog(
-        onDismissRequest = { onDone(null) },
-        title = { Text(T("Undo the Opsec settings?")) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // a plain dialog: three buttons do not fit AlertDialog's button row, which then leaves big gaps
+    BasicAlertDialog(onDismissRequest = { onDone(null) }) {
+        Surface(shape = AlertDialogDefaults.shape, color = AlertDialogDefaults.containerColor, tonalElevation = AlertDialogDefaults.TonalElevation) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(T("Undo the Opsec settings?"), style = MaterialTheme.typography.headlineSmall, color = AlertDialogDefaults.titleContentColor)
+                Spacer(Modifier.height(8.dp))
                 Text(T("Opsec changed these settings. Ticked ones go back to how they were before; the others stay as they are."), color = c.text, fontSize = 13.sp)
                 for (it in items) CheckRow(ticked[it.id] == true, { on -> ticked[it.id] = on }, top = true) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1128,7 +1131,6 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
                         Text(T("Set by Opsec. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
                     }
                 }
-                // the buttons here, as one block: in the dialog's own button row they wrap with big gaps
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                     TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) }
                     Row {
@@ -1137,7 +1139,6 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
                     }
                 }
             }
-        },
-        confirmButton = {},
-    )
+        }
+    }
 }
