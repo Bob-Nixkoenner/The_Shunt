@@ -13,22 +13,24 @@
 :root {
   --bg: #0d1117; --panel: #151b23; --panel2: #1b2330; --line: #263040;
   --text: #e6edf3; --muted: #8b98a8; --accent: #34d399; --accent-ink: #052e1f;
+  /* status colours: --ok stays green in every level (--accent turns violet in Opsec) */
+  --ok: #34d399;
   --warn: #f5b942; --bad: #f2555a; --info: #6aa8ff;
   --r: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
+  :root:not([data-theme="dark"]) { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; --ok:#059669; }
 }
-:root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; }
+:root[data-theme="light"] { --bg:#f5f7fa; --panel:#ffffff; --panel2:#eef2f6; --line:#d8dee6; --text:#17202b; --muted:#5d6b7b; --accent:#059669; --accent-ink:#ffffff; --ok:#059669; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--bg); border-bottom: 1px solid var(--line); }
 .brand { white-space: nowrap; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
 .brand svg { width: 26px; height: 26px; }
 .pill { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel2); color: var(--muted); }
-.pill.ok { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.pill.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
 .pill.bad { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--bad); }
-.lstate.ok { color: var(--accent); } .lstate.bad { color: var(--bad); font-weight: 600; }
+.lstate.ok { color: var(--ok); } .lstate.bad { color: var(--bad); font-weight: 600; }
 .pill.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
 .spacer { flex: 1; }
 button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 7px 14px; }
@@ -52,7 +54,7 @@ h2 input { min-width: 0; max-width: 100%; }
 h2 .spacer { flex: 1; }
 .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); }
-.card.up { border-left-color: var(--accent); }
+.card.up { border-left-color: var(--ok); }
 .card.down { border-left-color: var(--bad); }
 .card .name .tname { min-width: 0; overflow-wrap: anywhere; }
 .pill.type { font-size: 10.5px; padding: 1px 7px; margin-left: 2px; white-space: nowrap; vertical-align: 2px; font-weight: 600; }
@@ -67,7 +69,7 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: upp
 tr:last-child td { border-bottom: none; }
 .chip { display: inline-block; padding: 1px 8px; margin: 1px 3px 1px 0; border-radius: 6px; background: var(--panel2); font-size: 12.5px; }
 .route { font-family: var(--mono); font-size: 12.5px; padding: 1px 7px; border-radius: 6px; background: var(--panel2); white-space: nowrap; }
-.route.direct { color: var(--info); } .route.block { color: var(--bad); } .route.tunnel { color: var(--accent); } .route.link { color: var(--warn); }
+.route.direct { color: var(--info); } .route.block { color: var(--bad); } .route.tunnel { color: var(--ok); } .route.link { color: var(--warn); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 input, select { font: inherit; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
 /* WebKitGTK draws native selects with the GTK theme (light field) but our
@@ -111,17 +113,17 @@ details.browser { border-top: 1px solid var(--line, #e5e7eb); padding: 4px 0; }
 .spfill { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: .35; }
 .spnum { position: relative; padding: 0 6px; line-height: 20px; white-space: nowrap; }
 .leakrow { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel2); }
-.leakrow.ok { border-left-color: var(--accent); } .leakrow.leak { border-left-color: var(--bad); } .leakrow.warn { border-left-color: var(--warn); } .leakrow.blocked { border-left-color: var(--info); }
+.leakrow.ok { border-left-color: var(--ok); } .leakrow.leak { border-left-color: var(--bad); } .leakrow.warn { border-left-color: var(--warn); } .leakrow.blocked { border-left-color: var(--info); }
 .leakhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .leakkv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; font-size: 13px; color: var(--muted); }
 .leakkv .mono { color: var(--text); overflow-wrap: anywhere; }
 .leaknote { font-size: 12px; margin-top: 4px; }
 .pill.verdict { font-size: 11px; padding: 2px 8px; }
-.pill.verdict.ok { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pill.verdict.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); }
 .pill.verdict.leak { background: color-mix(in srgb, var(--bad) 18%, transparent); }
 .pill.verdict.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); }
 .pill.verdict.blocked { background: color-mix(in srgb, var(--info) 18%, transparent); }
-.verdict.ok { color: var(--accent); } .verdict.leak { color: var(--bad); } .verdict.warn { color: var(--warn); } .verdict.blocked { color: var(--info); } .verdict.error { color: var(--muted); }
+.verdict.ok { color: var(--ok); } .verdict.leak { color: var(--bad); } .verdict.warn { color: var(--warn); } .verdict.blocked { color: var(--info); } .verdict.error { color: var(--muted); }
 /* tabs in a row of their own, like the tab bar on Android */
 header { flex-wrap: wrap; row-gap: 10px; }
 header > button { white-space: nowrap; }
@@ -160,7 +162,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .savebar.dirty { border-color: var(--accent); }
 .savebar button { white-space: nowrap; flex: none; }
 .savebar .msg { min-width: 0; }
-.msg.err { color: var(--bad); } .msg.ok { color: var(--accent); } .msg.warn { color: var(--warn); }
+.msg.err { color: var(--bad); } .msg.ok { color: var(--ok); } .msg.warn { color: var(--warn); }
 .editor { background: var(--panel2); border-radius: 9px; padding: 14px; margin-top: 10px; }
 .drop { border: 2px dashed var(--line); border-radius: 9px; padding: 14px; text-align: center; color: var(--muted); }
 .drop.over { border-color: var(--accent); color: var(--accent); }
@@ -211,19 +213,41 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 body.windows .linux-only, .win-only { display: none !important; }
 body.windows .win-only { display: block !important; }
-body.normal .expert { display: none !important; }
-#expert-hint a { margin-left: 6px; }
+.lv-off { display: none !important; }
+#lv-hint a { margin-left: 6px; }
+/* Opsec: violet accent (text contrast at least 4.5:1 on every background:
+   dark #b794f6 on #1b2330 6.4:1, light #6d28d9 on #eef2f6 6.3:1, ink on
+   accent 7:1 or more). Status colours (--ok, --bad, --warn) stay as they are. */
+body.lv-opsec { --accent: #b794f6; --accent-ink: #1e0b3a; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body.lv-opsec { --accent: #6d28d9; --accent-ink: #ffffff; } }
+:root[data-theme="light"] body.lv-opsec { --accent: #6d28d9; --accent-ink: #ffffff; }
+#opsec-band { order: -1; flex-basis: 100%; margin: -14px -24px 0; padding: 2px 24px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .3em; text-align: center; }
+@media (max-width: 900px) { #opsec-band { margin: -12px -16px 0; } }
+body.lv-opsec header { border-bottom-color: var(--accent); }
+body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight: 700; }
+#lvmodal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+#lvmodal[hidden] { display: none; }
+#lvmodal .box { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 18px; width: 100%; max-width: 620px; max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+#lv-title { font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+#lv-items { display: grid; gap: 8px; margin: 12px 0; }
+.lvitem { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: start; padding: 8px 10px; border-radius: 8px; background: var(--panel2); }
+.lvitem input { margin-top: 3px; }
+.lvitem .muted { grid-column: 2; font-size: 12px; }
+.lvitem.na { opacity: .75; }
+.lvitem.na b { font-weight: 600; }
+#lvmodal .row { justify-content: flex-end; }
 </style>
 </head>
 <body>
 <header>
+  <div id="opsec-band" data-lv="opsec.band" role="note" aria-label="Opsec level">OPSEC</div>
   <div class="brand">
     <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 24h8l10-16h8M11 24h18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"/></svg>
     The Shunt
   </div>
   <span id="state" class="pill">connecting…</span>
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
-  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" class="expert">Ports</button><button id="tab-speed">Speedtest</button><button id="tab-config">Configure</button><button id="tab-view">View</button></nav>
+  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" data-lv="tab.ports">Ports</button><button id="tab-speed" data-lv="tab.speed">Speedtest</button><button id="tab-config" data-lv="tab.config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
   <button id="torall" hidden title="Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.">All via Tor</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
@@ -274,7 +298,7 @@ body.normal .expert { display: none !important; }
   </section>
 
   <section data-fold>
-    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale, Tor</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button><button id="addtab-tor" type="button">Tor</button></span></h2>
+    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale, Tor</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button><button id="addtab-tor" type="button" data-lv="tor.add">Tor</button></span></h2>
     <div class="editor" id="add-file">
       <div class="row"><b>Import a WireGuard, OpenVPN or Tailscale/Headscale (.ts) file</b><span class="muted">(stored with mode 600; scripts in it are switched off)</span></div>
       <div class="row" style="margin-top:10px">
@@ -304,14 +328,14 @@ body.normal .expert { display: none !important; }
       <div class="row" style="margin-top:10px">
         <input id="ts-key" class="grow" type="password" placeholder="auth key (hskey-auth-… / tskey-auth-…)" autocomplete="new-password">
       </div>
-      <div class="row expert" style="margin-top:10px">
+      <div class="row" data-lv="ts.advanced" style="margin-top:10px">
         <input id="ts-host" placeholder="host name in the tailnet (optional)" style="width:260px" autocomplete="off">
         <input id="ts-exit" placeholder="exit node IP or name (optional)" style="width:260px" autocomplete="off">
       </div>
       <div class="row" style="margin-top:10px"><button id="ts-add" class="primary">Add</button></div>
       <div class="muted" style="margin-top:8px">Without an exit node the tunnel reaches the tailnet (100.64.0.0/10) only; with one, everything routed into it leaves through that node.</div>
     </div>
-    <div class="editor" id="add-tor" hidden>
+    <div class="editor" id="add-tor" data-lv="tor.add" hidden>
       <div class="row"><b>Add a Tor tunnel</b><span class="muted">(needs the tor package; The Shunt starts and watches it)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="tor-name" placeholder="name, e.g. tor" style="width:140px" maxlength="10">
@@ -357,7 +381,7 @@ body.normal .expert { display: none !important; }
     <div class="hint">DNS queries the filter blocked, per program, since the service started. Programs without a scope of their own (started in a terminal, or on desktops like COSMIC that keep many programs together) count as “login session”.</div>
   </section>
 
-  <section class="half linux-only expert" data-fold>
+  <section class="half linux-only" data-lv="apps.groups" data-fold>
     <h2>Where traffic goes</h2>
     <table>
       <thead><tr><th>Group</th><th>Route</th><th>Running apps</th></tr></thead>
@@ -365,7 +389,7 @@ body.normal .expert { display: none !important; }
     </table>
   </section>
 
-  <section id="sec-launchers" class="expert" data-fold hidden>
+  <section id="sec-launchers" data-lv="apps.launchers" data-fold hidden>
     <h2>Launchers <span class="muted" style="text-transform:none;letter-spacing:0" data-i18n="html"><span class="linux-only">extra menu entries</span><span class="win-only" style="display:none">extra Start menu entries (folder “The Shunt Launchers”)</span>, e.g. one per browser profile</span></h2>
     <div id="browsers"></div>
     <div class="row" style="margin-top:12px">
@@ -392,13 +416,13 @@ body.normal .expert { display: none !important; }
         <option value="off">take the default route (no questions)</option>
         <option value="ask">ask me – no answer: default route after the timeout</option>
         <option value="block">ask me – blocked until I decide</option></select>
-      <label class="expert" for="c-fwtimeout">Timeout</label><div class="row expert"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
-      <label class="expert">Terminal programs</label><label class="row expert" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
+      <label data-lv="apps.fwtuning" for="c-fwtimeout">Timeout</label><div class="row" data-lv="apps.fwtuning"><input id="c-fwtimeout" type="number" min="5" max="600" style="width:90px"><span class="muted">seconds (ask mode)</span></div>
+      <label data-lv="apps.fwtuning">Terminal programs</label><label class="row" data-lv="apps.fwtuning" style="color:var(--text)"><input type="checkbox" id="c-fwterm"> ask for them too (otherwise they take the terminal's route)</label>
     </div>
     <div class="hint" data-i18n="html">Only programs of your desktop session are asked; system services never are. Per network (e.g. off at home) under <b>Networks</b>.</div>
   </section>
 
-  <section class="linux-only expert" data-fold>
+  <section class="linux-only" data-lv="apps.fwdecisions" data-fold>
     <h2>Remembered decisions <span class="muted" style="text-transform:none;letter-spacing:0">answers of the app firewall</span></h2>
     <table><tbody id="c-fwapps"></tbody></table>
   </section>
@@ -420,7 +444,7 @@ body.normal .expert { display: none !important; }
     <div data-rows="5" style="margin-top:8px"><table><tbody id="f-loaded"></tbody></table></div>
   </section>
 
-  <section class="expert" data-fold>
+  <section data-lv="dns.lists" data-fold>
     <h2>Lists per level <span class="muted" style="text-transform:none;letter-spacing:0">only lists of levels that are in use get downloaded · a level includes the one below it</span></h2>
     <div data-rows="10"><table><thead><tr><th>List</th><th></th><th>low</th><th>normal</th><th>paranoid</th><th></th></tr></thead><tbody id="f-lists"></tbody></table></div>
     <div style="margin-top:10px">
@@ -452,14 +476,14 @@ body.normal .expert { display: none !important; }
     <h2>DNS settings</h2>
     <div class="form">
       <label for="c-direct">DNS for direct traffic</label><select id="c-direct"></select>
-      <label class="expert">Encrypted DNS of apps</label>
-      <div class="row expert"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
+      <label data-lv="dns.encrypted">Encrypted DNS of apps</label>
+      <div class="row" data-lv="dns.encrypted"><label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdoh"> block known DoH servers</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-blockdot"> block DoT (port 853)</label>
         <div class="muted" style="font-size:12px;flex-basis:100%">Blocking makes browsers fall back to normal DNS, which The Shunt routes per app.</div></div>
     </div>
   </section>
 
-  <section data-fold class="half expert">
+  <section data-fold class="half" data-lv="dns.servers">
     <h2>DNS servers <span class="muted" style="text-transform:none;letter-spacing:0">Pi-hole, Unbound, AdGuard…</span></h2>
     <table><tbody id="c-upstreams"></tbody></table>
     <div class="row" style="margin-top:10px">
@@ -522,7 +546,7 @@ body.normal .expert { display: none !important; }
 </main>
 
 <main id="page-config" hidden>
-  <section data-fold class="half">
+  <section data-fold class="half" id="sec-routing">
     <h2>Routing</h2>
     <div class="form">
       <label for="c-default">Everything else goes</label><div><select id="c-default" style="width:100%"></select><div id="c-default-hint" style="color:var(--warn);font-size:12px;margin-top:4px"></div></div>
@@ -546,20 +570,21 @@ body.normal .expert { display: none !important; }
     <div class="hint" data-i18n="html">Reload after editing <span class="mono">/etc/shunt/shunt.toml</span> by hand. Both are in the tray menu as well.</div>
   </section>
 
-  <section data-fold class="linux-only">
+  <section data-fold id="sec-privacy">
     <h2>Privacy and protection <span class="muted" style="text-transform:none;letter-spacing:0">on networks you have not trusted · a network profile below can differ</span></h2>
     <div class="settings">
-      <div class="expert"><label class="t" for="c-hostname">Host name in DHCP</label>
+      <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-hostname">Host name in DHCP</label>
         <select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
         <div class="muted">Every network you join sees your machine's name. “Don't send it” is set per Wi-Fi/cable profile; a trusted network can say “send”.</div></div>
-      <div class="expert"><label class="t" for="c-mac">MAC address</label>
+      <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-mac">MAC address</label>
         <select id="c-mac"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
         <div class="muted">Wi-Fi and cable. New or own per network also keeps the device's IDs out of DHCP and IPv6 addresses. Applies from the next connection; a login page may ask again. At home use “the real one” in the profile.</div></div>
-      <div><label class="t" for="c-inbound">Incoming connections</label>
+      <div data-lv="inbound"><label class="t" for="c-inbound">Incoming connections</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
         <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">
-        <div class="muted">Answers to your own connections always pass. Tunnels are closed unless the tunnel says otherwise. A trusted profile (incoming = LAN) lets in only these ports, from private addresses. On a server this blocks SSH from outside too.</div></div>
-      <div><label class="t" for="c-bootlock">Network at boot</label>
+        <div class="muted linux-only">Answers to your own connections always pass. Tunnels are closed unless the tunnel says otherwise. A trusted profile (incoming = LAN) lets in only these ports, from private addresses. On a server this blocks SSH from outside too.</div>
+        <div class="muted win-only" style="display:none">Answers to your own connections always pass. Nothing comes in through a tunnel. A trusted profile (incoming = LAN) lets in only these ports, from private addresses. Uses Windows Filtering Platform; other firewall rules stay as they are.</div></div>
+      <div class="linux-only"><label class="t" for="c-bootlock">Network at boot</label>
         <select id="c-bootlock"><option value="">auto: blocked if everything else goes through a tunnel</option><option value="on">always blocked until The Shunt runs</option><option value="off">never blocked</option></select>
         <div class="muted" data-i18n="html">Without it, programs that start before The Shunt send their first packets in clear text. Offline after a boot because the service does not start? <code>sudo shuntd cleanup</code></div></div>
     </div>
@@ -571,7 +596,7 @@ body.normal .expert { display: none !important; }
     <div id="c-networks"></div>
   </section>
 
-  <section data-fold class="expert">
+  <section data-fold data-lv="config.rules">
     <h2>Rules <span class="muted" style="text-transform:none;letter-spacing:0">order: apps started in “block” · rules marked “also for started apps” · apps started in a route · other rules · default</span><span class="spacer"></span><button id="r-new">+ New rule</button></h2>
     <table><tbody id="c-rules"></tbody></table>
     <div id="r-editor" class="editor" hidden>
@@ -594,7 +619,7 @@ body.normal .expert { display: none !important; }
     </div>
   </section>
 
-  <section class="expert">
+  <section data-lv="config.raw">
     <h2>Raw configuration <span class="muted" style="text-transform:none;letter-spacing:0">/etc/shunt/shunt.toml – keeps comments</span><span class="spacer"></span><button id="raw-toggle">Show</button></h2>
     <div id="raw-box" hidden>
       <textarea id="raw" spellcheck="false"></textarea>
@@ -613,20 +638,23 @@ body.normal .expert { display: none !important; }
 <main id="page-view" hidden>
   <section data-fold class="half">
     <h2>Settings shown</h2>
-    <div class="seg" id="v-mode" role="group" aria-label="Settings shown"><button data-m="normal">Normal</button><button data-m="expert">Expert</button></div>
-    <div class="hint">Normal hides the fine-tuning: rules, ports, own DNS servers and lists, multi-hop, launchers. Hidden settings keep working.</div>
+    <div class="seg" id="v-level" role="group" aria-label="Settings shown"><button data-l="simple">Simple</button><button data-l="pro">Pro</button><button data-l="opsec">Opsec</button></div>
+    <div class="hint lvhelp" data-for="simple">Simple shows what you need every day: overview, VPN, apps and DNS. Tor, ports, rules, network profiles, incoming protection and the fine-tuning are hidden. Hidden settings keep working.</div>
+    <div class="hint lvhelp" data-for="pro">Pro shows everything.</div>
+    <div class="hint lvhelp" data-for="opsec">Opsec shows everything, marks the window violet and switches on strict settings you confirm once (switching back offers to undo them).</div>
+    <div class="hint lvhelp" data-for="opsec" data-i18n="html"><b>Opsec is no guarantee.</b> It closes common leaks of this computer; it does not make you anonymous. The VPN provider still sees your traffic, websites still recognise you by logins, cookies and the browser, and Tor hides where you are but not what you type into a page. For anonymous browsing use the Tor Browser.</div>
   </section>
   <section data-fold class="half">
     <h2>Look</h2>
     <div class="form">
       <label for="v-lang">Language</label><select id="v-lang"></select>
       <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
-      <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" class="expert">Ports</option><option value="config">Configure</option><option value="view">View</option></select>
+      <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" data-lv="tab.ports">Ports</option><option value="config" data-lv="tab.config">Configure</option><option value="view">View</option></select>
     </div>
     <div class="hint">Start at login: in the tray menu (“Start at login”).</div>
   </section>
 </main>
-<div id="expert-hint" class="banner" hidden></div>
+<div id="lv-hint" class="banner" hidden></div>
 <div id="toast"></div>
 <!-- own dialog instead of confirm()/prompt(): embedded web views may not show those -->
 <!-- app firewall: a program wants to go online -->
@@ -638,17 +666,27 @@ body.normal .expert { display: none !important; }
   <label class="row" style="color:var(--text)"><input type="checkbox" id="fw-remember" checked> remember for this program</label>
   <div class="row" style="justify-content:space-between;margin-top:10px"><span id="fw-count" class="muted"></span><button id="fw-later">Later</button></div>
 </div></div>
+<!-- opsec assistant: what switching to (or away from) Opsec changes -->
+<div id="lvmodal" hidden><div class="box" role="dialog" aria-modal="true" aria-labelledby="lv-title">
+  <p id="lv-title"></p>
+  <div id="lv-intro" class="muted"></div>
+  <div id="lv-items"></div>
+  <div id="lv-note" class="hint"></div>
+  <div class="row" style="margin-top:12px"><button id="lv-cancel">Cancel</button><button id="lv-keep" hidden></button><button id="lv-ok" class="primary"></button></div>
+</div></div>
 <div id="modal" hidden><div class="box" role="dialog" aria-modal="true">
   <p id="modal-msg"></p>
   <input id="modal-input" hidden>
   <div class="row"><button id="modal-cancel">Cancel</button><button id="modal-ok" class="primary">OK</button></div>
 </div></div>
+<script src="levels.js"></script>
 <script src="fold.js"></script>
 <script src="app.js"></script>
 <script src="chart.js"></script>
 <script src="config.js"></script>
 <script src="filter.js"></script>
 <script src="view.js"></script>
+<script src="opsec.js"></script>
 <script src="ports.js"></script>
 <script src="speed.js"></script>
 </body>

@@ -32,8 +32,8 @@ function renderPorts() {
       p.tunnel ? el("span", { class: "pill warn" }, "tunnel") : "")))
     : [el("tr", {}, el("td", { class: "muted" }, "Nothing listens beyond this machine."))]));
   const notes = [];
-  if (exposed.length && !l.network && !l.inbound) notes.push(el("div", { class: "banner bad" }, T("⚠ Unknown network: {n} port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → Privacy and protection to block them.", { n: exposed.length })));
-  if (l.inbound) notes.push(el("div", { class: "muted" }, (l.network ? T("Incoming protection: {mode} (network “{network}”), tunnels closed.", { mode: l.inbound, network: l.network }) : T("Incoming protection: {mode} (unknown network), tunnels closed.", { mode: l.inbound }))));
+  if (exposed.length && !l.network && !l.inbound) notes.push(el("div", { class: "banner bad", "data-lv": "inbound" }, T("⚠ Unknown network: {n} port(s) can be reached by everyone on it. Switch on “Incoming connections” under Configure → Privacy and protection to block them.", { n: exposed.length })));
+  if (l.inbound) notes.push(el("div", { class: "muted", "data-lv": "inbound" }, (l.network ? T("Incoming protection: {mode} (network “{network}”), tunnels closed.", { mode: l.inbound, network: l.network }) : T("Incoming protection: {mode} (unknown network), tunnels closed.", { mode: l.inbound }))));
   if (l.firewalls && l.firewalls.length) notes.push(el("div", { class: "muted" }, T("Other firewalls active: {list} – they may already block some of these.", { list: l.firewalls.join(", ") })));
   $("#ports-notes").replaceChildren(...notes);
 }
