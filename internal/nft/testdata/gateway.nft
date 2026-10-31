@@ -81,6 +81,8 @@ table inet shunt {
 	}
 	chain leak_guard {
 		type filter hook postrouting priority filter; policy accept;
+		iifname "sh-home" return
+		iifname "sh-vps" return
 		meta mark 0x530001 oifname != { "sh-home", "lo", "br-guest", "br-iot", "virbr1", "virbr2" } counter drop
 		meta mark 0x530002 oifname != { "sh-vps", "lo", "br-guest", "br-iot", "virbr1", "virbr2" } counter drop
 		meta mark 0x5300e0 oifname != { "wlan0", "lo", "br-guest", "br-iot", "virbr1", "virbr2" } counter drop
