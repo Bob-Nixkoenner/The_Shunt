@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lab tests (Linux), Tor: new H04–H09, H11 (tor hangs/dies, isolation per rule, obfs4 bridges, Tor over WireGuard, .onion names, system services and reboot under tor-all); the gateway judges only the tor-all part (LABMARK), tor's old sockets get their process name, VM reboots keep DHCP working.
 - Lab tests (Linux): P01 reads the clock warning in any language; A06–A08 allow the distro's own direct background traffic (NTP, connectivity check, Arch updates) with default route direct; a system tor.service in the client is switched off before a test; G01/G02 scan with `[inbound]` on.
 - Leak test (Android, Windows): a working Tor tunnel no longer shows "blocked". The probe went through the tunnel's DNS server, which Tor does not carry; it now hands names to Tor like the apps do and checks check.torproject.org. A blocked Tor row shows the reason.
 - Linux: gateway mode (`[gateway]`, `[[gateway.group]]` with `interfaces` and `route`, stage 1, see docs/GATEWAY.md): devices, VMs and containers behind chosen interfaces go through The Shunt with their own route per group. Kill switch for forwarded traffic (no fallback to direct), NAT for direct groups, IPv6 from clients dropped, groups kept apart, clients reach only DHCP/DNS/ICMP of the host, panic and tor-all cut them off. `shunt gateway status`, config check findings, netns integration test. Tor as group route and the Shunt resolver for clients come in stage 2.
