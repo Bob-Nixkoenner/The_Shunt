@@ -6,9 +6,10 @@ ALLOW=(comm:tor)
 NOTE="Gateway darf nur Pakete des Prozesses tor sehen. Vor tor-all laeuft tor einmal an (Konsens). Dann: Web ueber Tor (IsTor), direktes UDP/ICMP/anderes Ziel scheitert, tor wird beendet (kein Rueckfall), shuntd wird gestoppt (Tabelle bleibt)."
 CLIENT='
 tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -Ec "connected|verbunden")" -ge 1 ] && return 0; sleep 2; done; return 1; }
-istor() { labfree -s -m20 https://check.torproject.org/api/ip 2>/dev/null | grep -q "\"IsTor\":true"; }
+istor() { for i in 1 2 3; do labfree -s -m20 https://check.torproject.org/api/ip 2>/dev/null | grep -q "\"IsTor\":true" && return 0; sleep 5; done; return 1; } # a fresh circuit after a restart can take a try or two
 tor_ready || echo "FAIL tor kam nicht hoch (ohne tor-all)"
 sudo -n shunt tor-all on || echo "FAIL tor-all on abgelehnt"
+echo "LABMARK strict_from $(date +%s.%N)"
 sleep 3
 sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 || echo "FAIL Tabelle shunt_emerg fehlt"
 istor || echo "FAIL Web geht nicht durch Tor"
@@ -26,6 +27,7 @@ sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 || echo "FAIL Tabelle we
 sudo -n systemctl start shuntd; sleep 5
 tor_ready || echo "FAIL tor kam nach Neustart nicht wieder hoch"
 istor || echo "FAIL nach Neustart kein Tor-Weg"
+echo "LABMARK strict_until $(date +%s.%N)"
 sudo -n shunt tor-all off; sleep 3
 sudo -n nft list table inet shunt_emerg >/dev/null 2>&1 && echo "FAIL Tabelle nach tor-all off noch da"
 true
