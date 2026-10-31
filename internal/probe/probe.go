@@ -61,6 +61,12 @@ func init() {
 // instead of the resolver query (Tor's DNSPort refuses TXT lookups).
 func RunTor(ctx context.Context) Result { return run(ctx, nil, nil, true, 8*time.Second) }
 
+// RunTorWith is RunTor through dial (a Tor route of an engine that makes its
+// connections itself), with its own limit per request.
+func RunTorWith(ctx context.Context, dial Dial, limit time.Duration) Result {
+	return run(ctx, dial, nil, true, limit)
+}
+
 // Run performs the probe from the current process.
 func Run(ctx context.Context) Result { return RunWith(ctx, nil, nil) }
 
@@ -236,6 +242,9 @@ func judge(rs []RouteResult) {
 			}
 		case res.Tor:
 			r.Verdict, r.Note = judgeTor(res, direct)
+			if r.Verdict == "blocked" && r.Detail == "" {
+				r.Detail = res.IPErr // why: the cause is visible right away
+			}
 		case res.IP == "" && res.Resolver == "":
 			r.Verdict, r.Note = "blocked", "no internet through this tunnel (it may still be up, e.g. one that only reaches a home network) - nothing leaked"
 		case direct != nil && direct.IP != "" && res.IP == direct.IP:
@@ -255,7 +264,7 @@ func judge(rs []RouteResult) {
 // the public IP differs from the direct one and check.torproject.org agrees.
 func judgeTor(res Result, direct *Result) (verdict, note string) {
 	switch {
-	case res.IP == "":
+	case res.IP == "" && !res.IsTor:
 		return "blocked", "no internet through this tunnel (it may still be up, e.g. one that only reaches a home network) - nothing leaked"
 	case direct != nil && direct.IP != "" && res.IP == direct.IP:
 		return "leak", "same public IP as the direct route"

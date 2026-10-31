@@ -37,9 +37,14 @@ func TestJudgeTor(t *testing.T) {
 		{Route: "tunnel:t3", Result: Result{Tor: true, IP: "2.2.2.2"}},
 		{Route: "tunnel:t4", Result: Result{Tor: true, IP: "1.1.1.1", IsTor: true}},
 		{Route: "tunnel:t5", Result: Result{Tor: true, IPErr: "x"}},
+		// the IP service failed but check.torproject.org came through Tor: Tor works
+		{Route: "tunnel:t6", Result: Result{Tor: true, IPErr: "x", IsTor: true}},
 	}
 	judge(rs)
-	want := []string{"ok", "ok", "ok", "warn", "leak", "blocked"}
+	if rs[5].Detail != "x" {
+		t.Errorf("blocked Tor: detail %q, want the IP error", rs[5].Detail)
+	}
+	want := []string{"ok", "ok", "ok", "warn", "leak", "blocked", "ok"}
 	for i, w := range want {
 		if rs[i].Verdict != w {
 			t.Errorf("%s: got %s want %s", rs[i].Route, rs[i].Verdict, w)
