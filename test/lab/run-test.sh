@@ -24,7 +24,9 @@
 # Platform hooks (Linux client); winclient.sh replaces them for CLIENT_OS=windows.
 client_trace() { # start | stop | fetch <dir>
 	case $1 in
-	start) client "sudo -n /usr/local/lib/shuntlab/trace.sh start /tmp/shuntlab-trace.log" ;;
+	start) # the probes from this checkout, not the copy prep.sh once installed
+		client_cp_to "$HERE/client/trace.bt" /tmp/shuntlab-bt && client "sudo -n install -m644 /tmp/shuntlab-bt/trace.bt /usr/local/lib/shuntlab/trace.bt" || true
+		client "sudo -n /usr/local/lib/shuntlab/trace.sh start /tmp/shuntlab-trace.log" ;;
 	stop) client "sudo -n /usr/local/lib/shuntlab/trace.sh stop /tmp/shuntlab-trace.log" ;;
 	fetch) client_cp_from /tmp/shuntlab-trace.log "$2/trace.log" || true ;;
 	esac
@@ -166,6 +168,11 @@ json.dump({
  "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))'),
  "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$TUNNEL_IP",
  "shunt_version": "$ver", "started": "$stamp", "note": """$NOTE""",
+ # LABMARK strict_from/strict_until <epoch> lines in the client output: the strict
+ # parts of a test (e.g. tor-all on .. off); outside them nothing is judged at the gateway
+ "strict": [[float(a), float(b) if b else None] for a, b in __import__("re").findall(
+     r"^LABMARK strict_from ([0-9.]+)\n(?:(?!LABMARK strict_from).*\n)*?(?:LABMARK strict_until ([0-9.]+)$|\Z)",
+     open("$out/client.out", errors="replace").read(), 8)],
 }, open(sys.argv[1], "w"), indent=1)
 EOF
 	# analysis runs on the gateway (scapy, p0f); everything ends up in $out
