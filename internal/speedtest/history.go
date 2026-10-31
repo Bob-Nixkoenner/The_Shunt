@@ -73,39 +73,11 @@ func Entry(rep *Report, network string) HistEntry {
 	return e
 }
 
-// HistoryOff reports whether the user switched the history off (View →
-// Opsec, "keep no speed test history"): the key "shunt-no-history" in the
-// ui-state file next to the history file (internal/ui keeps it there).
-func HistoryOff(path string) bool {
-	if path == "" {
-		return false
-	}
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(path), "ui-state.json"))
-	if err != nil {
-		return false
-	}
-	var st map[string]string
-	return json.Unmarshal(b, &st) == nil && st["shunt-no-history"] == "1"
-}
-
-// ClearHistory removes the history file (a missing one is fine).
-func ClearHistory(path string) error {
-	if path == "" {
-		return nil
-	}
-	histMu.Lock()
-	defer histMu.Unlock()
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
-}
-
 // AddHistory puts the report in front of the history and keeps the last
 // HistoryKeep tests. The file is written whole to a temporary name and
-// renamed (mode 0600). Nothing is stored while the history is off.
+// renamed (mode 0600).
 func AddHistory(path string, rep *Report, network string) error {
-	if path == "" || rep == nil || len(rep.Routes) == 0 || HistoryOff(path) {
+	if path == "" || rep == nil || len(rep.Routes) == 0 {
 		return nil
 	}
 	histMu.Lock()

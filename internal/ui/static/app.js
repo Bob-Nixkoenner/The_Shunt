@@ -816,12 +816,11 @@ function renderChecks(fs) {
     f.help ? el("div", { class: "muted" }, T(f.help)) : "")));
 }
 
-// Opsec with stricter warnings (a switch of the opsec assistant): every
-// warning, and the notes that matter for leaving few traces, show as banners
-// instead of folded notes.
-const STRICT_NOTES = ["default.direct", "stealth.unset", "inbound.off"];
+// Stricter security check (daemon.config_check = "strict", a switch of the
+// opsec assistant): the service raises the findings and marks them; the
+// ones that are not "bad" show as banners too instead of folded notes.
 function strictFinding(f) {
-  return level() === "opsec" && lvGet("shunt-opsec-strict") === "1" && (f.level === "warn" || STRICT_NOTES.includes(f.id));
+  return !!f.strict && f.level !== "bad";
 }
 
 // Plain-language help for findings that laypeople ask about (key = finding id)

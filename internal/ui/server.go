@@ -446,13 +446,6 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, h)
 	})
-	mux.HandleFunc("DELETE /api/speedtest/history", func(w http.ResponseWriter, r *http.Request) {
-		if err := speedtest.ClearHistory(speedtest.HistoryPath()); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		writeJSON(w, []speedtest.HistEntry{})
-	})
 	mux.HandleFunc("GET /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.speed.State())
 	})

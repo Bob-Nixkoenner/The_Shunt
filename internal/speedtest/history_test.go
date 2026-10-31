@@ -53,26 +53,3 @@ func TestHistoryBrokenFile(t *testing.T) {
 		t.Fatal("missing file")
 	}
 }
-
-func TestHistoryOff(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "h.json")
-	if err := AddHistory(p, rep(1), ""); err != nil || len(LoadHistory(p)) != 1 {
-		t.Fatalf("not stored: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "ui-state.json"), []byte(`{"shunt-no-history":"1"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if !HistoryOff(p) {
-		t.Fatal("history not off")
-	}
-	if err := AddHistory(p, rep(2), ""); err != nil || len(LoadHistory(p)) != 1 {
-		t.Fatalf("stored while off: %v %+v", err, LoadHistory(p))
-	}
-	if err := ClearHistory(p); err != nil || LoadHistory(p) != nil {
-		t.Fatalf("not cleared: %v", err)
-	}
-	if err := ClearHistory(p); err != nil {
-		t.Fatalf("clearing a missing file: %v", err)
-	}
-}

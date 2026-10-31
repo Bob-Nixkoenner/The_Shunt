@@ -5,8 +5,11 @@
 // switching away from Opsec offers to put those settings back.
 //
 // Item fields: sets = config fields [path, value] written when on (os: where
-// the service has them), ui = a page setting [key, value], builtin = systems
-// where it is always on anyway, na = not available yet anywhere.
+// the service has them), builtin = systems
+// where it is always on anyway, na = systems where it does not exist (with
+// the reason). Opsec is about what the network and others see, not about
+// what stays on this computer: statistics and the speed test history are
+// kept.
 
 const OPSEC_ITEMS = [
   { id: "killswitch", text: "Kill switch on",
@@ -34,16 +37,13 @@ const OPSEC_ITEMS = [
   { id: "tcpts", text: "TCP timestamps off",
     help: "Timestamps tell others on a foreign network how long this computer has been running, which helps to recognise it again. Tunnel traffic is not affected.",
     os: ["linux"], sets: [[["daemon", "tcp_timestamps"], "off"]] },
-  { id: "icmpts", text: "No answers to ICMP timestamp requests", na: true,
-    help: "They reveal the clock of this computer to others on the network." },
+  { id: "icmpts", text: "No answers to ICMP timestamp requests",
+    help: "They reveal the clock of this computer to others on the network.",
+    os: [], builtin: { linux: "Always on (Linux): timestamp, address mask and info requests are never answered." },
+    na: { windows: "Not available on Windows: The Shunt does not filter ICMP there, the Windows firewall decides." } },
   { id: "strict", text: "Stricter security check",
-    help: "Every warning shows as a banner on the overview instead of a quiet note, e.g. an OpenVPN file without tls-crypt, DNS that can go past the tunnel, or everything else going direct.",
-    ui: ["shunt-opsec-strict", "1"] },
-  { id: "history", text: "Keep no speed test history",
-    help: "The last measurements are deleted and new ones are not stored.",
-    ui: ["shunt-no-history", "1"] },
-  { id: "stats", text: "Keep no traffic statistics", na: true,
-    help: "The service counts traffic per tunnel and blocked names on this computer (nothing is sent anywhere)." },
+    help: "The service's security check (also `shunt check`) gets stricter: an OpenVPN file without tls-crypt, DNS that can go past the tunnel and everything else going direct count as bad, rules that send traffic direct as warnings, and every finding shows as a banner on the overview.",
+    os: ["linux", "windows"], sets: [[["daemon", "config_check"], "strict"]] },
 ];
 
 const opsecOS = () => (typeof onWindows === "function" && onWindows() ? "windows" : "linux");
@@ -60,13 +60,11 @@ function cfgPut(m, path, v) {
 }
 // state of an item on this system: "set" (can be switched), "builtin", "na"
 function opsecState(it) {
-  if (it.na) return "na";
-  if (it.ui) return "set";
+  if (it.na && it.na[opsecOS()]) return "na";
   if (it.os.includes(opsecOS())) return "set";
   return it.builtin && it.builtin[opsecOS()] ? "builtin" : "na";
 }
 function opsecIsOn(it) {
-  if (it.ui) return lvGet(it.ui[0]) === it.ui[1];
   return !!model && it.sets.every(([p, v]) => cfgGet(model, p) === v);
 }
 
@@ -127,7 +125,7 @@ async function opsecOn() {
     box.checked = st !== "na";
     box.disabled = st !== "set";
     if (st === "set" && !on) boxes[it.id] = box;
-    const note = st === "na" ? (it.na ? T("Not available yet.") : T("Not available on this system.")) + " " + T(it.help)
+    const note = st === "na" ? (it.na && it.na[opsecOS()] ? T(it.na[opsecOS()]) : T("Not available on this system.")) + " " + T(it.help)
       : st === "builtin" ? T(it.builtin[opsecOS()])
       : on ? T("Already set.") + " " + T(it.help) : T(it.help);
     if (st === "set" && on) box.disabled = true;
@@ -145,20 +143,15 @@ async function opsecOn() {
   for (const it of OPSEC_ITEMS) {
     const box = boxes[it.id];
     if (!box || !box.checked) continue;
-    if (it.ui) recs[it.id] = { ui: [it.ui[0], lvGet(it.ui[0]) || null] };
-    else {
-      recs[it.id] = { cfg: it.sets.map(([p]) => [p, cfgGet(model, p) ?? null]) };
-      for (const [p, v] of it.sets) cfgPut(model, p, v);
-      cfgChanged = true;
-    }
+    recs[it.id] = { cfg: it.sets.map(([p]) => [p, cfgGet(model, p) ?? null]) };
+    for (const [p, v] of it.sets) cfgPut(model, p, v);
+    cfgChanged = true;
   }
   if (cfgChanged && !(await opsecSave())) return false; // nothing changed, the level stays
-  for (const it of OPSEC_ITEMS) if (recs[it.id] && it.ui) lvSet(it.ui[0], it.ui[1]);
   // an earlier, kept Opsec change keeps its value from before that time
   const undo = opsecUndo();
   for (const [id, rec] of Object.entries(recs)) if (!undo[id]) undo[id] = rec;
   lvSet("shunt-opsec-undo", JSON.stringify(undo));
-  if (recs.history) api("DELETE", "/api/speedtest/history").catch(() => {});
   return true;
 }
 
@@ -180,7 +173,7 @@ async function opsecOff() {
   for (const it of items) {
     if (!boxes[it.id].checked) continue;
     const rec = undo[it.id];
-    if (rec.ui) { if (rec.ui[1] === null) lvDel(rec.ui[0]); else lvSet(rec.ui[0], rec.ui[1]); }
+    if (rec.ui) { if (rec.ui[1] === null) lvDel(rec.ui[0]); else lvSet(rec.ui[0], rec.ui[1]); } // a page setting (earlier versions)
     if (rec.cfg) { for (const [p, v] of rec.cfg) cfgPut(model, p, v); cfgChanged = true; }
   }
   if (cfgChanged && !(await opsecSave())) return false;
