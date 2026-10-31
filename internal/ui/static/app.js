@@ -16,6 +16,7 @@ function el(tag, attrs = {}, ...kids) {
     else e.setAttribute(k, v);
   }
   for (const k of kids.flat()) e.append(k instanceof Node ? k : document.createTextNode(String(k ?? "")));
+  if (attrs["data-lv"] && !shows(attrs["data-lv"])) e.classList.add("lv-off"); // levels.js
   return e;
 }
 
@@ -127,7 +128,7 @@ function render() {
   $("#defroute").replaceChildren("default route ", routeTag(st.default_route), ...(st.network ? [el("span", { class: "muted" }, T(" (network “{name}”)", { name: st.network }))] : []));
 
   const torall = $("#torall");
-  torall.hidden = !(st.tor_all || st.tunnels.some(isTor));
+  torall.hidden = !(st.tor_all || (st.tunnels.some(isTor) && shows("tor.emergency"))); // stays while on, also in Simple
   torall.textContent = st.tor_all ? "End Tor-only" : "All via Tor";
   torall.classList.toggle("on", !!st.tor_all);
   const pass = $("#pass");
@@ -143,7 +144,8 @@ function render() {
   const inq = st.inbound_ask;
   $("#banners").replaceChildren(...[...new Set(noticeTexts(st))].map((w) => el("div", { class: "banner" }, "⚠ ", w)),
     ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
-    ...(inq ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
+    ...(st.findings || []).filter(strictFinding).map((f) => el("div", { class: "banner" }, "⚠ ", T(f.msg, f.vals || {}))),
+    ...(inq && shows("inbound") ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
       el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
     ...(st.panic ? [el("div", { class: "banner bad" }, "Panic mode is on: all traffic except loopback is dropped.")] : []),
@@ -175,7 +177,7 @@ function render() {
           t.health.loss > 0 ? T(" · {n} % lost", { n: Math.round(t.health.loss * 100) }) : "")] : []),
         ...(tor && t.circuit ? [el("span", {}, "exit"), el("span", {}, torExit(t.circuit)),
           el("span", {}, "hops"), el("span", {}, t.circuit.bridge ? T("{n} (bridge first)", { n: t.circuit.hops }) : String(t.circuit.hops))] : []),
-        ...(tor && t.up && t.bootstrap >= 100 ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.",
+        ...(tor && t.up && t.bootstrap >= 100 && shows("tor.newnym") ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.",
           onclick: async (e) => {
             e.target.disabled = true;
             try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }
@@ -805,13 +807,20 @@ $("#fw-later").addEventListener("click", () => { if (fwCurrent) fwLater.add(fwCu
 // notes about the setup must not look like a broken app.
 function renderChecks(fs) {
   const box = $("#checks");
-  const rest = fs.filter((f) => f.level !== "bad");
-  box.hidden = !rest.length;
+  const rest = fs.filter((f) => f.level !== "bad" && !strictFinding(f));
+  box.hidden = !rest.length || !shows("checks.notes");
   if (!rest.length) return;
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
   $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}),
     ...(CHECK_HELP[f.id] && !f.help ? [el("details", { class: "muted", style: "margin-top:4px" }, el("summary", {}, "What does this mean?"), el("div", { style: "margin-top:4px" }, T(CHECK_HELP[f.id])))] : []),
     f.help ? el("div", { class: "muted" }, T(f.help)) : "")));
+}
+
+// Stricter security check (daemon.config_check = "strict", a switch of the
+// opsec assistant): the service raises the findings and marks them; the
+// ones that are not "bad" show as banners too instead of folded notes.
+function strictFinding(f) {
+  return !!f.strict && f.level !== "bad";
 }
 
 // Plain-language help for findings that laypeople ask about (key = finding id)

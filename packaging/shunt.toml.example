@@ -12,6 +12,10 @@ default_route = "direct"    # direct | block | tunnel:<name>
 #                            # (own per network) | permanent; random/stable also derive the
 #                            # DHCPv6 DUID, DHCP client ID and IPv6 addresses from it, not
 #                            # from the device. A [[network]] may override (mac = "permanent").
+# config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
+#                            # opsec level sets it) raises every finding one level; no tls-crypt
+#                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"
+#                            # become "bad", rules with route = "direct" become warnings
 
 # wg-quick style file, mode 0600. PostUp/PreUp/Table/FwMark are ignored.
 [tunnel.vps]

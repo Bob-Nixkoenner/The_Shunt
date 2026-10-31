@@ -24,12 +24,12 @@ function renderSpeedRoutes() {
   const had = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
   const first = !box.dataset.key;
   box.dataset.key = key;
-  box.replaceChildren(...routes.map((r) => el("label", { class: "row" + (isTorRoute(r) ? " expert" : ""), style: "gap:5px;color:var(--text)" },
+  box.replaceChildren(...routes.map((r) => el("label", { class: "row", style: "gap:5px;color:var(--text)" },
     el("input", { type: "checkbox", value: r, ...(first || had.has(r) ? { checked: "" } : {}), onchange: speedEstimate }), routeTag(r))));
   speedEstimate();
 }
 
-// hidden ones (Tor routes in the normal view) are not measured, even if ticked before
+// hidden ones are not measured, even if ticked before
 function speedChosen() {
   const ndt = $("#sp-prov").value === "ndt7"; // M-Lab resets connections from Tor: not offered there
   return [...$("#sp-routes").querySelectorAll("input:checked")].filter((i) => i.offsetParent !== null && !(ndt && isTorRoute(i.value))).map((i) => i.value);
