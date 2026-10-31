@@ -3,6 +3,7 @@ package org.theshunt.app
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.SideEffect
@@ -319,10 +320,11 @@ fun fontScaled(d: Dp): Dp = d * LocalDensity.current.fontScale.coerceIn(1f, 1.6f
 /**
  * A title (left) and its buttons (right) on one line. When both do not fit
  * (long name, big font) the buttons move below and the title keeps the whole
- * width, so it is never squeezed to a letter per line.
+ * width, so it is never squeezed to a letter per line. [stack] puts them
+ * below always (cards in a list that should look alike).
  */
 @Composable
-fun HeadRow(modifier: Modifier = Modifier, start: @Composable () -> Unit, end: @Composable () -> Unit) {
+fun HeadRow(modifier: Modifier = Modifier, stack: Boolean = false, start: @Composable () -> Unit, end: @Composable () -> Unit) {
     Layout(contents = listOf(start, end), modifier = modifier.fillMaxWidth()) { (s, e), cs ->
         val max = cs.maxWidth
         val loose = Constraints(maxWidth = max)
@@ -330,7 +332,7 @@ fun HeadRow(modifier: Modifier = Modifier, start: @Composable () -> Unit, end: @
         val ends = e.map { it.measure(loose) }
         val ew = ends.maxOfOrNull { it.width } ?: 0
         val want = s.maxOfOrNull { it.maxIntrinsicWidth(Constraints.Infinity) } ?: 0
-        if (ends.isEmpty() || want + gap + ew <= max) {
+        if (ends.isEmpty() || (!stack && want + gap + ew <= max)) {
             val starts = s.map { it.measure(Constraints(maxWidth = (max - if (ends.isEmpty()) 0 else gap + ew).coerceAtLeast(0))) }
             val h = maxOf(starts.maxOfOrNull { it.height } ?: 0, ends.maxOfOrNull { it.height } ?: 0)
             layout(max, h) {
@@ -350,7 +352,13 @@ fun HeadRow(modifier: Modifier = Modifier, start: @Composable () -> Unit, end: @
 
 /** A text button whose label lines up with the text around it (no side padding). */
 @Composable
-fun ShuntLink(text: String, onClick: () -> Unit, color: Color = Color.Unspecified, enabled: Boolean = true, modifier: Modifier = Modifier) {
+fun ShuntLink(text: String, onClick: () -> Unit, color: Color = Color.Unspecified, enabled: Boolean = true, modifier: Modifier = Modifier, compact: Boolean = false) {
+    if (compact) {
+        // in lists and dialogs: no button height, just the text with a small touch margin
+        Text(T(text), modifier.clickable(enabled = enabled, onClick = onClick).padding(vertical = 4.dp),
+            color = if (!enabled) LocalShunt.current.muted else if (color == Color.Unspecified) LocalShunt.current.accent else color)
+        return
+    }
     TextButton(onClick, modifier, enabled = enabled, contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp)) {
         Text(T(text), color = if (enabled) color else Color.Unspecified)
     }
