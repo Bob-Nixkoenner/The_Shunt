@@ -11,6 +11,7 @@ package check
 import (
 	"cmp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -38,6 +39,9 @@ type Finding struct {
 	// Help: what the term means and what to do, in plain words (English
 	// sentence, translated like Msg; "" = none).
 	Help string `json:"help,omitempty"`
+	// Strict: the level was raised (or the finding exists at all) because
+	// daemon.config_check is "strict"; the UI shows such findings as banners.
+	Strict bool `json:"strict,omitempty"`
 }
 
 // helps: the plain-words explanation of findings that need one.
@@ -160,8 +164,45 @@ func Config(c *config.Config, env Env) []Finding {
 		}
 	}
 
+	if c.Daemon.StrictCheck() {
+		for i, r := range c.Rules {
+			if !strings.HasPrefix(r.Route, "direct") {
+				continue
+			}
+			name := r.Name
+			if name == "" {
+				name = "#" + strconv.Itoa(i+1)
+			}
+			add(Info, "rule.direct", "Rule “{rule}” sends traffic direct, past every tunnel.", "rule", "rule", name)
+		}
+		out = strict(out)
+	}
+
 	slices.SortStableFunc(out, func(a, b Finding) int { return cmp.Compare(rank(a.Level), rank(b.Level)) })
 	return out
+}
+
+// strictBad: hints the strict check (daemon.config_check = "strict") makes
+// "bad": a server anyone can probe, DNS past the tunnel, everything else
+// direct.
+var strictBad = map[string]bool{"ovpn.nowrap": true, "dns.doh": true, "default.direct": true}
+
+// strict raises every finding one level (info → warn → bad), the ones in
+// strictBad to bad, and marks them.
+func strict(fs []Finding) []Finding {
+	for i := range fs {
+		f := &fs[i]
+		switch {
+		case strictBad[f.ID]:
+			f.Level = Bad
+		case f.Level == Info:
+			f.Level = Warn
+		case f.Level == Warn:
+			f.Level = Bad
+		}
+		f.Strict = true
+	}
+	return fs
 }
 
 func rank(l string) int {

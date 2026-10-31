@@ -929,16 +929,16 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, pro: Boolean, onSwitch: (String
     }
 }
 
-/** Settings tab: Normal or Pro mode (Pro shows the Tor functions). */
+/** Settings tab: Simple or Pro mode (Pro shows the Tor functions). */
 @Composable
 private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Section("Mode") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ShuntButton("Normal", { update(settings.copy(pro = false)) }, kind = if (!settings.pro) Tone.Ok else Tone.Neutral)
+                ShuntButton("Simple", { update(settings.copy(pro = false)) }, kind = if (!settings.pro) Tone.Ok else Tone.Neutral)
                 ShuntButton("Pro", { update(settings.copy(pro = true)) }, kind = if (settings.pro) Tone.Ok else Tone.Neutral)
             }
-            Hint("Normal shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their expert buttons show in Pro only.")
+            Hint("Simple shows the basics. Pro adds Tor: adding it, bridges, New identity and Everything through Tor. Tor tunnels you already have stay on their cards; their extra buttons show in Pro only.")
         }
     }
 }
