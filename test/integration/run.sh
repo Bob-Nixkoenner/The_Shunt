@@ -33,6 +33,7 @@ cleanup() {
 	ip netns exec $WAN pkill -f "^$BIN/fakedns" 2>/dev/null
 	[[ -n ${OVPN_SRV_PID:-} ]] && kill "$OVPN_SRV_PID" 2>/dev/null
 	[[ -n ${PORTAL_PID:-} ]] && kill "$PORTAL_PID" 2>/dev/null
+	ip netns del shunt-gwc 2>/dev/null
 	ip netns del $CLI 2>/dev/null
 	rm -rf "/etc/netns/$CLI"
 	groupdel shunttest 2>/dev/null
@@ -779,6 +780,103 @@ ip -n $CLI route add default via 10.98.0.1 metric 200 2>/dev/null || true
 got=; for _ in $(seq 30); do got=$(fetch "$BIN/shunt" -s "$SOCK" run --via link:wifi -- curl -s $URL); [[ $got == 10.98.0.2 ]] && break; sleep 0.5; done
 check "Wi-Fi back: followed" 10.98.0.2 "$got"
 ip -n $CLI link del cli1
+
+echo "== gateway mode: devices behind this machine"
+# a client namespace behind veth gw0; its group's route decides, the kill
+# switch holds for forwarded traffic, the client is no guest of the host
+GWC=shunt-gwc
+ip netns add $GWC
+ip -n $CLI link add gw0 type veth peer name gwc0
+ip -n $CLI link set gwc0 netns $GWC
+ip -n $CLI addr add 10.88.0.1/24 dev gw0
+ip -n $CLI link set gw0 up
+ip -n $GWC addr add 10.88.0.2/24 dev gwc0
+ip -n $GWC link set gwc0 up
+ip -n $GWC link set lo up
+ip -n $GWC route add default via 10.88.0.1
+gwc() { ip netns exec $GWC timeout 5 "$@" 2>/dev/null || true; }
+# what leaves the uplink with a client's address after the firewall (a leak)
+cli nft add table ip gwleak
+cli nft add chain ip gwleak p '{ type filter hook postrouting priority 50; }'
+cli nft add rule ip gwleak p oifname cli0 ip saddr 10.88.0.0/24 counter
+leaked() { cli nft list chain ip gwleak p | sed -n 's/.*packets \([0-9]*\).*/\1/p'; }
+cp "$WORK/etc/shunt.toml" "$WORK/etc/shunt.toml.nogw"
+gw_route() { # $1 = route of the group
+	cp "$WORK/etc/shunt.toml.nogw" "$WORK/etc/shunt.toml"
+	cat >>"$WORK/etc/shunt.toml" <<EOF
+
+[gateway]
+enabled = true
+
+[[gateway.group]]
+name = "vms"
+interfaces = ["gw0"]
+route = "$1"
+EOF
+	shunt reload
+	for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+	sleep 1
+}
+fwd0=$(cat /proc/sys/net/ipv4/ip_forward)
+if [[ $fwd0 == 0 ]]; then
+	check "gateway off: nothing is forwarded" "" "$(gwc curl -s $URL)"
+fi
+gw_route tunnel:vps
+check "gateway status shows the group" yes "$(shunt gateway status | gq 'vms .*tunnel:vps' && echo yes || echo no)"
+gw_wait() { local got; for _ in $(seq 20); do got=$(gwc curl -s $URL); [[ $got == "$1" ]] && break; sleep 0.5; done; echo "$got"; }
+check "gateway: client leaves through the tunnel" 10.66.0.2 "$(gw_wait 10.66.0.2)"
+if [[ $(gwc curl -s $URL) != 10.66.0.2 ]]; then
+	echo "--- gateway debug"
+	cli ip rule; cli ip route show table all | grep -v '^local\|^broadcast'
+	cli sysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.gw0.rp_filter net.ipv4.conf.sh-vps.rp_filter net.ipv4.conf.sh-vps.forwarding net.ipv4.conf.gw0.forwarding net.ipv4.conf.all.src_valid_mark
+	cli ip -s link show gw0; cli ip -s link show sh-vps
+	cli nft list chain inet shunt mark_in; cli nft list chain inet shunt gw_fwd
+	cli conntrack -L 2>&1 | head -8
+	echo "--- end debug"
+fi
+check "gateway: client DNS goes the route too" yes "$(gwc "$BIN/fakedns" query -server 10.99.0.1:53 -type TXT whoami.test | gq 10.66.0.2 && echo yes || echo no)"
+if [[ $fwd0 == 0 ]]; then
+	check "gateway: no global ip_forward" 0 "$(cat /proc/sys/net/ipv4/ip_forward)"
+fi
+check "gateway: nothing leaked so far" 0 "$(leaked)"
+# the host's own services are not for clients (DHCP and DNS only)
+cli python3 -m http.server 7777 --bind 10.88.0.1 >/dev/null 2>&1 &
+HS_PID=$!
+sleep 1
+check "gateway: host reachable from its own side" yes "$(fetch curl -s -o /dev/null -w yes http://10.88.0.1:7777/)"
+check "gateway: client cannot reach host services" "" "$(gwc curl -s -o /dev/null -w yes http://10.88.0.1:7777/)"
+kill $HS_PID 2>/dev/null
+while_down "gateway: tunnel down, client blocked" "" gwc curl -s $URL
+check "gateway: tunnel down, no packet left directly" 0 "$(leaked)"
+echo "   (waiting for the watchdog to restore the tunnel)"
+for _ in $(seq 45); do cli ip link show sh-vps >/dev/null 2>&1 && break; sleep 1; done
+sleep 2
+check "gateway: tunnel back, client works again" 10.66.0.2 "$(gw_wait 10.66.0.2)"
+shunt panic on
+check "gateway: panic cuts the client" "" "$(gwc curl -s $URL)"
+shunt panic off
+sleep 1
+check "gateway: panic off, client works again" 10.66.0.2 "$(gw_wait 10.66.0.2)"
+gw_route block
+check "gateway: block route, client gets nothing" "" "$(gwc curl -s $URL)"
+check "gateway: block route, no packet left" 0 "$(leaked)"
+gw_route direct
+check "gateway: direct route, client masqueraded" 10.99.0.2 "$(gw_wait 10.99.0.2)"
+# an uplink cannot be a client interface: it is left out, nothing breaks
+sed -i 's/interfaces = \["gw0"\]/interfaces = ["gw0", "cli0"]/' "$WORK/etc/shunt.toml"
+shunt reload
+sleep 1
+check "gateway: uplink left out" yes "$(shunt gateway status | gq 'Left out: cli0' && echo yes || echo no)"
+cp "$WORK/etc/shunt.toml.nogw" "$WORK/etc/shunt.toml"
+shunt reload
+for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+sleep 1
+# gateway off: the client network is an ordinary network behind the host
+# now; the default route (the tunnel) decides for it (see below)
+check "gateway off again: client follows the default route" 10.66.0.2 "$(gw_wait 10.66.0.2)"
+check "gateway off: status says so" yes "$(shunt gateway status | gq 'off' && echo yes || echo no)"
+cli nft delete table ip gwleak
+ip netns del $GWC
 
 echo "== forwarded traffic (Docker/VMs behind this machine, no gateway mode)"
 # a namespace NATed by the host like a Docker network: the default route
