@@ -409,10 +409,7 @@ func (s *Server) handler() http.Handler {
 		writeJSON(w, desktop.FirefoxProfiles())
 	})
 	mux.HandleFunc("GET /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
-		uiStateMu.Lock()
-		st := loadUIState()
-		uiStateMu.Unlock()
-		writeJSON(w, st)
+		writeJSON(w, migrateUIState())
 	})
 	mux.HandleFunc("PUT /api/ui-state", func(w http.ResponseWriter, r *http.Request) {
 		var changes map[string]*string
@@ -448,6 +445,13 @@ func (s *Server) handler() http.Handler {
 			h = []speedtest.HistEntry{}
 		}
 		writeJSON(w, h)
+	})
+	mux.HandleFunc("DELETE /api/speedtest/history", func(w http.ResponseWriter, r *http.Request) {
+		if err := speedtest.ClearHistory(speedtest.HistoryPath()); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, []speedtest.HistEntry{})
 	})
 	mux.HandleFunc("GET /api/speedtest", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.speed.State())

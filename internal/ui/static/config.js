@@ -134,7 +134,7 @@ function renderConfig() {
     // multi-hop: a tunnel may run through any other tunnel (not through
     // itself or one that already runs through it)
     const loops = (m) => { for (let c = m, k = 0; c && k < 20; k++) { if (c === n) return true; c = ((model.tunnel[c] || {}).via || "").replace(/^tunnel:/, ""); } return false; };
-    const viaSel = el("select", { title: "multi-hop", class: "expert", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
+    const viaSel = el("select", { title: "multi-hop", "data-lv": "tunnel.multihop", onchange: (e) => { t.via = e.target.value || undefined; markDirty(); renderConfig(); } },
       el("option", { value: "" }, "direct to its server"),
       ...names.filter((m) => !loops(m)).map((m) => el("option", { value: "tunnel:" + m }, T("via {tunnel}", { tunnel: m }))),
       ...LINKS.map(([v, l]) => el("option", { value: v }, T("over {link} only", { link: T(l) }))));
@@ -143,7 +143,7 @@ function renderConfig() {
     return el("tr", {},
       el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, i.type === "openvpn" ? "OpenVPN" : "WireGuard")),
       el("td", { class: "mono" }, (i.endpoint || "–") + "  ", el("span", { class: "muted" }, joinList(i.addresses))),
-      el("td", {}, viaSel, el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { class: "muted" }, "Advanced"),
+      el("td", {}, viaSel, el("details", { style: "font-size:12px;margin-top:6px", "data-lv": "tunnel.advanced" }, el("summary", { class: "muted" }, "Advanced"),
         el("label", { class: "row muted", title: "A SOCKS5 proxy on this local address; programs set to use it go through this tunnel (names are resolved inside it). Loopback only, e.g. 127.0.0.1:1080. Empty = off." },
           "SOCKS5 exit ", el("input", { type: "text", size: 16, placeholder: "127.0.0.1:1080", value: t.socks || "", onchange: (e) => { t.socks = e.target.value.trim() || undefined; markDirty(); } }))),
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Apps in this tunnel still reach printers, NAS and the router of the network you are in (private addresses only)" },
@@ -151,7 +151,7 @@ function renderConfig() {
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't connect it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
       el("td", {}, dnsSel, el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t)),
-        el("div", { class: "row linux-only", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on above). LAN = e.g. a tunnel home." }, "incoming "), (() => {
+        el("div", { class: "row linux-only", style: "margin-top:6px", "data-lv": "inbound" }, el("span", { class: "muted", style: "font-size:12px", title: "Incoming connections through this tunnel, on every network (when switched on above). LAN = e.g. a tunnel home." }, "incoming "), (() => {
           const s = el("select", { onchange: (e) => { t.inbound = e.target.value || undefined; markDirty(); } },
             el("option", { value: "" }, "closed"), el("option", { value: "lan" }, "LAN: allowed ports"), el("option", { value: "open" }, "open (no filter)"));
           s.value = t.inbound === "closed" ? "" : t.inbound || "";
@@ -489,11 +489,11 @@ function torRow(n, t) {
   return el("tr", {},
     el("td", {}, routeTag("tunnel:" + n), el("div", { class: "muted" }, "Tor")),
     el("td", {}, el("span", { class: "muted" }, "Tor network"), el("div", { class: "muted", style: "font-size:12px" }, "TCP only; no UDP, no calls. .onion works.")),
-    el("td", {}, sel, own, bridgeHelp(), el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
+    el("td", {}, el("div", { "data-lv": "tor.bridges" }, sel, own, bridgeHelp(), el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "circuits "), iso),
       el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "Tor "), viaSel),
       el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { class: "muted" }, "Advanced"),
         el("label", { class: "row muted", title: "A SOCKS5 proxy on this local address that leads into Tor (names are resolved by Tor). Loopback only. Empty = off." },
-          "SOCKS5 exit ", el("input", { type: "text", size: 16, placeholder: "127.0.0.1:9050", value: t.socks || "", onchange: (e) => { t.socks = e.target.value.trim() || undefined; markDirty(); } }))),
+          "SOCKS5 exit ", el("input", { type: "text", size: 16, placeholder: "127.0.0.1:9050", value: t.socks || "", onchange: (e) => { t.socks = e.target.value.trim() || undefined; markDirty(); } })))),
       el("label", { class: "row muted", style: "font-size:12px;margin-top:6px", title: "Keep the tunnel but don't start it. Apps that would use it are blocked." },
         el("input", { type: "checkbox", checked: t.disabled ? null : "", onchange: (e) => { t.disabled = !e.target.checked || undefined; markDirty(); } }), "switched on")),
     el("td", {}, el("span", { class: "muted" }, "through Tor"), el("div", { class: "row", style: "margin-top:6px" }, el("span", { class: "muted", style: "font-size:12px" }, "DNS filter "), filterSel(t))),
@@ -546,7 +546,7 @@ function netField(text, title, options, get, set, o = {}) {
   const s = el("select", {}, ...options.map(([v, t]) => el("option", { value: v }, t)));
   s.value = get();
   const mark = (v) => o.mark !== false && !!v;
-  const l = el("label", { title, class: (o.linux ? "linux-only " : "") + (mark(s.value) ? "set" : "") }, text, s);
+  const l = el("label", { title, class: (o.linux ? "linux-only " : "") + (mark(s.value) ? "set" : ""), "data-lv": o.lv }, text, s);
   s.addEventListener("change", () => { set(s.value); l.classList.toggle("set", mark(s.value)); markDirty(); });
   return l;
 }
@@ -584,7 +584,7 @@ function renderNetworks() {
         netField("MAC address", "MAC address on this network (when set above); applies from the next connection",
           [["", General], ["random", "new each time"], ["stable", "own per network"], ["permanent", "the real one"]], () => n.mac || "", (v) => { n.mac = v || undefined; }, { linux: true }),
         netField("incoming connections", "Incoming connections on this network (when switched on above)",
-          [["", "closed"], ["lan", "LAN: allowed ports"], ["open", "open (no filter)"]], () => (n.inbound === "closed" ? "" : n.inbound || ""), (v) => { n.inbound = v || undefined; }, { linux: true })));
+          [["", "closed"], ["lan", "LAN: allowed ports"], ["open", "open (no filter)"]], () => (n.inbound === "closed" ? "" : n.inbound || ""), (v) => { n.inbound = v || undefined; }, { lv: "inbound" })));
   }) : [el("div", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel.")]));
 }
 $("#n-add").addEventListener("click", async () => {
