@@ -105,6 +105,9 @@ run_test() {
 	# tor) keeps relay connections open that go direct with default route
 	# direct: lab noise, not shuntd's traffic
 	[[ ${CLIENT_OS:-linux} == windows ]] || client "sudo -n systemctl disable --now tor.service 2>/dev/null" || true
+	# the lab apps are copies (prep.sh); after a distro update (Arch) they no
+	# longer match the system libraries: copy them again when they differ
+	[[ ${CLIENT_OS:-linux} == windows ]] || client 'nc=$(readlink -f /usr/bin/nc); for n in labtun labdir labfree; do for p in "/usr/bin/curl:" "/usr/bin/dig:-dig" "$nc:-nc"; do s=${p%%:*} t=/usr/local/bin/$n${p#*:}; cmp -s "$s" "$t" || sudo -n install -m755 "$s" "$t"; done; done; cmp -s /usr/bin/bash /usr/local/bin/labtun-sh || sudo -n install -m755 /usr/bin/bash /usr/local/bin/labtun-sh' || true
 	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
