@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Linux: gateway mode (`[gateway]`, `[[gateway.group]]` with `interfaces` and `route`, stage 1, see docs/GATEWAY.md): devices, VMs and containers behind chosen interfaces go through The Shunt with their own route per group. Kill switch for forwarded traffic (no fallback to direct), NAT for direct groups, IPv6 from clients dropped, groups kept apart, clients reach only DHCP/DNS/ICMP of the host, panic and tor-all cut them off. `shunt gateway status`, config check findings, netns integration test. Tor as group route and the Shunt resolver for clients come in stage 2.
+- Linux: replies to connections forwarded for containers and VMs behind this machine now come back through a tunnel that is the default route. The leak guard dropped them (they carried the tunnel's mark); packets that arrive from the tunnel are exempt now.
 
 ## v0.7.1-rc20
 
