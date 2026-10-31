@@ -538,3 +538,39 @@ func TestStrictEmergency(t *testing.T) {
 		t.Error("unsafe cgroup path accepted")
 	}
 }
+
+// Default route = block: forwarded traffic (containers, VMs) is dropped in
+// the forward hook, not only rejected for local sockets.
+func TestRenderBlockDefaultGolden(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "block"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := engine.Compile(c, "system.slice/shuntd.service", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "chain fwd_block") {
+		t.Fatalf("no fwd_block chain:\n%s", got)
+	}
+	const golden = "testdata/block_default.nft"
+	if *update {
+		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Errorf("ruleset differs from %s (run with -update after checking):\n%s", golden, got)
+	}
+}
