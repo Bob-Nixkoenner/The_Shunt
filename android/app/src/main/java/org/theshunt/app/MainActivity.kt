@@ -43,6 +43,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -522,7 +525,8 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
                 EdgeCard(Tone.Ok) {
                     // the name first: the buttons move below it when the line is too short
-                    HeadRow(
+                    // large font: buttons below on every card, not on some cards beside the name
+                    HeadRow(stack = LocalDensity.current.fontScale > 1.3f,
                         start = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
                                 Text(t.name, Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = LocalShunt.current.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -766,12 +770,9 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                         ?.also { AppCache.icons.put(a.pkg, it) }
                 }
                 val route = settings.apps[a.pkg]
-                Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    icon?.let { Image(it, null, Modifier.size(36.dp)) } ?: Spacer(Modifier.size(36.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                        Text(a.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = c.text)
-                        Text(a.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Mono, fontSize = 11.5.sp, color = c.muted)
-                    }
+                // large font: the filter chip and the route go on a line of their own, so names stay readable
+                val big = LocalDensity.current.fontScale > 1.3f
+                val controls: @Composable () -> Unit = {
                     if (settings.filterLists.isNotEmpty()) {
                         val filtered = a.pkg !in settings.unfiltered
                         FilterChip(filtered, {
@@ -788,6 +789,17 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                             update(settings.copy(apps = if (r == "default") settings.apps - a.pkg else settings.apps + (a.pkg to r)))
                         }
                     }
+                }
+                Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        icon?.let { Image(it, null, Modifier.size(36.dp)) } ?: Spacer(Modifier.size(36.dp))
+                        Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                            Text(a.label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, color = c.text)
+                            Text(a.pkg, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = Mono, fontSize = 11.5.sp, color = c.muted)
+                        }
+                        if (!big) controls()
+                    }
+                    if (big) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) { controls() }
                 }
                 HorizontalDivider(color = c.line)
             }
@@ -908,8 +920,8 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (
             val cur = t.conf.lines().firstOrNull { it.startsWith("bridge") }?.substringAfter("=")?.trim() ?: ""
             var info by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Hint("Bridges help where Tor is blocked. They are slower.", Modifier.weight(1f))
-                TextButton({ info = !info }) { Text("ⓘ", fontSize = 18.sp) }
+                Hint("Bridges help where Tor is blocked. They are slower.", Modifier.weight(1f, fill = false))
+                Text("ⓘ", Modifier.clip(RoundedCornerShape(50)).clickable { info = !info }.padding(horizontal = 8.dp, vertical = 4.dp), color = LocalShunt.current.accent, fontSize = 18.sp)
             }
             if (info) BridgeInfo()
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
@@ -1066,8 +1078,8 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                             Text(T(it.text), color = if (it.kind == OpsecItem.Kind.NA) c.muted else c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Text(note, color = c.muted, fontSize = 12.sp)
                             when (it.id) {
-                                "killswitch" -> if (sys != true) ShuntLink("Open VPN settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) })
-                                "privatedns" -> if (sys != true) ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) })
+                                "killswitch" -> if (sys != true) ShuntLink("Open VPN settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }, compact = true)
+                                "privatedns" -> if (sys != true) ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }, compact = true)
                             }
                         }
                     }
@@ -1104,11 +1116,14 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
                 }
             }
         },
-        confirmButton = { TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) } },
-        dismissButton = {
-            Row {
-                TextButton({ onDone(null) }) { Text(T("Cancel")) }
-                TextButton({ onDone(Opsec.switchOff(settings, to, emptySet())) }) { Text(T("Keep all")) }
+        confirmButton = {
+            // one block: the three buttons do not fit one line, and two button rows of the dialog leave a big gap
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton({ onDone(Opsec.switchOff(settings, to, ticked.filterValues { it }.keys)) }) { Text(T("Undo ticked ones")) }
+                Row {
+                    TextButton({ onDone(null) }) { Text(T("Cancel")) }
+                    TextButton({ onDone(Opsec.switchOff(settings, to, emptySet())) }) { Text(T("Keep all")) }
+                }
             }
         },
     )
