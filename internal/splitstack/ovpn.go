@@ -156,7 +156,8 @@ func ovpnDNS(ot *ovpndroid.Tunnel) netip.Addr {
 
 // CheckOpenVPN validates a .ovpn file (import in an app) and returns a short
 // JSON summary: servers, whether it needs a username/password, and what was
-// removed (scripts and the like, which never run here).
+// removed (scripts and the like, which never run here), and whether it has
+// tls-crypt or tls-auth (the app's strict check names files without).
 func CheckOpenVPN(conf string) (string, error) {
 	clean, c, err := checkOpenVPN(conf)
 	if err != nil {
@@ -168,7 +169,8 @@ func CheckOpenVPN(conf string) (string, error) {
 		NeedsAuth bool     `json:"needs_auth"`
 		Removed   []string `json:"removed"`
 		Clean     string   `json:"clean"`
-	}{c.Remotes, c.NeedsAuth, removed, clean}
+		TLSWrap   bool     `json:"tls_wrap"`
+	}{c.Remotes, c.NeedsAuth, removed, clean, c.TLSWrap}
 	b, _ := json.Marshal(sum)
 	return string(b), nil
 }
