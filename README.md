@@ -202,6 +202,11 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 - **Web UI** (`shunt ui`): tunnel health, apps per route, app launcher, menu entries,
   leak test, panic button – local only, token-protected, no external resources
 - **Leak test**: public IP and DNS resolver of every route, with verdicts
+- **Security check** (`shunt check`, banners and notes in the UI): weak OpenVPN files, DNS
+  that can go past the tunnels, a disabled kill switch … (exit status 1 when something is
+  bad). `daemon.config_check = "strict"` (set by the opsec level) raises every finding one
+  level and makes OpenVPN without tls-crypt, allowed DoH/DoT and everything-else-direct "bad"
+  and direct rules warnings
 - **Configure in the UI**: rules (apps, profiles, domains, IPs, ports), DNS servers, default
   route, WireGuard import by drag & drop – every change is checked like `shuntd check`
   before it is written, the old file is kept as `shunt.toml.bak`, and a config that cannot

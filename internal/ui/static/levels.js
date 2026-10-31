@@ -14,9 +14,9 @@ const UI_LEVELS = ["simple", "pro", "opsec"];
 const LV_ALL = ["simple", "pro", "opsec"], LV_PRO = ["pro", "opsec"];
 
 const LEVEL_TABLE = {
-  // tabs: Simple has Overview, VPN, Apps, DNS (and View, where the level is chosen)
+  // tabs: Simple has Overview, VPN, Apps, DNS, Speedtest and View (where the
+  // level is chosen, so it must stay: the way back)
   "tab.ports": LV_PRO,
-  "tab.speed": LV_PRO,
   "tab.config": LV_PRO,
   // Tor: existing Tor tunnels stay as a plain card; adding one, bridges,
   // new identity and the emergency switch are Pro (the switch stays visible

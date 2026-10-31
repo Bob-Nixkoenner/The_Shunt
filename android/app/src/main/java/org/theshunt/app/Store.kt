@@ -75,7 +75,7 @@ data class Settings(
     val networks: List<NetProfile> = emptyList(),
     /** Emergency: every app goes through the Tor tunnel (routes are kept, not used). */
     val torAll: Boolean = false,
-    /** Pro mode (Settings tab): shows the Tor functions; Normal hides them. */
+    /** Pro mode (Settings tab): shows the Tor functions; Simple hides them. */
     val pro: Boolean = false,
 ) {
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */

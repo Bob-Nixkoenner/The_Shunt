@@ -247,7 +247,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   </div>
   <span id="state" class="pill">connecting…</span>
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
-  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" data-lv="tab.ports">Ports</button><button id="tab-speed" data-lv="tab.speed">Speedtest</button><button id="tab-config" data-lv="tab.config">Configure</button><button id="tab-view">View</button></nav>
+  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" data-lv="tab.ports">Ports</button><button id="tab-speed">Speedtest</button><button id="tab-config" data-lv="tab.config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
   <button id="torall" hidden title="Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.">All via Tor</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
@@ -639,7 +639,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <section data-fold class="half">
     <h2>Settings shown</h2>
     <div class="seg" id="v-level" role="group" aria-label="Settings shown"><button data-l="simple">Simple</button><button data-l="pro">Pro</button><button data-l="opsec">Opsec</button></div>
-    <div class="hint lvhelp" data-for="simple">Simple shows what you need every day: overview, VPN, apps and DNS. Tor, ports, rules, network profiles, incoming protection and the fine-tuning are hidden. Hidden settings keep working.</div>
+    <div class="hint lvhelp" data-for="simple">Simple shows what you need every day: overview, VPN, apps, DNS and the speed test. Tor, ports, rules, network profiles, incoming protection and the fine-tuning are hidden. Hidden settings keep working.</div>
     <div class="hint lvhelp" data-for="pro">Pro shows everything.</div>
     <div class="hint lvhelp" data-for="opsec">Opsec shows everything, marks the window violet and switches on strict settings you confirm once (switching back offers to undo them).</div>
     <div class="hint lvhelp" data-for="opsec" data-i18n="html"><b>Opsec is no guarantee.</b> It closes common leaks of this computer; it does not make you anonymous. The VPN provider still sees your traffic, websites still recognise you by logins, cookies and the browser, and Tor hides where you are but not what you type into a page. For anonymous browsing use the Tor Browser.</div>
