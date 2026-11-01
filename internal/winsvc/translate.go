@@ -59,9 +59,10 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 		Via  string `json:"via,omitempty"`
 	}
 	type networkJS struct {
-		Name    string   `json:"name"`
-		SSID    []string `json:"ssid"`
-		Default string   `json:"default"`
+		Name       string   `json:"name"`
+		SSID       []string `json:"ssid"`
+		GatewayMAC []string `json:"gateway_mac,omitempty"`
+		Default    string   `json:"default"`
 	}
 	type ruleJS struct {
 		Name    string   `json:"name"`
@@ -143,10 +144,7 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 	}
 
 	for _, n := range c.Networks {
-		nj := networkJS{Name: n.Name, SSID: n.SSID}
-		if len(n.GatewayMAC) > 0 {
-			warn("network %q: gateway_mac is not used on Windows yet (only the Wi-Fi name)", n.Name)
-		}
+		nj := networkJS{Name: n.Name, SSID: n.SSID, GatewayMAC: n.GatewayMAC}
 		if n.DefaultRoute != "" {
 			if nj.Default, err = route(n.DefaultRoute); err != nil {
 				return "", nil, fmt.Errorf("network %q: %w", n.Name, err)

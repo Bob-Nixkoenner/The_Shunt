@@ -99,3 +99,23 @@ func TestAPIOverSocket(t *testing.T) {
 		t.Fatal("restart without handler should fail")
 	}
 }
+
+type profileCore struct{ fakeCore }
+
+func (profileCore) Status() string {
+	return `{"tunnels":[],"override":{},"network":"home","default":"direct"}`
+}
+
+// On a network profile the status shows the profile's default route, not
+// daemon.default_route.
+func TestStatusProfileDefault(t *testing.T) {
+	cfg := func() (string, map[string]string) { return "tunnel:home", nil }
+	st, err := (&Server{Core: &profileCore{}, Config: cfg}).Status()
+	if err != nil || st.DefaultRoute != "direct" || st.Network != "home" {
+		t.Fatalf("with profile: %+v %v", st, err)
+	}
+	st, _ = (&Server{Core: &fakeCore{}, Config: cfg}).Status()
+	if st.DefaultRoute != "tunnel:home" {
+		t.Fatalf("without engine default: %q", st.DefaultRoute)
+	}
+}
