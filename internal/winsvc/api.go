@@ -48,6 +48,9 @@ type Server struct {
 	// Cfg serves the config endpoints (GET/PUT /v1/config, tunnels); nil
 	// leaves them out.
 	Cfg *Manager
+	// TorBootstrap returns the progress (0..100) of the tor.exe behind a Tor
+	// tunnel; ok=false if none runs for it (may be nil).
+	TorBootstrap func(tunnel string) (progress int, ok bool)
 	// NetInfo describes the network the machine is connected to (may be nil).
 	NetInfo func() netdetect.Info
 	// Config returns the default route and the app rules of the config file
@@ -71,6 +74,7 @@ type engineStatus struct {
 		Via       string        `json:"via"`
 		Up        bool          `json:"up"`
 		Error     string        `json:"error"`
+		Bootstrap int           `json:"bootstrap"`
 		Handshake int64         `json:"handshake"`
 		RX        int64         `json:"rx"`
 		TX        int64         `json:"tx"`
@@ -147,7 +151,28 @@ func (s *Server) Status() (api.Status, error) {
 		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
 		h := t.Health
 		ts.Health = &h
-		{
+		if t.Type == "tor" {
+			// Tor has no handshake: the card shows tor's progress. The SOCKS
+			// port answers long before tor is through the network, so the
+			// engine's "reachable" alone is not "connected".
+			b, ok := t.Bootstrap, t.Bootstrap > 0
+			if s.TorBootstrap != nil {
+				if v, has := s.TorBootstrap(t.Name); has {
+					b, ok = v, true
+				}
+			}
+			if !ok || b < 1 {
+				b = 1 // starting
+			}
+			ts.Bootstrap = &b
+			if b < 100 {
+				ts.Health = &health.Report{State: health.Unknown, HandshakeAge: -1}
+				if ts.Error == "" && t.Up {
+					ts.Error = fmt.Sprintf("Tor is starting: %d %%", b)
+				}
+			}
+			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
+		} else {
 			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
 			if s.Cfg != nil {
 				ts.Peers[0].Endpoint = s.Cfg.Endpoint(t.Name)
