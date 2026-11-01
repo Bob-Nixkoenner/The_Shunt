@@ -115,3 +115,18 @@ func TestPickCircuitConflux(t *testing.T) {
 		t.Fatalf("%v", p)
 	}
 }
+
+// With several apps on their own circuits the card shows the busiest one.
+func TestPickCircuitMostStreams(t *testing.T) {
+	p := pickCircuit([]string{
+		"1 BUILT $A~a,$B~b,$ONE~one PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:00:00.000000",
+		"2 BUILT $A~a,$C~c,$TWO~two PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:01:00.000000",
+		"3 BUILT $A~a,$D~d,$NEW~new PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:02:00.000000",
+		"7 SUCCEEDED 1 a.example:443",
+		"8 SUCCEEDED 2 b.example:443",
+		"9 SUCCEEDED 2 c.example:443",
+	}, time.Time{})
+	if len(p) != 3 || p[2] != "$TWO~two" {
+		t.Fatalf("%v", p)
+	}
+}

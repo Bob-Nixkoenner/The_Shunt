@@ -6,3 +6,4 @@ app/libs/*.jar
 app/libs/*-sources.jar
 *.apk
 app/src/main/jniLibs/
+app/src/main/tor-assets/
