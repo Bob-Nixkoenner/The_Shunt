@@ -260,3 +260,34 @@ func TestTranslateTor(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// Adding a Tor tunnel: the save itself does not start tor.exe (the restart
+// does), so it must not warn that tor.exe is missing when it is installed.
+func TestSaveTorNoFalseMissing(t *testing.T) {
+	const torCfg = "[daemon]\ndefault_route = \"direct\"\n[tunnel.tor]\ndriver = \"tor\"\n"
+	for _, have := range []bool{true, false} {
+		m, r := newMgr(t)
+		m.StartTor = func(string, config.Tunnel) (string, error) { return "127.0.0.1:9150", nil }
+		m.HaveTor = func() bool { return have }
+		for _, f := range []func() ([]string, error){
+			func() ([]string, error) { return m.Check([]byte(torCfg)) },
+			func() ([]string, error) { return m.Save([]byte(torCfg), "") },
+		} {
+			warn, err := f()
+			if err != nil {
+				t.Fatal(err)
+			}
+			missing := strings.Contains(strings.Join(warn, " "), "tor.exe missing")
+			if missing == have {
+				t.Errorf("tor.exe installed=%v: warnings %q", have, warn)
+			}
+		}
+		if r.restarts != 1 {
+			t.Errorf("a new Tor tunnel needs a restart, got %d", r.restarts)
+		}
+		// after the restart tor runs and the address is the real one
+		if _, warn, err := m.Load(); err != nil || (have && len(warn) != 0) {
+			t.Errorf("load: %q %v", warn, err)
+		}
+	}
+}

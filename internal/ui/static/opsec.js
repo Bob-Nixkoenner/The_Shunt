@@ -100,7 +100,8 @@ function lvRow(it, box, note) {
 async function opsecSave() {
   let err = "";
   const ok = await checkOrSave(true, { config: model }, (t, cls) => { if (cls === "err") err = t; });
-  await loadConfig();
+  if (ok) await reloadConfig();
+  else await loadConfig();
   refresh();
   if (!ok) toast(T("Nothing was changed: {error}", { error: err || T("the service did not accept the config") }));
   return ok;

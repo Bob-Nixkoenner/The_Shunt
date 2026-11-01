@@ -18,6 +18,9 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 	return translate(c, read, nil)
 }
 
+// torDown is the SOCKS address of a Tor tunnel that is down: nothing listens.
+const torDown = "127.0.0.1:9"
+
 // translate: torSocks gives the SOCKS address of a Tor tunnel's tor.exe (nil:
 // Tor tunnels stay down with a warning).
 func translate(c *config.Config, read func(path string) ([]byte, error), torSocks func(name string, t config.Tunnel) string) (js string, warnings []string, err error) {
@@ -91,7 +94,7 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 			}
 			if addr == "" {
 				warn("tunnel %q: Tor is not available here (tor.exe missing), the tunnel stays down", name)
-				addr = "127.0.0.1:9" // nothing listens: the tunnel is down, never a leak
+				addr = torDown // nothing listens: the tunnel is down, never a leak
 			}
 			// the comment makes a change of bridges or isolation change the
 			// tunnel set: the service restarts and starts tor anew
