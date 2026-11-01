@@ -32,6 +32,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"golang.zx2c4.com/wireguard/conn"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -752,17 +753,18 @@ func (e *Engine) closeTunnels() {
 }
 
 type tunnelStatus struct {
-	Name      string        `json:"name"`
-	Type      string        `json:"type"` // wireguard | openvpn | tailscale
-	Via       string        `json:"via,omitempty"`
-	Up        bool          `json:"up"`
-	Idle      bool          `json:"idle,omitempty"` // asleep (on demand): made on the first connection
-	Error     string        `json:"error,omitempty"`
-	Bootstrap int           `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
-	Handshake int64         `json:"handshake"`           // unix seconds, 0 = never
-	RX        int64         `json:"rx"`
-	TX        int64         `json:"tx"`
-	Health    health.Report `json:"health"`
+	Name      string             `json:"name"`
+	Type      string             `json:"type"` // wireguard | openvpn | tailscale
+	Via       string             `json:"via,omitempty"`
+	Up        bool               `json:"up"`
+	Idle      bool               `json:"idle,omitempty"` // asleep (on demand): made on the first connection
+	Error     string             `json:"error,omitempty"`
+	Bootstrap int                `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
+	Circuit   *tunnel.TorCircuit `json:"circuit,omitempty"`   // built-in Tor, once through: exit and hops
+	Handshake int64              `json:"handshake"`           // unix seconds, 0 = never
+	RX        int64              `json:"rx"`
+	TX        int64              `json:"tx"`
+	Health    health.Report      `json:"health"`
 }
 
 type status struct {

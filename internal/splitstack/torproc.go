@@ -38,6 +38,9 @@ type torProc struct {
 	errRun    bool   // tor wrote an [err] line in this run
 	lastLine  string // the last line tor wrote to stderr (any level): the reason when it dies without an [err]
 	bootstrap int
+	newnymAt  time.Time          // last NEWNYM: circuits from before do not count
+	circAt    time.Time          // when circ was asked
+	circ      *tunnel.TorCircuit // cached for a few seconds (the status polls)
 	kick      chan struct{}
 	stopped   bool
 	stop      chan struct{}
@@ -244,6 +247,21 @@ func (p *torProc) watchBootstrap(pid int) {
 	}
 }
 
+// controlData is control for replies with data blocks (circuit-status:
+// "250+key=", lines, "."), which control does not read.
+func (p *torProc) controlData(cmds ...string) ([]string, error) {
+	cookie, err := os.ReadFile(p.cookiePath())
+	if err != nil || len(cookie) == 0 {
+		return nil, errors.New("no cookie yet")
+	}
+	c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(p.ctlPort), 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return tunnel.ControlExchange(c, cookie, cmds)
+}
+
 // control authenticates with the cookie and sends the commands.
 func (p *torProc) control(cmds ...string) ([]string, error) {
 	cookie, err := os.ReadFile(p.cookiePath())
@@ -312,7 +330,34 @@ func (p *torProc) Err() string {
 // NewIdentity asks tor for fresh circuits.
 func (p *torProc) NewIdentity() error {
 	_, err := p.control("SIGNAL NEWNYM")
+	if err == nil {
+		p.mu.Lock()
+		p.newnymAt, p.circAt = time.Now().UTC(), time.Time{}
+		p.mu.Unlock()
+	}
 	return err
+}
+
+// Circuit is the path new connections take (exit country, relay, address,
+// hops), nil until tor is through or has none; asked at most every 4 s.
+func (p *torProc) Circuit() *tunnel.TorCircuit {
+	p.mu.Lock()
+	if p.bootstrap < 100 {
+		p.mu.Unlock()
+		return nil
+	}
+	if time.Since(p.circAt) < 4*time.Second {
+		c := p.circ
+		p.mu.Unlock()
+		return c
+	}
+	since := p.newnymAt
+	p.mu.Unlock()
+	c, _ := tunnel.QueryCircuit(p.controlData, len(p.bridges) > 0, since)
+	p.mu.Lock()
+	p.circ, p.circAt = c, time.Now()
+	p.mu.Unlock()
+	return c
 }
 
 // Close stops tor.
