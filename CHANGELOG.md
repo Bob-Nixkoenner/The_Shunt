@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.7.1-rc21
+
 - Windows: Tor tunnel cards show tor's progress (starting n %, then connected) instead of "no handshake" next to health "ok"; "All via Tor" and "New identity" work there now (the service had no newnym endpoint), and the card shows the exit (country, relay, address) and hops like on Linux. Saving a new Tor tunnel no longer warns "tor.exe missing". The Tor Expert Bundle's geoip/geoip6 ship next to tor.exe (no GeoIP warning at every start, exit country known).
 - Windows: leaving Opsec right after a save that restarted the service (tunnel added/removed/imported) said "Save or discard your other changes first"; the page now waits for the service and the form counts as saved.
 - Windows: network profiles match the router's MAC (`gateway_mac`, read with ARP) like on Linux; "Add the current network" works on a cable. On a profile the header shows the profile's default route. Linux-only hints (`/etc/wireguard` + sudo, "needs the tor package") are hidden on Windows.
