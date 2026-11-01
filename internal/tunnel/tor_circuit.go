@@ -17,6 +17,11 @@ import (
 // controlExchange authenticates on tor's control connection with cookie and
 // runs cmds; it returns the reply lines without their status prefix. A data
 // reply ("250+key=" ... ".") yields "key=" and then its lines as they are.
+// ControlExchange is controlExchange for other tors (internal/splitstack).
+func ControlExchange(c net.Conn, cookie []byte, cmds []string) ([]string, error) {
+	return controlExchange(c, cookie, cmds)
+}
+
 func controlExchange(c net.Conn, cookie []byte, cmds []string) ([]string, error) {
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	rd := bufio.NewReader(c)
@@ -118,6 +123,12 @@ var newnymAt sync.Map // *Tor -> time.Time
 func markNewnym(t *Tor) {
 	newnymAt.Store(t, time.Now().UTC())
 	circuitCache.Delete(t)
+}
+
+// QueryCircuit is queryCircuit for other tors (the one the Android app
+// brings along, internal/splitstack).
+func QueryCircuit(ctl func(...string) ([]string, error), bridges bool, since time.Time) (*TorCircuit, error) {
+	return queryCircuit(ctl, bridges, since)
 }
 
 // queryCircuit asks tor (ctl runs control commands) for the circuit new

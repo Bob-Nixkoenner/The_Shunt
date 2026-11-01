@@ -297,7 +297,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
         val ts = status?.optJSONArray("tunnels")
         if (ts != null && ts.length() > 0) {
             Section("Tunnels") {
-                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history, settings.shows("tor.client"))
+                for (i in 0 until ts.length()) TunnelCard(ts.getJSONObject(i), status, history, settings.shows("tor.client"), settings.shows("tor.newnym"))
             }
         }
 
@@ -349,7 +349,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
 }
 
 @Composable
-private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, pro: Boolean = false) {
+private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, pro: Boolean = false, newnym: Boolean = false) {
     val ctx = LocalContext.current
     val h = t.optJSONObject("health")
     val state = h?.optString("state") ?: "unknown"
@@ -388,6 +388,13 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, 
             val loss = ((h?.optDouble("loss") ?: 0.0) * 100).toInt()
             if (ms > 0) KV("latency", "$ms ms" + if (loss > 0) T(" · {n} % lost", "n" to loss) else "")
             KV("traffic", "↓ ${Formatter.formatShortFileSize(ctx, t.optLong("rx"))} ↑ ${Formatter.formatShortFileSize(ctx, t.optLong("tx"))}")
+            // built-in Tor: the path new connections take (shown on this phone only)
+            t.optJSONObject("circuit")?.let { c ->
+                KV("exit", torExit(c))
+                KV("hops", if (c.optBoolean("bridge")) T("{n} (bridge first)", "n" to c.optInt("hops")) else c.optInt("hops").toString())
+            }
+            if (newnym && t.optString("type") == "tor" && boot >= 100)
+                ShuntButton("New identity", { torNewIdentity(ctx, t.getString("name")) }, modifier = Modifier.padding(top = 8.dp))
             Sparkline(history?.tunnel(t.getString("name")), Modifier.padding(top = 8.dp))
         }
         // the Tor the app brings: not through yet (starting, or it failed: the reason is above)
@@ -396,6 +403,41 @@ private fun TunnelCard(t: JSONObject, st: JSONObject, history: History? = null, 
             if (pro) ShuntButton("Start now", { Thread { VpnState.engine?.torStart(t.getString("name")) }.start() })
         }
     }
+}
+
+/** Exit of a Tor circuit: country (phone language), relay name and address. */
+fun torExit(c: JSONObject): String {
+    val cc = c.optString("country")
+    val country = if (cc.length == 2) java.util.Locale("", cc.uppercase()).displayCountry.ifEmpty { cc.uppercase() } else ""
+    return listOf(country, c.optString("relay"), c.optString("ip")).filter { it.isNotEmpty() }.joinToString(" · ").ifEmpty { "–" }
+}
+
+/** New identity, then one probe through the tunnel: tor builds the new circuit
+ *  only for a connection, so afterwards the card shows the new exit; a toast
+ *  says which one it is (web: same flow). */
+fun torNewIdentity(ctx: android.content.Context, name: String) {
+    val main = android.os.Handler(android.os.Looper.getMainLooper())
+    val say = { msg: String -> main.post { android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show() } }
+    Thread {
+        val eng = VpnState.engine ?: return@Thread
+        fun exit(): String = runCatching {
+            val ts = JSONObject(eng.status()).optJSONArray("tunnels") ?: return@runCatching ""
+            (0 until ts.length()).map { ts.getJSONObject(it) }.firstOrNull { it.optString("name") == name }
+                ?.optJSONObject("circuit")?.let { torExit(it) } ?: ""
+        }.getOrDefault("")
+        val before = exit()
+        val err = eng.torNewIdentity(name)
+        if (err.isNotEmpty()) { say(T("New identity failed: {error}", "error" to err)); return@Thread }
+        say(T("New identity: {name} builds fresh circuits for new connections", "name" to name))
+        val ip = runCatching { JSONObject(eng.torExit(name)).optString("ip") }.getOrDefault("")
+        Thread.sleep(500)
+        val now = exit()
+        say(when {
+            now.isNotEmpty() && now != before -> T("New exit: {exit}", "exit" to now)
+            ip.isNotEmpty() -> T("Exit now: {ip}", "ip" to ip)
+            else -> T("Tor builds the new route with the next connection")
+        })
+    }.start()
 }
 
 /** Month and total per tunnel and for all together (web: TRAFFIC table). */
@@ -921,7 +963,7 @@ private fun TorHelp(t: Tunnel, builtin: Boolean, settings: Settings, onSwitch: (
     if (builtin) {
         Hint("Tor carries TCP only: no calls, games or QUIC. Tor runs inside The Shunt; every app gets its own circuits. The first start takes a minute.")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Gap.buttons), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) {
-            if (settings.shows("tor.newnym")) ShuntButton("New identity", { Thread { VpnState.engine?.torNewIdentity(t.name) }.start() })
+            if (settings.shows("tor.newnym")) ShuntButton("New identity", { torNewIdentity(ctx, t.name) })
             if (pro) ShuntButton("Use Orbot instead", { onSwitch(Tunnel.TOR_DEFAULT_CONF) })
         }
         if (settings.shows("tor.newnym")) Hint("New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.")
