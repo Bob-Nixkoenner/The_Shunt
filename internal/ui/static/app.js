@@ -180,9 +180,22 @@ function render() {
         ...(tor && t.up && t.bootstrap >= 100 && shows("tor.newnym") ? [el("span", {}, "circuits"), el("span", {}, el("button", { title: "New identity: Tor builds new routes for new connections, so sites cannot link them to what you did before. Connections that are already open keep their old route.",
           onclick: async (e) => {
             e.target.disabled = true;
-            try { await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym"); toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name })); }
-            catch (err) { toast(T("New identity failed: {error}", { error: err.message })); }
-            setTimeout(refresh, 3000); // show the new exit once tor has built it
+            const before = t.circuit ? torExit(t.circuit) : "";
+            try {
+              await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/newnym");
+              toast(T("New identity: {name} builds fresh circuits for new connections", { name: t.name }));
+              // Tor builds the new circuit only for a connection: one probe
+              // through the tunnel makes it and shows the exit the outside
+              // sees, then the card shows the new circuit
+              let ip = "";
+              try { const p = await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/exit"); ip = p.ip || ""; } catch (err) { /* shown below */ }
+              await refresh();
+              const c = ((status && status.tunnels) || []).find((x) => x.name === t.name);
+              const now = c && c.circuit ? torExit(c.circuit) : "";
+              toast(now && now !== before ? T("New exit: {exit}", { exit: now })
+                : ip ? T("Exit now: {ip}", { ip })
+                  : T("Tor builds the new route with the next connection"));
+            } catch (err) { toast(T("New identity failed: {error}", { error: err.message })); }
             setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
           } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),

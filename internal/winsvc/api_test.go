@@ -3,6 +3,7 @@ package winsvc
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
 type fakeCore struct {
@@ -136,7 +138,13 @@ func TestStatusTorBootstrap(t *testing.T) {
 		want     int
 		health   string
 	}{{40, true, 40, "unknown"}, {100, true, 100, "ok"}, {0, false, 1, "unknown"}} {
-		s := &Server{Core: &torCore{}, TorBootstrap: func(string) (int, bool) { return c.progress, c.has }}
+		tp := &fakeTor{progress: c.progress}
+		s := &Server{Core: &torCore{}, Tor: func(string) TorProc {
+			if !c.has {
+				return nil
+			}
+			return tp
+		}}
 		st, err := s.Status()
 		if err != nil || len(st.Tunnels) != 1 {
 			t.Fatal(st, err)
@@ -149,9 +157,50 @@ func TestStatusTorBootstrap(t *testing.T) {
 			t.Errorf("progress %d: error %q", c.progress, ts.Error)
 		}
 	}
+	// exit shown once connected
+	tp := &fakeTor{progress: 100}
+	st0, _ := (&Server{Core: &torCore{}, Tor: func(string) TorProc { return tp }}).Status()
+	if c := st0.Tunnels[0].Circuit; c == nil || c.IP != "198.51.100.9" {
+		t.Errorf("circuit: %+v", c)
+	}
 	// WireGuard keeps its handshake view
 	st, _ := (&Server{Core: &fakeCore{}}).Status()
 	if st.Tunnels[0].Bootstrap != nil {
 		t.Error("wireguard got a bootstrap")
+	}
+}
+
+type fakeTor struct {
+	progress int
+	newnym   int
+}
+
+func (f *fakeTor) Bootstrap() int { return f.progress }
+func (f *fakeTor) Circuit() *tunnel.TorCircuit {
+	return &tunnel.TorCircuit{Hops: 3, Country: "de", IP: "198.51.100.9"}
+}
+func (f *fakeTor) NewIdentity() error { f.newnym++; return nil }
+
+// "New identity" reaches tor.exe on Windows; an unknown tunnel is refused.
+func TestNewnymWindows(t *testing.T) {
+	tp := &fakeTor{progress: 100}
+	s := &Server{Core: &fakeCore{}, Tor: func(n string) TorProc {
+		if n != "tor" {
+			return nil
+		}
+		return tp
+	}}
+	for _, c := range []struct {
+		name string
+		code int
+	}{{"tor", 204}, {"home", 422}} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/tunnels/"+c.name+"/newnym", nil))
+		if rec.Code != c.code {
+			t.Errorf("%s: %d %s", c.name, rec.Code, rec.Body)
+		}
+	}
+	if tp.newnym != 1 {
+		t.Errorf("newnym calls: %d", tp.newnym)
 	}
 }
