@@ -131,9 +131,11 @@ func QueryCircuit(ctl func(...string) ([]string, error), bridges bool, since tim
 	return queryCircuit(ctl, bridges, since)
 }
 
-// queryCircuit asks tor (ctl runs control commands) for the circuit new
-// connections of the tunnel take: one carrying its streams, else the newest
-// general one; circuits from before the last NEWNYM (since) do not count.
+// queryCircuit asks tor (ctl runs control commands) for the circuit the
+// tunnel's connections take: the one carrying most open streams, else the
+// newest general one; circuits from before the last NEWNYM (since) do not
+// count. Tor gives every app its own circuits (IsolateSOCKSAuth), so this is
+// the busiest exit, not the only one.
 func queryCircuit(ctl func(...string) ([]string, error), bridges bool, since time.Time) (*TorCircuit, error) {
 	lines, err := ctl("GETINFO circuit-status", "GETINFO stream-status")
 	if err != nil {
@@ -178,11 +180,10 @@ func pickCircuit(lines []string, since time.Time) []string {
 	type circ struct {
 		path    []string
 		created string
-		used    bool
 	}
 	circs := map[string]*circ{}
 	var order []string
-	used := map[string]bool{}
+	used := map[string]int{} // circuit -> open streams on it
 	for _, l := range lines {
 		f := strings.Fields(l)
 		switch {
@@ -210,13 +211,13 @@ func pickCircuit(lines []string, since time.Time) []string {
 				order = append(order, f[0])
 			}
 		case len(f) == 4 && f[1] == "SUCCEEDED" && f[2] != "0": // id status circuit target
-			used[f[2]] = true
+			used[f[2]]++
 		}
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		a, b := circs[order[i]], circs[order[j]]
 		if ua, ub := used[order[i]], used[order[j]]; ua != ub {
-			return ua
+			return ua > ub // the one most open connections take
 		}
 		return a.created > b.created
 	})

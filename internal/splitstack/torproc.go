@@ -88,6 +88,12 @@ func (p *torProc) torrc() string {
 	fmt.Fprintf(&b, "CookieAuthentication 1\nCookieAuthFile %s\n", p.cookiePath())
 	b.WriteString("ClientOnly 1\nAvoidDiskWrites 1\nSafeLogging 1\nLog notice stderr\n")
 	b.WriteString("AutomapHostsOnResolve 1\nVirtualAddrNetworkIPv4 10.192.0.0/10\n")
+	// GeoIP tables the app copies next to the Tor folders (exit country)
+	for _, g := range [][2]string{{"GeoIPFile", "geoip"}, {"GeoIPv6File", "geoip6"}} {
+		if f := filepath.Join(filepath.Dir(p.dir), g[1]); fileExists(f) {
+			fmt.Fprintf(&b, "%s %s\n", g[0], f)
+		}
+	}
 	if len(p.bridges) > 0 {
 		b.WriteString("UseBridges 1\n")
 		if p.pt != "" {
@@ -374,4 +380,9 @@ func (p *torProc) Close() {
 	case <-p.done:
 	case <-time.After(3 * time.Second):
 	}
+}
+
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.Mode().IsRegular()
 }
