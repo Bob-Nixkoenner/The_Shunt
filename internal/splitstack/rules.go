@@ -3,6 +3,7 @@ package splitstack
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,14 +15,16 @@ import (
 // networkConf is a network profile, the counterpart of [[network]] in
 // shunt.toml: on a matching network it replaces the default route and the
 // DNS server of the direct route. The platform reports the network with
-// SetNetwork. Android cannot see the router's MAC, so an SSID alone decides
-// (easy to fake: the UI warns when such a profile relaxes the route).
+// SetNetwork (Windows: SetNetworkMAC with the router's MAC for gateway_mac).
+// Android cannot see the router's MAC, so an SSID alone decides there (easy
+// to fake: the UI warns when such a profile relaxes the route).
 type networkConf struct {
-	Name      string   `json:"name"`
-	SSID      []string `json:"ssid"`       // Wi-Fi names; empty: any
-	Link      string   `json:"link"`       // wifi | mobile | ethernet; "": any
-	Default   string   `json:"default"`    // "": keep the config's default
-	DirectDNS string   `json:"direct_dns"` // "": keep the config's direct_dns
+	Name       string   `json:"name"`
+	SSID       []string `json:"ssid"`        // Wi-Fi names; empty: any
+	GatewayMAC []string `json:"gateway_mac"` // router MAC addresses; empty: any
+	Link       string   `json:"link"`        // wifi | mobile | ethernet; "": any
+	Default    string   `json:"default"`     // "": keep the config's default
+	DirectDNS  string   `json:"direct_dns"`  // "": keep the config's direct_dns
 }
 
 // ruleConf routes by destination, the counterpart of [[rule]] with
@@ -232,12 +235,15 @@ func (e *Engine) ruleRoute(app string, proto int, dst netip.AddrPort) (string, s
 }
 
 // matchNetwork returns the first profile for link/ssid, or nil.
-func matchNetwork(ns []networkConf, link, ssid string) *networkConf {
+func matchNetwork(ns []networkConf, link, ssid, mac string) *networkConf {
 	for i, n := range ns {
 		if n.Link != "" && n.Link != link {
 			continue
 		}
 		if len(n.SSID) > 0 && (ssid == "" || !contains(n.SSID, ssid)) {
+			continue
+		}
+		if len(n.GatewayMAC) > 0 && (mac == "" || !slices.ContainsFunc(n.GatewayMAC, func(m string) bool { return strings.EqualFold(m, mac) })) {
 			continue
 		}
 		return &ns[i]
@@ -263,9 +269,15 @@ func contains(l []string, s string) bool {
 // changes (and direct DNS flows when the direct DNS server changes): on a
 // profile that blocks, nothing may keep going the old way.
 func (e *Engine) SetNetwork(link, ssid string) string {
+	return e.SetNetworkMAC(link, ssid, "")
+}
+
+// SetNetworkMAC is SetNetwork with the MAC address of the default gateway
+// ("" if unknown), for profiles with gateway_mac.
+func (e *Engine) SetNetworkMAC(link, ssid, mac string) string {
 	e.mu.Lock()
 	oldDef, oldDirect, oldLink := e.def, e.direct, e.link
-	e.link, e.ssid = link, ssid
+	e.link, e.ssid, e.gwMAC = link, ssid, mac
 	name := e.applyNetwork()
 	newDef, newDirect := e.def, e.direct
 	e.mu.Unlock()
@@ -284,7 +296,7 @@ func (e *Engine) SetNetwork(link, ssid string) string {
 // network. e.mu held.
 func (e *Engine) applyNetwork() string {
 	e.def, e.direct = e.baseDef, e.baseDirect
-	n := matchNetwork(e.networks, e.link, e.ssid)
+	n := matchNetwork(e.networks, e.link, e.ssid, e.gwMAC)
 	if n == nil {
 		e.netName = ""
 		return ""

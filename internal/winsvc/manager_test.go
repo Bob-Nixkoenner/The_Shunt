@@ -291,3 +291,22 @@ func TestSaveTorNoFalseMissing(t *testing.T) {
 		}
 	}
 }
+
+// gateway_mac reaches the engine on Windows (it used to be dropped with a
+// warning, so "add the current network" on a cable did nothing).
+func TestTranslateGatewayMAC(t *testing.T) {
+	c, err := config.Parse("[daemon]\ndefault_route = \"direct\"\n[[network]]\nname = \"home\"\ngateway_mac = [\"aa:bb:cc:00:11:22\"]\ndefault_route = \"block\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js, warn, err := Translate(c, func(string) ([]byte, error) { return nil, nil })
+	if err != nil || len(warn) != 0 {
+		t.Fatal(err, warn)
+	}
+	if !strings.Contains(js, `"gateway_mac":["aa:bb:cc:00:11:22"]`) {
+		t.Errorf("gateway_mac missing: %s", js)
+	}
+	if err := splitstack.CheckConfig(js); err != nil {
+		t.Error(err)
+	}
+}

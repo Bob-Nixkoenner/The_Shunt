@@ -390,7 +390,8 @@ function takeFile(f) {
     if (!$("#t-name").value) $("#t-name").value = nameFromFile(f.name);
     updateImportForm();
     if (!confType(t)) toast(T("{name} doesn't look like a WireGuard, OpenVPN or Tailscale/Headscale config", { name: f.name }));
-  }).catch((e) => toast(T("Cannot read {name}: {error} (root-only files: sudo shunt import FILE)", { name: f.name, error: e.message })));
+  }).catch((e) => toast(onWindows() ? T("Cannot read {name}: {error}", { name: f.name, error: e.message })
+    : T("Cannot read {name}: {error} (root-only files: sudo shunt import FILE)", { name: f.name, error: e.message })));
 }
 function fillVia() {
   const tunnels = Object.keys(model.tunnel || {}).sort();

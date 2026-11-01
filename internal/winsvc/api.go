@@ -77,6 +77,7 @@ type engineStatus struct {
 		Health    health.Report `json:"health"`
 	} `json:"tunnels"`
 	Traffic  map[string]stats.Summary `json:"traffic"`
+	Default  string                   `json:"default"` // default route of the network profile in effect
 	Override struct {
 		Panic    bool  `json:"panic"`
 		PassLeft int64 `json:"pass_left"`
@@ -103,6 +104,9 @@ func (s *Server) Status() (api.Status, error) {
 		def, apps = s.Cfg.Summary()
 	} else if s.Config != nil {
 		def, apps = s.Config()
+	}
+	if es.Network != "" && es.Default != "" {
+		def = es.Default // a network profile replaces daemon.default_route
 	}
 	st := api.Status{
 		Traffic:      es.Traffic,

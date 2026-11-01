@@ -555,14 +555,17 @@ func waitUplink(ctx context.Context, max time.Duration) (winsplit.Uplink, error)
 
 // watchUplink follows the network: when the real interface changes (Wi-Fi
 // to cable, new Wi-Fi) direct sockets and the tunnels move to it, and the
-// network profile (by Wi-Fi name) is chosen again.
+// network profile (by Wi-Fi name and router MAC) is chosen again.
 func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}, onNet func(name string)) {
+	// the router's MAC is looked up once per network (an ARP request may
+	// take a moment), not on every poll
+	mac := winsplit.GatewayMAC(up.Gateway)
 	publish := func(u winsplit.Uplink) {
-		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
+		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway, GatewayMAC: mac})
 	}
 	publish(up)
 	e.SetSystemDNS(up.DNS)
-	name := e.SetNetwork(up.Link, up.SSID)
+	name := e.SetNetworkMAC(up.Link, up.SSID, mac)
 	if name != "" {
 		log.Printf("network profile %q", name)
 	}
@@ -585,9 +588,12 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 			e.NetworkChanged()
 		}
 		if cur.Key() != up.Key() || cur.Link != up.Link {
+			if cur.Index != up.Index || cur.Gateway != up.Gateway || cur.SSID != up.SSID || mac == "" {
+				mac = winsplit.GatewayMAC(cur.Gateway)
+			}
 			publish(cur)
 			e.SetSystemDNS(cur.DNS)
-			name := e.SetNetwork(cur.Link, cur.SSID)
+			name := e.SetNetworkMAC(cur.Link, cur.SSID, mac)
 			if name != "" {
 				log.Printf("network profile %q", name)
 			}

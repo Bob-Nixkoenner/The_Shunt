@@ -245,6 +245,7 @@ type Engine struct {
 	ignoreTunnelDNS bool
 	networks        []networkConf
 	link, ssid      string // current network (SetNetwork)
+	gwMAC           string // MAC of its default gateway, "" = unknown
 	netName         string // matching profile, "" = none
 	domains         domainAddrs
 	filter          *blocklist.Filter
@@ -582,10 +583,10 @@ func (e *Engine) SetSystemDNS(a netip.Addr) {
 			e.baseDirect = a
 		}
 	}
-	link, ssid := e.link, e.ssid
+	link, ssid, mac := e.link, e.ssid, e.gwMAC
 	e.mu.Unlock()
 	e.logf("network DNS %s", a)
-	e.SetNetwork(link, ssid) // applies it, cuts direct DNS flows of the old server
+	e.SetNetworkMAC(link, ssid, mac) // applies it, cuts direct DNS flows of the old server
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network
@@ -775,6 +776,7 @@ type status struct {
 	Traffic  map[string]stats.Summary `json:"traffic"`
 	Override override.Status          `json:"override"`
 	Network  string                   `json:"network"` // matching profile, "" = none
+	Default  string                   `json:"default"` // default route now (with the profile)
 }
 
 // History returns the traffic and DNS-block history for a range ("1h", "24h",
@@ -793,7 +795,7 @@ func (e *Engine) Status() string {
 	}
 	sort.Slice(st.Tunnels, func(i, j int) bool { return st.Tunnels[i].Name < st.Tunnels[j].Name }) // map order: cards would jump
 	e.mu.RLock()
-	st.Network = e.netName
+	st.Network, st.Default = e.netName, e.def
 	for i := len(e.recent) - 1; i >= 0; i-- {
 		st.DNSRecent = append(st.DNSRecent, e.recent[i])
 	}

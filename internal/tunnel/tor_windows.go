@@ -189,6 +189,15 @@ func (t *Tor) torrc(plugins []string) (string, error) {
 	w("CookieAuthentication 1")
 	w("CookieAuthFile %s", fwd(short(t.spec.DataDir))+`\control_auth_cookie`)
 	w("ClientUseIPv6 1")
+	// the GeoIP tables ship next to tor.exe; tor's default path is relative
+	// (C:\Windows\system32 for the service) and only earns a warning
+	if d := TorDir(); d != "" {
+		for _, g := range [][2]string{{"GeoIPFile", "geoip"}, {"GeoIPv6File", "geoip6"}} {
+			if st, err := os.Stat(filepath.Join(d, g[1])); err == nil && !st.IsDir() {
+				w("%s %s", g[0], fwd(short(filepath.Join(d, g[1]))))
+			}
+		}
+	}
 	if len(t.spec.Bridges) > 0 {
 		w("UseBridges 1")
 		for _, p := range plugins {
