@@ -47,12 +47,12 @@ function markDirty() {
   cmsg("Unsaved changes – press “Save & apply” (or “Check” first).", "warn");
 }
 
-async function loadConfig() {
+async function loadConfig(quiet) {
   try {
     cfgView = await api("GET", "/api/config");
   } catch (e) {
-    cmsg(T("Cannot load the config: {error}", { error: e.message }), "err");
-    return;
+    if (!quiet) cmsg(T("Cannot load the config: {error}", { error: e.message }), "err");
+    return false;
   }
   model = structuredClone(cfgView.config);
   model.tunnel = model.tunnel || {};
@@ -65,6 +65,19 @@ async function loadConfig() {
   $("#raw").value = cfgView.raw;
   renderConfig();
   renderFilter();
+  return true;
+}
+
+// reloadConfig loads the config after a change was saved. A change of the
+// tunnels restarts the service, which answers again after a few seconds:
+// retry meanwhile. The form is saved either way, so it is no longer dirty.
+async function reloadConfig() {
+  $("#savebar").classList.remove("dirty");
+  for (let i = 0; i < 20; i++) {
+    if (await loadConfig(i < 19)) return true;
+    await new Promise((r) => setTimeout(r, 750));
+  }
+  return false;
 }
 
 // link routes: out over one kind of connection only (blocked without it)
@@ -329,7 +342,7 @@ $("#c-check").addEventListener("click", () => checkOrSave(false, { config: model
 $("#c-save").addEventListener("click", async () => {
   if (await checkOrSave(true, { config: model }, cmsg)) {
     const m = $("#c-msg").textContent;
-    await loadConfig();
+    await reloadConfig();
     cmsg(m, "ok");
     refresh();
   }
@@ -344,7 +357,7 @@ $("#raw-toggle").addEventListener("click", () => {
 });
 $("#raw-check").addEventListener("click", () => checkOrSave(false, { raw: $("#raw").value }, rawMsg));
 $("#raw-save").addEventListener("click", async () => {
-  if (await checkOrSave(true, { raw: $("#raw").value }, rawMsg)) { await loadConfig(); refresh(); }
+  if (await checkOrSave(true, { raw: $("#raw").value }, rawMsg)) { await reloadConfig(); refresh(); }
 });
 
 // --- tunnel import ------------------------------------------------------
@@ -377,7 +390,8 @@ function takeFile(f) {
     if (!$("#t-name").value) $("#t-name").value = nameFromFile(f.name);
     updateImportForm();
     if (!confType(t)) toast(T("{name} doesn't look like a WireGuard, OpenVPN or Tailscale/Headscale config", { name: f.name }));
-  }).catch((e) => toast(T("Cannot read {name}: {error} (root-only files: sudo shunt import FILE)", { name: f.name, error: e.message })));
+  }).catch((e) => toast(onWindows() ? T("Cannot read {name}: {error}", { name: f.name, error: e.message })
+    : T("Cannot read {name}: {error} (root-only files: sudo shunt import FILE)", { name: f.name, error: e.message })));
 }
 function fillVia() {
   const tunnels = Object.keys(model.tunnel || {}).sort();
@@ -415,7 +429,7 @@ $("#t-import").addEventListener("click", async () => {
     for (const id of ["#t-name", "#t-conf", "#t-user", "#t-pass"]) $(id).value = "";
     $("#t-via").value = "";
     updateImportForm();
-    await loadConfig();
+    await reloadConfig();
     refresh();
   } catch (e) { toast(T("Import failed: {error}", { error: e.message })); }
 });
@@ -434,7 +448,7 @@ $("#ts-add").addEventListener("click", async () => {
     const res = await api("POST", "/api/tunnels", { name, conf, driver: "tailscale" });
     toast(noticeTexts(res).length ? T("Tunnel {name} added – {warnings}", { name, warnings: noticeTexts(res).join(" · ") }) : T("Tunnel {name} added", { name }));
     for (const id of ["#ts-name", "#ts-server", "#ts-key", "#ts-host", "#ts-exit"]) $(id).value = "";
-    await loadConfig();
+    await reloadConfig();
     refresh();
   } catch (e) { toast(T("Adding failed: {error}", { error: e.message })); }
 });
@@ -526,7 +540,7 @@ async function deleteTunnel(n) {
   try {
     await api("DELETE", "/api/tunnels/" + encodeURIComponent(n));
     toast(T("Tunnel {name} deleted", { name: n }));
-    await loadConfig();
+    await reloadConfig();
     refresh();
   } catch (e) { toast(e.message); }
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,26 @@ func TestTorConfBuiltin(t *testing.T) {
 	tt, _ := newTorTunnel("socks = 127.0.0.1:9050")
 	if err := tt.startBuiltin("", "", "", t.Logf); err == nil {
 		t.Error("builtin without a tor program")
+	}
+}
+
+// The GeoIP tables next to the Tor folders go into the torrc (exit country);
+// without them the torrc does not name any.
+func TestTorrcGeoIP(t *testing.T) {
+	root := t.TempDir()
+	p := &torProc{dir: filepath.Join(root, "tor1")}
+	if strings.Contains(p.torrc(), "GeoIPFile ") {
+		t.Fatal("GeoIP without files")
+	}
+	for _, n := range []string{"geoip", "geoip6"} {
+		if err := os.WriteFile(filepath.Join(root, n), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rc := p.torrc()
+	for _, want := range []string{"GeoIPFile " + filepath.Join(root, "geoip") + "\n", "GeoIPv6File " + filepath.Join(root, "geoip6") + "\n"} {
+		if !strings.Contains(rc, want) {
+			t.Errorf("%q missing in\n%s", want, rc)
+		}
 	}
 }

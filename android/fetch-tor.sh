@@ -26,3 +26,20 @@ for abi in arm64-v8a x86_64; do
 	chmod 755 "$OUT/$abi/libtor.so"
 done
 echo "libtor.so $VER -> $OUT/{arm64-v8a,x86_64}"
+
+# GeoIP tables (exit country on the tunnel card; tor-android has none): from the
+# Tor Expert Bundle the Windows build ships, same pin (packaging/tor-versions.json,
+# verified by .github/scripts/tor-bundle.sh). Packed as assets, the app copies
+# them next to the Tor folders (files/tor/geoip*), the engine points tor at them.
+BVER=$(sed -n 's/.*"tor-bundle-windows": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
+BSHA=$(sed -n 's/.*"tor-bundle-windows-sha256": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
+TGZ=$CACHE/tor-expert-bundle-windows-x86_64-$BVER.tar.gz
+if ! { [ -f "$TGZ" ] && echo "$BSHA  $TGZ" | sha256sum -c --status; }; then
+	curl -fsSL -o "$TGZ" "https://dist.torproject.org/torbrowser/$BVER/tor-expert-bundle-windows-x86_64-$BVER.tar.gz"
+	echo "$BSHA  $TGZ" | sha256sum -c --status || { echo "tor expert bundle $BVER: checksum mismatch" >&2; rm -f "$TGZ"; exit 1; }
+fi
+GEO=android/app/src/main/tor-assets/tor
+mkdir -p "$GEO"
+tar xzf "$TGZ" -C "$GEO" --strip-components=1 data/geoip data/geoip6
+echo "geoip, geoip6 (bundle $BVER) -> $GEO"
+

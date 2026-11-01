@@ -48,6 +48,9 @@ type Server struct {
 	// Cfg serves the config endpoints (GET/PUT /v1/config, tunnels); nil
 	// leaves them out.
 	Cfg *Manager
+	// Tor returns the tor.exe behind a Tor tunnel, nil if none runs for it
+	// (the func may be nil).
+	Tor func(tunnel string) TorProc
 	// NetInfo describes the network the machine is connected to (may be nil).
 	NetInfo func() netdetect.Info
 	// Config returns the default route and the app rules of the config file
@@ -71,12 +74,14 @@ type engineStatus struct {
 		Via       string        `json:"via"`
 		Up        bool          `json:"up"`
 		Error     string        `json:"error"`
+		Bootstrap int           `json:"bootstrap"`
 		Handshake int64         `json:"handshake"`
 		RX        int64         `json:"rx"`
 		TX        int64         `json:"tx"`
 		Health    health.Report `json:"health"`
 	} `json:"tunnels"`
 	Traffic  map[string]stats.Summary `json:"traffic"`
+	Default  string                   `json:"default"` // default route of the network profile in effect
 	Override struct {
 		Panic    bool  `json:"panic"`
 		PassLeft int64 `json:"pass_left"`
@@ -92,6 +97,13 @@ type engineStatus struct {
 	} `json:"dns_recent"`
 }
 
+// TorProc is a running tor.exe (tunnel.Tor).
+type TorProc interface {
+	Bootstrap() int
+	Circuit() *tunnel.TorCircuit
+	NewIdentity() error
+}
+
 // Status maps the engine's state to the API's Status.
 func (s *Server) Status() (api.Status, error) {
 	var es engineStatus
@@ -103,6 +115,9 @@ func (s *Server) Status() (api.Status, error) {
 		def, apps = s.Cfg.Summary()
 	} else if s.Config != nil {
 		def, apps = s.Config()
+	}
+	if es.Network != "" && es.Default != "" {
+		def = es.Default // a network profile replaces daemon.default_route
 	}
 	st := api.Status{
 		Traffic:      es.Traffic,
@@ -143,7 +158,33 @@ func (s *Server) Status() (api.Status, error) {
 		ts := api.TunnelStatus{Name: t.Name, Driver: t.Type, Up: t.Up, Error: t.Error, Via: t.Via}
 		h := t.Health
 		ts.Health = &h
-		{
+		if t.Type == "tor" {
+			// Tor has no handshake: the card shows tor's progress. The SOCKS
+			// port answers long before tor is through the network, so the
+			// engine's "reachable" alone is not "connected".
+			b := t.Bootstrap
+			var tp TorProc
+			if s.Tor != nil {
+				tp = s.Tor(t.Name)
+			}
+			if tp != nil {
+				b = tp.Bootstrap()
+			}
+			if b < 1 {
+				b = 1 // starting
+			}
+			ts.Bootstrap = &b
+			if tp != nil && b >= 100 {
+				ts.Circuit = tp.Circuit()
+			}
+			if b < 100 {
+				ts.Health = &health.Report{State: health.Unknown, HandshakeAge: -1}
+				if ts.Error == "" && t.Up {
+					ts.Error = fmt.Sprintf("Tor is starting: %d %%", b)
+				}
+			}
+			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
+		} else {
 			ts.Peers = []tunnel.PeerStatus{{RxBytes: t.RX, TxBytes: t.TX}}
 			if s.Cfg != nil {
 				ts.Peers[0].Endpoint = s.Cfg.Endpoint(t.Name)
@@ -177,6 +218,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.Core.History(r.URL.Query().Get("range"))))
+	})
+	// New circuits for a Tor tunnel (SIGNAL NEWNYM), as on Linux.
+	mux.HandleFunc("POST /v1/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		var tp TorProc
+		if s.Tor != nil {
+			tp = s.Tor(r.PathValue("name"))
+		}
+		if tp == nil {
+			fail(w, http.StatusUnprocessableEntity, fmt.Errorf("%q is not a running Tor tunnel", r.PathValue("name")))
+			return
+		}
+		if err := tp.NewIdentity(); err != nil {
+			fail(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest

@@ -50,6 +50,9 @@ type Manager struct {
 	// StartTor starts tor.exe for a Tor tunnel and returns its SOCKS address
 	// (the process ends with the service). nil: Tor tunnels stay down.
 	StartTor func(name string, t config.Tunnel) (socks string, err error)
+	// HaveTor reports whether tor.exe is installed, for checks that do not
+	// start it (nil: assume it is when StartTor is set).
+	HaveTor func() bool
 
 	tors    map[string]string // Tor tunnel -> SOCKS address of its tor.exe
 	mu      sync.Mutex
@@ -237,7 +240,11 @@ func (m *Manager) build(raw []byte, start bool) (*config.Config, string, []strin
 	if start { // only the real load starts processes, checks must not
 		tw = m.startTors(c)
 	}
-	js, warn, err := translate(c, m.readFile, m.torSocks)
+	socks := m.torSocks
+	if !start {
+		socks = m.checkTorSocks
+	}
+	js, warn, err := translate(c, m.readFile, socks)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -614,6 +621,20 @@ func (m *Manager) torSocks(name string, _ config.Tunnel) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tors[name]
+}
+
+// checkTorSocks is torSocks for checks and saves: a Tor tunnel that is not
+// running yet is started by the restart that follows, so it only counts as
+// missing when tor.exe is not installed. Its placeholder is the address of a
+// down tunnel (nothing listens), as in translate.
+func (m *Manager) checkTorSocks(name string, t config.Tunnel) string {
+	if a := m.torSocks(name, t); a != "" {
+		return a
+	}
+	if m.StartTor == nil || (m.HaveTor != nil && !m.HaveTor()) {
+		return ""
+	}
+	return torDown
 }
 
 // startTors starts tor.exe for every enabled Tor tunnel once (a change of

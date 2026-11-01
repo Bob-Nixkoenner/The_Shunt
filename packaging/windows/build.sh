@@ -34,6 +34,8 @@ if [ -z "${NO_TOR:-}" ]; then
   tar xzf "$tmp/tor.tgz" -C "$tmp/torx"
   cp "$tmp/torx/tor/tor.exe" "$OUT/tor/"
   cp "$tmp/torx/tor/pluggable_transports/lyrebird.exe" "$OUT/tor/pt/"
+  # GeoIP tables: without them tor warns at every start (and cannot pick by country)
+  cp "$tmp/torx/data/geoip" "$tmp/torx/data/geoip6" "$OUT/tor/"
   cp "$tmp/torx/docs/tor.txt" "$tmp/torx/docs/lyrebird.txt" "$tmp/torx/docs/openssl.txt" "$tmp/torx/docs/libevent.txt" "$tmp/torx/docs/zlib.txt" "$OUT/tor/licenses/"
 else
   mkdir -p "$OUT/tor"; : >"$OUT/tor/.none" # the Setup script copies the folder

@@ -18,6 +18,9 @@ func Translate(c *config.Config, read func(path string) ([]byte, error)) (js str
 	return translate(c, read, nil)
 }
 
+// torDown is the SOCKS address of a Tor tunnel that is down: nothing listens.
+const torDown = "127.0.0.1:9"
+
 // translate: torSocks gives the SOCKS address of a Tor tunnel's tor.exe (nil:
 // Tor tunnels stay down with a warning).
 func translate(c *config.Config, read func(path string) ([]byte, error), torSocks func(name string, t config.Tunnel) string) (js string, warnings []string, err error) {
@@ -56,9 +59,10 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 		Via  string `json:"via,omitempty"`
 	}
 	type networkJS struct {
-		Name    string   `json:"name"`
-		SSID    []string `json:"ssid"`
-		Default string   `json:"default"`
+		Name       string   `json:"name"`
+		SSID       []string `json:"ssid"`
+		GatewayMAC []string `json:"gateway_mac,omitempty"`
+		Default    string   `json:"default"`
 	}
 	type ruleJS struct {
 		Name    string   `json:"name"`
@@ -91,7 +95,7 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 			}
 			if addr == "" {
 				warn("tunnel %q: Tor is not available here (tor.exe missing), the tunnel stays down", name)
-				addr = "127.0.0.1:9" // nothing listens: the tunnel is down, never a leak
+				addr = torDown // nothing listens: the tunnel is down, never a leak
 			}
 			// the comment makes a change of bridges or isolation change the
 			// tunnel set: the service restarts and starts tor anew
@@ -140,10 +144,7 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 	}
 
 	for _, n := range c.Networks {
-		nj := networkJS{Name: n.Name, SSID: n.SSID}
-		if len(n.GatewayMAC) > 0 {
-			warn("network %q: gateway_mac is not used on Windows yet (only the Wi-Fi name)", n.Name)
-		}
+		nj := networkJS{Name: n.Name, SSID: n.SSID, GatewayMAC: n.GatewayMAC}
 		if n.DefaultRoute != "" {
 			if nj.Default, err = route(n.DefaultRoute); err != nil {
 				return "", nil, fmt.Errorf("network %q: %w", n.Name, err)
