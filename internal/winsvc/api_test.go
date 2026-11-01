@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,5 +118,40 @@ func TestStatusProfileDefault(t *testing.T) {
 	st, _ = (&Server{Core: &fakeCore{}, Config: cfg}).Status()
 	if st.DefaultRoute != "tunnel:home" {
 		t.Fatalf("without engine default: %q", st.DefaultRoute)
+	}
+}
+
+type torCore struct{ fakeCore }
+
+func (torCore) Status() string {
+	return `{"tunnels":[{"name":"tor","type":"tor","up":true,"rx":5,"tx":6,"health":{"state":"ok","handshake_age":-1}}],"override":{}}`
+}
+
+// A Tor tunnel reports tor's progress (no handshake): starting until 100 %,
+// and only then healthy, although its SOCKS port answers from the start.
+func TestStatusTorBootstrap(t *testing.T) {
+	for _, c := range []struct {
+		progress int
+		has      bool
+		want     int
+		health   string
+	}{{40, true, 40, "unknown"}, {100, true, 100, "ok"}, {0, false, 1, "unknown"}} {
+		s := &Server{Core: &torCore{}, TorBootstrap: func(string) (int, bool) { return c.progress, c.has }}
+		st, err := s.Status()
+		if err != nil || len(st.Tunnels) != 1 {
+			t.Fatal(st, err)
+		}
+		ts := st.Tunnels[0]
+		if ts.Bootstrap == nil || *ts.Bootstrap != c.want || ts.Health.State != c.health || len(ts.Peers) != 1 || ts.Peers[0].RxBytes != 5 {
+			t.Errorf("progress %d: %+v %+v", c.progress, ts, ts.Health)
+		}
+		if starting := strings.Contains(ts.Error, "starting"); starting != (c.want < 100) {
+			t.Errorf("progress %d: error %q", c.progress, ts.Error)
+		}
+	}
+	// WireGuard keeps its handshake view
+	st, _ := (&Server{Core: &fakeCore{}}).Status()
+	if st.Tunnels[0].Bootstrap != nil {
+		t.Error("wireguard got a bootstrap")
 	}
 }

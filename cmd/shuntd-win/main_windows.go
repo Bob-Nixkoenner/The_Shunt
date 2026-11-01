@@ -206,6 +206,8 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}
 	var torRuns []*tunnel.Tor
+	var torMu sync.Mutex
+	torByName := map[string]*tunnel.Tor{} // for the status: tor's progress per tunnel
 	// SOCKS5 exits of tunnels ("socks = ..."): programs that speak SOCKS can
 	// use a tunnel directly; the engine dials, nothing leaves the tunnel
 	var (
@@ -305,6 +307,9 @@ func runCore(ctx context.Context, ready func()) error {
 			return "", err
 		}
 		torRuns = append(torRuns, tr)
+		torMu.Lock()
+		torByName[name] = tr
+		torMu.Unlock()
 		return tr.SocksAddr(), nil
 	}
 	defer func() {
@@ -480,7 +485,16 @@ func runCore(ctx context.Context, ready func()) error {
 		return []string{clockWarn}
 	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
-		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		TorBootstrap: func(name string) (int, bool) {
+			torMu.Lock()
+			tr := torByName[name]
+			torMu.Unlock()
+			if tr == nil {
+				return 0, false
+			}
+			return tr.Bootstrap(), true
+		},
+		Pin: func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
 		Procs: func(name string) ([]api.ProcRoute, error) {
 			ps, err := winsplit.Processes(name)
 			out := make([]api.ProcRoute, 0, len(ps))
