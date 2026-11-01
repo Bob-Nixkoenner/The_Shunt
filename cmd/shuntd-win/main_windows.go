@@ -297,6 +297,7 @@ func runCore(ctx context.Context, ready func()) error {
 			ksMu.Unlock()
 			applyKS()
 		}}
+	m.HaveTor = func() bool { return tunnel.FindTor() != "" }
 	m.StartTor = func(name string, t config.Tunnel) (string, error) {
 		tr, err := tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join(dataDir, "tor", name),
 			Bridges: t.Bridges, Isolate: t.Isolate}, slog.Default(), nil)
