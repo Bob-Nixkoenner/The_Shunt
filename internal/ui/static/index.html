@@ -53,7 +53,7 @@ h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacin
 h2 input { min-width: 0; max-width: 100%; }
 h2 .spacer { flex: 1; }
 .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
-.card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); }
+.card { background: var(--panel2); border-radius: 9px; padding: 14px; border-left: 3px solid var(--muted); display: flex; flex-direction: column; }
 .card.up { border-left-color: var(--ok); }
 .card.down { border-left-color: var(--bad); }
 .card .name .tname { min-width: 0; overflow-wrap: anywhere; }
@@ -206,7 +206,7 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .chart .cursor { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .axis { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 .axis #t-hover { flex: 1; text-align: center; color: var(--text); font-variant-numeric: tabular-nums; }
-.spark { display: block; width: 100%; height: 26px; margin-top: 10px; }
+.spark { display: block; width: 100%; height: 26px; margin-top: auto; padding-top: 10px; box-sizing: content-box; }
 .spark path { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .spark .a { fill: color-mix(in srgb, var(--accent) 22%, transparent); stroke: none; }
 #leakpill { cursor: pointer; }
@@ -221,8 +221,8 @@ body.windows .win-only { display: block !important; }
 body.lv-opsec { --accent: #b794f6; --accent-ink: #1e0b3a; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body.lv-opsec { --accent: #6d28d9; --accent-ink: #ffffff; } }
 :root[data-theme="light"] body.lv-opsec { --accent: #6d28d9; --accent-ink: #ffffff; }
-#opsec-band { order: -1; flex-basis: 100%; margin: -14px -24px 0; padding: 2px 24px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .3em; text-align: center; }
-@media (max-width: 900px) { #opsec-band { margin: -12px -16px 0; } }
+#opsec-band { order: -1; flex: 0 0 calc(100% + 48px); margin: -14px -24px 0; padding: 2px 24px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .3em; text-align: center; }
+@media (max-width: 900px) { #opsec-band { flex-basis: calc(100% + 32px); margin: -12px -16px 0; } }
 body.lv-opsec header { border-bottom-color: var(--accent); }
 body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight: 700; }
 #lvmodal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
@@ -316,7 +316,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
         <input id="t-user" placeholder="username" autocomplete="off" style="width:180px">
         <input id="t-pass" type="password" placeholder="password" autocomplete="new-password" style="width:180px">
       </div>
-      <div class="muted" style="margin-top:8px" data-i18n="html">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
+      <div class="muted linux-only" style="margin-top:8px" data-i18n="html">Files in /etc/wireguard belong to root and can't be opened here: <span class="mono">sudo shunt import /etc/wireguard/NAME.conf</span></div>
       <textarea id="t-conf" placeholder="…or paste the file content here ([Interface]/[Peer] or client/remote/<ca>…)" style="min-height:110px;margin-top:10px"></textarea>
     </div>
     <div class="editor" id="add-ts" hidden>
@@ -336,7 +336,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <div class="muted" style="margin-top:8px">Without an exit node the tunnel reaches the tailnet (100.64.0.0/10) only; with one, everything routed into it leaves through that node.</div>
     </div>
     <div class="editor" id="add-tor" data-lv="tor.add" hidden>
-      <div class="row"><b>Add a Tor tunnel</b><span class="muted">(needs the tor package; The Shunt starts and watches it)</span></div>
+      <div class="row"><b>Add a Tor tunnel</b><span class="muted linux-only">(needs the tor package; The Shunt starts and watches it)</span><span class="muted win-only" style="display:none">(Tor comes with The Shunt, which starts and watches it)</span></div>
       <div class="row" style="margin-top:10px">
         <input id="tor-name" placeholder="name, e.g. tor" style="width:140px" maxlength="10">
         <select id="tor-bridges">

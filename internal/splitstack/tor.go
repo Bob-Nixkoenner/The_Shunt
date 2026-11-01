@@ -224,6 +224,9 @@ func (t *torTunnel) status(name string) tunnelStatus {
 		if st.Bootstrap == 0 {
 			st.Bootstrap = 1 // "starting" is visible even before the first answer
 		}
+		if st.Bootstrap >= 100 {
+			st.Circuit = t.proc.Circuit()
+		}
 	}
 	if st.Up {
 		st.Health = health.Report{State: health.OK, HandshakeAge: -1} // Tor has no handshake: "reachable and through the network" is the whole health

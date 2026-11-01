@@ -17,6 +17,11 @@ import (
 // controlExchange authenticates on tor's control connection with cookie and
 // runs cmds; it returns the reply lines without their status prefix. A data
 // reply ("250+key=" ... ".") yields "key=" and then its lines as they are.
+// ControlExchange is controlExchange for other tors (internal/splitstack).
+func ControlExchange(c net.Conn, cookie []byte, cmds []string) ([]string, error) {
+	return controlExchange(c, cookie, cmds)
+}
+
 func controlExchange(c net.Conn, cookie []byte, cmds []string) ([]string, error) {
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	rd := bufio.NewReader(c)
@@ -99,20 +104,44 @@ func (t *Tor) Circuit() *TorCircuit {
 	t.mu.Unlock()
 	var c *TorCircuit
 	if run {
-		c, _ = queryCircuit(t.control, len(t.spec.Bridges) > 0)
+		var since time.Time
+		if v, ok := newnymAt.Load(t); ok {
+			since = v.(time.Time)
+		}
+		c, _ = queryCircuit(t.control, len(t.spec.Bridges) > 0, since)
 	}
 	circuitCache.Store(t, circuitEntry{time.Now(), c})
 	return c
 }
 
-// queryCircuit asks tor (ctl runs control commands) for the circuit that
-// carries the tunnel's streams, else the newest general one.
-func queryCircuit(ctl func(...string) ([]string, error), bridges bool) (*TorCircuit, error) {
+// newnymAt: when a Tor last got NEWNYM. Circuits built before it are dirty:
+// they keep their open connections, but new ones never use them again.
+var newnymAt sync.Map // *Tor -> time.Time
+
+// markNewnym records a NEWNYM and drops the cached circuit, so the next
+// status shows the path new connections take from now on.
+func markNewnym(t *Tor) {
+	newnymAt.Store(t, time.Now().UTC())
+	circuitCache.Delete(t)
+}
+
+// QueryCircuit is queryCircuit for other tors (the one the Android app
+// brings along, internal/splitstack).
+func QueryCircuit(ctl func(...string) ([]string, error), bridges bool, since time.Time) (*TorCircuit, error) {
+	return queryCircuit(ctl, bridges, since)
+}
+
+// queryCircuit asks tor (ctl runs control commands) for the circuit the
+// tunnel's connections take: the one carrying most open streams, else the
+// newest general one; circuits from before the last NEWNYM (since) do not
+// count. Tor gives every app its own circuits (IsolateSOCKSAuth), so this is
+// the busiest exit, not the only one.
+func queryCircuit(ctl func(...string) ([]string, error), bridges bool, since time.Time) (*TorCircuit, error) {
 	lines, err := ctl("GETINFO circuit-status", "GETINFO stream-status")
 	if err != nil {
 		return nil, err
 	}
-	path := pickCircuit(lines)
+	path := pickCircuit(lines, since)
 	if len(path) == 0 {
 		return nil, nil
 	}
@@ -145,42 +174,50 @@ func queryCircuit(ctl func(...string) ([]string, error), bridges bool) (*TorCirc
 }
 
 // pickCircuit reads the circuit-status and stream-status lines and returns
-// the relays ("$FP~nick") of the chosen BUILT general circuit.
-func pickCircuit(lines []string) []string {
+// the relays ("$FP~nick") of the chosen BUILT general circuit with an exit
+// (not internal), built after since (zero: any).
+func pickCircuit(lines []string, since time.Time) []string {
 	type circ struct {
 		path    []string
 		created string
-		used    bool
 	}
 	circs := map[string]*circ{}
 	var order []string
-	used := map[string]bool{}
+	used := map[string]int{} // circuit -> open streams on it
 	for _, l := range lines {
 		f := strings.Fields(l)
 		switch {
 		case len(f) >= 3 && f[1] == "BUILT" && strings.HasPrefix(f[2], "$"):
 			c := &circ{path: strings.Split(f[2], ",")}
-			general := false
+			general, internal := false, false
 			for _, kv := range f[3:] {
 				switch k, v, _ := strings.Cut(kv, "="); k {
 				case "PURPOSE":
-					general = v == "GENERAL"
+					// conflux: newer tor carries exit streams on linked pairs (same exit)
+					general = v == "GENERAL" || v == "CONFLUX_LINKED"
 				case "TIME_CREATED":
 					c.created = v
+				case "BUILD_FLAGS":
+					internal = strings.Contains(v, "IS_INTERNAL") // onion/directory use: no exit
 				}
 			}
-			if general {
+			if !since.IsZero() {
+				if tc, err := time.Parse("2006-01-02T15:04:05.999999", c.created); err != nil || tc.Before(since) {
+					general = false // dirty since NEWNYM: new connections never take it
+				}
+			}
+			if general && !internal {
 				circs[f[0]] = c
 				order = append(order, f[0])
 			}
 		case len(f) == 4 && f[1] == "SUCCEEDED" && f[2] != "0": // id status circuit target
-			used[f[2]] = true
+			used[f[2]]++
 		}
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		a, b := circs[order[i]], circs[order[j]]
 		if ua, ub := used[order[i]], used[order[j]]; ua != ub {
-			return ua
+			return ua > ub // the one most open connections take
 		}
 		return a.created > b.created
 	})

@@ -3,13 +3,16 @@ package winsvc
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
 type fakeCore struct {
@@ -97,5 +100,107 @@ func TestAPIOverSocket(t *testing.T) {
 	}
 	if err := c.Do("POST", "/v1/restart", nil, nil); err == nil {
 		t.Fatal("restart without handler should fail")
+	}
+}
+
+type profileCore struct{ fakeCore }
+
+func (profileCore) Status() string {
+	return `{"tunnels":[],"override":{},"network":"home","default":"direct"}`
+}
+
+// On a network profile the status shows the profile's default route, not
+// daemon.default_route.
+func TestStatusProfileDefault(t *testing.T) {
+	cfg := func() (string, map[string]string) { return "tunnel:home", nil }
+	st, err := (&Server{Core: &profileCore{}, Config: cfg}).Status()
+	if err != nil || st.DefaultRoute != "direct" || st.Network != "home" {
+		t.Fatalf("with profile: %+v %v", st, err)
+	}
+	st, _ = (&Server{Core: &fakeCore{}, Config: cfg}).Status()
+	if st.DefaultRoute != "tunnel:home" {
+		t.Fatalf("without engine default: %q", st.DefaultRoute)
+	}
+}
+
+type torCore struct{ fakeCore }
+
+func (torCore) Status() string {
+	return `{"tunnels":[{"name":"tor","type":"tor","up":true,"rx":5,"tx":6,"health":{"state":"ok","handshake_age":-1}}],"override":{}}`
+}
+
+// A Tor tunnel reports tor's progress (no handshake): starting until 100 %,
+// and only then healthy, although its SOCKS port answers from the start.
+func TestStatusTorBootstrap(t *testing.T) {
+	for _, c := range []struct {
+		progress int
+		has      bool
+		want     int
+		health   string
+	}{{40, true, 40, "unknown"}, {100, true, 100, "ok"}, {0, false, 1, "unknown"}} {
+		tp := &fakeTor{progress: c.progress}
+		s := &Server{Core: &torCore{}, Tor: func(string) TorProc {
+			if !c.has {
+				return nil
+			}
+			return tp
+		}}
+		st, err := s.Status()
+		if err != nil || len(st.Tunnels) != 1 {
+			t.Fatal(st, err)
+		}
+		ts := st.Tunnels[0]
+		if ts.Bootstrap == nil || *ts.Bootstrap != c.want || ts.Health.State != c.health || len(ts.Peers) != 1 || ts.Peers[0].RxBytes != 5 {
+			t.Errorf("progress %d: %+v %+v", c.progress, ts, ts.Health)
+		}
+		if starting := strings.Contains(ts.Error, "starting"); starting != (c.want < 100) {
+			t.Errorf("progress %d: error %q", c.progress, ts.Error)
+		}
+	}
+	// exit shown once connected
+	tp := &fakeTor{progress: 100}
+	st0, _ := (&Server{Core: &torCore{}, Tor: func(string) TorProc { return tp }}).Status()
+	if c := st0.Tunnels[0].Circuit; c == nil || c.IP != "198.51.100.9" {
+		t.Errorf("circuit: %+v", c)
+	}
+	// WireGuard keeps its handshake view
+	st, _ := (&Server{Core: &fakeCore{}}).Status()
+	if st.Tunnels[0].Bootstrap != nil {
+		t.Error("wireguard got a bootstrap")
+	}
+}
+
+type fakeTor struct {
+	progress int
+	newnym   int
+}
+
+func (f *fakeTor) Bootstrap() int { return f.progress }
+func (f *fakeTor) Circuit() *tunnel.TorCircuit {
+	return &tunnel.TorCircuit{Hops: 3, Country: "de", IP: "198.51.100.9"}
+}
+func (f *fakeTor) NewIdentity() error { f.newnym++; return nil }
+
+// "New identity" reaches tor.exe on Windows; an unknown tunnel is refused.
+func TestNewnymWindows(t *testing.T) {
+	tp := &fakeTor{progress: 100}
+	s := &Server{Core: &fakeCore{}, Tor: func(n string) TorProc {
+		if n != "tor" {
+			return nil
+		}
+		return tp
+	}}
+	for _, c := range []struct {
+		name string
+		code int
+	}{{"tor", 204}, {"home", 422}} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/tunnels/"+c.name+"/newnym", nil))
+		if rec.Code != c.code {
+			t.Errorf("%s: %d %s", c.name, rec.Code, rec.Body)
+		}
+	}
+	if tp.newnym != 1 {
+		t.Errorf("newnym calls: %d", tp.newnym)
 	}
 }

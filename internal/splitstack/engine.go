@@ -32,6 +32,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"golang.zx2c4.com/wireguard/conn"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -245,6 +246,7 @@ type Engine struct {
 	ignoreTunnelDNS bool
 	networks        []networkConf
 	link, ssid      string // current network (SetNetwork)
+	gwMAC           string // MAC of its default gateway, "" = unknown
 	netName         string // matching profile, "" = none
 	domains         domainAddrs
 	filter          *blocklist.Filter
@@ -582,10 +584,10 @@ func (e *Engine) SetSystemDNS(a netip.Addr) {
 			e.baseDirect = a
 		}
 	}
-	link, ssid := e.link, e.ssid
+	link, ssid, mac := e.link, e.ssid, e.gwMAC
 	e.mu.Unlock()
 	e.logf("network DNS %s", a)
-	e.SetNetwork(link, ssid) // applies it, cuts direct DNS flows of the old server
+	e.SetNetworkMAC(link, ssid, mac) // applies it, cuts direct DNS flows of the old server
 }
 
 // NetworkChanged re-opens the WireGuard sockets after the physical network
@@ -751,17 +753,18 @@ func (e *Engine) closeTunnels() {
 }
 
 type tunnelStatus struct {
-	Name      string        `json:"name"`
-	Type      string        `json:"type"` // wireguard | openvpn | tailscale
-	Via       string        `json:"via,omitempty"`
-	Up        bool          `json:"up"`
-	Idle      bool          `json:"idle,omitempty"` // asleep (on demand): made on the first connection
-	Error     string        `json:"error,omitempty"`
-	Bootstrap int           `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
-	Handshake int64         `json:"handshake"`           // unix seconds, 0 = never
-	RX        int64         `json:"rx"`
-	TX        int64         `json:"tx"`
-	Health    health.Report `json:"health"`
+	Name      string             `json:"name"`
+	Type      string             `json:"type"` // wireguard | openvpn | tailscale
+	Via       string             `json:"via,omitempty"`
+	Up        bool               `json:"up"`
+	Idle      bool               `json:"idle,omitempty"` // asleep (on demand): made on the first connection
+	Error     string             `json:"error,omitempty"`
+	Bootstrap int                `json:"bootstrap,omitempty"` // built-in Tor: 0..100 (absent for others)
+	Circuit   *tunnel.TorCircuit `json:"circuit,omitempty"`   // built-in Tor, once through: exit and hops
+	Handshake int64              `json:"handshake"`           // unix seconds, 0 = never
+	RX        int64              `json:"rx"`
+	TX        int64              `json:"tx"`
+	Health    health.Report      `json:"health"`
 }
 
 type status struct {
@@ -775,6 +778,7 @@ type status struct {
 	Traffic  map[string]stats.Summary `json:"traffic"`
 	Override override.Status          `json:"override"`
 	Network  string                   `json:"network"` // matching profile, "" = none
+	Default  string                   `json:"default"` // default route now (with the profile)
 }
 
 // History returns the traffic and DNS-block history for a range ("1h", "24h",
@@ -793,7 +797,7 @@ func (e *Engine) Status() string {
 	}
 	sort.Slice(st.Tunnels, func(i, j int) bool { return st.Tunnels[i].Name < st.Tunnels[j].Name }) // map order: cards would jump
 	e.mu.RLock()
-	st.Network = e.netName
+	st.Network, st.Default = e.netName, e.def
 	for i := len(e.recent) - 1; i >= 0; i-- {
 		st.DNSRecent = append(st.DNSRecent, e.recent[i])
 	}

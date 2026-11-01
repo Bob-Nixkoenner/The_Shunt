@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeControl answers like tor's control port.
@@ -50,7 +51,7 @@ func fakeControl(t *testing.T) func(...string) ([]string, error) {
 }
 
 func TestQueryCircuit(t *testing.T) {
-	c, err := queryCircuit(fakeControl(t), true)
+	c, err := queryCircuit(fakeControl(t), true, time.Time{})
 	if err != nil || c == nil {
 		t.Fatalf("%v %v", c, err)
 	}
@@ -65,11 +66,11 @@ func TestPickCircuitFallbackNewest(t *testing.T) {
 		"1 BUILT $A~a,$B~b PURPOSE=GENERAL TIME_CREATED=2026-10-30T10:00:00",
 		"2 BUILT $A~a,$C~c,$D~d PURPOSE=GENERAL TIME_CREATED=2026-10-30T11:00:00",
 		"3 EXTENDED $A~a PURPOSE=GENERAL TIME_CREATED=2026-10-30T12:00:00",
-	})
+	}, time.Time{})
 	if len(p) != 3 {
 		t.Fatalf("%v", p)
 	}
-	if pickCircuit(nil) != nil {
+	if pickCircuit(nil, time.Time{}) != nil {
 		t.Fatal("want nil")
 	}
 }
@@ -78,5 +79,54 @@ func TestControlError(t *testing.T) {
 	_, err := fakeControl(t)("GETINFO nope")
 	if err == nil {
 		t.Fatal("want error")
+	}
+}
+
+// After NEWNYM the old circuit keeps its open streams but new connections
+// never take it again: the newer circuit is shown. Internal circuits (onion
+// services, directory) have no exit and are never shown.
+func TestPickCircuitAfterNewnym(t *testing.T) {
+	lines := []string{
+		"1 BUILT $A~a,$B~b,$OLD~old PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:00:00.000000",
+		"2 BUILT $A~a,$C~c,$NEW~new PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:26:22.500000",
+		"3 BUILT $A~a,$D~d,$INT~int BUILD_FLAGS=IS_INTERNAL,NEED_CAPACITY PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:27:00.000000",
+		"7 SUCCEEDED 1 example.org:443",
+	}
+	last := func(p []string) string { return p[len(p)-1] }
+	if p := pickCircuit(lines, time.Time{}); last(p) != "$OLD~old" {
+		t.Errorf("before NEWNYM the used circuit: %v", p)
+	}
+	since := time.Date(2026, 11, 1, 9, 26, 21, 0, time.UTC)
+	if p := pickCircuit(lines, since); last(p) != "$NEW~new" {
+		t.Errorf("after NEWNYM: %v", p)
+	}
+	if p := pickCircuit(lines[2:3], time.Time{}); p != nil {
+		t.Errorf("internal circuit shown: %v", p)
+	}
+}
+
+// Newer tor carries exit streams on conflux pairs: they count like general ones.
+func TestPickCircuitConflux(t *testing.T) {
+	p := pickCircuit([]string{
+		"1 BUILT $A~a,$B~b,$X~exit BUILD_FLAGS=NEED_CAPACITY PURPOSE=CONFLUX_LINKED TIME_CREATED=2026-11-01T09:30:00.000000 CONFLUX_ID=74B6",
+		"2 BUILT $A~a,$C~c,$Y~old BUILD_FLAGS=NEED_CAPACITY PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:00:00.000000",
+	}, time.Time{})
+	if len(p) != 3 || p[2] != "$X~exit" {
+		t.Fatalf("%v", p)
+	}
+}
+
+// With several apps on their own circuits the card shows the busiest one.
+func TestPickCircuitMostStreams(t *testing.T) {
+	p := pickCircuit([]string{
+		"1 BUILT $A~a,$B~b,$ONE~one PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:00:00.000000",
+		"2 BUILT $A~a,$C~c,$TWO~two PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:01:00.000000",
+		"3 BUILT $A~a,$D~d,$NEW~new PURPOSE=GENERAL TIME_CREATED=2026-11-01T09:02:00.000000",
+		"7 SUCCEEDED 1 a.example:443",
+		"8 SUCCEEDED 2 b.example:443",
+		"9 SUCCEEDED 2 c.example:443",
+	}, time.Time{})
+	if len(p) != 3 || p[2] != "$TWO~two" {
+		t.Fatalf("%v", p)
 	}
 }

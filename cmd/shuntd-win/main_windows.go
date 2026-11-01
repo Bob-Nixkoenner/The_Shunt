@@ -206,6 +206,8 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}
 	var torRuns []*tunnel.Tor
+	var torMu sync.Mutex
+	torByName := map[string]*tunnel.Tor{} // for the status: tor's progress per tunnel
 	// SOCKS5 exits of tunnels ("socks = ..."): programs that speak SOCKS can
 	// use a tunnel directly; the engine dials, nothing leaves the tunnel
 	var (
@@ -297,6 +299,7 @@ func runCore(ctx context.Context, ready func()) error {
 			ksMu.Unlock()
 			applyKS()
 		}}
+	m.HaveTor = func() bool { return tunnel.FindTor() != "" }
 	m.StartTor = func(name string, t config.Tunnel) (string, error) {
 		tr, err := tunnel.StartTor(tunnel.TorSpec{Name: name, DataDir: filepath.Join(dataDir, "tor", name),
 			Bridges: t.Bridges, Isolate: t.Isolate}, slog.Default(), nil)
@@ -304,6 +307,9 @@ func runCore(ctx context.Context, ready func()) error {
 			return "", err
 		}
 		torRuns = append(torRuns, tr)
+		torMu.Lock()
+		torByName[name] = tr
+		torMu.Unlock()
 		return tr.SocksAddr(), nil
 	}
 	defer func() {
@@ -479,7 +485,16 @@ func runCore(ctx context.Context, ready func()) error {
 		return []string{clockWarn}
 	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
-		Pin:     func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		Tor: func(name string) winsvc.TorProc {
+			torMu.Lock()
+			tr := torByName[name]
+			torMu.Unlock()
+			if tr == nil {
+				return nil // no typed nil in the interface
+			}
+			return tr
+		},
+		Pin: func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
 		Procs: func(name string) ([]api.ProcRoute, error) {
 			ps, err := winsplit.Processes(name)
 			out := make([]api.ProcRoute, 0, len(ps))
@@ -554,14 +569,17 @@ func waitUplink(ctx context.Context, max time.Duration) (winsplit.Uplink, error)
 
 // watchUplink follows the network: when the real interface changes (Wi-Fi
 // to cable, new Wi-Fi) direct sockets and the tunnels move to it, and the
-// network profile (by Wi-Fi name) is chosen again.
+// network profile (by Wi-Fi name and router MAC) is chosen again.
 func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}, onNet func(name string)) {
+	// the router's MAC is looked up once per network (an ARP request may
+	// take a moment), not on every poll
+	mac := winsplit.GatewayMAC(up.Gateway)
 	publish := func(u winsplit.Uplink) {
-		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway})
+		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway, GatewayMAC: mac})
 	}
 	publish(up)
 	e.SetSystemDNS(up.DNS)
-	name := e.SetNetwork(up.Link, up.SSID)
+	name := e.SetNetworkMAC(up.Link, up.SSID, mac)
 	if name != "" {
 		log.Printf("network profile %q", name)
 	}
@@ -584,9 +602,12 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 			e.NetworkChanged()
 		}
 		if cur.Key() != up.Key() || cur.Link != up.Link {
+			if cur.Index != up.Index || cur.Gateway != up.Gateway || cur.SSID != up.SSID || mac == "" {
+				mac = winsplit.GatewayMAC(cur.Gateway)
+			}
 			publish(cur)
 			e.SetSystemDNS(cur.DNS)
-			name := e.SetNetwork(cur.Link, cur.SSID)
+			name := e.SetNetworkMAC(cur.Link, cur.SSID, mac)
 			if name != "" {
 				log.Printf("network profile %q", name)
 			}

@@ -282,8 +282,10 @@ func (t *Tor) Bootstrap() int {
 
 // NewIdentity asks tor for fresh circuits (SIGNAL NEWNYM).
 func (t *Tor) NewIdentity() error {
-	circuitCache.Delete(t)
 	_, err := t.control("SIGNAL NEWNYM")
+	if err == nil {
+		markNewnym(t)
+	}
 	return err
 }
 

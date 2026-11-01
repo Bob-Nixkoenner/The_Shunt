@@ -133,6 +133,20 @@ func (e *Engine) LeakTest() string {
 // TorNewIdentity gives the built-in Tor of the tunnel new circuits; "" = done, else the reason.
 func (e *Engine) TorNewIdentity(name string) string { return e.e.TorNewIdentity(name) }
 
+// TorExit makes one probe through the tunnel (public IP; for Tor also
+// check.torproject.org, as the leak test) and returns its JSON, "" on error.
+// After TorNewIdentity it makes tor build the new circuit, so the status
+// shows the new exit. Blocks up to ~30 s: call it off the main thread.
+func (e *Engine) TorExit(name string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	b, err := e.e.ProbeRoute(ctx, "tunnel:"+name)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // TorStart makes the built-in Tor of the tunnel start now; "" = done, else the reason.
 func (e *Engine) TorStart(name string) string { return e.e.TorStart(name) }
 

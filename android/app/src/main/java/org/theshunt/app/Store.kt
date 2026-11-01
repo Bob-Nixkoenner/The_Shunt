@@ -148,6 +148,22 @@ data class Settings(
             .toString()
     }
 
+    /** GeoIP tables for the built-in Tor (assets tor/geoip*): into files/tor/, where the
+     *  engine looks; again after an app update. Without them Tor shows no exit country. */
+    private fun copyGeoIP(ctx: Context) {
+        val dir = File(ctx.filesDir, "tor").apply { mkdirs() }
+        val updated = ctx.packageManager.getPackageInfo(ctx.packageName, 0).lastUpdateTime
+        for (n in listOf("geoip", "geoip6")) {
+            val f = File(dir, n)
+            if (f.exists() && f.lastModified() >= updated) continue
+            runCatching {
+                val tmp = File(dir, "$n.tmp")
+                ctx.assets.open("tor/$n").use { i -> tmp.outputStream().use { i.copyTo(it) } }
+                tmp.renameTo(f)
+            }
+        }
+    }
+
     /** The programs the app brings (Android runs programs only from lib/<abi>/lib….so). */
     private fun JSONObject.engineExes(ctx: Context) {
         val dir = ctx.applicationInfo.nativeLibraryDir
@@ -156,6 +172,7 @@ data class Settings(
         // the Tor program of tor-android (libtor.so), for Tor tunnels without Orbot
         val tor = File(dir, "libtor.so")
         if (tor.exists()) put("tor_exe", tor.path).put("work_dir", ctx.filesDir.path)
+        if (tor.exists()) copyGeoIP(ctx)
         // lyrebird: the bridge transports (obfs4, snowflake, meek, webtunnel)
         val pt = File(dir, "liblyrebird.so")
         if (pt.exists()) put("pt_exe", pt.path)
