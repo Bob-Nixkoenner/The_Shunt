@@ -485,14 +485,14 @@ func runCore(ctx context.Context, ready func()) error {
 		return []string{clockWarn}
 	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
-		TorBootstrap: func(name string) (int, bool) {
+		Tor: func(name string) winsvc.TorProc {
 			torMu.Lock()
 			tr := torByName[name]
 			torMu.Unlock()
 			if tr == nil {
-				return 0, false
+				return nil // no typed nil in the interface
 			}
-			return tr.Bootstrap(), true
+			return tr
 		},
 		Pin: func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
 		Procs: func(name string) ([]api.ProcRoute, error) {

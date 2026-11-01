@@ -48,9 +48,9 @@ type Server struct {
 	// Cfg serves the config endpoints (GET/PUT /v1/config, tunnels); nil
 	// leaves them out.
 	Cfg *Manager
-	// TorBootstrap returns the progress (0..100) of the tor.exe behind a Tor
-	// tunnel; ok=false if none runs for it (may be nil).
-	TorBootstrap func(tunnel string) (progress int, ok bool)
+	// Tor returns the tor.exe behind a Tor tunnel, nil if none runs for it
+	// (the func may be nil).
+	Tor func(tunnel string) TorProc
 	// NetInfo describes the network the machine is connected to (may be nil).
 	NetInfo func() netdetect.Info
 	// Config returns the default route and the app rules of the config file
@@ -95,6 +95,13 @@ type engineStatus struct {
 		List  string    `json:"list"`
 		Route string    `json:"route"`
 	} `json:"dns_recent"`
+}
+
+// TorProc is a running tor.exe (tunnel.Tor).
+type TorProc interface {
+	Bootstrap() int
+	Circuit() *tunnel.TorCircuit
+	NewIdentity() error
 }
 
 // Status maps the engine's state to the API's Status.
@@ -155,16 +162,21 @@ func (s *Server) Status() (api.Status, error) {
 			// Tor has no handshake: the card shows tor's progress. The SOCKS
 			// port answers long before tor is through the network, so the
 			// engine's "reachable" alone is not "connected".
-			b, ok := t.Bootstrap, t.Bootstrap > 0
-			if s.TorBootstrap != nil {
-				if v, has := s.TorBootstrap(t.Name); has {
-					b, ok = v, true
-				}
+			b := t.Bootstrap
+			var tp TorProc
+			if s.Tor != nil {
+				tp = s.Tor(t.Name)
 			}
-			if !ok || b < 1 {
+			if tp != nil {
+				b = tp.Bootstrap()
+			}
+			if b < 1 {
 				b = 1 // starting
 			}
 			ts.Bootstrap = &b
+			if tp != nil && b >= 100 {
+				ts.Circuit = tp.Circuit()
+			}
 			if b < 100 {
 				ts.Health = &health.Report{State: health.Unknown, HandshakeAge: -1}
 				if ts.Error == "" && t.Up {
@@ -206,6 +218,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.Core.History(r.URL.Query().Get("range"))))
+	})
+	// New circuits for a Tor tunnel (SIGNAL NEWNYM), as on Linux.
+	mux.HandleFunc("POST /v1/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
+		var tp TorProc
+		if s.Tor != nil {
+			tp = s.Tor(r.PathValue("name"))
+		}
+		if tp == nil {
+			fail(w, http.StatusUnprocessableEntity, fmt.Errorf("%q is not a running Tor tunnel", r.PathValue("name")))
+			return
+		}
+		if err := tp.NewIdentity(); err != nil {
+			fail(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/panic", func(w http.ResponseWriter, r *http.Request) {
 		var req api.PanicRequest

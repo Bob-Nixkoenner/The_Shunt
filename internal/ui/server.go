@@ -350,6 +350,20 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("POST /api/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/tunnels/"+url.PathEscape(r.PathValue("name"))+"/newnym", nil)
 	})
+	// The exit a Tor tunnel uses now, as the outside sees it: one probe
+	// (as the leak test does), e.g. after "New identity". Tor builds the new
+	// circuit only for a connection, so this also makes it.
+	mux.HandleFunc("POST /api/tunnels/{name}/exit", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		raw, err := s.Client.Probe(ctx, "tunnel:"+r.PathValue("name"))
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	})
 	mux.HandleFunc("DELETE /api/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/tunnels/"+url.PathEscape(r.PathValue("name")), nil)
 	})

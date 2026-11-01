@@ -99,20 +99,36 @@ func (t *Tor) Circuit() *TorCircuit {
 	t.mu.Unlock()
 	var c *TorCircuit
 	if run {
-		c, _ = queryCircuit(t.control, len(t.spec.Bridges) > 0)
+		var since time.Time
+		if v, ok := newnymAt.Load(t); ok {
+			since = v.(time.Time)
+		}
+		c, _ = queryCircuit(t.control, len(t.spec.Bridges) > 0, since)
 	}
 	circuitCache.Store(t, circuitEntry{time.Now(), c})
 	return c
 }
 
-// queryCircuit asks tor (ctl runs control commands) for the circuit that
-// carries the tunnel's streams, else the newest general one.
-func queryCircuit(ctl func(...string) ([]string, error), bridges bool) (*TorCircuit, error) {
+// newnymAt: when a Tor last got NEWNYM. Circuits built before it are dirty:
+// they keep their open connections, but new ones never use them again.
+var newnymAt sync.Map // *Tor -> time.Time
+
+// markNewnym records a NEWNYM and drops the cached circuit, so the next
+// status shows the path new connections take from now on.
+func markNewnym(t *Tor) {
+	newnymAt.Store(t, time.Now().UTC())
+	circuitCache.Delete(t)
+}
+
+// queryCircuit asks tor (ctl runs control commands) for the circuit new
+// connections of the tunnel take: one carrying its streams, else the newest
+// general one; circuits from before the last NEWNYM (since) do not count.
+func queryCircuit(ctl func(...string) ([]string, error), bridges bool, since time.Time) (*TorCircuit, error) {
 	lines, err := ctl("GETINFO circuit-status", "GETINFO stream-status")
 	if err != nil {
 		return nil, err
 	}
-	path := pickCircuit(lines)
+	path := pickCircuit(lines, since)
 	if len(path) == 0 {
 		return nil, nil
 	}
@@ -145,8 +161,9 @@ func queryCircuit(ctl func(...string) ([]string, error), bridges bool) (*TorCirc
 }
 
 // pickCircuit reads the circuit-status and stream-status lines and returns
-// the relays ("$FP~nick") of the chosen BUILT general circuit.
-func pickCircuit(lines []string) []string {
+// the relays ("$FP~nick") of the chosen BUILT general circuit with an exit
+// (not internal), built after since (zero: any).
+func pickCircuit(lines []string, since time.Time) []string {
 	type circ struct {
 		path    []string
 		created string
@@ -160,16 +177,24 @@ func pickCircuit(lines []string) []string {
 		switch {
 		case len(f) >= 3 && f[1] == "BUILT" && strings.HasPrefix(f[2], "$"):
 			c := &circ{path: strings.Split(f[2], ",")}
-			general := false
+			general, internal := false, false
 			for _, kv := range f[3:] {
 				switch k, v, _ := strings.Cut(kv, "="); k {
 				case "PURPOSE":
-					general = v == "GENERAL"
+					// conflux: newer tor carries exit streams on linked pairs (same exit)
+					general = v == "GENERAL" || v == "CONFLUX_LINKED"
 				case "TIME_CREATED":
 					c.created = v
+				case "BUILD_FLAGS":
+					internal = strings.Contains(v, "IS_INTERNAL") // onion/directory use: no exit
 				}
 			}
-			if general {
+			if !since.IsZero() {
+				if tc, err := time.Parse("2006-01-02T15:04:05.999999", c.created); err != nil || tc.Before(since) {
+					general = false // dirty since NEWNYM: new connections never take it
+				}
+			}
+			if general && !internal {
 				circs[f[0]] = c
 				order = append(order, f[0])
 			}
