@@ -1,0 +1,15 @@
+# F-Droid metadata of the own repo (the official F-Droid builds from source and uses its own file in fdroiddata)
+Categories:
+  - Connectivity
+  - Security
+License: Apache-2.0
+WebSite: https://github.com/Bob-Nixkoenner/The_Shunt
+SourceCode: https://github.com/Bob-Nixkoenner/The_Shunt
+IssueTracker: https://github.com/Bob-Nixkoenner/The_Shunt/issues
+AutoName: The Shunt
+Summary: Give every app its own VPN route
+Description: |-
+  The Shunt sends each app through its own tunnel (WireGuard, OpenVPN or Tor)
+  or directly. This is the F-Droid build: it has no built-in Tor (use Orbot for
+  Tor tunnels) and does not update itself. The GitHub and Google Play builds
+  bring their own Tor.
