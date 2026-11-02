@@ -192,8 +192,7 @@ jobs:
           if-no-files-found: error
 
   fdroid:
-    # the F-Droid build (no built-in Tor, no updater, no install permission): the signed APK, and the
-    # own F-Droid repo as a ZIP when the repo key secret and the variable FDROID_REPO_URL are set
+    # the F-Droid build (no built-in Tor, no updater, no install permission): the signed APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -235,21 +234,6 @@ jobs:
           (cd android && ./gradlew --no-daemon assembleFdroidDebug)
           mkdir dist
           cp android/app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk "dist/shunt-$TAG-fdroid.apk"
-      - name: own F-Droid repo
-        env:
-          FDROID_KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE_B64 }}
-          FDROID_KEYSTORE_PASSWORD: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
-          FDROID_REPO_URL: ${{ vars.FDROID_REPO_URL }}
-          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
-        run: |
-          if [ -z "$FDROID_KEYSTORE_B64" ] || [ -z "$FDROID_REPO_URL" ]; then
-            echo "::notice::no FDROID_KEYSTORE_B64 secret or FDROID_REPO_URL variable: only the APK, no repo"
-            exit 0
-          fi
-          python3 -m pip install --quiet fdroidserver
-          echo "$FDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/fdroid.p12"
-          FDROID_KEYSTORE="$RUNNER_TEMP/fdroid.p12" packaging/fdroid/build-repo.sh "dist/shunt-$TAG-fdroid.apk" "$RUNNER_TEMP/fdroid"
-          (cd "$RUNNER_TEMP/fdroid" && zip -qr "$GITHUB_WORKSPACE/dist/shunt-$TAG-fdroid-repo.zip" repo)
       - uses: actions/upload-artifact@v4
         with:
           name: fdroid
@@ -331,3 +315,39 @@ jobs:
               gh release create "$TAG" dist/* $pre --title "$TAG" --generate-notes
             fi
           fi
+
+  fdroid-repo:
+    # own F-Droid repo: after the release, the APK goes into the branch fdroid-repo (served by
+    # raw.githubusercontent.com). Needs the secrets FDROID_KEYSTORE_B64 + FDROID_KEYSTORE_PASSWORD
+    # (the repo key; a new key means everybody must add the repo again), else it is skipped.
+    needs: [release]
+    if: ${{ github.event_name != 'pull_request' && needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: fdroid
+          path: dist
+      - name: build and publish the repo
+        env:
+          FDROID_KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE_B64 }}
+          FDROID_KEYSTORE_PASSWORD: ${{ secrets.FDROID_KEYSTORE_PASSWORD }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$FDROID_KEYSTORE_B64" ]; then
+            echo "::notice::no FDROID_KEYSTORE_B64 secret: no F-Droid repo"
+            exit 0
+          fi
+          python3 -m pip install --quiet fdroidserver
+          echo "$FDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/fdroid.p12"
+          # the APKs of the earlier releases are in the branch
+          git clone --quiet --depth 1 --branch fdroid-repo "https://x-access-token:$GH_TOKEN@github.com/$REPO.git" "$RUNNER_TEMP/old" 2>/dev/null || mkdir -p "$RUNNER_TEMP/old/repo"
+          export FDROID_KEYSTORE="$RUNNER_TEMP/fdroid.p12" FDROID_REPO_URL="https://raw.githubusercontent.com/$REPO/fdroid-repo/repo"
+          packaging/fdroid/build-repo.sh dist/*-fdroid.apk "$RUNNER_TEMP/new" "$RUNNER_TEMP/old/repo"
+          cd "$RUNNER_TEMP/new"
+          git init -q -b fdroid-repo
+          git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com commit -q -m "F-Droid repo for ${{ github.event.release.tag_name || github.ref_name }}"
+          git push --force "https://x-access-token:$GH_TOKEN@github.com/$REPO.git" fdroid-repo
