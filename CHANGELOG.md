@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android: new F-Droid build (`fdroid` flavor, next to `github` and `play`). It has no built-in Tor (Tor tunnels use Orbot, so no bridges either), does not check for updates (F-Droid installs them) and has no install permission. The Update section says which build it is and that the GitHub and Google Play builds bring their own Tor. The release workflow builds `shunt-<tag>-fdroid.apk` and, with the secrets `FDROID_KEYSTORE_B64` and `FDROID_KEYSTORE_PASSWORD` set, publishes an own F-Droid repo on the branch `fdroid-repo` (`https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/fdroid-repo/repo`).
+
 ## v0.7.1-rc21
 
 - Windows: Tor tunnel cards show tor's progress (starting n %, then connected) instead of "no handshake" next to health "ok"; "All via Tor" and "New identity" work there now (the service had no newnym endpoint), and the card shows the exit (country, relay, address) and hops like on Linux. Saving a new Tor tunnel no longer warns "tor.exe missing". The Tor Expert Bundle's geoip/geoip6 ship next to tor.exe (no GeoIP warning at every start, exit country known).
