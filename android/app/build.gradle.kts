@@ -54,6 +54,8 @@ android {
     productFlavors {
         create("github") { dimension = "dist" }
         create("play") { dimension = "dist" }
+        // fdroid: built by F-Droid from source; no built-in Tor (Orbot instead), no updater, no install permission
+        create("fdroid") { dimension = "dist" }
     }
 
     buildTypes {
