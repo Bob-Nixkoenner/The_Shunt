@@ -1,0 +1,19 @@
+# O08: the OpenVPN endpoint is a host name (resolved through /etc/hosts of the client, so the
+# lab sees no DNS query for it).
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+driver = "openvpn"
+config = "tunnels/host.ovpn"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
