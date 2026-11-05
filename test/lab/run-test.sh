@@ -46,8 +46,27 @@ resolve_test() {
 	compgen -G "${TESTS_DIR:-$HERE/tests}/$t*.${TEST_EXT:-sh}" | head -1
 }
 
+# OpenVPN variant of the tunnel "intern" (configs/ovpn-*.toml): the client needs the
+# openvpn program and the .ovpn of the internal test server (test keys, not in git)
+OVPN_CONF=${OVPN_CONF:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern/ovpn-intern-linux-test.ovpn}
+ensure_ovpn() {
+	client "command -v openvpn >/dev/null" || { echo "client has no openvpn: install it (pacman -S openvpn / apt install openvpn), then retake the snapshot" >&2; return 1; }
+	local want f name
+	# intern.ovpn = UDP 1194; intern-tcp.ovpn (file next to it, "-tcp" before the extension) = TCP 443
+	for f in "$OVPN_CONF" "${OVPN_CONF%.ovpn}-tcp.ovpn"; do
+		[[ -f $f ]] || continue
+		name=intern.ovpn; [[ $f == *-tcp.ovpn ]] && name=intern-tcp.ovpn
+		want=$(sha256sum <"$f" | cut -c1-16)
+		if [[ $(client "sudo -n sha256sum /etc/shunt/tunnels/$name 2>/dev/null | cut -c1-16") != "$want" ]]; then
+			VBoxManage "${GC[@]}" copyto "$f" "/tmp/$name"
+			client "sudo -n install -m600 /tmp/$name /etc/shunt/tunnels/$name"
+		fi
+	done
+}
+
 apply_config() { # $1 = config name; restarts shuntd only when it changed
 	local want
+	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_ovpn || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
 	if [[ $(client "sudo -n sha256sum /etc/shunt/shunt.toml | cut -c1-16") != "$want" ]]; then
 		VBoxManage "${GC[@]}" copyto "$HERE/configs/$1.toml" /tmp/shunt.toml
@@ -112,6 +131,7 @@ run_test() {
 	# the lab apps are copies (prep.sh); after a distro update (Arch) they no
 	# longer match the system libraries: copy them again when they differ
 	[[ ${CLIENT_OS:-linux} == windows ]] || client 'nc=$(readlink -f /usr/bin/nc); for n in labtun labdir labfree; do for p in "/usr/bin/curl:" "/usr/bin/dig:-dig" "$nc:-nc"; do s=${p%%:*} t=/usr/local/bin/$n${p#*:}; cmp -s "$s" "$t" || sudo -n install -m755 "$s" "$t"; done; done; cmp -s /usr/bin/bash /usr/local/bin/labtun-sh || sudo -n install -m755 /usr/bin/bash /usr/local/bin/labtun-sh' || true
+	grep -q '^driver *= *"openvpn"' "$HERE/configs/$CONFIG.toml" 2>/dev/null && { ensure_ovpn || return 1; }
 	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
