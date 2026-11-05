@@ -1,0 +1,19 @@
+# Like base.toml, but the tunnel "intern" is OpenVPN (UDP 1194, tls-crypt) to the same
+# internal test server. Run the base tests with it: CONFIG_FORCE=ovpn-base CT130_IF=tun0 lab.sh run A01 …
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+driver = "openvpn"
+config = "tunnels/intern.ovpn"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
