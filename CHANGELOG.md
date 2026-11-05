@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.7.1-rc22
+
 - Lab tests: OpenVPN variants. O03 (wrong tls-crypt key, tls-auth instead of tls-crypt), O06 (expired client certificate) and O08 (host name as endpoint). Windows: U01 updates over a running installation with Setup.exe while the tunnel carries traffic (UPDATE_SETUP=<path>). Config `win-tor.toml` for a Tor tunnel on Windows.
 - Lab test C02 (Linux): IPv6 with a reachable target in the network (global-looking prefix, the tunnel has no IPv6); neither the tunnel app nor an app without rule may reach it.
 - Lab test D07 (Linux): suspend/resume. The VM is frozen for 200 s (longer than the WireGuard session) and restarted; nothing may go out in clear text afterwards and the tunnel must come back.
