@@ -1,0 +1,41 @@
+# O03/O06: OpenVPN tunnels with a wrong tls-crypt key, tls-auth instead of tls-crypt, an expired
+# client certificate. All three must stay down; the apps pinned to them must never go direct.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+driver = "openvpn"
+config = "tunnels/intern.ovpn"
+
+[tunnel.wrongkey]
+driver = "openvpn"
+config = "tunnels/wrongkey.ovpn"
+
+[tunnel.tlsauth]
+driver = "openvpn"
+config = "tunnels/tlsauth.ovpn"
+
+[tunnel.expired]
+driver = "openvpn"
+config = "tunnels/expired.ovpn"
+
+[[rule]]
+name = "lab: wrong key"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:wrongkey"
+
+[[rule]]
+name = "lab: tls-auth"
+app = ["labtog"]
+route = "tunnel:tlsauth"
+
+[[rule]]
+name = "lab: expired cert"
+app = ["labexp"]
+route = "tunnel:expired"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"

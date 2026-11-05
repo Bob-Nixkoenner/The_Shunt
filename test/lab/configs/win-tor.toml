@@ -1,0 +1,12 @@
+# Windows lab: one Tor tunnel (tor.exe runs as a child process of the service).
+[daemon]
+default_route = "tunnel:tor"
+
+[tunnel.tor]
+driver = "tor"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []
