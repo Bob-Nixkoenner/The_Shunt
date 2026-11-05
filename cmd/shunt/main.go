@@ -32,6 +32,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/speedtest"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ui"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/update"
 	"golang.org/x/term"
@@ -746,6 +747,11 @@ func status(c *api.Client, args []string) error {
 		}
 		if t.Up {
 			state = "up/" + t.Driver
+			// OpenVPN: "handshake" is the time the connection was made; none yet = not connected
+			// (dead server, wrong key): "up" would say the opposite of what the web UI shows
+			if t.Driver == "openvpn" && !hasHandshake(t.Peers) {
+				state = "connecting/openvpn"
+			}
 			if h := t.Health; h != nil && h.State != "unknown" {
 				state += " " + h.State
 				if h.LatencyMs > 0 {
@@ -1265,4 +1271,14 @@ func probeNote(n string) string {
 		return i18n.T("probe failed: {detail}", "detail", d)
 	}
 	return i18n.T(n)
+}
+
+// hasHandshake reports whether any peer ever completed a handshake (for OpenVPN: is connected).
+func hasHandshake(peers []tunnel.PeerStatus) bool {
+	for _, p := range peers {
+		if !p.LastHandshake.IsZero() {
+			return true
+		}
+	}
+	return false
 }
