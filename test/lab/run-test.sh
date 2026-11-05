@@ -66,7 +66,7 @@ ensure_ovpn() {
 
 apply_config() { # $1 = config name; restarts shuntd only when it changed
 	local want
-	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml"; then ensure_ovpn || return 1; fi
+	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_ovpn || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
 	if [[ $(client "sudo -n sha256sum /etc/shunt/shunt.toml | cut -c1-16") != "$want" ]]; then
 		VBoxManage "${GC[@]}" copyto "$HERE/configs/$1.toml" /tmp/shunt.toml
@@ -131,7 +131,7 @@ run_test() {
 	# the lab apps are copies (prep.sh); after a distro update (Arch) they no
 	# longer match the system libraries: copy them again when they differ
 	[[ ${CLIENT_OS:-linux} == windows ]] || client 'nc=$(readlink -f /usr/bin/nc); for n in labtun labdir labfree; do for p in "/usr/bin/curl:" "/usr/bin/dig:-dig" "$nc:-nc"; do s=${p%%:*} t=/usr/local/bin/$n${p#*:}; cmp -s "$s" "$t" || sudo -n install -m755 "$s" "$t"; done; done; cmp -s /usr/bin/bash /usr/local/bin/labtun-sh || sudo -n install -m755 /usr/bin/bash /usr/local/bin/labtun-sh' || true
-	grep -q '^driver *= *"openvpn"' "$HERE/configs/$CONFIG.toml" && { ensure_ovpn || return 1; }
+	grep -q '^driver *= *"openvpn"' "$HERE/configs/$CONFIG.toml" 2>/dev/null && { ensure_ovpn || return 1; }
 	[[ -z ${PREP:-} ]] || printf '%s\n' "$PREP" | client_script
 	apply_config "$CONFIG"
 	gw labctl netem off >/dev/null
