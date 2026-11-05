@@ -415,12 +415,12 @@ def p0f(pcap):
 
 # --- Messpunkt 3: tunnel exit ----------------------------------------------------
 ct_dns, ct_flows = [], Counter()
-tun_ip = meta.get("tunnel_ip", "")
+tun_ip = meta.get("tunnel_ip", "")  # one address, several separated by ",", a prefix ends in "." (OpenVPN pool: "10.67.0.")
 if os.path.exists(p("ct130.pcap")):
     for pkt in PcapReader(p("ct130.pcap")):
         learn_names(pkt)
         ip = pkt[IP] if IP in pkt else pkt[IPv6] if IPv6 in pkt else None
-        if ip is None or (tun_ip and ip.src != tun_ip):
+        if ip is None or (tun_ip and not any(ip.src == t or (t.endswith(".") and ip.src.startswith(t)) for t in tun_ip.split(","))):
             continue
         dport = pkt[TCP].dport if TCP in pkt else pkt[UDP].dport if UDP in pkt else 0
         proto = PROTO.get(ip.proto if IP in pkt else ip.nh, "?")

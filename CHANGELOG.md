@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lab tests (Linux): OpenVPN. `configs/ovpn-base.toml` runs the base tests (A, B, C, D, E, G) with the tunnel as OpenVPN (`CONFIG_FORCE=ovpn-base CT130_IF=tun0 TUNNEL_IP=10.67.0.`); new O02 (OpenVPN over TCP/443 in a network that only lets 80/443 through) and O05 (tunnel never comes up: dead endpoint, missing tls-crypt key). The analyzer takes several or prefix tunnel addresses; the CT130 capture command allows tun0/tun1.
 - Android: new F-Droid build (`fdroid` flavor, next to `github` and `play`). It has no built-in Tor (Tor tunnels use Orbot, so no bridges either), does not check for updates (F-Droid installs them) and has no install permission. The Update section says which build it is and that the GitHub and Google Play builds bring their own Tor. The release workflow builds `shunt-<tag>-fdroid.apk` and, with the secrets `FDROID_KEYSTORE_B64` and `FDROID_KEYSTORE_PASSWORD` set, publishes an own F-Droid repo on the branch `fdroid-repo` (`https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/fdroid-repo/repo`).
 
 - Tor: the help text of the circuit setting now says that "isolate = app" works per rule, not per program: apps of the same rule share circuits, apps of different rules do not (English and German; no behavior change).
