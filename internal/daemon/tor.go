@@ -22,7 +22,8 @@ import (
 
 // torDial returns the function that opens a connection through tor for
 // the tunnel name: SOCKS5 to tor's socket, the user name being the app that
-// asked (isolate = "app"), so every app gets its own circuits.
+// asked (isolate = "app"). The user name is the key of the rule (see Update),
+// so the isolation is per rule: apps of one rule share circuits.
 func (d *Daemon) torDial(name, isolate string) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		d.mu.Lock()
