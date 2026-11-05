@@ -97,8 +97,27 @@ install_tunnel_file() { # $1 = local file, $2 = name in /etc/shunt/tunnels (copi
 	fi
 }
 
+
+# Baseline for comparison: the same tunnel started with plain wg-quick, shuntd stopped (configs/wgplain.toml
+# only marks the mode, its first line is "# baseline: wg-quick"). The tests then show what a plain
+# WireGuard client gives away in the café network. Config as most people write it: AllowedIPs 0.0.0.0/0,
+# DNS = 1.1.1.1 (tunnels/intern.conf of the client = the lab's WireGuard test server).
+plain_wg_up() {
+	client "sudo -n systemctl stop shuntd; sudo -n wg-quick down labplain 2>/dev/null; sudo -n install -m600 /etc/shunt/tunnels/intern.conf /etc/wireguard/labplain.conf && sudo -n wg-quick up labplain >/dev/null 2>&1 && sleep 4; ip -br a | grep -c labplain"
+}
+plain_wg_down() {
+	client "sudo -n wg-quick down labplain >/dev/null 2>&1; sudo -n rm -f /etc/wireguard/labplain.conf; true"
+}
 apply_config() { # $1 = config name; restarts shuntd only when it changed
 	local want
+	if [[ $(head -1 "$HERE/configs/$1.toml" 2>/dev/null) == "# baseline: wg-quick"* ]]; then
+		[[ $(plain_wg_up | tail -1) == 1 ]] || { echo "wg-quick did not come up in the client" >&2; return 1; }
+		return 0
+	fi
+	# coming back from the baseline: wg-quick off, shuntd on (the restart below needs a changed config, so force it)
+	if [[ $(client "ip -br a | grep -c labplain; systemctl is-active shuntd" | tr '\n' ' ') != "0 active " ]]; then
+		plain_wg_down; client "sudo -n systemctl restart shuntd; sleep 4"
+	fi
 	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_ovpn || return 1; fi
 	if grep -q 'tunnels/hop' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_hop "$1" || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
