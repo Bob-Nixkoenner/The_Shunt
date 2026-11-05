@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tor: the help text of the circuit setting now says that "isolate = app" works per rule, not per program: apps of the same rule share circuits, apps of different rules do not (English and German; no behavior change).
 ## v0.7.1-rc21
 
 - Windows: Tor tunnel cards show tor's progress (starting n %, then connected) instead of "no handshake" next to health "ok"; "All via Tor" and "New identity" work there now (the service had no newnym endpoint), and the card shows the exit (country, relay, address) and hops like on Linux. Saving a new Tor tunnel no longer warns "tor.exe missing". The Tor Expert Bundle's geoip/geoip6 ship next to tor.exe (no GeoIP warning at every start, exit country known).
