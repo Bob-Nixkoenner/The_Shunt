@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `shunt status`: an OpenVPN tunnel that never connected (dead server, missing key) showed `up/openvpn`; it now shows `connecting/openvpn`, as the web UI already did. Found by the new OpenVPN lab test O05.
 - Android: new F-Droid build (`fdroid` flavor, next to `github` and `play`). It has no built-in Tor (Tor tunnels use Orbot, so no bridges either), does not check for updates (F-Droid installs them) and has no install permission. The Update section says which build it is and that the GitHub and Google Play builds bring their own Tor. The release workflow builds `shunt-<tag>-fdroid.apk` and, with the secrets `FDROID_KEYSTORE_B64` and `FDROID_KEYSTORE_PASSWORD` set, publishes an own F-Droid repo on the branch `fdroid-repo` (`https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/fdroid-repo/repo`).
 
 - Tor: the help text of the circuit setting now says that "isolate = app" works per rule, not per program: apps of the same rule share circuits, apps of different rules do not (English and German; no behavior change).
