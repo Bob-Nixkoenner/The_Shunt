@@ -487,7 +487,7 @@ function torRow(n, t) {
     ...BRIDGE_SETS.map((b) => el("option", { value: b }, T("built-in {name}", { name: b }))),
     el("option", { value: "custom" }, "my own bridge lines"));
   sel.value = kind;
-  const iso = el("select", { title: "Which connections share Tor circuits", onchange: (e) => { t.isolate = e.target.value; markDirty(); } },
+  const iso = el("select", { title: "Which connections share Tor circuits. Per rule: apps in the same rule share circuits, apps in different rules do not (not per program).", onchange: (e) => { t.isolate = e.target.value; markDirty(); } },
     el("option", { value: "app" }, "each rule its own circuits"),
     el("option", { value: "destination" }, "one set per destination"),
     el("option", { value: "none" }, "one shared set"));

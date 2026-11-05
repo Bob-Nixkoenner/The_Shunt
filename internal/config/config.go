@@ -326,7 +326,9 @@ type Tunnel struct {
 	// Tor (driver = "tor"): Bridges are bridge lines as in the Tor Browser
 	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0") or the words
 	// obfs4, snowflake, meek for the built-in sets; Isolate says
-	// what gets its own circuits: "app" (default), "destination" or "none".
+	// what gets its own circuits: "app" (default; per rule, not per program:
+	// apps of one rule share circuits, apps of different rules do not),
+	// "destination" or "none".
 	Bridges []string `toml:"bridges,omitempty" json:"bridges,omitempty"`
 	Isolate string   `toml:"isolate,omitempty" json:"isolate,omitempty"`
 	// Inbound: what may come in through this tunnel while the inbound
