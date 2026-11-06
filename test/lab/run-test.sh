@@ -101,9 +101,10 @@ install_tunnel_file() { # $1 = local file, $2 = name in /etc/shunt/tunnels (copi
 # Baseline for comparison: the same tunnel started with plain wg-quick, shuntd stopped (configs/wgplain.toml
 # only marks the mode, its first line is "# baseline: wg-quick"). The tests then show what a plain
 # WireGuard client gives away in the café network. Config as most people write it: AllowedIPs 0.0.0.0/0,
-# DNS = 1.1.1.1 (tunnels/intern.conf of the client = the lab's WireGuard test server).
+# DNS = 1.1.1.1 (shuntd cleanup removes the nft kill-switch tables that stay behind after stop; without it the
+# baseline measures Shunt's fail-closed firewall, not wg-quick) (tunnels/intern.conf of the client = the lab's WireGuard test server).
 plain_wg_up() {
-	client "sudo -n systemctl stop shuntd; sudo -n wg-quick down labplain 2>/dev/null; sudo -n install -m600 /etc/shunt/tunnels/intern.conf /etc/wireguard/labplain.conf && sudo -n wg-quick up labplain >/dev/null 2>&1 && sleep 4; ip -br a | grep -c labplain"
+	client "sudo -n systemctl stop shuntd; sudo -n shuntd cleanup >/dev/null 2>&1; sudo -n wg-quick down labplain 2>/dev/null; sudo -n install -m600 /etc/shunt/tunnels/intern.conf /etc/wireguard/labplain.conf && sudo -n wg-quick up labplain >/dev/null 2>&1 && sleep 4; ip -br a | grep -c labplain"
 }
 plain_wg_down() {
 	client "sudo -n wg-quick down labplain >/dev/null 2>&1; sudo -n rm -f /etc/wireguard/labplain.conf; true"
