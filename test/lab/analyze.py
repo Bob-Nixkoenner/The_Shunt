@@ -343,7 +343,10 @@ for d, n in captive_checks.items():
 for q, dst, w in gw_dns:
     if allow_dns or allowed_comm(w):
         continue
-    if w == "shuntd" and q.encode() in CAPTIVE_HOSTS:  # name of the portal check: the portal sits in front of any tunnel
+    # name of the portal check: the portal sits in front of any tunnel. Without systemd-resolved (Debian) shuntd
+    # resolves on its own and the trace cannot attribute the lookup ("?"): count it as the portal check when
+    # the capture also shows that check's HTTP request, nothing else with an unknown process.
+    if q.encode() in CAPTIVE_HOSTS and (w == "shuntd" or (w == "?" and captive_checks)):
         find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt)")
         continue
     find("leak", "DNS über das fremde Netz", f"{q} an {dst}, Prozess: {w}")
