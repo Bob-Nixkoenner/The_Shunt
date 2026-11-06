@@ -20,6 +20,32 @@ fi
 # the lab user runs shunt run/desktop/ui: socket_group = "shunt" in the lab configs
 [[ -n ${SUDO_USER:-} ]] && usermod -aG shunt "$SUDO_USER"
 
+# VirtualBox virtio NICs only accept frames for a foreign MAC in promiscuous mode. NetworkManager's
+# default random/stable cloned MAC then breaks DHCP/ARP/tunnel replies. Instead of pinning the real MAC
+# (which hides findings F01/F05), set promisc on the physical NICs, so the random MAC stays testable.
+# LAB_NM_MAC=permanent = old workaround (pin the real MAC) if promisc is not enough.
+if command -v nmcli >/dev/null 2>&1 && [[ -d /etc/NetworkManager ]]; then
+	install -d /etc/NetworkManager/dispatcher.d
+	cat >/etc/NetworkManager/dispatcher.d/90-shuntlab-promisc <<'EOF'
+#!/bin/sh
+# lab only: promisc on physical NICs (see test/lab/client/prep.sh)
+[ "$2" = up ] || [ "$2" = dhcp4-change ] || exit 0
+[ -e "/sys/class/net/$1/device" ] && ip link set "$1" promisc on
+exit 0
+EOF
+	chmod 755 /etc/NetworkManager/dispatcher.d/90-shuntlab-promisc
+	for d in /sys/class/net/*/device; do
+		i=${d%/device}; i=${i##*/}
+		ip link set "$i" promisc on 2>/dev/null || true
+	done
+	if [[ ${LAB_NM_MAC:-} == permanent ]]; then
+		install -d /etc/NetworkManager/conf.d
+		printf '[connection-shuntlab-mac]\nmatch-device=type:ethernet\nethernet.cloned-mac-address=permanent\n' \
+			>/etc/NetworkManager/conf.d/90-shuntlab-mac.conf
+	fi
+	systemctl reload NetworkManager 2>/dev/null || true
+fi
+
 # lab apps: copies so their comm is the rule name (rules match on comm)
 for n in labtun labdir labfree; do install -m755 /usr/bin/curl /usr/local/bin/$n; done
 for n in labtun labdir labfree; do install -m755 /usr/bin/dig /usr/local/bin/$n-dig; done
