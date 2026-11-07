@@ -12,6 +12,6 @@ HOPIP=${HOPIP:-10.69.0.${TUNNEL_IP##*.}}
 [[ ${1:-} == --list ]] && { sed -n '2,10p' "$0"; exit 0; }
 CT130_IF=wgt1 TUNNEL_IP=$HOPIP ./lab.sh run MH01 MH02 MH08
 CT130_IF=wgt0 ./lab.sh run MH03
-CT130_IF=tun0 TUNNEL_IP=${OVPN_IP:-10.67.0.2} ./lab.sh run MH04
+CT130_IF=tun0 TUNNEL_IP=${OVPN_IP:-10.67.0.3} ./lab.sh run MH04
 CT130_IF=wgt0 ./lab.sh run MH05
 CONFIG_FORCE=hop CT130_IF=wgt1 TUNNEL_IP=$HOPIP ./lab.sh run E01 E02 E05 D06
