@@ -135,7 +135,10 @@ func TestParseInbound(t *testing.T) {
 	if _, err := parseInboundPorts([]string{"tcp/1716", "UDP/1716"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{"1716", "icmp/1", "tcp/0", "tcp/70000", "tcp/x"} {
+	if l, err := parseInboundPorts([]string{"udp/47998-48000"}); err != nil || len(l) != 3 {
+		t.Fatalf("range: %v %v", l, err)
+	}
+	for _, bad := range []string{"udp/9-3", "tcp/1-5000", "1716", "icmp/1", "tcp/0", "tcp/70000", "tcp/x"} {
 		if _, err := parseInboundPorts([]string{bad}); err == nil {
 			t.Errorf("%q should fail", bad)
 		}

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -108,6 +109,8 @@ private fun App() {
     val ctx = LocalContext.current
     var settings by remember { mutableStateOf(Store.load(ctx)) }
     var tab by remember { mutableIntStateOf(0) }
+    val showPorts = settings.shows("tab.ports") || settings.tunnels.any { it.inbound.isNotEmpty() }
+    if (tab > (if (showPorts) 5 else 4)) tab = 0
     var message by remember { mutableStateOf<String?>(null) }
     val status by rememberStatus()
     val update: (Settings) -> Unit = { s ->
@@ -127,9 +130,9 @@ private fun App() {
                     val filterIcon = painterResource(R.drawable.ic_tab_filter)
                     listOf(
                         "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
-                        "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
-                        "View" to rememberVectorPainter(Icons.Filled.Settings),
-                    ).forEachIndexed { i, (label, icon) ->
+                        "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Ports" to rememberVectorPainter(Icons.Filled.Info),
+                        "Filter" to filterIcon, "View" to rememberVectorPainter(Icons.Filled.Settings),
+                    ).filter { it.first != "Ports" || showPorts }.forEachIndexed { i, (label, icon) ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
                             label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
@@ -143,12 +146,15 @@ private fun App() {
             },
         ) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
-                when (tab) {
+                // the Ports tab is optional (Pro, or while a port is open): the tabs after it move up by one
+                val t = if (!showPorts && tab >= 3) tab + 1 else tab
+                when (t) {
                     0 -> StatusScreen(settings, status, update) { message = it }
                     1 -> TunnelsScreen(settings, update) { message = it }
                     2 -> AppsScreen(settings, update)
-                    3 -> FilterScreen(settings, update, status)
-                    4 -> SettingsScreen(settings, update)
+                    3 -> PortsScreen(settings, update) { message = it }
+                    4 -> FilterScreen(settings, update, status)
+                    5 -> SettingsScreen(settings, update)
                 }
             }
         }
@@ -623,21 +629,6 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                                 update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(via = via) else it }))
                                 say(T("tunnel:{name} now goes {how}. Restart the VPN to use it.", "name" to t.name, "how" to (if (via.isEmpty()) T("directly") else T("through tunnel:{via}", "via" to via))))
                             }
-                        }
-                        // devices in the tunnel may connect to this phone (KDE Connect); off by default
-                        if (!t.isTor && (t.inbound.isNotEmpty() || settings.shows("tunnel.inbound"))) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f).padding(end = Gap.beside)) {
-                                Text(T("Allow KDE Connect from this tunnel"), color = LocalShunt.current.text, fontSize = 13.sp)
-                                Text(T("Other devices in the tunnel can reach KDE Connect on this phone (port 1716). Everything else stays closed."), color = LocalShunt.current.muted, fontSize = 12.sp)
-                            }
-                            Switch(
-                                checked = t.inbound.isNotEmpty(),
-                                onCheckedChange = { on ->
-                                    update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(inbound = if (on) Tunnel.KDE_CONNECT_PORTS else emptyList()) else it }))
-                                    say(T("Restart the VPN to apply this."))
-                                },
-                                colors = SwitchDefaults.colors(checkedTrackColor = LocalShunt.current.accent, checkedThumbColor = LocalShunt.current.accentInk),
-                            )
                         }
                     }
                 }
