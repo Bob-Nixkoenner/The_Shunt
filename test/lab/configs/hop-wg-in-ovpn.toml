@@ -1,0 +1,25 @@
+# Lab client: WireGuard inside OpenVPN. The outer tunnel "intern" is OpenVPN (UDP 1194,
+# intern.ovpn); the hop is the normal WireGuard tunnel of this VM (wgt0), reached at
+# 10.67.0.1:51830 through it (hopwg.conf = the VM's WireGuard config with that endpoint).
+# The gateway must see only 1194/udp. Capture on CT130: CT130_IF=wgt0.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+driver = "openvpn"
+config = "tunnels/intern.ovpn"
+
+[tunnel.hop]
+config = "tunnels/hopwg.conf"
+via = "tunnel:intern"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:hop"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"

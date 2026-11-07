@@ -64,9 +64,43 @@ ensure_ovpn() {
 	done
 }
 
+# Multi-hop (configs/hop*.toml): the inner tunnel of a hop needs its own config file in the client.
+#   hop.conf    WireGuard hop on CT130 wgt1 (10.66.0.1:51831, reachable only through wgt0): HOP_CONF
+#   hop.ovpn    OpenVPN hop inside WireGuard (remote 10.66.0.1 1194): OVPN_HOP_CONF
+#   hopwg.conf  WireGuard inside OpenVPN: the VM's normal WireGuard config ($TUNNEL_CONF) with the
+#               endpoint 10.67.0.1:51830 (wgt0 as seen through the OpenVPN tunnel)
+# HOP_BADKEY=1 (set by a test file) writes hop.conf with a wrong server key (inner hop never comes up).
+HOP_DIR=${HOP_DIR:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern}
+HOP_CONF=${HOP_CONF:-$HOP_DIR/wg-hop-linux-test.conf}
+OVPN_HOP_CONF=${OVPN_HOP_CONF:-$HOP_DIR/ovpn-hop-linux-test.ovpn}
+ensure_hop() { # $1 = config name
+	local cfg="$HERE/configs/$1.toml" src tmp
+	tmp=$(mktemp)
+	if grep -q 'tunnels/hop\.conf' "$cfg"; then
+		cp "$HOP_CONF" "$tmp"
+		[[ ${HOP_BADKEY:-0} == 1 ]] && sed -i "s|^PublicKey *=.*|PublicKey = $(head -c32 /dev/urandom | base64)|" "$tmp"
+		install_tunnel_file "$tmp" hop.conf
+	fi
+	if grep -q 'tunnels/hop\.ovpn' "$cfg"; then install_tunnel_file "$OVPN_HOP_CONF" hop.ovpn; fi
+	if grep -q 'tunnels/hopwg\.conf' "$cfg"; then
+		sed "s|^Endpoint *=.*|Endpoint = 10.67.0.1:51830|" "$TUNNEL_CONF" >"$tmp"
+		install_tunnel_file "$tmp" hopwg.conf
+	fi
+	rm -f "$tmp"
+}
+install_tunnel_file() { # $1 = local file, $2 = name in /etc/shunt/tunnels (copied only when it changed)
+	local want
+	want=$(sha256sum <"$1" | cut -c1-16)
+	if [[ $(client "sudo -n sha256sum /etc/shunt/tunnels/$2 2>/dev/null | cut -c1-16") != "$want" ]]; then
+		VBoxManage "${GC[@]}" copyto "$1" "/tmp/$2"
+		client "sudo -n install -m600 /tmp/$2 /etc/shunt/tunnels/$2"
+	fi
+}
+
 apply_config() { # $1 = config name; restarts shuntd only when it changed
 	local want
 	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_ovpn || return 1; fi
+	if grep -q 'tunnels/hop' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_hop "$1" || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
 	if [[ $(client "sudo -n sha256sum /etc/shunt/shunt.toml | cut -c1-16") != "$want" ]]; then
 		VBoxManage "${GC[@]}" copyto "$HERE/configs/$1.toml" /tmp/shunt.toml
@@ -94,7 +128,7 @@ run_test() {
 	file=$(resolve_test "$1")
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
-	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
+	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel HOP_BADKEY=0 RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
 	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP=''
 	unset -f during
 	# shellcheck disable=SC1090

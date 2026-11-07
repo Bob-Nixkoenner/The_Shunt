@@ -1,0 +1,29 @@
+# Lab client: WireGuard in WireGuard. "hop" (CT130 wgt1, 10.66.0.1:51831) runs inside
+# "intern" (wgt0). The lab apps use the inner hop, everything else the outer tunnel.
+# hop.conf comes from run-test.sh (ensure_hop, HOP_CONF = wg-hop-<vm>.conf).
+# Capture the inner hop on CT130: CT130_IF=wgt1 TUNNEL_IP=10.69.0.<n> lab.sh run MH01 …
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.hop]
+config = "tunnels/hop.conf"
+via = "tunnel:intern"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:hop"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[[rule]]
+name = "lab: toggle"
+app = ["labtog"]
+route = "tunnel:hop"
