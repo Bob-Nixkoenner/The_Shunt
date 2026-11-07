@@ -624,6 +624,21 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                                 say(T("tunnel:{name} now goes {how}. Restart the VPN to use it.", "name" to t.name, "how" to (if (via.isEmpty()) T("directly") else T("through tunnel:{via}", "via" to via))))
                             }
                         }
+                        // devices in the tunnel may connect to this phone (KDE Connect); off by default
+                        if (!t.isTor && (t.inbound.isNotEmpty() || settings.shows("tunnel.inbound"))) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(end = Gap.beside)) {
+                                Text(T("Allow KDE Connect from this tunnel"), color = LocalShunt.current.text, fontSize = 13.sp)
+                                Text(T("Other devices in the tunnel can reach KDE Connect on this phone (port 1716). Everything else stays closed."), color = LocalShunt.current.muted, fontSize = 12.sp)
+                            }
+                            Switch(
+                                checked = t.inbound.isNotEmpty(),
+                                onCheckedChange = { on ->
+                                    update(settings.copy(tunnels = settings.tunnels.map { if (it == t) it.copy(inbound = if (on) Tunnel.KDE_CONNECT_PORTS else emptyList()) else it }))
+                                    say(T("Restart the VPN to apply this."))
+                                },
+                                colors = SwitchDefaults.colors(checkedTrackColor = LocalShunt.current.accent, checkedThumbColor = LocalShunt.current.accentInk),
+                            )
+                        }
                     }
                 }
             }
