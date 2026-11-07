@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "about": "Apps that wait for connections from other devices. Used by The Shunt for 'let devices in the tunnel reach this app'. Add an app with a pull request: name, ports (tcp/PORT, udp/PORT or tcp/FIRST-LAST, at most 64 per range), a short note. Only ports the app really listens on; no personal data.",
+  "apps": [
+    { "name": "KDE Connect", "ports": ["tcp/1716", "udp/1716"], "note": "Phone <-> PC link (notifications, files, clipboard)." },
+    { "name": "Syncthing", "ports": ["tcp/22000", "udp/22000"], "note": "File sync. Discovery in the local network (udp/21027) does not go through a tunnel." },
+    { "name": "Termux SSH", "ports": ["tcp/8022"], "note": "sshd of Termux. Use keys, not passwords." },
+    { "name": "LocalSend", "ports": ["tcp/53317", "udp/53317"], "note": "File transfer between devices." },
+    { "name": "Sunshine", "ports": ["tcp/47984", "tcp/47989", "tcp/48010", "udp/47998-48000", "udp/48002"], "note": "Game stream host. Moonlight, the client, needs nothing here." }
+  ]
+}

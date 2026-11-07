@@ -45,6 +45,8 @@ object Levels {
         "tor.client" to PRO,
         // tunnels: a tunnel through another one (shown in Simple while one is set)
         "tunnel.multihop" to PRO,
+        // the Ports tab: let devices in a tunnel reach apps on this phone (shown while a port is open)
+        "tab.ports" to PRO,
         // apps: Simple keeps the route per app and "All other apps"; the
         // per-network defaults (network profiles) are Pro (shown while set)
         "apps.netprofiles" to PRO,

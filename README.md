@@ -353,6 +353,14 @@ domain rules (app, IP and port rules still apply).
 On Pop!_OS/Ubuntu glibc asks systemd-resolved via varlink instead of port 53; the
 installer offers `shuntd fix-nsswitch` (reverted on uninstall).
 
+## Apps that wait for connections (port list)
+
+On Android, other devices in a tunnel can only reach apps on the phone through ports you open (tab **Ports**,
+Pro level). The list of known apps and their ports is [`portlist/portlist.json`](portlist/portlist.json).
+**Missing an app?** Open a pull request that adds one entry: `name`, `ports` (`tcp/PORT`, `udp/PORT` or
+`tcp/FIRST-LAST`, at most 64 ports per range), and a one-line `note`. Only ports the app really listens on, and nothing
+personal (no addresses, names or keys). The app can refresh the list from GitHub (button in the Ports tab).
+
 ## DNS filter (blocklists)
 
 Blocked names get NXDOMAIN inside Shunt – the query never leaves the machine. Three levels

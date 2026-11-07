@@ -33,6 +33,8 @@ android {
     sourceSets.getByName("main").assets.srcDir("../../internal/i18n/lang")
     // GeoIP tables for the built-in Tor (fetch-tor.sh; missing: no exit country)
     sourceSets.getByName("main").assets.srcDir("src/main/tor-assets")
+    // the list of apps with the ports they listen on (portlist/portlist.json, anyone may propose one)
+    sourceSets.getByName("main").assets.srcDir("../../portlist")
 
     // Fixed release key (CI secret): without it every build gets a random debug key
     // and Android refuses to update an installed app. Local builds keep the debug key.
