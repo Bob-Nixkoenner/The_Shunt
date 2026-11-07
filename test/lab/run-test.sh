@@ -163,6 +163,11 @@ run_test() {
 	((SCAN)) && gw labctl scan "$run" >/dev/null 2>&1 &
 	local spid=$!
 	printf '%s\n' "$CLIENT" | client_script "$canary" >"$out/client.out" 2>&1 || true
+	# the VirtualBox guest service can die (after P01's clock jump on Debian): then nothing ran
+	# in the client and a "pass" would mean nothing, so the test fails instead
+	if grep -q "guest execution service is not ready" "$out/client.out" 2>/dev/null; then
+		echo "FAIL Client nicht erreichbar (VirtualBox-Gastdienst nicht bereit): Test ungueltig, VM neu starten (lab.sh up lab)" >>"$out/client.out"
+	fi
 	[[ -n $dpid ]] && wait "$dpid" 2>/dev/null
 	((SCAN)) && wait "$spid" 2>/dev/null
 	sleep 2
