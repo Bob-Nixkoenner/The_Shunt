@@ -28,10 +28,12 @@ kprobe:__sk_destruct
 	delete(@comm[arg0]);
 }
 
+// (no string ternary or string == here: bpftrace 0.23 on kernel 6.12 builds code the verifier rejects)
 kprobe:__dev_queue_xmit
 {
 	$skb = (struct sk_buff *)arg0;
-	if ($skb->dev->name == "lo") { return; }
+	// loopback is ifindex 1; a string compare with "lo" fails the verifier in bpftrace 0.23 (Debian 13, kernel 6.12)
+	if ($skb->dev->ifindex == 1) { return; }
 	$sk = (uint64)$skb->sk;
 	$p = @pid[$sk];
 	$c = @comm[$sk];
@@ -39,13 +41,24 @@ kprobe:__dev_queue_xmit
 	$dport = (*(uint8 *)($th + 2) << 8) | *(uint8 *)($th + 3);
 	if ($skb->protocol == 0x0008) {
 		$ip = (struct iphdr *)($skb->head + $skb->network_header);
-		printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $p ? $c : "-", $skb->dev->name,
-			$ip->protocol, ntop($ip->saddr), ntop($ip->daddr), $dport, $skb->len);
+		if ($p) {
+			printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $c, $skb->dev->name,
+				$ip->protocol, ntop($ip->saddr), ntop($ip->daddr), $dport, $skb->len);
+		} else {
+			printf("%llu 0 - %s %d %s %s %d %d\n", nsecs, $skb->dev->name,
+				$ip->protocol, ntop($ip->saddr), ntop($ip->daddr), $dport, $skb->len);
+		}
 	} else if ($skb->protocol == 0xDD86) {
 		$ip6 = (struct ipv6hdr *)($skb->head + $skb->network_header);
-		printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $p ? $c : "-", $skb->dev->name,
-			$ip6->nexthdr, ntop($ip6->saddr.in6_u.u6_addr8), ntop($ip6->daddr.in6_u.u6_addr8),
-			$dport, $skb->len);
+		if ($p) {
+			printf("%llu %d %s %s %d %s %s %d %d\n", nsecs, $p, $c, $skb->dev->name,
+				$ip6->nexthdr, ntop($ip6->saddr.in6_u.u6_addr8), ntop($ip6->daddr.in6_u.u6_addr8),
+				$dport, $skb->len);
+		} else {
+			printf("%llu 0 - %s %d %s %s %d %d\n", nsecs, $skb->dev->name,
+				$ip6->nexthdr, ntop($ip6->saddr.in6_u.u6_addr8), ntop($ip6->daddr.in6_u.u6_addr8),
+				$dport, $skb->len);
+		}
 	}
 }
 
