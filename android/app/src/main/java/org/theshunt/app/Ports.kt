@@ -104,9 +104,10 @@ fun PortsScreen(settings: Settings, update: (Settings) -> Unit, say: (String) ->
                     )
                 }
             }
-            // own ports: everything open that is not one of the listed apps
-            val known = apps.flatMap { it.ports }.toSet()
-            val own = t.inbound.filter { it !in known }
+            // own ports: everything open that does not belong to a listed app that is switched on
+            // (a port of an app that is only partly open shows here, so it can be removed)
+            val covered = apps.filter { t.inbound.containsAll(it.ports) }.flatMap { it.ports }.toSet()
+            val own = t.inbound.filter { it !in covered }
             for (p in own) Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(p, Modifier.weight(1f), color = c.text, fontSize = 14.sp)
                 ShuntButton(T("Remove"), { set(t.inbound - p) })
