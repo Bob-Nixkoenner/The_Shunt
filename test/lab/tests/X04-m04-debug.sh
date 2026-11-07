@@ -1,4 +1,4 @@
-ID=M04D
+ID=X04
 TITLE="(Debug) Tunnel kommt nie hoch (falscher Endpunkt, falscher Schluessel): nie direkt"
 CONFIG=m-broken
 EXPECT_CANARY=none
