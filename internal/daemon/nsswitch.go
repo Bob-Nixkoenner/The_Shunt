@@ -63,12 +63,12 @@ func FixNsswitch() (bool, error) {
 		return false, nil
 	}
 	if _, err := os.Stat(nsswitchBackup); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(nsswitchBackup, b, 0o644); err != nil {
+		if err := writeReadable(nsswitchBackup, b); err != nil {
 			return false, err
 		}
 	}
 	tmp := nsswitchPath + ".shunt-tmp"
-	if err := os.WriteFile(tmp, []byte(fixed), 0o644); err != nil {
+	if err := writeReadable(tmp, []byte(fixed)); err != nil {
 		return false, err
 	}
 	return true, os.Rename(tmp, nsswitchPath)
@@ -80,8 +80,18 @@ func RestoreNsswitch() error {
 	if err != nil {
 		return fmt.Errorf("no backup at %s: %w", nsswitchBackup, err)
 	}
-	if err := os.WriteFile(nsswitchPath, b, 0o644); err != nil {
+	if err := writeReadable(nsswitchPath, b); err != nil {
 		return err
 	}
 	return os.Remove(nsswitchBackup)
+}
+
+// writeReadable writes a file everybody must be able to read, whatever the
+// umask of the caller is: os.WriteFile applies the umask, and with 027 (a
+// hardened root shell) nsswitch.conf became unreadable for normal users.
+func writeReadable(path string, data []byte) error {
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o644)
 }
