@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -108,6 +109,8 @@ private fun App() {
     val ctx = LocalContext.current
     var settings by remember { mutableStateOf(Store.load(ctx)) }
     var tab by remember { mutableIntStateOf(0) }
+    val showPorts = settings.shows("tab.ports") || settings.tunnels.any { it.inbound.isNotEmpty() }
+    if (tab > (if (showPorts) 5 else 4)) tab = 0
     var message by remember { mutableStateOf<String?>(null) }
     val status by rememberStatus()
     val update: (Settings) -> Unit = { s ->
@@ -127,9 +130,9 @@ private fun App() {
                     val filterIcon = painterResource(R.drawable.ic_tab_filter)
                     listOf(
                         "Status" to rememberVectorPainter(Icons.Filled.Home), "Tunnels" to rememberVectorPainter(Icons.Filled.Lock),
-                        "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Filter" to filterIcon,
-                        "View" to rememberVectorPainter(Icons.Filled.Settings),
-                    ).forEachIndexed { i, (label, icon) ->
+                        "Apps" to rememberVectorPainter(Icons.AutoMirrored.Filled.List), "Ports" to rememberVectorPainter(Icons.Filled.Info),
+                        "Filter" to filterIcon, "View" to rememberVectorPainter(Icons.Filled.Settings),
+                    ).filter { it.first != "Ports" || showPorts }.forEachIndexed { i, (label, icon) ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
                             label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
@@ -143,12 +146,15 @@ private fun App() {
             },
         ) { pad ->
             Box(Modifier.padding(pad).fillMaxSize()) {
-                when (tab) {
+                // the Ports tab is optional (Pro, or while a port is open): the tabs after it move up by one
+                val t = if (!showPorts && tab >= 3) tab + 1 else tab
+                when (t) {
                     0 -> StatusScreen(settings, status, update) { message = it }
                     1 -> TunnelsScreen(settings, update) { message = it }
                     2 -> AppsScreen(settings, update)
-                    3 -> FilterScreen(settings, update, status)
-                    4 -> SettingsScreen(settings, update)
+                    3 -> PortsScreen(settings, update) { message = it }
+                    4 -> FilterScreen(settings, update, status)
+                    5 -> SettingsScreen(settings, update)
                 }
             }
         }
@@ -554,6 +560,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
     val scan = rememberLauncherForActivityResult(ScanContract()) { r -> r.contents?.let { add("qr", it) } }
     var confirmDelete by remember { mutableStateOf<Tunnel?>(null) }
     var renaming by remember { mutableStateOf<Tunnel?>(null) }
+    var checking by remember { mutableStateOf<Tunnel?>(null) }
     val vpnRunning by VpnState.running.collectAsStateWithLifecycle()
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
@@ -585,6 +592,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         },
                         end = {
                             Row(horizontalArrangement = Arrangement.spacedBy(Gap.sectionH)) {
+                                ShuntLink("Check", { checking = t })
                                 ShuntLink("Rename", { renaming = t })
                                 ShuntLink("Delete", { confirmDelete = t }, color = LocalShunt.current.bad)
                             }
@@ -605,6 +613,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         } else if (t.isOpenVPN) {
                             KV("server", list("remotes"), mono = true)
                             if (t.user.isNotEmpty()) KV("user", t.user, mono = true)
+                            if (!it.optBoolean("tls_wrap")) Hint("No tls-crypt or tls-auth in this file: anyone can talk to the server, not only you. Many providers do not use it. Tap Check for details.")
                         } else {
                             KV("address", list("addresses"), mono = true)
                             KV("endpoint", list("endpoints"), mono = true)
@@ -681,6 +690,22 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 TextButton({ save(t.copy(user = user, pass = pass), ""); askAuth = null }, enabled = user.isNotEmpty()) { Text(T("Import")) }
             },
             dismissButton = { TextButton({ askAuth = null }) { Text(T("Cancel")) } },
+        )
+    }
+    checking?.let { t ->
+        val lines = remember(t.conf, t.user) { checkTunnel(t) }
+        AlertDialog(
+            onDismissRequest = { checking = null },
+            title = { Text(T("Check tunnel:{name}", "name" to t.name)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    for ((tone, text) in lines) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(when (tone) { Tone.Ok -> "✓"; Tone.Bad -> "✗"; else -> "!" }, color = when (tone) { Tone.Ok -> LocalShunt.current.ok; Tone.Bad -> LocalShunt.current.bad; else -> LocalShunt.current.warn }, fontWeight = FontWeight.Bold)
+                        Text(text, fontSize = 13.sp)
+                    }
+                }
+            },
+            confirmButton = { TextButton({ checking = null }) { Text(T("Close")) } },
         )
     }
     confirmDelete?.let { t ->
@@ -1186,4 +1211,26 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
             }
         }
     }
+}
+
+/** What the file check finds, as plain sentences: ok, warning or error, each with what it means. */
+private fun checkTunnel(t: Tunnel): List<Pair<Tone, String>> {
+    val out = mutableListOf<Pair<Tone, String>>()
+    val sum = try {
+        JSONObject(if (t.isTor) Mobile.checkTor(t.conf) else if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf))
+    } catch (e: Exception) {
+        return listOf(Tone.Bad to T("The file cannot be used: {why}", "why" to (e.message ?: "")))
+    }
+    out += Tone.Ok to T("The file is readable.")
+    fun n(k: String) = sum.optJSONArray(k)?.length() ?: 0
+    if (t.isOpenVPN) {
+        if (n("removed") > 0) out += Tone.Warn to T("{n} line(s) were taken out because they would run programs or open a control port on this phone. The tunnel works without them.", "n" to n("removed"))
+        if (sum.optBoolean("needs_auth") && t.user.isEmpty()) out += Tone.Warn to T("The server wants a username and password, and none is saved.")
+        if (!sum.optBoolean("tls_wrap")) out += Tone.Warn to T("No tls-crypt or tls-auth: the server answers anyone, so port scans and attacks on the TLS handshake are not held back. Your traffic is still encrypted. Many providers do not offer it; with your own server you can add it.")
+        else out += Tone.Ok to T("tls-crypt or tls-auth is set: the server only answers clients that know the key.")
+    } else if (!t.isTor) {
+        if (n("dns") == 0) out += Tone.Warn to T("The file has no DNS line: names are asked through your DNS servers list.")
+        if (n("endpoints") == 0) out += Tone.Bad to T("The file has no endpoint (server address).")
+    }
+    return out
 }

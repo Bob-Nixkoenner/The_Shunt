@@ -59,6 +59,11 @@ type tunnelConf struct {
 	// Via: OpenVPN only, the WireGuard tunnel that carries it (multi-hop,
 	// see via.go); "" = straight over the network.
 	Via string `json:"via,omitempty"`
+	// Inbound: ports ("tcp/1716", "udp/1716") accepted from the tunnel and
+	// handed on to the device's loopback (inbound.go); InboundFrom: only from
+	// these source addresses ("" list = every address in the tunnel).
+	Inbound     []string `json:"inbound,omitempty"`
+	InboundFrom []string `json:"inbound_from,omitempty"`
 }
 
 type blocklistConf struct {
@@ -309,7 +314,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 	}
 	for _, t := range ordered {
 		var wt *wgTunnel
-		if c.OnDemand && onDemandEligible(t, c.Tunnels) {
+		if c.OnDemand && len(t.Inbound) == 0 && onDemandEligible(t, c.Tunnels) {
 			if _, err := parseWG(t.Conf); err == nil { // a broken file is shown as an error now, not at the first use
 				e.tunnels[t.Name] = dormantTunnel(t.Name, t.Conf)
 				continue
@@ -325,7 +330,7 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt, err = e.newWGVia(t, c.MTU)
 		} else {
 			wt, err = newWGTunnel(t.Name, t.Conf, e.resolver(), o.NewBind(), o.BindUp, c.MTU)
-			if wt != nil && onDemandEligible(t, c.Tunnels) {
+			if wt != nil && len(t.Inbound) == 0 && onDemandEligible(t, c.Tunnels) {
 				wt.lazy, wt.lazyConf = true, t.Conf
 				wt.use()
 			}
@@ -341,6 +346,9 @@ func New(o Options, configJSON string) (*Engine, error) {
 			wt.err = err.Error()
 		}
 		e.setTunnel(t.Name, wt)
+		if err == nil && wt != nil && !wt.dormant {
+			wt.stopInbound = e.startInbound(wt, t)
+		}
 		// a new userspace tunnel starts at zero: count from the first byte
 		e.book.Observe(t.Name, 0, 0, time.Now())
 	}
