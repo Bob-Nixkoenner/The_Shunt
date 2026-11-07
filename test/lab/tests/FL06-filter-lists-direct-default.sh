@@ -2,7 +2,7 @@ ID=FL06
 TITLE="DNS-Filter: Listen-Download bei default_route = direct (Dokumentation)"
 CONFIG=filter-real-direct
 EXPECT_CANARY=any
-ALLOW=(comm:shuntd dns)
+ALLOW=(comm:shuntd dns net:185.199.108.0/22:443/tcp)
 SETTLE=3
 PREP='sudo -n systemctl stop shuntd; sudo -n rm -rf /var/cache/shunt/blocklists; true'
 NOTE="Gewollt (#8): Der Listen-Download folgt der Standardroute. Ist sie direct, gehen DNS und HTTPS der Listen-Hosts ins fremde Netz. Dieser Test hält das als Doku fest; Ergebnis im Bericht prüfen, nicht als Fehler werten."
