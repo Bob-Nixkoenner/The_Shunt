@@ -37,8 +37,6 @@ data class Tunnel(
         const val OPENVPN = "openvpn"
         const val TOR = "tor"
 
-        /** KDE Connect: the port its app listens on, TCP for links and UDP for the first hello. */
-        val KDE_CONNECT_PORTS = listOf("tcp/1716", "udp/1716")
 
         /** Orbot (the Tor app of the Guardian Project): SOCKS 9050; names go through SOCKS (Orbot's DNSPort is random). */
         const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\n"

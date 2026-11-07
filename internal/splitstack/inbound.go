@@ -20,6 +20,7 @@ import (
 const (
 	inboundMaxPerSource = 16               // simultaneous TCP connections per source
 	inboundUDPIdle      = 60 * time.Second // a UDP session ends after this much silence
+	inboundMaxRange     = 64               // ports in one "tcp/FIRST-LAST"
 )
 
 type inboundPort struct {
@@ -31,11 +32,21 @@ func parseInboundPorts(list []string) ([]inboundPort, error) {
 	var out []inboundPort
 	for _, s := range list {
 		proto, p, ok := strings.Cut(strings.ToLower(strings.TrimSpace(s)), "/")
-		n, err := strconv.Atoi(p)
-		if !ok || (proto != "tcp" && proto != "udp") || err != nil || n < 1 || n > 65535 {
-			return nil, fmt.Errorf("inbound %q: use tcp/PORT or udp/PORT", s)
+		lo, hi, isRange := strings.Cut(p, "-")
+		if !isRange {
+			hi = lo
 		}
-		out = append(out, inboundPort{proto == "tcp", uint16(n)})
+		a, err1 := strconv.Atoi(lo)
+		b, err2 := strconv.Atoi(hi)
+		if !ok || (proto != "tcp" && proto != "udp") || err1 != nil || err2 != nil || a < 1 || b > 65535 || a > b {
+			return nil, fmt.Errorf("inbound %q: use tcp/PORT, udp/PORT or tcp/FIRST-LAST", s)
+		}
+		if b-a >= inboundMaxRange {
+			return nil, fmt.Errorf("inbound %q: at most %d ports in a range", s, inboundMaxRange)
+		}
+		for n := a; n <= b; n++ {
+			out = append(out, inboundPort{proto == "tcp", uint16(n)})
+		}
 	}
 	return out, nil
 }
