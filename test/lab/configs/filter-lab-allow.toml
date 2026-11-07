@@ -1,0 +1,26 @@
+# Lab: like filter-lab, but shuntlab.test is on the allow list: it must resolve through the tunnel.
+# Lab client base config: one tunnel to the internal test server (CT130),
+# the lab apps pinned to it / to direct, everything else through the tunnel.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[dns_filter]
+default = "normal"
+low = []
+normal = ["file:/etc/shunt/lab-filter.txt"]
+paranoid = ["file:/etc/shunt/lab-filter.txt"]
+allow = ["shuntlab.test"]
