@@ -45,6 +45,8 @@ object Levels {
         "tor.client" to PRO,
         // tunnels: a tunnel through another one (shown in Simple while one is set)
         "tunnel.multihop" to PRO,
+        // tunnels: let devices in the tunnel connect to this phone (KDE Connect); shown while set
+        "tunnel.inbound" to PRO,
         // apps: Simple keeps the route per app and "All other apps"; the
         // per-network defaults (network profiles) are Pro (shown while set)
         "apps.netprofiles" to PRO,

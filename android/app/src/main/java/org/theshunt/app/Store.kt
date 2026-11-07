@@ -19,12 +19,15 @@ data class Tunnel(
     val pass: String = "",
     /** Name of the WireGuard tunnel that carries this one (multi-hop), "" = direct. */
     val via: String = "",
+    /** Ports accepted from the tunnel and handed to this phone's apps ("tcp/1716"), empty = none. */
+    val inbound: List<String> = emptyList(),
 ) {
     val isOpenVPN get() = type == OPENVPN
     /** A Tor tunnel: TCP and names go to a Tor client on this phone (Orbot), see conf. */
     val isTor get() = type == TOR
 
     fun toJson(): JSONObject = JSONObject().put("name", name).put("conf", conf).put("via", via).apply {
+        if (inbound.isNotEmpty()) put("inbound", JSONArray(inbound))
         if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
         if (isTor) put("type", TOR)
     }
@@ -33,6 +36,9 @@ data class Tunnel(
         const val WIREGUARD = "wireguard"
         const val OPENVPN = "openvpn"
         const val TOR = "tor"
+
+        /** KDE Connect: the port its app listens on, TCP for links and UDP for the first hello. */
+        val KDE_CONNECT_PORTS = listOf("tcp/1716", "udp/1716")
 
         /** Orbot (the Tor app of the Guardian Project): SOCKS 9050; names go through SOCKS (Orbot's DNSPort is random). */
         const val TOR_DEFAULT_CONF = "socks = 127.0.0.1:9050\n"
@@ -186,7 +192,8 @@ data class Settings(
             return Settings(
                 tunnels = (0 until ts.length()).map {
                     val t = ts.getJSONObject(it)
-                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"), t.optString("via"))
+                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"), t.optString("via"),
+                        t.optJSONArray("inbound")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList())
                 },
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },

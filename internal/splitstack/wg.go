@@ -62,6 +62,8 @@ type wgTunnel struct {
 	// Tor (tor.go): SOCKS5 to a Tor client
 	torType bool
 	tor     *torTunnel
+
+	stopInbound func() // closes the inbound listeners (inbound.go)
 }
 
 func (t *wgTunnel) isOVPN() bool { return t.ovpnConf.Type == typeOpenVPN }
@@ -292,6 +294,9 @@ func resolveEndpoint(ep string, r *net.Resolver) (netip.AddrPort, error) {
 }
 
 func (t *wgTunnel) close() {
+	if t.stopInbound != nil {
+		t.stopInbound()
+	}
 	if t.tor != nil {
 		t.tor.close()
 	}
