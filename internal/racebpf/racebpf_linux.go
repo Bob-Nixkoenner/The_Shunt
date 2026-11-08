@@ -26,14 +26,17 @@
 // rules apply as usual. shuntd, its tunnels and tor run inside shuntd's
 // tree and are never touched; forwarded traffic (gateway mode) has no
 // local sockets. Everything is detached when shuntd exits (the links die
-// with the process). Without eBPF (kernel older than 5.8, no tracefs, no
-// CAP_BPF/CAP_SYS_ADMIN/CAP_PERFMON) shuntd works as before and warns.
+// with the process). Without eBPF (old kernel: bpf_get_current_pid_tgid and
+// bpf_get_current_comm in cgroup programs are certain from 6.1 on; no
+// tracefs; no CAP_BPF/CAP_SYS_ADMIN/CAP_PERFMON) shuntd works as before
+// and warns in status and check.
 package racebpf
 
 import (
 	"bufio"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -108,11 +111,11 @@ type stateVal struct {
 	Gen        uint64 // bpf_ktime_get_ns at the exec (CLOCK_MONOTONIC)
 }
 
-type maps struct{ names, procs, state, stats *ebpf.Map }
+type bpfMaps struct{ names, procs, state, stats *ebpf.Map }
 
 // Guard is the loaded and attached program set.
 type Guard struct {
-	m     maps
+	m     bpfMaps
 	progs []*ebpf.Program
 	links []link.Link
 }
@@ -208,7 +211,7 @@ func Start(mount, root string) (g *Guard, err error) {
 
 type fds struct{ names, procs, state, stats int }
 
-func (m maps) fds() fds {
+func (m bpfMaps) fds() fds {
 	return fds{m.names.FD(), m.procs.FD(), m.state.FD(), m.stats.FD()}
 }
 
@@ -463,22 +466,28 @@ func key(name string) (k [16]byte) {
 	return k
 }
 
-// SetEntries replaces the name table and forgets all process states (they
-// were made for the old rules).
+// SetEntries replaces the name table. When it changed, all process states
+// are forgotten (they were made for the old rules); an unchanged table (the
+// daemon applies the plan again on every network change) keeps them.
 func (g *Guard) SetEntries(entries map[string]Entry) error {
 	if len(entries) > MaxNames {
 		return fmt.Errorf("%d app names, at most %d", len(entries), MaxNames)
 	}
 	var old [][16]byte
+	have := map[[16]byte]nameVal{}
 	var k [16]byte
 	var v nameVal
 	it := g.m.names.Iterate()
 	for it.Next(&k, &v) {
 		old = append(old, k)
+		have[k] = v
 	}
 	want := map[[16]byte]nameVal{}
 	for n, e := range entries {
 		want[key(n)] = e.value()
+	}
+	if maps.Equal(have, want) {
+		return nil
 	}
 	for k, v := range want {
 		if err := g.m.names.Put(k, v); err != nil {
