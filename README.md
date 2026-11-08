@@ -187,6 +187,12 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   per `[[network]]` (`mac = "permanent"`, `dhcp_hostname = "send"`); `mac = ""` /
   `dhcp_hostname = ""` in `[daemon]` switch it off. At home use "the real one" in the profile
   if your router has a reservation or MAC filter.
+- **Quiet mode** (Linux, **on by default**): on networks you have not trusted, nothing that
+  announces the computer leaves Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing,
+  mDNS, LLMNR, NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery keep working).
+  A profile with incoming = LAN, the real MAC or the host name sent counts as trusted and is
+  not quiet, so local names and devices work at home. `daemon.quiet = false` or per
+  `[[network]]` `quiet = true|false`. Not on Windows yet.
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;

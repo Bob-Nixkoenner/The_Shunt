@@ -147,13 +147,13 @@ _de() {
 	'Switch to plain DNS lookups? (backup is kept, undone on uninstall)') printf %s 'Auf einfache DNS-Abfragen umstellen? (Sicherung bleibt, wird beim Deinstallieren rückgängig gemacht)' ;;
 	'privacy settings: host name setting fixed for NetworkManager 1.52+ (%s)') printf %s 'Datenschutzeinstellungen: Host-Namen-Einstellung für NetworkManager 1.52+ korrigiert (%s)' ;;
 	'Foreign Wi-Fi networks see your laptop'\''s MAC address and host name.') printf %s 'Fremde WLANs sehen die MAC-Adresse und den Host-Namen deines Laptops.' ;;
-	'Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?') printf %s 'Verstecken (eigene MAC pro Netz, kein Host-Name im DHCP, IPv6-Datenschutzadressen)?' ;;
+	'Hide them (new MAC on every connection, no host name in DHCP, IPv6 privacy addresses)?') printf %s 'Verstecken (neue MAC bei jeder Verbindung, kein Host-Name im DHCP, IPv6-Datenschutzadressen)?' ;;
 	'privacy settings active from the next Wi-Fi connection (%s)') printf %s 'Datenschutzeinstellungen gelten ab der nächsten WLAN-Verbindung (%s)' ;;
 	'%s: %s') printf %s '%s: %s' ;;
 	'real MAC kept on the networks you trust: %s') printf %s 'echte MAC bleibt in den Netzen, denen du vertraust: %s' ;;
 	'At home: Configure → network profile → MAC "the real one" (router reservations keep working).') printf %s 'Zuhause: Configure → Netzprofil → MAC „die echte“ (Router-Reservierungen funktionieren weiter).' ;;
 	'Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network).') printf %s 'Deine WLAN-Datenschutzeinstellungen lassen die Kabel-MAC und die Geräte-ID im DHCPv6 aus (in jedem Netz gleich).' ;;
-	'Hide those too (The Shunt sets each network: own MAC per network, no host name)?') printf %s 'Auch die verstecken (The Shunt stellt jedes Netz ein: eigene MAC pro Netz, kein Host-Name)?' ;;
+	'Hide those too (The Shunt sets each network: new MAC on every connection, no host name)?') printf %s 'Auch die verstecken (The Shunt stellt jedes Netz ein: neue MAC bei jeder Verbindung, kein Host-Name)?' ;;
 	'Dry run') printf %s 'Probelauf' ;;
 	'configuration check failed - fix %s and run the installer again') printf %s 'Konfigurationsprüfung fehlgeschlagen – korrigiere %s und starte den Installer erneut' ;;
 	'configuration valid') printf %s 'Konfiguration gültig' ;;
@@ -329,7 +329,7 @@ trap on_exit EXIT
 
 NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
 
-# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "random" to
 # [daemon] when they are not set there; prints what it added.
 daemon_privacy() {
 	_f=$1
@@ -340,7 +340,7 @@ daemon_privacy() {
 		END { printf "%d%d%d", s, h, m }' "$_f")
 	_h='' _m=''
 	case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
-	case $_have in ??0) _m='mac = "stable"' ;; esac
+	case $_have in ??0) _m='mac = "random"' ;; esac
 	[ -n "$_h$_m" ] || return 0
 	_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
 	case $_have in
@@ -773,7 +773,7 @@ if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep
 fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
 	note "Foreign Wi-Fi networks see your laptop's MAC address and host name."
-	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
+	if yes_no "Hide them (new MAC on every connection, no host name in DHCP, IPv6 privacy addresses)?" y; then
 		cat >"$NM_PRIVACY" <<'EOF'
 # The Shunt: privacy on foreign networks (removed by install.sh --uninstall).
 # Settings in a connection profile itself still take precedence.
@@ -781,9 +781,9 @@ if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-activ
 wifi.scan-rand-mac-address=yes
 
 [connection]
-# a different MAC on every Wi-Fi, but the same one each time you return
-# (keeps router reservations and hotel logins working)
-wifi.cloned-mac-address=stable
+# a new MAC on every Wi-Fi connection (a network profile can say otherwise:
+# mac = "permanent" at home keeps router reservations and MAC filters working)
+wifi.cloned-mac-address=random
 # 0, not false: NetworkManager 1.52+ ignores "false" here
 ipv4.dhcp-send-hostname=0
 ipv6.dhcp-send-hostname=0
@@ -810,7 +810,7 @@ elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[
 	# device IDs are not (asked once, only in a terminal: an update from
 	# the app must not change the MAC at home unasked)
 	note "Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
-	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
+	if yes_no "Hide those too (The Shunt sets each network: new MAC on every connection, no host name)?" y; then
 		added=$(daemon_privacy "$ETC/shunt.toml")
 		if [[ -n $added ]]; then
 			ok "%s: %s" "$ETC/shunt.toml" "$added"
