@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"os"
@@ -203,7 +204,13 @@ func (b *linuxBackend) StartGuard(root string, entries map[string]engine.StartEn
 	for n, e := range entries {
 		m[n] = racebpf.Entry{Mark: e.Mark, Hold: e.Hold}
 	}
-	return b.start.SetEntries(m)
+	if err := b.start.SetEntries(m); err != nil {
+		return err
+	}
+	if b.start.Partial != nil {
+		return fmt.Errorf("only by program name, no threads, children or holds: %w", b.start.Partial)
+	}
+	return nil
 }
 
 func (b *linuxBackend) StartGuardStats() map[string]uint64 {
