@@ -1840,7 +1840,7 @@ func (d *Daemon) status() api.Status {
 	st.Findings = d.prep.Findings
 	st.StartGuard = d.Backend.StartGuardStats()
 	if d.startErr != nil && len(d.plan.AppRules()) > 0 {
-		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a kernel with eBPF (5.8 or newer).", "err", d.startErr.Error())
+		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a newer kernel (6.1 or later).", "err", d.startErr.Error())
 		notes = append(notes, f)
 		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
 	}
