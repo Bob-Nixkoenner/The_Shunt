@@ -13,7 +13,7 @@ import (
 
 // allIDs is every finding the package can make; worstCase must trigger each.
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
-	"network.ssid_only", "stealth.unset", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
+	"network.ssid_only", "stealth.unset", "stealth.winname", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype",
 	"rule.direct"}
 

@@ -146,7 +146,13 @@ func Config(c *config.Config, env Env) []Finding {
 	if env.linux() && (c.Daemon.MAC == "" || c.Daemon.DHCPHostname == "") {
 		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac or daemon.dhcp_hostname is switched off with an empty value).", "daemon.mac")
 	}
-	if env.linux() && c.Daemon.Quiet != nil && !*c.Daemon.Quiet {
+	if env.Windows {
+		if c.Daemon.MAC == "" || c.Daemon.MAC == config.MACPermanent {
+			add(Info, "stealth.unset", "In foreign networks your real Wi-Fi MAC address is visible (daemon.mac is empty or permanent; Windows' random hardware addresses are not switched on).", "daemon.mac")
+		}
+		add(Info, "stealth.winname", "Windows always sends the computer name to the network (DHCP, DHCPv6) and cannot be told not to; rename the computer to something neutral. Cable adapters keep their real MAC address.", "")
+	}
+	if (env.linux() || env.Windows) && c.Daemon.Quiet != nil && !*c.Daemon.Quiet {
 		add(Info, "quiet.off", "The quiet mode is off: on networks you have not trusted, this computer still announces itself (multicast, broadcast, KDE Connect, Syncthing, mDNS and the like).", "daemon.quiet")
 	}
 	if env.linux() && c.Inbound == nil {
