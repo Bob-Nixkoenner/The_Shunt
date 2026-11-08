@@ -192,7 +192,14 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   mDNS, LLMNR, NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery keep working).
   A profile with incoming = LAN, the real MAC or the host name sent counts as trusted and is
   not quiet, so local names and devices work at home. `daemon.quiet = false` or per
-  `[[network]]` `quiet = true|false`. Not on Windows yet.
+  `[[network]]` `quiet = true|false`. On Windows the same set is dropped by persistent WFP
+  filters (also in the minutes between boot and the start of the service; a system shutdown
+  puts them back, a trusted network or `quiet = false` lifts them, `shuntd-win killswitch-off`
+  removes them). Local names (LLMNR/NetBIOS/mDNS) do not resolve on untrusted networks then.
+- **Windows disguise limits**: `daemon.mac = "random"` (default) switches on Windows' own random
+  Wi-Fi hardware addresses (per interface, from the next connection; the driver must support it,
+  cable adapters keep their real MAC). Windows always sends the computer name in DHCP/DHCPv6
+  and cannot be told not to: rename the computer to something neutral (the check says so).
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;

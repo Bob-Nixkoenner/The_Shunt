@@ -300,6 +300,27 @@ func runCore(ctx context.Context, ready func()) error {
 		quState = state
 		log.Print("quiet mode on")
 	}
+	// Windows' own random Wi-Fi hardware address follows daemon.mac (random
+	// or stable = on, "" or permanent = off); applies from the next connection.
+	// Cable adapters and the computer name in DHCP stay as they are.
+	var macMu sync.Mutex
+	macState := ""
+	applyMAC := func() {
+		macMu.Lock()
+		defer macMu.Unlock()
+		socksMu.Lock()
+		c := socksCfg
+		socksMu.Unlock()
+		if c == nil || c.Daemon.MAC == macState {
+			return
+		}
+		macState = c.Daemon.MAC
+		on := c.Daemon.MAC == config.MACRandom || c.Daemon.MAC == config.MACStable
+		if !on && c.Daemon.MAC != config.MACPermanent {
+			return // "" = leave Windows' setting alone
+		}
+		log.Printf("Wi-Fi random hardware address %v (%d interfaces)", on, winsplit.SetWifiRandomMAC(on))
+	}
 	applySocks := func() {
 		socksMu.Lock()
 		defer socksMu.Unlock()
@@ -336,6 +357,7 @@ func runCore(ctx context.Context, ready func()) error {
 			applySocks()
 			go applyInbound()
 			go applyQuiet()
+			go applyMAC()
 			ksApps = nil
 			for _, t := range c.Tunnels {
 				if t.IsTor() && !t.Disabled {
