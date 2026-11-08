@@ -149,12 +149,15 @@ run_test() {
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
 	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel HOP_BADKEY=0 RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
-	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP=''
+	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP='' EXIT_IF='' EXIT_NET=''
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
 	# CONFIG_FORCE: run a test with another config (e.g. ks = Windows kill switch on)
 	[[ -z ${CONFIG_FORCE:-} ]] || CONFIG=$CONFIG_FORCE
+	# EXIT_IF/EXIT_NET (test file): capture interface and address (prefix ends in ".") at the
+	# tunnel exit; OpenVPN hands out its own pool, not the per-VM WireGuard address of TUNNEL_IP
+	local ct_if=${EXIT_IF:-$CT130_IF} tun_ip=${EXIT_NET:-$TUNNEL_IP}
 
 	local stamp run out canary cur
 	stamp=$(date +%Y%m%d-%H%M%S)
@@ -195,7 +198,7 @@ run_test() {
 	gw labctl cap start "$run" >/dev/null
 	local ct_pid=''
 	if ct130 true 2>/dev/null; then
-		ct_pid=$(ct130 "nohup timeout 900 tcpdump -i $CT130_IF -U -s 0 -w /tmp/shuntlab-$run.pcap </dev/null >/dev/null 2>&1 & echo \$!")
+		ct_pid=$(ct130 "nohup timeout 900 tcpdump -i $ct_if -U -s 0 -w /tmp/shuntlab-$run.pcap </dev/null >/dev/null 2>&1 & echo \$!")
 	else
 		echo "   (CT130 not reachable: no capture at the tunnel exit)"
 	fi
@@ -252,7 +255,7 @@ json.dump({
  "checks": [$(jarr "${CHECKS[@]}")],
  "expect_open": [$(jarr "${EXPECT_OPEN[@]}")],
  "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))'),
- "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$TUNNEL_IP",
+ "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$tun_ip",
  "shunt_version": "$ver", "started": "$stamp", "note": """$NOTE""",
  # LABMARK strict_from/strict_until <epoch> lines in the client output: the strict
  # parts of a test (e.g. tor-all on .. off); outside them nothing is judged at the gateway
