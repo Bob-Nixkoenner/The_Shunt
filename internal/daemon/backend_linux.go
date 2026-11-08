@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
@@ -29,6 +30,7 @@ func DefaultBackend() Backend { return &linuxBackend{} }
 // tables (see packages cgroup, nft, routing, appwatch, racebpf).
 type linuxBackend struct {
 	cg    cgroup.Manager
+	mu    sync.Mutex // start (the watcher's goroutines read it)
 	start *racebpf.Guard
 	// startErr: loading the eBPF program failed once; not retried
 	startErr error
@@ -145,7 +147,7 @@ func (b *linuxBackend) Cleanup() error {
 func (b *linuxBackend) DomainSets() dnsproxy.SetWriter { return dnsproxy.NftSets{Table: nft.Table} }
 
 func (b *linuxBackend) Watcher(log *slog.Logger, unknown func(int, appwatch.Proc)) AppWatcher {
-	return &appwatch.Watcher{Log: log, Mover: b.cg, Unknown: unknown}
+	return &appwatch.Watcher{Log: log, Mover: b.cg, Unknown: unknown, Decided: b.release, Now: racebpf.Now}
 }
 
 func (b *linuxBackend) CgroupOf(pid int) (string, bool) {
@@ -180,17 +182,48 @@ func (b *linuxBackend) Pids() []int {
 	return out
 }
 
-func (b *linuxBackend) StartMarks(root string, marks map[string]uint32) error {
+func (b *linuxBackend) StartGuard(root string, entries map[string]engine.StartEntry) error {
 	if b.startErr != nil {
 		return b.startErr
 	}
 	if b.start == nil {
-		if len(marks) == 0 {
+		if len(entries) == 0 {
 			return nil // load it only once an app rule needs it
 		}
-		if b.start, b.startErr = racebpf.Start(b.cg.Mount, root); b.startErr != nil {
-			return b.startErr
+		g, err := racebpf.Start(b.cg.Mount, root)
+		if err != nil {
+			b.startErr = err
+			return err
 		}
+		b.mu.Lock()
+		b.start = g
+		b.mu.Unlock()
 	}
-	return b.start.SetMarks(marks)
+	m := make(map[string]racebpf.Entry, len(entries))
+	for n, e := range entries {
+		m[n] = racebpf.Entry{Mark: e.Mark, Hold: e.Hold}
+	}
+	return b.start.SetEntries(m)
+}
+
+func (b *linuxBackend) StartGuardStats() map[string]uint64 {
+	b.mu.Lock()
+	g := b.start
+	b.mu.Unlock()
+	if g == nil {
+		return nil
+	}
+	s := g.Stats()
+	return map[string]uint64{"marked": s[racebpf.StatMarked], "held": s[racebpf.StatHeld],
+		"expired": s[racebpf.StatExpired], "marked_by_name": s[racebpf.StatComm]}
+}
+
+// release ends a held program's wait once the watcher decided on it.
+func (b *linuxBackend) release(pid int, since int64) {
+	b.mu.Lock()
+	g := b.start
+	b.mu.Unlock()
+	if g != nil {
+		g.Release(pid, since)
+	}
 }

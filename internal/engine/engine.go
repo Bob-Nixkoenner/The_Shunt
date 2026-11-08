@@ -248,37 +248,73 @@ func (p *Plan) AppRules() []*Rule {
 	return out
 }
 
-// StartMarks returns, per process name (comm, at most 15 bytes), the route
-// mark a program gets for its sockets until the app watcher has moved it
-// into its rule's group (the start race, see package racebpf). Only rules
-// that take a program as a whole qualify: app names, no arguments, no
-// destination or port selectors. Rules that apply to every program
-// (destination or port rules without a group) end the list, because a
-// program not yet in its group could match them first.
-func (p *Plan) StartMarks() map[string]uint32 {
-	out := map[string]uint32{}
+// StartEntry is what the eBPF start guard (package racebpf) does with a
+// program whose name (comm) it knows, from its exec until the app watcher
+// has moved it into its rule's group.
+type StartEntry struct {
+	// Mark: the route mark its sockets get (Hold false).
+	Mark uint32
+	// Hold: its sockets are refused (EPERM) until the watcher has decided:
+	// moved into a group, or no rule matches after all. A socket made in
+	// that window would keep the default route for good (nftables matches
+	// the cgroup a socket was created in).
+	Hold bool
+}
+
+// StartGuard returns, per process name (comm, at most 15 bytes), what the
+// start guard does with a program until the app watcher has placed it.
+//
+// A mark is only exact for rules that take a program as a whole: app names,
+// a route, no arguments, no destination or port selectors, no DNS filter
+// level of their own. Every other app rule holds its candidates: executable
+// paths (by base name), arguments, ports, own filter levels, and all names
+// after a rule that applies to every program (destination or port rules
+// without a group: a program not yet in its group could match them first)
+// or after a Flatpak selector (its programs can have any name). The first
+// rule naming a program decides, as in the watcher and in nftables.
+func (p *Plan) StartGuard() map[string]StartEntry {
+	out := map[string]StartEntry{}
+	holdRest := false
 	for _, r := range p.Rules {
 		if len(r.Groups) == 0 {
 			if r.Route != nil {
-				break
+				holdRest = true
 			}
-			continue // only a DNS filter level
+			continue // a rule for every program, or only a DNS filter level
 		}
-		if len(r.Apps) == 0 || r.Route == nil || len(r.Args) > 0 || !r.AnyFamily || len(r.Ports) > 0 {
-			continue
+		if len(r.Apps) == 0 {
+			continue // a group of `shunt run`, nothing to watch
 		}
+		whole := r.Route != nil && len(r.Args) == 0 && r.AnyFamily && len(r.Ports) == 0 && len(r.FilterRoutes) == 0
+		flatpak := false
 		for _, a := range r.Apps {
-			if a.Kind != "name" {
+			var n string
+			hold := holdRest || !whole
+			switch a.Kind {
+			case "name":
+				n = a.Value
+			case "exe":
+				n, hold = path.Base(a.Value), true
+			default: // flatpak: the same rule's names still decide alone
+				flatpak = true
 				continue
 			}
-			n := a.Value
 			if len(n) > 15 {
 				n = n[:15]
 			}
-			if _, seen := out[n]; !seen {
-				out[n] = r.Route.Mark
+			if n == "" || n == "/" || n == "." {
+				continue
 			}
+			if _, seen := out[n]; seen {
+				continue
+			}
+			e := StartEntry{Hold: hold}
+			if !hold {
+				e.Mark = r.Route.Mark
+			}
+			out[n] = e
 		}
+		holdRest = holdRest || flatpak
 	}
 	return out
 }

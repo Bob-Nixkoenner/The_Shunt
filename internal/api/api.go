@@ -36,9 +36,12 @@ type Status struct {
 	PassLeft     int64                    `json:"pass_left,omitempty"`  // seconds of a running pass
 	TorAll       string                   `json:"tor_all,omitempty"`    // tunnel everything goes through (tor-all)
 	PanicKill    bool                     `json:"panic_kill,omitempty"` // panic also ends tunnel apps (daemon.panic_kill)
-	Tunnels      []TunnelStatus           `json:"tunnels"`
-	Groups       []GroupStatus            `json:"groups"`
-	Rules        []string                 `json:"rules"`
+	// StartGuard: counters of the eBPF start guard (racebpf: marked, held,
+	// expired, marked_by_name); nil when it is not loaded.
+	StartGuard map[string]uint64 `json:"start_guard,omitempty"`
+	Tunnels    []TunnelStatus    `json:"tunnels"`
+	Groups     []GroupStatus     `json:"groups"`
+	Rules      []string          `json:"rules"`
 	// Routes lists every route name ("direct", "block", "tunnel:vps").
 	Routes []string `json:"routes"`
 	// RoutesDown: the link routes ("link:ethernet") whose connection is not
