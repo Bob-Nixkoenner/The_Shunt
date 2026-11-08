@@ -63,7 +63,7 @@ if [ "$1" = configure ]; then
 	fi
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
-	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "random" to
 	# [daemon] when they are not set there; prints what it added.
 	daemon_privacy() {
 		_f=$1
@@ -74,7 +74,7 @@ if [ "$1" = configure ]; then
 			END { printf "%d%d%d", s, h, m }' "$_f")
 		_h='' _m=''
 		case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
-		case $_have in ??0) _m='mac = "stable"' ;; esac
+		case $_have in ??0) _m='mac = "random"' ;; esac
 		[ -n "$_h$_m" ] || return 0
 		_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
 		case $_have in
@@ -126,17 +126,17 @@ if [ "$1" = configure ]; then
 wifi.scan-rand-mac-address=yes
 
 [connection]
-# a different MAC on every Wi-Fi, but the same one each time you return
-# (keeps router reservations and hotel logins working)
-wifi.cloned-mac-address=stable
+# a new MAC on every Wi-Fi connection (a network profile can say otherwise:
+# mac = "permanent" at home keeps router reservations and MAC filters working)
+wifi.cloned-mac-address=random
 # 0, not false: NetworkManager 1.52+ ignores "false" here
 ipv4.dhcp-send-hostname=0
 ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true
-		if [ -n "$DE" ]; then echo "The Shunt: WLAN-Datenschutz ab der nächsten Verbindung (eigene MAC pro Netz, kein Host-Name im DHCP): $NM_PRIVACY"
-		else echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"; fi
+		if [ -n "$DE" ]; then echo "The Shunt: WLAN-Datenschutz ab der nächsten Verbindung (neue MAC bei jeder Verbindung, kein Host-Name im DHCP): $NM_PRIVACY"
+		else echo "The Shunt: Wi-Fi privacy on from the next connection (new MAC on every connection, no host name in DHCP): $NM_PRIVACY"; fi
 		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
 		# an update never changes the MAC at home unasked)
 		added=$(daemon_privacy /etc/shunt/shunt.toml)

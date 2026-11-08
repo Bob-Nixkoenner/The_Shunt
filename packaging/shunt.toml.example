@@ -14,6 +14,12 @@ default_route = "direct"    # direct | block | tunnel:<name>
 #                            # DHCPv6 DUID, DHCP client ID and IPv6 addresses from it, not
 #                            # from the device. "" = leave the profiles alone.
 #                            # A [[network]] may override (mac = "permanent", e.g. at home).
+# quiet = true               # Linux, default on: on networks you have not trusted, no discovery out of
+#                            # Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing, mDNS, LLMNR,
+#                            # NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery stay).
+#                            # A [[network]] may override (quiet = true|false); a profile with
+#                            # inbound = "lan"/"open", dhcp_hostname = "send" or mac = "permanent"
+#                            # counts as trusted and is not quiet unless it says quiet = true.
 # config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
 #                            # opsec level sets it) raises every finding one level; no tls-crypt
 #                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"
