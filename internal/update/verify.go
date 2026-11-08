@@ -23,8 +23,11 @@ const ReleaseNamespace = "shunt-release"
 // sums against the release key, so a downloaded update can be trusted
 // without ssh-keygen (Windows, Android).
 func VerifySums(sums, sig []byte) error {
-	return verifySSHSig(sums, sig, ReleaseSigner, ReleaseNamespace)
+	return verifySSHSig(sums, sig, releaseSigner, ReleaseNamespace)
 }
+
+// releaseSigner is ReleaseSigner (tests change it).
+var releaseSigner = ReleaseSigner
 
 func verifySSHSig(msg, armored []byte, signerB64, ns string) error {
 	var b64 strings.Builder
