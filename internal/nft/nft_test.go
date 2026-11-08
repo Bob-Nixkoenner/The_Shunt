@@ -613,7 +613,7 @@ quiet = true
 	on := []string{
 		"chain quiet_out {",
 		"type filter hook output priority filter; policy accept;",
-		`oifname != { "wlan0" } return`,
+		`oifname != { "wlan0", "wl*", "en*", "eth*", "ww*" } return`,
 		"udp sport 68 udp dport 67 accept",
 		"udp sport 546 udp dport 547 accept",
 		"nd-neighbor-solicit",
@@ -632,6 +632,15 @@ quiet = true
 		if strings.Index(out, "udp dport 67 accept") > strings.Index(out, "224.0.0.0/4") {
 			t.Errorf("network %q: DHCP accept after the multicast drop", network)
 		}
+	}
+	// no link detected yet (boot, NetworkManager not up): the chain exists
+	// already and covers the usual link names
+	p, err := engine.CompileOn(c, "shunt", ti, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := Render(p); err != nil || !strings.Contains(out, `oifname != { "wl*", "en*", "eth*", "ww*" } return`) {
+		t.Errorf("no quiet chain without a detected link (err %v)", err)
 	}
 	// trusted network: no chain, local names keep working
 	if out := render("home"); strings.Contains(out, "quiet_out") {
