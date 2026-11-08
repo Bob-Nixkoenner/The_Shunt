@@ -385,6 +385,13 @@ func (m *Manager) View() (api.ConfigView, error) {
 // RawOf returns the TOML text of a save request.
 func (m *Manager) RawOf(req api.ConfigSave) ([]byte, error) {
 	if req.Config != nil {
+		// who may manage is not changed through the API (as on Linux)
+		m.mu.Lock()
+		if m.cfg != nil {
+			req.Config.Daemon.SocketGroup = m.cfg.Daemon.SocketGroup
+			req.Config.Daemon.APIAuth = m.cfg.Daemon.APIAuth
+		}
+		m.mu.Unlock()
 		return req.Config.Encode()
 	}
 	if req.Raw == "" {
@@ -395,8 +402,36 @@ func (m *Manager) RawOf(req api.ConfigSave) ([]byte, error) {
 
 // Check validates raw config text without applying it.
 func (m *Manager) Check(raw []byte) ([]string, error) {
-	_, _, warn, err := m.build(raw, false)
+	c, _, warn, err := m.build(raw, false)
+	if err == nil {
+		err = m.protected(c)
+	}
 	return warn, err
+}
+
+// protected refuses a change of who may manage: daemon.socket_group and
+// daemon.api_auth change only in the file (Administrators), as on Linux.
+func (m *Manager) protected(c *config.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg == nil {
+		return nil
+	}
+	if c.Daemon.SocketGroup != m.cfg.Daemon.SocketGroup || c.Daemon.APIAuth != m.cfg.Daemon.APIAuth {
+		return errors.New("daemon.socket_group and daemon.api_auth can only be changed in shunt.toml itself (as administrator)")
+	}
+	return nil
+}
+
+// ManageGroup is the local group whose members may change settings
+// (daemon.socket_group, default DefaultManageGroup).
+func (m *Manager) ManageGroup() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg != nil && m.cfg.Daemon.SocketGroup != "" {
+		return m.cfg.Daemon.SocketGroup
+	}
+	return DefaultManageGroup
 }
 
 // ErrConflict: the file changed since the editor loaded it.
@@ -416,6 +451,9 @@ func (m *Manager) Save(raw []byte, expect string) ([]string, error) {
 	}
 	c, js, warn, err := m.build(raw, false)
 	if err != nil {
+		return nil, err
+	}
+	if err := m.protected(c); err != nil {
 		return nil, err
 	}
 	if err := writeAtomic(m.path()+".bak", old, 0o644); err != nil {
