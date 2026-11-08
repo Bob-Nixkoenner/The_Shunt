@@ -77,6 +77,7 @@ type Daemon struct {
 	filter      *blocklist.Manager
 	watcher     AppWatcher
 	startWarned bool       // the eBPF start guard failed (logged once)
+	startErr    error      // why the eBPF start guard is not loaded (status note)
 	saveMu      sync.Mutex // serializes config writes
 	dnsUps      dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
@@ -857,9 +858,12 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
-	if err := d.Backend.StartMarks(p.Plan.CgroupRoot, p.Plan.StartMarks()); err != nil && !d.startWarned {
-		d.startWarned = true
-		d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+	if err := d.Backend.StartGuard(p.Plan.CgroupRoot, p.Plan.StartGuard()); err != nil {
+		d.startErr = err
+		if !d.startWarned {
+			d.startWarned = true
+			d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+		}
 	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
@@ -1834,6 +1838,12 @@ func (d *Daemon) status() api.Status {
 	}
 	notes := append([]check.Finding(nil), d.prep.Notes...)
 	st.Findings = d.prep.Findings
+	st.StartGuard = d.Backend.StartGuardStats()
+	if d.startErr != nil && len(d.plan.AppRules()) > 0 {
+		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a kernel with eBPF (5.8 or newer).", "err", d.startErr.Error())
+		notes = append(notes, f)
+		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
+	}
 	if d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit) {
 		notes = append(notes, check.Note("clock", "The system clock differs by {offset} from the time seen through the tunnel (negative: the clock is ahead): handshakes and certificate checks may fail (fix it with timedatectl set-ntp true).", "offset", d.clockOff.Round(time.Second).String()))
 	}
