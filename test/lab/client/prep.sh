@@ -8,6 +8,14 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 export DEBIAN_FRONTEND=noninteractive
 
+# An old snapshot has no udev rule yet (it is written further down): without promisc on the virtio NIC
+# the DHCP/ARP replies for a random MAC never arrive and the first package download fails. So first of all.
+for d in /sys/class/net/*/device; do
+	[[ -e $d ]] || continue
+	i=${d%/device}; i=${i##*/}
+	ip link set "$i" promisc on 2>/dev/null || true
+done
+
 if [[ $1 == tarball ]]; then
 	# non-Debian: tools via dnf/pacman, Shunt = files of the rk .deb unpacked on the host ($2 = tar of the deb data)
 	if command -v dnf >/dev/null; then dnf -y -q install bpftrace bind-utils nmap-ncat curl tcpdump

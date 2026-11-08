@@ -7,7 +7,8 @@
 #
 #   lab.sh gw-create            clone shunt-lab-gw from the client's "sauber" snapshot
 #   lab.sh gw-setup             (re)install gw/ on the gateway
-#   lab.sh up [snapshot]        start both VMs, client on the lab LAN (restores snapshot)
+#   lab.sh up [snapshot]        start both VMs, client on the lab LAN (restores snapshot; sets promisc again;
+#                               CLIENT_CAP/GW_CAP=<percent> set the VirtualBox CPU cap again: a restore resets it)
 #   lab.sh down                 power both off
 #   lab.sh detach               client back to plain VirtualBox NAT (ssh :2224)
 #   lab.sh client-prep <deb>    install Shunt + lab tools in the client, snapshot "lab-basis"
@@ -95,11 +96,16 @@ wait_for() { # $1 = what, $2 = seconds, rest = command
 }
 
 gw_up() {
-	[[ $(vm_state "$GW_VM") == running ]] || VBoxManage startvm "$GW_VM" --type headless >/dev/null
+	if [[ $(vm_state "$GW_VM") != running ]]; then
+		[[ -z ${GW_CAP:-} ]] || VBoxManage modifyvm "$GW_VM" --cpuexecutioncap "$GW_CAP"
+		VBoxManage startvm "$GW_VM" --type headless >/dev/null
+	fi
 	wait_for gateway 180 gw true
 }
 
 client_to_lab() {
+	# restoring a snapshot brings back its CPU cap (usually none): set it again (CLIENT_CAP, percent, e.g. 80)
+	[[ -z ${CLIENT_CAP:-} ]] || VBoxManage modifyvm "$CLIENT_VM" --cpuexecutioncap "$CLIENT_CAP"
 	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --nicpromisc1 allow-all ${CLIENT_NIC:+--nictype1 $CLIENT_NIC} --memory "${CLIENT_MEM:-3072}"
 }
 
@@ -112,6 +118,8 @@ cmd_up() { # [snapshot]
 	client_to_lab
 	VBoxManage startvm "$CLIENT_VM" --type headless >/dev/null
 	wait_for "client guest control" "${CLIENT_BOOT:-300}" client "${CLIENT_PING:-true}"
+	# a restored snapshot without the udev rule (older than prep.sh's rule) comes up without promisc
+	[[ ${CLIENT_OS:-linux} == windows ]] || client 'for d in /sys/class/net/*/device; do [ -e "$d" ] || continue; i=${d%/device}; i=${i##*/}; sudo -n ip link set "$i" promisc on; done' || true
 	wait_for "client lease" 120 gw labctl client
 	echo "client $(gw labctl client)"
 }
