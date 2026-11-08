@@ -99,6 +99,7 @@ _de() {
 	'could not download the installer of release %s') printf %s 'Installer von Release %s konnte nicht geladen werden' ;;
 	'release %s: continuing with its own installer') printf %s 'Release %s: weiter mit dessen eigenem Installer' ;;
 	'could not download the checksums of release %s') printf %s 'Prüfsummen von Release %s konnten nicht geladen werden' ;;
+	'release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)') printf %s 'Release %s: install.sh passt nicht zur signierten Prüfsumme – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die Signatur von SHA256SUMS ist falsch – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'Dry run - this is what the installer would do (nothing is changed)') printf %s 'Probelauf – das würde der Installer tun (es wird nichts geändert)' ;;
 	'Installing dependencies') printf %s 'Abhängigkeiten werden installiert' ;;
@@ -497,15 +498,29 @@ find_release() { # -> sets tag (empty: build from source) and why
 	done
 }
 # use_release_installer: run the installer of release $tag (same arguments)
+# Its installer is a release file listed in the signed SHA256SUMS; it runs
+# only if it matches. (Releases before it was listed: the tag's file.) It
+# goes into a new private directory: in a shared one (/tmp) someone else's
+# go.mod there would make it build from source.
 use_release_installer() {
 	[[ $REF == "$tag" || -n ${SHUNT_RELEASE_INSTALLER:-} ]] && return
-	local f
-	f=$(mktemp)
-	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
-		die "could not download the installer of release %s" "$tag"
+	local d want
+	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
+	fetch_sums
+	d=$(mktemp -d)
+	want=$(awk '$2 == "install.sh" || $2 == "*install.sh" {print $1}' "$WORK/SHA256SUMS")
+	if [[ -n $want ]]; then
+		curl -fsSLo "$d/install.sh" "https://github.com/$REPO/releases/download/$tag/install.sh" ||
+			die "could not download the installer of release %s" "$tag"
+		printf '%s  %s\n' "$want" "$d/install.sh" | sha256sum -c --quiet - >>"$LOG" 2>&1 ||
+			die "release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)" "$tag"
+	else
+		curl -fsSLo "$d/install.sh" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
+			die "could not download the installer of release %s" "$tag"
+	fi
 	ok "release %s: continuing with its own installer" "$tag"
 	rm -rf "$WORK"
-	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
+	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$d/install.sh" "${ARGS[@]}"
 }
 # fetch_sums: download and check the signed checksum list of release $tag
 fetch_sums() {

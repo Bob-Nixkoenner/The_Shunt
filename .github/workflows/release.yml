@@ -268,8 +268,12 @@ jobs:
         continue-on-error: true # none when Windows is off
       - name: checksums
         run: |
+          # the installer of this tag is a release file too: the app's
+          # Linux update and install.sh only run it when its hash is in
+          # the signed list
+          cp install.sh dist/install.sh
           # every file of the release, built by the jobs above
-          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json > SHA256SUMS)
+          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json install.sh > SHA256SUMS)
       - name: sign checksums
         if: github.event_name != 'pull_request'
         # install.sh only uses releases whose SHA256SUMS carry this signature
