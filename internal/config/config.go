@@ -181,16 +181,18 @@ type Daemon struct {
 	// member may do everything.
 	APIAuth string `toml:"api_auth,omitempty" json:"api_auth,omitempty"`
 	// DHCPHostname (Linux, NetworkManager): whether your Wi-Fi and cable
-	// profiles send the host name in DHCP: none | send. "" leaves the
-	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
-	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// profiles send the host name in DHCP: none | send. Default (key
+	// missing): none. An explicit "" leaves the profiles alone. A
+	// [[network]] can say otherwise (e.g. send at home). No omitempty: an
+	// explicit "" must survive saving, or the default would take over.
+	DHCPHostname string `toml:"dhcp_hostname" json:"dhcp_hostname"`
 	// MAC (Linux, NetworkManager): the MAC address Wi-Fi and cable profiles
 	// show a network: random | stable | permanent; "" leaves the profiles
-	// alone. random and stable also keep the device's own IDs out of DHCP
+	// alone (default when the key is missing: random). random and stable also keep the device's own IDs out of DHCP
 	// (DHCPv6 DUID and DHCPv4 client ID follow the MAC) and out of IPv6
 	// addresses (stable-privacy). A [[network]] can say otherwise (e.g.
 	// permanent at home).
-	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
+	MAC string `toml:"mac" json:"mac"`
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
@@ -426,6 +428,14 @@ func Parse(s string) (*Config, error) {
 			keys[i] = k.String()
 		}
 		return nil, fmt.Errorf("unknown config keys: %s", strings.Join(keys, ", "))
+	}
+	// Disguise in foreign networks is on unless the file says otherwise;
+	// an explicit "" keeps meaning "leave the profiles alone".
+	if !md.IsDefined("daemon", "dhcp_hostname") {
+		c.Daemon.DHCPHostname = HostnameNone
+	}
+	if !md.IsDefined("daemon", "mac") {
+		c.Daemon.MAC = MACRandom
 	}
 	c.applyDefaults()
 	return &c, c.Validate()

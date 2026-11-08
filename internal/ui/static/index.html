@@ -574,11 +574,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     <h2>Privacy and protection <span class="muted" style="text-transform:none;letter-spacing:0">on networks you have not trusted · a network profile below can differ</span></h2>
     <div class="settings">
       <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-hostname">Host name in DHCP</label>
-        <select id="c-hostname"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it</option><option value="send">send it</option></select>
+        <select id="c-hostname"><option value="">off: leave the Wi-Fi/cable profiles alone</option><option value="none">don't send it (default)</option><option value="send">send it</option></select>
         <div class="muted">Every network you join sees your machine's name. “Don't send it” is set per Wi-Fi/cable profile; a trusted network can say “send”.</div></div>
       <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-mac">MAC address</label>
-        <select id="c-mac"><option value="">leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
-        <div class="muted">Wi-Fi and cable. New or own per network also keeps the device's IDs out of DHCP and IPv6 addresses. Applies from the next connection; a login page may ask again. At home use “the real one” in the profile.</div></div>
+        <select id="c-mac"><option value="">off: leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection (default)</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
+        <div class="muted">Wi-Fi and cable. New or own per network also keeps the device's IDs out of DHCP and IPv6 addresses. Applies from the next connection; a login page may ask again. Foreign networks get this by default; at home use “the real one” in the network profile (router reservations, MAC filters).</div></div>
       <div data-lv="inbound"><label class="t" for="c-inbound">Incoming connections</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
         <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">
