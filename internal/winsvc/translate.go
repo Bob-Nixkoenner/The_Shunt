@@ -90,7 +90,12 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 		}
 		if t.IsTor() {
 			addr := ""
-			if torSocks != nil {
+			if torViaBlocked(t) {
+				// tor.exe would go out direct, past the first hop: the network
+				// would see Tor instead of the tunnel. Rather down than that.
+				warn("tunnel %q: via not supported on Windows for Tor tunnels: the tunnel stays down instead of going out direct", name)
+				addr = torDown
+			} else if torSocks != nil {
 				addr = torSocks(name, t)
 			}
 			if addr == "" {
@@ -191,7 +196,7 @@ func translate(c *config.Config, read func(path string) ([]byte, error), torSock
 	// tor.exe and its transports carry the Tor tunnels' traffic themselves:
 	// they go out direct (never through another tunnel, never blocked)
 	for _, t := range c.Tunnels {
-		if t.IsTor() && !t.Disabled {
+		if t.IsTor() && !t.Disabled && !torViaBlocked(t) {
 			for _, a := range []string{"tor.exe", "lyrebird.exe", "snowflake-client.exe", "obfs4proxy.exe"} {
 				if _, taken := out.Apps[a]; !taken {
 					out.Apps[a] = "direct"
@@ -282,6 +287,11 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 var errNoFile = errors.New("file not found")
+
+// torViaBlocked: a Tor tunnel with via. Windows cannot put tor.exe behind
+// another tunnel yet (Linux does it with tor's cgroup), so such a tunnel is
+// not started at all instead of going out direct.
+func torViaBlocked(t config.Tunnel) bool { return t.IsTor() && t.Via != "" }
 
 // torSpecID identifies what tor is started with (bridges, isolation).
 func torSpecID(t config.Tunnel) string {
