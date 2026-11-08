@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.7.1-rc23
+
+- Android: connections from inside a tunnel now reach apps on the phone (KDE Connect, Syncthing, Termux SSH, LocalSend, Sunshine …). The tunnel address lives in the app's own userspace network and nothing listened there, so the phone answered with a reset. The core (`internal/splitstack/inbound.go`) now listens on the ports you open, in the tunnel's network, and hands each connection to the same port on the phone's loopback (TCP and UDP, ranges like `udp/47998-48000`, at most 64 ports per range, 16 simultaneous TCP connections per source, UDP sessions end after 60 s of silence). Nothing is open by default; a tunnel with open ports does not sleep (on demand off).
+- Android: new **Ports** tab (Pro level, or whenever a port is open): per tunnel one switch per known app, plus own ports (`tcp/8080`). A change applies after the VPN restarts. German texts included.
+- New `portlist/portlist.json`: apps that wait for connections and their ports. The app brings it along and "Update the app list" refreshes it from GitHub (checked before it is kept). Missing an app? Open a pull request (see the README, "Apps that wait for connections").
+- Android: a **Check** link on every tunnel card lists in plain language what the file check finds (WireGuard: readable, DNS line, endpoint; OpenVPN: removed lines, missing login, tls-crypt/tls-auth explained; Tor: readable). OpenVPN cards without tls-crypt or tls-auth show a short hint.
+- Linux: `shuntd fix-nsswitch` / `restore-nsswitch` left `/etc/nsswitch.conf` unreadable for normal users (`0640`) when run under a strict umask such as 027; the file is now always `0644`.
+- Update of the indirect dependency `klauspost/compress` to v1.20.2 (GO-2026-6865, reported by `govulncheck`; the code path is not used).
+- Lab (Linux): the tracer loads on Debian 13 (bpftrace 0.23, kernel 6.12); before, no process was ever recorded there and direct connections showed as `Prozess: ?`. A test whose client could not be reached no longer counts as OK. New DNS filter tests FL01–FL08 and the debug test X04 for M04.
+
 ## v0.7.1-rc22
 
 - Lab tests: OpenVPN variants. O03 (wrong tls-crypt key, tls-auth instead of tls-crypt), O06 (expired client certificate) and O08 (host name as endpoint). Windows: U01 updates over a running installation with Setup.exe while the tunnel carries traffic (UPDATE_SETUP=<path>). Config `win-tor.toml` for a Tor tunnel on Windows.
