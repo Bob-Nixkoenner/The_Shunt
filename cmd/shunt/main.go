@@ -754,7 +754,7 @@ func status(c *api.Client, args []string) error {
 			}
 			if noHandshake(t.Driver, t.Peers) {
 				// never a handshake (wrong key, peer unreachable): no "ok", whatever the probe said
-				state += " " + i18n.T("no-handshake")
+				state += " no-handshake"
 			} else if h := t.Health; h != nil && h.State != "unknown" {
 				state += " " + h.State
 				if h.LatencyMs > 0 {
