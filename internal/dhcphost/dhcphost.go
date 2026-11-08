@@ -152,10 +152,8 @@ func (pol Policy) Covered(p Profile, now []string) bool {
 		def["ipv6.addr-gen-mode"] = "stable-privacy"
 		def["ipv6.ip6-privacy"] = "2"
 	}
-	if d.DHCPHostname == config.HostnameNone {
-		def["ipv4.dhcp-send-hostname"] = "no"
-		def["ipv6.dhcp-send-hostname"] = "no"
-	}
+	// dhcp-send-hostname is no NetworkManager default (a plain profile
+	// property, "unknown key" in conf.d before 1.52): never covered
 	had := map[string]string{
 		"ipv4.dhcp-send-hostname": p.Send4, "ipv6.dhcp-send-hostname": p.Send6,
 		"ipv6.dhcp-duid": p.DUID, "ipv4.dhcp-client-id": p.ClientID,
@@ -187,11 +185,9 @@ func Defaults(c *config.Config) string {
 		}
 		fmt.Fprintf(&b, "wifi.cloned-mac-address=%s\nethernet.cloned-mac-address=%s\nipv6.dhcp-duid=%s\nipv4.dhcp-client-id=mac\nipv6.addr-gen-mode=stable-privacy\nipv6.ip6-privacy=2\n", mac, mac, duid)
 	}
-	if c.Daemon.DHCPHostname == config.HostnameNone {
-		// 0, not false: NetworkManager 1.52+ reads the default as a number
-		// (-1/0/1) and ignores "false"; 1.46 reads 0 as no as well
-		b.WriteString("ipv4.dhcp-send-hostname=0\nipv6.dhcp-send-hostname=0\n")
-	}
+	// no dhcp-send-hostname here: NetworkManager 1.46 does not know it as a
+	// default ("unknown key", ignored); Apply sets it per profile, also for
+	// a profile that was just added (WatchNew)
 	if b.Len() == 0 {
 		return ""
 	}

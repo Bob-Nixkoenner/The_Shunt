@@ -112,9 +112,10 @@ if [ "$1" = configure ]; then
 	# Privacy on foreign networks, as install.sh offers it: on by default,
 	# written once (whoever deletes the file keeps it deleted on updates).
 	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
-	# older packages wrote "false", which NetworkManager 1.52+ ignores
-	if [ -f "$NM_PRIVACY" ] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
-		sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+	# older packages wrote dhcp-send-hostname, which NetworkManager 1.46
+	# does not know as a default (shuntd sets it per profile)
+	if [ -f "$NM_PRIVACY" ] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=' "$NM_PRIVACY"; then
+		sed -i '/^ipv[46]\.dhcp-send-hostname=/d' "$NM_PRIVACY"
 		nmcli general reload conf >/dev/null 2>&1 || true
 	fi
 	if [ -d /etc/NetworkManager/conf.d ] && [ ! -f "$NM_PRIVACY" ] && [ ! -e /var/lib/shunt/nm-privacy-offered ]; then
@@ -129,9 +130,6 @@ wifi.scan-rand-mac-address=yes
 # a new MAC on every Wi-Fi connection (a network profile can say otherwise:
 # mac = "permanent" at home keeps router reservations and MAC filters working)
 wifi.cloned-mac-address=random
-# 0, not false: NetworkManager 1.52+ ignores "false" here
-ipv4.dhcp-send-hostname=0
-ipv6.dhcp-send-hostname=0
 ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true

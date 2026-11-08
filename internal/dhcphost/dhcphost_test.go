@@ -126,12 +126,15 @@ mac = "stable"
 func TestDefaults(t *testing.T) {
 	c, _ := config.Parse("[daemon]\nmac = \"stable\"\ndhcp_hostname = \"none\"\n")
 	d := Defaults(c)
-	for _, want := range []string{"[connection-shunt-privacy]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy", "ipv6.dhcp-send-hostname=0"} {
+	for _, want := range []string{"[connection-shunt-privacy]", "wifi.cloned-mac-address=stable", "ethernet.cloned-mac-address=stable", "ipv6.dhcp-duid=stable-ll", "ipv4.dhcp-client-id=mac", "ipv6.addr-gen-mode=stable-privacy"} {
 		if !strings.Contains(d, want+"\n") && want != "[connection-shunt-privacy]" || !strings.Contains(d, want) {
 			t.Errorf("defaults lack %q:\n%s", want, d)
 		}
 	}
-	c.Daemon.MAC, c.Daemon.DHCPHostname = config.MACPermanent, ""
+	if strings.Contains(d, "dhcp-send-hostname") {
+		t.Errorf("defaults carry a key NetworkManager 1.46 ignores:\n%s", d)
+	}
+	c.Daemon.MAC, c.Daemon.DHCPHostname = config.MACPermanent, config.HostnameNone
 	if d := Defaults(c); d != "" {
 		t.Errorf("permanent/off wrote defaults:\n%s", d)
 	}
@@ -142,13 +145,13 @@ func TestCovered(t *testing.T) {
 	c.Daemon.MAC = config.MACRandom
 	c.Daemon.DHCPHostname = config.HostnameNone
 	pol := Policy{Config: c}
-	fresh := Profile{UUID: "u", Device: "eth0", Activated: true, Send4: "-1", Send6: "-1", AddrGen: "default", Privacy: "-1"}
+	fresh := Profile{UUID: "u", Device: "eth0", Activated: true, Send4: "no", Send6: "no", AddrGen: "default", Privacy: "-1"}
 	now, _ := pol.Changes(fresh)
 	if !pol.Covered(fresh, now) {
 		t.Errorf("fresh profile with the runtime defaults: want covered, now=%v", now)
 	}
 	set := fresh
-	set.Send4, set.Send6 = "yes", "yes" // set in the profile: the defaults did not apply
+	set.Send4, set.Send6 = "yes", "yes" // the host name is no default: reapply
 	now, _ = pol.Changes(set)
 	if pol.Covered(set, now) {
 		t.Errorf("profile that sends the host name: want reapply, now=%v", now)
