@@ -168,3 +168,41 @@ func TestIsOnion(t *testing.T) {
 		}
 	}
 }
+
+// M04: a query of an app whose rule points to a dead tunnel must never be
+// answered by the default tunnel, whichever listener the redirect picked
+// (conntrack reuse) and whatever mark the packet carries.
+func TestDeadTunnelQueryStaysOffDefault(t *testing.T) {
+	def := &engine.Route{Route: config.Route{Kind: config.RouteTunnel, Tunnel: "intern"}, DNSPort: 1, Mark: engine.MarkBase | 1}
+	dead := &engine.Route{Route: config.Route{Kind: config.RouteTunnel, Tunnel: "dead"}, DNSPort: 2, Mark: engine.MarkBase | 2}
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 3, Mark: engine.MarkDirect}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{def, dead, direct}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: def, 2: dead, 3: direct}
+	p.upstreams = RouteUpstreams{"tunnel:intern": {tagUpstream("intern")}, "direct": {tagUpstream("direct")}} // dead: none
+	ask := func(port int, mark uint32) string {
+		q := new(dns.Msg)
+		q.SetQuestion("m04-x.example.", dns.TypeTXT)
+		r := p.handle(port, q, mark, nil)
+		if len(r.Answer) == 0 {
+			return fmt.Sprintf("rcode%d", r.Rcode)
+		}
+		return r.Answer[0].(*dns.TXT).Txt[0]
+	}
+	for _, c := range []struct {
+		name string
+		port int
+		mark uint32
+		got  string
+	}{
+		{"own listener", 2, dead.Mark, "rcode2"},
+		{"redirected to the default listener", 1, dead.Mark, "rcode2"},
+		{"unknown shunt mark at the default listener", 1, engine.MarkBase | 9, "rcode2"},
+		{"bypass mark at the default listener", 1, engine.MarkBypass, "rcode2"},
+		{"default's own query", 1, def.Mark, "intern"},
+	} {
+		if got := ask(c.port, c.mark); got != c.got {
+			t.Errorf("%s: got %s, want %s", c.name, got, c.got)
+		}
+	}
+}
