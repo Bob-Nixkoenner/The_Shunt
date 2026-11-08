@@ -22,18 +22,17 @@ fi
 
 # VirtualBox virtio NICs only accept frames for a foreign MAC in promiscuous mode. NetworkManager's
 # default random/stable cloned MAC then breaks DHCP/ARP/tunnel replies. Instead of pinning the real MAC
-# (which hides findings F01/F05), set promisc on the physical NICs, so the random MAC stays testable.
+# (which hides findings F01/F05), set promisc on the physical NICs (udev rule), so the random MAC stays testable.
 # LAB_NM_MAC=permanent = old workaround (pin the real MAC) if promisc is not enough.
 if command -v nmcli >/dev/null 2>&1 && [[ -d /etc/NetworkManager ]]; then
-	install -d /etc/NetworkManager/dispatcher.d
-	cat >/etc/NetworkManager/dispatcher.d/90-shuntlab-promisc <<'EOF'
-#!/bin/sh
-# lab only: promisc on physical NICs (see test/lab/client/prep.sh)
-[ "$2" = up ] || [ "$2" = dhcp4-change ] || exit 0
-[ -e "/sys/class/net/$1/device" ] && ip link set "$1" promisc on
-exit 0
+	# udev, not a NetworkManager dispatcher script: no dispatcher event (pre-up included) comes before
+	# DHCP finishes, and with the random MAC and no promisc DHCP never finishes.
+	cat >/etc/udev/rules.d/90-shuntlab-promisc.rules <<'EOF'
+# lab only (see test/lab/client/prep.sh): promisc on physical NICs, before NetworkManager asks for DHCP
+ACTION=="add", SUBSYSTEM=="net", SUBSYSTEMS=="pci|virtio", RUN+="/bin/sh -c 'ip link set %k promisc on'"
 EOF
-	chmod 755 /etc/NetworkManager/dispatcher.d/90-shuntlab-promisc
+	udevadm control --reload 2>/dev/null || true
+	rm -f /etc/NetworkManager/dispatcher.d/90-shuntlab-promisc /etc/NetworkManager/dispatcher.d/pre-up.d/90-shuntlab-promisc
 	for d in /sys/class/net/*/device; do
 		i=${d%/device}; i=${i##*/}
 		ip link set "$i" promisc on 2>/dev/null || true
