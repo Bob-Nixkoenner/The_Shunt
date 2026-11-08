@@ -14,7 +14,7 @@ if [[ $1 == pacman ]]; then
 	bash /tmp/install.sh "${@:2}"
 else
 	apt-get update -q
-	apt-get install -yq --no-install-recommends bpftrace dnsutils netcat-openbsd curl
+	apt-get install -yq --no-install-recommends bpftrace dnsutils netcat-openbsd curl libglib2.0-bin
 	apt-get install -yq "$1"
 fi
 # the lab user runs shunt run/desktop/ui: socket_group = "shunt" in the lab configs
