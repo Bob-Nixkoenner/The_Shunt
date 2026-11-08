@@ -657,3 +657,22 @@ quiet = true
 		t.Error("network quiet = true ignored")
 	}
 }
+
+// No strict ruleset (panic, lockdown, emergency) may accept by connection
+// state: a flow begun before the switch (SYN retransmits, replies) has to
+// meet the same rules as a new one.
+func TestStrictNoConntrackAccept(t *testing.T) {
+	em, err := RenderEmergency(engine.Group{Name: "daemon", Path: "system.slice/shuntd.service/daemon"},
+		[]netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]string{"panic": RenderPanic(), "lockdown": RenderLockdown(), "emergency": em} {
+		if strings.Contains(got, "ct state") || strings.Contains(got, "ct mark") {
+			t.Errorf("%s accepts by connection state:\n%s", name, got)
+		}
+		if !strings.Contains(got, "policy drop") {
+			t.Errorf("%s: no policy drop", name)
+		}
+	}
+}

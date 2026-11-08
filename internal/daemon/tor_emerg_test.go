@@ -87,6 +87,9 @@ func TestTorAllEmergency(t *testing.T) {
 	if !p.EmergOn {
 		t.Error("EmergOn not set")
 	}
+	if len(p.EmergDst) != 2 {
+		t.Errorf("EmergDst %v", p.EmergDst)
+	}
 	if eb.group.Path != p.Plan.DaemonGroup.Path || len(eb.dst) != 2 || p.EmergKey == "" {
 		t.Errorf("group %v dst %v key %q", eb.group, eb.dst, p.EmergKey)
 	}

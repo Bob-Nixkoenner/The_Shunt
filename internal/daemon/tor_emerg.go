@@ -25,6 +25,16 @@ type Emergencer interface {
 	EmergencyIntact() bool
 }
 
+// EmergencyForgetter is optional for an Emergencer: ForgetStray drops the
+// connection tracking of machine-originated flows that began before the
+// strict mode and lead anywhere but to dst (or loopback). Their entries are
+// not tracked into Tor and would keep their old NAT state; with them gone
+// a retransmit counts as new, meets the redirect again and, where it still
+// leaves, the strict table drops it. Forwarded flows (gateway mode) stay.
+type EmergencyForgetter interface {
+	ForgetStray(dst []netip.Prefix) (int, error)
+}
+
 // torDataRoot holds the tor data directories (a variable for tests).
 var torDataRoot = "/var/lib/shunt/tor"
 
@@ -82,6 +92,7 @@ func emergencyScript(b Backend, p *Prepared, torAll string) string {
 	if grp.Path == "" {
 		dst = nil
 	}
+	p.EmergDst = dst
 	s, err := em.Emergency(grp, dst)
 	if err != nil {
 		p.Notes = append(p.Notes, check.Note("tor.strictbad", "tor-all: strict rules failed ({err}).", "err", err.Error()))

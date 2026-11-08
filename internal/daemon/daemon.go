@@ -110,6 +110,7 @@ type Daemon struct {
 	torAll   string         // tunnel the tor-all switch sends everything through
 	torLoad  bool           // torAll was read from its file
 	emergAt  time.Time      // last look at the relay list (tor-all)
+	emergOn  bool           // the strict tor-all table is in place
 	emergKey string         // relay list of the rules in place
 	passing  bool           // the plan in place was built for a pass
 
@@ -137,6 +138,8 @@ type Prepared struct {
 	EmergKey string
 	// EmergOn: the ruleset carries the strict tor-all table (checkRules watches it).
 	EmergOn bool
+	// EmergDst: where the tor process may connect in the strict table.
+	EmergDst []netip.Prefix
 	// DNS upstreams per route name, and problems worth telling the user.
 	DNSUpstreams map[string][]config.UpstreamSpec
 	// DirectSystem: the direct route uses the system resolvers, re-read
@@ -800,6 +803,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 		return err
 	}
 	d.emergKey, d.emergAt = p.EmergKey, time.Now()
+	if p.EmergOn && !d.emergOn {
+		// switched to tor-all: flows begun before it must not carry on
+		// outside Tor (stale NAT state, SYN retransmits)
+		if f, ok := d.Backend.(EmergencyForgetter); ok {
+			n, err := f.ForgetStray(p.EmergDst)
+			d.Log.Info("tor-all: earlier connections forgotten", "count", n, "err", err)
+		}
+	}
+	d.emergOn = p.EmergOn
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
 		d.proxy.Owner = func(proto string, from netip.AddrPort) string {

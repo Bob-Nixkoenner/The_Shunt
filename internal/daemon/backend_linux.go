@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -104,6 +105,58 @@ func (b *linuxBackend) ForgetTCP(mark uint32) (int, error) {
 	var errs []error
 	for _, fam := range []netlink.InetFamily{unix.AF_INET, unix.AF_INET6} {
 		k, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, fam, tcpMark(mark))
+		n += int(k)
+		errs = append(errs, err)
+	}
+	return n, errors.Join(errs...)
+}
+
+// strayFlow matches flows started by this machine (source is a local
+// address) whose destination is neither loopback nor in keep.
+type strayFlow struct {
+	local map[netip.Addr]bool
+	keep  []netip.Prefix
+}
+
+func (m strayFlow) MatchConntrackFlow(f *netlink.ConntrackFlow) bool {
+	if f.Forward.Protocol != unix.IPPROTO_TCP && f.Forward.Protocol != unix.IPPROTO_UDP {
+		return false
+	}
+	src, ok1 := netip.AddrFromSlice(f.Forward.SrcIP)
+	dst, ok2 := netip.AddrFromSlice(f.Forward.DstIP)
+	if !ok1 || !ok2 {
+		return false
+	}
+	src, dst = src.Unmap(), dst.Unmap()
+	if !m.local[src] || dst.IsLoopback() {
+		return false
+	}
+	for _, p := range m.keep {
+		if p.Contains(dst) {
+			return false
+		}
+	}
+	return true
+}
+
+// ForgetStray: see EmergencyForgetter.
+func (b *linuxBackend) ForgetStray(keep []netip.Prefix) (int, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return 0, err
+	}
+	m := strayFlow{local: map[netip.Addr]bool{}, keep: keep}
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok {
+			if ad, ok := netip.AddrFromSlice(ipn.IP); ok {
+				m.local[ad.Unmap()] = true
+			}
+		}
+	}
+	n := 0
+	var errs []error
+	for _, fam := range []netlink.InetFamily{unix.AF_INET, unix.AF_INET6} {
+		k, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, fam, m)
 		n += int(k)
 		errs = append(errs, err)
 	}
