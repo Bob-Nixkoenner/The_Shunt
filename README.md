@@ -180,7 +180,9 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   (`dns_direct = "pihole"` at home, `"system"` = whatever the network hands out)
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
   asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
-  or the tray)
+  or the tray). The check is a plain-HTTP request to nmcheck.gnome.org past the tunnels: on
+  by default, off with `daemon.config_check = "strict"` (opsec level); an explicit
+  `daemon.captive_check = true|false` always wins. Without it, open the login browser yourself
 - Disguise in foreign networks (Linux, NetworkManager), **on by default**: a new MAC address
   on every connection (Wi-Fi and cable), no host name in DHCP, device IDs (DHCPv6 DUID,
   client ID) and IPv6 addresses not derived from the device. Trusted networks say otherwise

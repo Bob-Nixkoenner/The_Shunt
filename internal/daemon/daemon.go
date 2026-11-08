@@ -1143,7 +1143,12 @@ func quoteSSID(s string) string {
 // probeCaptive looks for a Wi-Fi login page (see package captive).
 func (d *Daemon) probeCaptive() {
 	d.mu.Lock()
-	if d.probing || (d.cfg != nil && d.cfg.Daemon.CaptiveCheck != nil && !*d.cfg.Daemon.CaptiveCheck) {
+	if d.cfg != nil && !d.cfg.Daemon.CaptiveCheckOn() {
+		d.captive, d.captiveURL = "", "" // switched off: no stale login page
+		d.mu.Unlock()
+		return
+	}
+	if d.probing {
 		d.mu.Unlock()
 		return
 	}

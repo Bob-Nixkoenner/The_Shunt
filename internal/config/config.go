@@ -202,8 +202,10 @@ type Daemon struct {
 	// LLMNR, NetBIOS, SSDP). DHCP, DHCPv6 and IPv6 neighbour discovery
 	// stay. A [[network]] can say otherwise; trusted ones are not quiet.
 	Quiet *bool `toml:"quiet,omitempty" json:"quiet,omitempty"`
-	// CaptiveCheck (default on): after every network change, look for a
-	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
+	// CaptiveCheck: after every network change, look for a Wi-Fi login
+	// page (plain-HTTP request to nmcheck.gnome.org, direct). Default (key
+	// missing): on, but off with config_check = "strict" (the opsec level);
+	// an explicit true or false always wins. See CaptiveCheckOn.
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
 	// KillSwitch (Windows, default on): block all outgoing traffic that does
 	// not come through the Shunt adapter or from the service itself, also
@@ -251,6 +253,17 @@ const (
 
 // StrictCheck reports whether daemon.config_check is "strict".
 func (d Daemon) StrictCheck() bool { return d.ConfigCheck == CheckStrict }
+
+// CaptiveCheckOn reports whether shuntd looks for Wi-Fi login pages: an
+// explicit captive_check wins; without it the check is on, except with the
+// strict config check (the opsec level), where the plain-HTTP request that
+// goes past the tunnels is left out.
+func (d Daemon) CaptiveCheckOn() bool {
+	if d.CaptiveCheck != nil {
+		return *d.CaptiveCheck
+	}
+	return !d.StrictCheck()
+}
 
 // QuietFor reports whether the quiet mode (no discovery, multicast or
 // broadcast out of the uplinks) is on while on network ("" = a network
