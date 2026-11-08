@@ -30,7 +30,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 GW_VM=${GW_VM:-shunt-lab-gw}
 # CLIENT_OS=windows: client is the Windows VM, driven by PowerShell (winclient.sh, tests-win/)
 if [[ ${CLIENT_OS:-linux} == windows ]]; then
-	CLIENT_VM=${CLIENT_VM:-shunt-win11-lab}
+	CLIENT_VM=${CLIENT_VM:-shunt-win11}
 	TUNNEL_IP=${TUNNEL_IP:-10.66.0.15}
 	CLIENT_IF=${CLIENT_IF:-Ethernet}
 	CLIENT_PING='exit 0'
@@ -146,10 +146,11 @@ client-prep)
 	deb=${2:?the-shunt_*.deb}
 	client_cp_to "$deb" "$HERE/client/"* "$HERE/configs/base.toml" /tmp/shuntlab
 	VBoxManage "${GC[@]}" copyto "$TUNNEL_CONF" /tmp/shuntlab/intern.conf
-	client "sudo -n bash /tmp/shuntlab/prep.sh /tmp/shuntlab/$(basename "$deb")"
+	if [[ $deb == *.tar ]]; then client "sudo -n bash /tmp/shuntlab/prep.sh tarball /tmp/shuntlab/$(basename "$deb")"
+	else client "sudo -n bash /tmp/shuntlab/prep.sh /tmp/shuntlab/$(basename "$deb")"; fi
 	client 'sudo -n poweroff' || true
 	wait_for "client poweroff" 120 bash -c "[[ \$(VBoxManage showvminfo $CLIENT_VM --machinereadable | grep ^VMState=) == *poweroff* ]]"
-	VBoxManage snapshot "$CLIENT_VM" take lab-basis --description "lab client: Shunt $(basename "$deb"), bpftrace, lab apps" >/dev/null
+	VBoxManage snapshot "$CLIENT_VM" take "${SNAPNAME:-lab-basis}" --description "lab client: Shunt $(basename "$deb"), bpftrace, lab apps" >/dev/null
 	echo "snapshot lab-basis taken" ;;
 mode | netem | status) gw labctl "$@" ;;
 ssh) shift; client "${*:-bash -l}" ;;

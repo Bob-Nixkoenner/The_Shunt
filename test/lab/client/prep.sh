@@ -8,7 +8,17 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 export DEBIAN_FRONTEND=noninteractive
 
-if [[ $1 == pacman ]]; then
+if [[ $1 == tarball ]]; then
+	# non-Debian: tools via dnf/pacman, Shunt = files of the rk .deb unpacked on the host ($2 = tar of the deb data)
+	if command -v dnf >/dev/null; then dnf -y -q install bpftrace bind-utils nmap-ncat curl tcpdump
+	else pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump; fi
+	systemctl stop shuntd 2>/dev/null || true
+	tar -C / -xf "$2"
+	for b in shunt shuntd; do [[ -e /usr/local/bin/$b ]] && ln -sf /usr/bin/$b /usr/local/bin/$b; done
+	sed -i 's|/usr/local/bin/shuntd|/usr/bin/shuntd|g' /usr/lib/systemd/system/shuntd.service 2>/dev/null || true
+	rm -f /etc/systemd/system/shuntd.service /usr/local/lib/systemd/system/shuntd.service
+	systemctl daemon-reload
+elif [[ $1 == pacman ]]; then
 	pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump
 	curl -fsSLo /tmp/install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
 	bash /tmp/install.sh "${@:2}"
