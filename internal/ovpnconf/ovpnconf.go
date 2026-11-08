@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -59,8 +60,26 @@ var forbidden = map[string]string{
 	"client-config-dir": "server mode", "ifconfig-pool": "server mode",
 	"echo": "talks to a management client", "syslog": "Shunt collects the log",
 	"setcon": "SELinux context switch",
-	"engine": "loads a library", "providers": "loads a library", "pkcs11-providers": "loads a library",
+	"engine": "loads a library", "providers": "loads a library from a path", "pkcs11-providers": "loads a library",
 	"tls-export-cert": "writes files",
+}
+
+var providerName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// forbiddenLine reports why directive name with args is not allowed.
+// "providers legacy default" (OpenSSL's own providers by name, needed for
+// old ciphers) stays allowed; a path would load any library.
+func forbiddenLine(name string, args []string) (string, bool) {
+	why, bad := forbidden[name]
+	if bad && name == "providers" && len(args) > 0 {
+		bad = false
+		for _, a := range args {
+			if !providerName.MatchString(a) {
+				bad = true
+			}
+		}
+	}
+	return why, bad
 }
 
 // fileArgs take a path (or an inline block) as first argument.
@@ -112,7 +131,7 @@ func Sanitize(s string) (string, []string) {
 		}
 		if f := fields(l); len(f) > 0 {
 			name := strings.ToLower(strings.TrimPrefix(f[0], "--"))
-			if _, bad := forbidden[name]; bad && !refuseAlways[name] {
+			if _, bad := forbiddenLine(name, f[1:]); bad && !refuseAlways[name] {
 				out = append(out, "# removed by The Shunt: "+l)
 				removed = append(removed, l)
 				continue
@@ -170,7 +189,7 @@ func Parse(s, dir string) (*Config, error) {
 			continue
 		}
 		name := strings.ToLower(strings.TrimPrefix(f[0], "--"))
-		if why, bad := forbidden[name]; bad {
+		if why, bad := forbiddenLine(name, f[1:]); bad {
 			problems = append(problems, fmt.Sprintf("line %d: %q (%s)", line, name, why))
 			continue
 		}
