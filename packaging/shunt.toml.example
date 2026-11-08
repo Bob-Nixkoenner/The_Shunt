@@ -7,11 +7,19 @@ default_route = "direct"    # direct | block | tunnel:<name>
 #                            # network cannot read the uptime from direct connections)
 # boot_lockdown = "auto"     # block the network at boot until shuntd runs:
 #                            # auto (when a default route is not direct) | on | off
-# dhcp_hostname = "none"     # NetworkManager profiles: none | send (a [[network]] may override)
-# mac = "random"             # MAC on Wi-Fi and cable: random (new each connection) | stable
+# dhcp_hostname = "none"     # NetworkManager profiles: none (default) | send; "" = leave the profiles alone.
+#                            # A [[network]] may override (dhcp_hostname = "send")
+# mac = "random"             # MAC on Wi-Fi and cable: random (default, new each connection) | stable
 #                            # (own per network) | permanent; random/stable also derive the
 #                            # DHCPv6 DUID, DHCP client ID and IPv6 addresses from it, not
-#                            # from the device. A [[network]] may override (mac = "permanent").
+#                            # from the device. "" = leave the profiles alone.
+#                            # A [[network]] may override (mac = "permanent", e.g. at home).
+# quiet = true               # Linux, default on: on networks you have not trusted, no discovery out of
+#                            # Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing, mDNS, LLMNR,
+#                            # NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery stay).
+#                            # A [[network]] may override (quiet = true|false); a profile with
+#                            # inbound = "lan"/"open", dhcp_hostname = "send" or mac = "permanent"
+#                            # counts as trusted and is not quiet unless it says quiet = true.
 # config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
 #                            # opsec level sets it) raises every finding one level; no tls-crypt
 #                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"

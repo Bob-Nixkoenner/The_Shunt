@@ -107,6 +107,9 @@ type Network struct {
 	// MAC overrides daemon.mac on this network ("" = keep); recognised
 	// like dhcp_hostname. A new MAC takes effect from the next connection.
 	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
+	// Quiet overrides daemon.quiet on this network (nil = keep; a network
+	// that counts as trusted is not quiet unless this says true).
+	Quiet *bool `toml:"quiet,omitempty" json:"quiet,omitempty"`
 	// Inbound: closed | lan | open while on this network ("" = closed),
 	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
 	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
@@ -181,16 +184,24 @@ type Daemon struct {
 	// member may do everything.
 	APIAuth string `toml:"api_auth,omitempty" json:"api_auth,omitempty"`
 	// DHCPHostname (Linux, NetworkManager): whether your Wi-Fi and cable
-	// profiles send the host name in DHCP: none | send. "" leaves the
-	// profiles alone. A [[network]] can say otherwise (e.g. send at home).
-	DHCPHostname string `toml:"dhcp_hostname,omitempty" json:"dhcp_hostname,omitempty"`
+	// profiles send the host name in DHCP: none | send. Default (key
+	// missing): none. An explicit "" leaves the profiles alone. A
+	// [[network]] can say otherwise (e.g. send at home). No omitempty: an
+	// explicit "" must survive saving, or the default would take over.
+	DHCPHostname string `toml:"dhcp_hostname" json:"dhcp_hostname"`
 	// MAC (Linux, NetworkManager): the MAC address Wi-Fi and cable profiles
 	// show a network: random | stable | permanent; "" leaves the profiles
-	// alone. random and stable also keep the device's own IDs out of DHCP
+	// alone (default when the key is missing: random). random and stable also keep the device's own IDs out of DHCP
 	// (DHCPv6 DUID and DHCPv4 client ID follow the MAC) and out of IPv6
 	// addresses (stable-privacy). A [[network]] can say otherwise (e.g.
 	// permanent at home).
-	MAC string `toml:"mac,omitempty" json:"mac,omitempty"`
+	MAC string `toml:"mac" json:"mac"`
+	// Quiet (Linux, default on): on networks you have not trusted, nothing
+	// that announces this computer leaves the Wi-Fi/cable: multicast,
+	// broadcast and the discovery ports (KDE Connect, Syncthing, mDNS,
+	// LLMNR, NetBIOS, SSDP). DHCP, DHCPv6 and IPv6 neighbour discovery
+	// stay. A [[network]] can say otherwise; trusted ones are not quiet.
+	Quiet *bool `toml:"quiet,omitempty" json:"quiet,omitempty"`
 	// CaptiveCheck (default on): after every network change, look for a
 	// Wi-Fi login page (plain-HTTP request to nmcheck.gnome.org, direct).
 	CaptiveCheck *bool `toml:"captive_check,omitempty" json:"captive_check,omitempty"`
@@ -240,6 +251,42 @@ const (
 
 // StrictCheck reports whether daemon.config_check is "strict".
 func (d Daemon) StrictCheck() bool { return d.ConfigCheck == CheckStrict }
+
+// QuietFor reports whether the quiet mode (no discovery, multicast or
+// broadcast out of the uplinks) is on while on network ("" = a network
+// without profile). A profile's own quiet setting wins; otherwise a trusted
+// profile (see Trusted) is not quiet and everything else follows daemon.quiet
+// (default on).
+func (c *Config) QuietFor(network string) bool {
+	n := c.networkNamed(network)
+	if n != nil && n.Quiet != nil {
+		return *n.Quiet
+	}
+	if n != nil && n.Trusted() {
+		return false
+	}
+	return c.Daemon.Quiet == nil || *c.Daemon.Quiet
+}
+
+func (c *Config) networkNamed(name string) *Network {
+	if name == "" {
+		return nil
+	}
+	for i := range c.Networks {
+		if c.Networks[i].Name == name {
+			return &c.Networks[i]
+		}
+	}
+	return nil
+}
+
+// Trusted reports whether the profile marks a network as one you know:
+// incoming connections allowed (lan | open), the host name sent, or the
+// real MAC address used.
+func (n Network) Trusted() bool {
+	return n.Inbound == InboundLAN || n.Inbound == InboundOpen ||
+		n.DHCPHostname == HostnameSend || n.MAC == MACPermanent
+}
 
 // KillSwitchOn reports whether the Windows kill switch is wanted (unset = on).
 func (d Daemon) KillSwitchOn() bool { return d.KillSwitch == nil || *d.KillSwitch }
@@ -426,6 +473,14 @@ func Parse(s string) (*Config, error) {
 			keys[i] = k.String()
 		}
 		return nil, fmt.Errorf("unknown config keys: %s", strings.Join(keys, ", "))
+	}
+	// Disguise in foreign networks is on unless the file says otherwise;
+	// an explicit "" keeps meaning "leave the profiles alone".
+	if !md.IsDefined("daemon", "dhcp_hostname") {
+		c.Daemon.DHCPHostname = HostnameNone
+	}
+	if !md.IsDefined("daemon", "mac") {
+		c.Daemon.MAC = MACRandom
 	}
 	c.applyDefaults()
 	return &c, c.Validate()
