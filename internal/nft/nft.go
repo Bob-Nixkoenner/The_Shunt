@@ -766,22 +766,26 @@ const (
 	quietTCPPorts = "1716"
 )
 
+// quietLinkNames are the usual names of physical links (udev: wlan/wlp,
+// enp/eno/ens, eth, wwan). They are quiet too, so the chain also covers a
+// link that came up after the plan was made (the daemon notices links every
+// 5 s) and the time before any link was detected (boot, shuntd starts before
+// NetworkManager).
+var quietLinkNames = []string{"wl*", "en*", "eth*", "ww*"}
+
 // quietLines strips what announces this machine from the uplinks: the
 // discovery ports, multicast and broadcast. DHCP, DHCPv6 and IPv6 neighbour
 // and router discovery (to multicast addresses) are let through first.
 // Only the output hook: forwarded traffic (gateway mode) and the tunnels'
 // own interfaces are not touched.
 func quietLines(q *engine.Quiet) ([]string, error) {
-	if len(q.Uplinks) == 0 {
-		return nil, nil
-	}
 	for _, i := range q.Uplinks {
 		if err := checkIdent(i); err != nil {
 			return nil, err
 		}
 	}
 	return []string{
-		fmt.Sprintf("oifname != { %s } return", quoteList(q.Uplinks)),
+		fmt.Sprintf("oifname != { %s } return", quoteList(append(slices.Clone(q.Uplinks), quietLinkNames...))),
 		"meta nfproto ipv4 udp sport 68 udp dport 67 accept",
 		"meta nfproto ipv6 udp sport 546 udp dport 547 accept",
 		"meta l4proto ipv6-icmp icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept",

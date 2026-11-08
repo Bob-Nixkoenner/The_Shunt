@@ -60,7 +60,7 @@ table inet shunt {
 	}
 	chain quiet_out {
 		type filter hook output priority filter; policy accept;
-		oifname != { "wlan0" } return
+		oifname != { "wlan0", "wl*", "en*", "eth*", "ww*" } return
 		meta nfproto ipv4 udp sport 68 udp dport 67 accept
 		meta nfproto ipv6 udp sport 546 udp dport 547 accept
 		meta l4proto ipv6-icmp icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept

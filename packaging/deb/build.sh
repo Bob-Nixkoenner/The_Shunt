@@ -2,6 +2,7 @@
 # Builds Debian packages from built binaries:
 #   the-shunt_<ver>_<arch>.deb          shuntd + shunt, systemd units, polkit policy
 #   the-shunt-desktop_<ver>_amd64.deb   tray app + window (needs GTK/WebKit), if BIN has shunt-desktop
+# REQUIRE_LYREBIRD=1 aborts when BIN has no lyrebird (releases set it); otherwise a warning.
 # Usage: VERSION=v0.7.1-rc1 ARCH=amd64 BIN=<dir with shuntd shunt [shunt-desktop]> OUT=dist bash packaging/deb/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -24,6 +25,12 @@ ln -s ../bin/shuntd "$P/usr/sbin/shuntd" # sudo's secure_path
 if [[ -f $BIN/lyrebird ]]; then
 	install -d "$P/usr/libexec/shunt"
 	install -m755 "$BIN/lyrebird" "$P/usr/libexec/shunt/"
+elif [[ -n ${REQUIRE_LYREBIRD:-} ]]; then
+	echo "ERROR: $BIN/lyrebird is missing and REQUIRE_LYREBIRD is set (build it: OUT=<absolute path of $BIN> bash packaging/pt/build.sh)" >&2
+	exit 1
+else
+	echo "WARNING: $BIN/lyrebird is missing: this .deb has no Tor bridge transports (obfs4, snowflake, meek)." >&2
+	echo "         Build it with: OUT=<absolute path of $BIN> bash packaging/pt/build.sh   (releases set REQUIRE_LYREBIRD=1)" >&2
 fi
 for u in shuntd.service shunt-lockdown.service; do
 	sed 's|/usr/local/bin/|/usr/bin/|g' "packaging/systemd/$u" >"$P/lib/systemd/system/$u"
