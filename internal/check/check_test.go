@@ -15,7 +15,7 @@ import (
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
 	"network.ssid_only", "stealth.unset", "stealth.winname", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype",
-	"rule.direct"}
+	"rule.direct", "captive.on"}
 
 func parse(t *testing.T, s string) *config.Config {
 	t.Helper()
@@ -69,6 +69,9 @@ default_route = "direct"
 		seen[f.ID] = true
 	}
 	for _, f := range Config(parse(t, strictCfg), Env{}) {
+		seen[f.ID] = true
+	}
+	for _, f := range Config(parse(t, captiveOnCfg), Env{}) {
 		seen[f.ID] = true
 	}
 	for _, id := range allIDs {
@@ -247,5 +250,40 @@ func TestCheckStrictMode(t *testing.T) {
 		if f.ID == "rule.direct" && f.Vals["rule"] != "#1" {
 			t.Errorf("unnamed rule: %v", f.Vals)
 		}
+	}
+}
+
+var captiveOnCfg = strings.Replace(strictCfg, `config_check = "strict"`, "config_check = \"strict\"\ncaptive_check = true", 1)
+
+// Strict mode leaves the portal check out by default; switched on
+// explicitly it is a note on Linux (not raised), and nothing elsewhere.
+func TestCheckStrictCaptive(t *testing.T) {
+	ovpn := func(string) *ovpnconf.Config {
+		return &ovpnconf.Config{Ciphers: []string{"AES-256-GCM"}, RemoteCertTLS: true}
+	}
+	if l, ok := levels(Config(parse(t, strictCfg), Env{OVPN: ovpn}))["captive.on"]; ok {
+		t.Errorf("strict without captive_check: captive.on %s", l)
+	}
+	fs := Config(parse(t, captiveOnCfg), Env{OVPN: ovpn})
+	found := false
+	for _, f := range fs {
+		if f.ID == "captive.on" {
+			found = true
+			if f.Level != Info || !f.Strict || f.Help == "" || f.Fix != "daemon.captive_check" {
+				t.Errorf("captive.on: %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("strict + captive_check = true: no captive.on in %v", ids(fs))
+	}
+	for _, env := range []Env{{Windows: true}, {Android: true}} {
+		if _, ok := levels(Config(parse(t, captiveOnCfg), env))["captive.on"]; ok {
+			t.Errorf("captive.on outside Linux: %+v", env)
+		}
+	}
+	normal := strings.Replace(captiveOnCfg, `config_check = "strict"`, `config_check = "normal"`, 1)
+	if _, ok := levels(Config(parse(t, normal), Env{OVPN: ovpn}))["captive.on"]; ok {
+		t.Error("captive.on in normal mode")
 	}
 }

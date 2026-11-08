@@ -46,6 +46,7 @@ type Finding struct {
 
 // helps: the plain-words explanation of findings that need one.
 var helps = map[string]string{
+	"captive.on":  "The network you are in (and GNOME's server) sees that this computer is online and when it joined. Without the check The Shunt does not notice Wi-Fi login pages (hotel, train): open the login browser yourself (`shunt captive` or the tray: Wi-Fi login page).",
 	"ovpn.nowrap": "tls-crypt (or tls-auth) is a shared secret key in the OpenVPN file: with it the server ignores everyone who does not know the key, so strangers cannot probe it or attack it. What to do: ask your provider for a file with tls-crypt. If the provider does not offer one, you can ignore this note: the tunnel still works and is encrypted.",
 }
 
@@ -200,6 +201,13 @@ func Config(c *config.Config, env Env) []Finding {
 			add(Info, "rule.direct", "Rule “{rule}” sends traffic direct, past every tunnel.", "rule", "rule", name)
 		}
 		out = strict(out)
+		// an explicit captive_check = true: the user's choice, so only a
+		// note (not raised like the rest)
+		if env.linux() && c.Daemon.CaptiveCheckOn() {
+			out = append(out, Finding{ID: "captive.on", Level: Info, Fix: "daemon.captive_check", Strict: true,
+				Msg:  "The check for Wi-Fi login pages is on: after every network change The Shunt asks nmcheck.gnome.org over plain HTTP, directly, past the tunnels (captive_check = false switches it off).",
+				Help: helps["captive.on"]})
+		}
 	}
 
 	slices.SortStableFunc(out, func(a, b Finding) int { return cmp.Compare(rank(a.Level), rank(b.Level)) })
