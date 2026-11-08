@@ -22,6 +22,12 @@ CacheDirectory=shunt
 StateDirectory=shunt
 Restart=on-failure
 RestartSec=2
+# shuntd starts before NetworkManager (boot lockdown), so /run/NetworkManager
+# does not exist yet. ReadWritePaths=-/run/NetworkManager below is skipped for
+# a missing directory and ProtectSystem=strict keeps /run read-only, so the
+# connection defaults could not be written. "+" runs outside the sandbox, "-"
+# lets shuntd start anyway if this fails (the lockdown must not wait).
+ExecStartPre=-+/usr/bin/mkdir -p /run/NetworkManager/conf.d
 
 # Hardening. Root uid is needed to own the delegated cgroups and to move
 # other users' processes into them, but capabilities are cut to networking.
