@@ -24,9 +24,28 @@ client_script() { # stdin = PowerShell script, args = its arguments ($args[0] = 
 client_cp_to() { VBoxManage "${GC[@]}" copyto --target-directory "${@: -1}" "${@:1:$#-1}"; }
 client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
 
+# Multi-hop (configs/win-hop.toml): the inner WireGuard hop needs tunnels\hop.conf in the client.
+# WIN_HOP_CONF = the Windows VM's hop file (test keys, not in git); HOP_BADKEY=1 (test file) writes
+# it with a wrong server key (MH03). Copied only when it differs; a change restarts the service below.
+WIN_HOP_CONF=${WIN_HOP_CONF:-$HOP_DIR/wg-hop-lab-win.conf}
+win_ensure_hop() {
+	local tmp want
+	tmp=$(mktemp)
+	cp "$WIN_HOP_CONF" "$tmp" || { rm -f "$tmp"; echo "no $WIN_HOP_CONF" >&2; return 1; }
+	[[ ${HOP_BADKEY:-0} == 1 ]] && sed -i "s|^PublicKey *=.*|PublicKey = $(head -c32 /dev/urandom | base64)|" "$tmp"
+	want=$(sha256sum <"$tmp" | cut -c1-16)
+	if [[ $(client '$f="C:\ProgramData\Shunt\tunnels\hop.conf"; if (Test-Path $f) { (Get-FileHash $f -Algorithm SHA256).Hash.Substring(0,16).ToLower() }') != "$want" ]]; then
+		VBoxManage "${GC[@]}" copyto "$tmp" 'C:\lab\hop.conf' >/dev/null
+		# Copy, not Move: the copy takes the admin-only rights of tunnels\ (a moved file keeps those of C:\lab)
+		client 'Copy-Item -Force C:\lab\hop.conf C:\ProgramData\Shunt\tunnels\hop.conf; Remove-Item C:\lab\hop.conf; Restart-Service Shunt -WarningAction SilentlyContinue; Start-Sleep 8'
+	fi
+	rm -f "$tmp"
+}
+
 apply_config() { # $1 = config name -> configs/win-<name>.toml; restarts the service only on change
 	local f="$HERE/configs/win-$1.toml" want
 	[[ -f $f ]] || { echo "no $f" >&2; return 1; }
+	if grep -q 'tunnels/hop\.conf' "$f"; then win_ensure_hop || return 1; fi
 	want=$(sha256sum <"$f" | cut -c1-16)
 	if [[ $(client '(Get-FileHash C:\ProgramData\Shunt\shunt.toml -Algorithm SHA256).Hash.Substring(0,16).ToLower()') != "$want" ]]; then
 		VBoxManage "${GC[@]}" copyto "$f" 'C:\ProgramData\Shunt\shunt.toml' >/dev/null

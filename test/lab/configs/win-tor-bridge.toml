@@ -1,0 +1,27 @@
+# Windows lab: like win-tor-app, Tor with the built-in obfs4 bridges (lyrebird.exe, H06).
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.tor]
+driver = "tor"
+bridges = ["obfs4"]
+
+[[rule]]
+name = "lab: tor"
+app = ["labtun"]
+route = "tunnel:tor"
+
+# a second rule: Tor isolates per rule (isolate = "app"), H05
+[[rule]]
+name = "lab: tor 2"
+app = ["labdir"]
+route = "tunnel:tor"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []
