@@ -79,6 +79,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\shuntd-win.exe"; Parameters: "install"; Flags: runhidden; Check: not ServiceExists; StatusMsg: "{cm:InstallingService}"
 Filename: "{sys}\sc.exe"; Parameters: "config Shunt binPath= ""\""{app}\shuntd-win.exe\"""""; Flags: runhidden; Check: ServiceExists
+; who may change settings: the local group "shunt" (created if missing), with the installing user
+Filename: "{app}\shuntd-win.exe"; Parameters: "allow-user ""{username}"""; Flags: runhidden
 Filename: "{sys}\net.exe"; Parameters: "start Shunt"; Flags: runhidden; StatusMsg: "{cm:StartingService}"
 ; the tray runs as the user, never elevated (it starts launchers and browsers)
 Filename: "{app}\shunt-desktop.exe"; Description: "{cm:StartShunt}"; Flags: postinstall nowait skipifsilent runasoriginaluser

@@ -78,6 +78,12 @@ func main() {
 		err = install()
 	case "uninstall":
 		err = uninstall()
+	case "allow-user": // installer: create the manage group, add the user
+		user := ""
+		if len(os.Args) > 2 {
+			user = os.Args[2]
+		}
+		err = allowUser(manageGroupFromFile(), user)
 	case "start":
 		err = control(func(s *mgr.Service) error { return s.Start() })
 	case "stop":
@@ -90,7 +96,7 @@ func main() {
 	case "version":
 		fmt.Println(version)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|start|stop|run|killswitch-off|version")
+		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|allow-user [USER]|start|stop|run|killswitch-off|version")
 		os.Exit(2)
 	}
 	if err != nil {
@@ -565,6 +571,11 @@ func runCore(ctx context.Context, ready func()) error {
 			return tr
 		},
 		Pin: func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		// who is calling decides what they may do (winsvc/auth.go)
+		Identify:    func(c net.Conn) *winsvc.Caller { return identify(c, m.ManageGroup()) },
+		ManageGroup: m.ManageGroup(),
+		ProcInfo:    procInfo,
+		RouteOf:     func(pid int) string { return jobs.Route(uint32(pid)) },
 		Procs: func(name string) ([]api.ProcRoute, error) {
 			ps, err := winsplit.Processes(name)
 			out := make([]api.ProcRoute, 0, len(ps))
@@ -609,11 +620,12 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 }
 
-// grantUsers lets every local user talk to the API (reading status, panic).
-// Changing the config needs write access to windows.json, which stays with
-// Administrators.
+// grantUsers lets every local user connect to the API (connecting needs
+// write access to the socket file; not delete, so nobody can put their own
+// socket in its place). What a caller may do is checked per request
+// (winsvc/auth.go: Identify).
 func grantUsers(path string) {
-	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(M)").CombinedOutput(); err != nil {
+	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(RX,W)").CombinedOutput(); err != nil {
 		log.Printf("icacls %s: %v: %s", path, err, out)
 	}
 }
@@ -726,6 +738,15 @@ func install() error {
 	_ = s.SetRecoveryActionsOnNonCrashFailures(true) // also for "stopped with exit code 1" (/v1/restart)
 	fmt.Printf("installed. Config: %s (created at the first start)\nstart with: shuntd-win start\n", filepath.Join(dataDir, "shunt.toml"))
 	return nil
+}
+
+// manageGroupFromFile returns daemon.socket_group of shunt.toml, or the
+// default group.
+func manageGroupFromFile() string {
+	if c, err := config.Load(filepath.Join(dataDir, "shunt.toml")); err == nil && c.Daemon.SocketGroup != "" {
+		return c.Daemon.SocketGroup
+	}
+	return winsvc.DefaultManageGroup
 }
 
 func uninstall() error {
