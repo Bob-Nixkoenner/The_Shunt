@@ -1,0 +1,26 @@
+# Lab: filter on for everything except the lab tunnel apps (rule dns_filter = "off").
+# Lab client base config: one tunnel to the internal test server (CT130),
+# the lab apps pinned to it / to direct, everything else through the tunnel.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+dns_filter = "off"   # only these apps: the filter does not apply to them
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[dns_filter]
+default = "normal"
+low = []
+normal = ["file:/etc/shunt/lab-filter.txt"]
+paranoid = ["file:/etc/shunt/lab-filter.txt"]
