@@ -130,7 +130,7 @@ jobs:
       - name: build
         env:
           TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
-        run: VERSION=$TAG DIST=out STAGE_DIR=stage packaging/windows/build.sh
+        run: REQUIRE_TOR=1 VERSION=$TAG DIST=out STAGE_DIR=stage packaging/windows/build.sh
       - uses: actions/upload-artifact@v4
         with:
           name: windows-stage
@@ -183,8 +183,9 @@ jobs:
           # Debian packages: the-shunt (amd64, arm64) and the-shunt-desktop (amd64)
           cp build/desktop/shunt-desktop build/amd64/
           for arch in amd64 arm64; do
-            VERSION=$TAG ARCH=$arch BIN=build/$arch OUT=dist bash packaging/deb/build.sh
+            REQUIRE_LYREBIRD=1 VERSION=$TAG ARCH=$arch BIN=build/$arch OUT=dist bash packaging/deb/build.sh
           done
+          bash packaging/check-package.sh dist/the-shunt_*.deb dist/shunt_linux_*.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: linux

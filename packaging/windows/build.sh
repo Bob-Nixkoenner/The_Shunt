@@ -21,7 +21,7 @@ echo "$WINTUN_SHA  $tmp/wintun.zip" | sha256sum -c -
 unzip -oq "$tmp/wintun.zip" -d "$tmp" && cp "$tmp/wintun/bin/amd64/wintun.dll" "$OUT/"
 
 # Tor (Tor Expert Bundle: tor.exe + lyrebird.exe for obfs4/snowflake/meek), pinned by checksum;
-# installed in <app>\tor, used by tunnels with driver = "tor". NO_TOR=1 leaves it out.
+# installed in <app>\tor, used by tunnels with driver = "tor". NO_TOR=1 leaves it out (warns; REQUIRE_TOR=1 makes that an error).
 if [ -z "${NO_TOR:-}" ]; then
   # pins live in packaging/tor-versions.json; .github/scripts/tor-bundle.sh verifies them
   # (sha256 + GPG signature of the Tor Browser Developers key) and tor-watch.yml checks weekly
@@ -34,10 +34,13 @@ if [ -z "${NO_TOR:-}" ]; then
   tar xzf "$tmp/tor.tgz" -C "$tmp/torx"
   cp "$tmp/torx/tor/tor.exe" "$OUT/tor/"
   cp "$tmp/torx/tor/pluggable_transports/lyrebird.exe" "$OUT/tor/pt/"
+  [ -s "$OUT/tor/tor.exe" ] && [ -s "$OUT/tor/pt/lyrebird.exe" ] || { echo "ERROR: tor.exe or lyrebird.exe missing after unpacking the bundle" >&2; exit 1; }
   # GeoIP tables: without them tor warns at every start (and cannot pick by country)
   cp "$tmp/torx/data/geoip" "$tmp/torx/data/geoip6" "$OUT/tor/"
   cp "$tmp/torx/docs/tor.txt" "$tmp/torx/docs/lyrebird.txt" "$tmp/torx/docs/openssl.txt" "$tmp/torx/docs/libevent.txt" "$tmp/torx/docs/zlib.txt" "$OUT/tor/licenses/"
 else
+  if [ -n "${REQUIRE_TOR:-}" ]; then echo "ERROR: NO_TOR is set but REQUIRE_TOR is set (releases ship tor.exe + lyrebird.exe)" >&2; exit 1; fi
+  echo "WARNING: NO_TOR set: this build has no tor.exe/lyrebird.exe (no Tor tunnels, no bridges)." >&2
   mkdir -p "$OUT/tor"; : >"$OUT/tor/.none" # the Setup script copies the folder
 fi
 GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkico "$OUT/the-shunt.ico"
