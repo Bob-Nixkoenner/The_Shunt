@@ -727,6 +727,7 @@
   "The default route is direct: programs without a rule are not protected by a tunnel.": "Der Standardweg ist direkt: Programme ohne Regel sind nicht durch einen Tunnel geschützt.",
   "Rule “{rule}” sends traffic direct, past every tunnel.": "Regel „{rule}“ schickt Verkehr direkt, an allen Tunneln vorbei.",
   "The kill switch is off: if a tunnel or the service stops, traffic can leave directly.": "Der Kill-Switch ist aus: Fällt ein Tunnel oder der Dienst aus, kann Verkehr direkt hinaus.",
+  "Tor tunnel “{name}” runs through another tunnel (via), which Windows does not support yet: the tunnel stays down instead of going out directly. Remove via or use Tor on Linux.": "Der Tor-Tunnel „{name}“ läuft über einen anderen Tunnel (via), das kann Windows noch nicht: Der Tunnel bleibt aus, statt direkt hinauszugehen. Entferne via oder nutze Tor unter Linux.",
   "The tunnels connect now.": "Die Tunnel verbinden sich jetzt.",
   "There is a network called {name} already": "Es gibt schon ein Netz namens {name}",
   "There is a tunnel {name} already – pick another name": "Es gibt schon einen Tunnel {name} – wähle einen anderen Namen",

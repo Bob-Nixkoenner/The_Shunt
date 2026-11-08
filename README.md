@@ -162,7 +162,8 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   another tunnel – WireGuard in WireGuard, OpenVPN in WireGuard, or the other way
   round. The first hop sees only the second hop's server, the second hop's server
   only the first hop's exit. First hop down → second hop blocked, nothing goes
-  direct. The inner MTU is lowered automatically
+  direct. The inner MTU is lowered automatically (Tor behind a tunnel: Linux only; on Windows such a Tor tunnel stays down, see
+  [docs/WINDOWS.md](docs/WINDOWS.md)).
 - **Wi-Fi vs. cable**: routes `link:wifi`, `link:ethernet`, `link:mobile` send a program
   out over that connection only, with Wi-Fi and cable plugged in at the same time
   (e.g. a download over cable, the browser over Wi-Fi). Not connected → blocked, never

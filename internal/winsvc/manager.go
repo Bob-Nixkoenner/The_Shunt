@@ -683,7 +683,7 @@ func (m *Manager) startTors(c *config.Config) (warn []string) {
 	}
 	for _, name := range sortedKeys(c.Tunnels) {
 		t := c.Tunnels[name]
-		if !t.IsTor() || t.Disabled {
+		if !t.IsTor() || t.Disabled || torViaBlocked(t) { // via: never started, see translate
 			continue
 		}
 		m.mu.Lock()

@@ -287,3 +287,22 @@ func TestCheckStrictCaptive(t *testing.T) {
 		t.Error("captive.on in normal mode")
 	}
 }
+
+// Tor over via does not work on Windows: the check says so there, not on Linux.
+func TestTorViaWindows(t *testing.T) {
+	c, err := config.Parse("[daemon]\ndefault_route = \"tunnel:t\"\n[tunnel.wg]\nconfig = \"wg.conf\"\n[tunnel.t]\ndriver = \"tor\"\nvia = \"wg\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(fs []Finding) bool {
+		for _, f := range fs {
+			if f.ID == "tor.via.windows" && f.Vals["name"] == "t" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(Config(c, Env{Windows: true})) || has(Config(c, Env{})) {
+		t.Error("tor.via.windows only on Windows")
+	}
+}

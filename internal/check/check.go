@@ -181,6 +181,11 @@ func Config(c *config.Config, env Env) []Finding {
 	}
 	slices.Sort(names)
 	for _, name := range names {
+		if t := c.Tunnels[name]; env.Windows && t.IsTor() && !t.Disabled && t.Via != "" {
+			add(Warn, "tor.via.windows", "Tor tunnel “{name}” runs through another tunnel (via), which Windows does not support yet: the tunnel stays down instead of going out directly. Remove via or use Tor on Linux.", "tunnel.via", "name", name)
+		}
+	}
+	for _, name := range names {
 		if env.OVPN == nil || !c.Tunnels[name].IsOpenVPN() {
 			continue
 		}
