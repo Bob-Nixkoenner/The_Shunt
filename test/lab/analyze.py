@@ -147,6 +147,8 @@ def learn_names(pkt):
                 rr = pkt[DNS].an[i]
                 if rr.type in (1, 28):
                     names.setdefault(str(rr.rdata), rr.rrname.decode().rstrip("."))
+                    if rr.rrname.rstrip(b".").lower() in CAPTIVE_HOSTS:
+                        captive_dsts.add(str(rr.rdata))  # the address the client got, not the gateway's
             except Exception:
                 pass
 
@@ -363,11 +365,16 @@ for d, n in captive_checks.items():
 for q, dst, w in gw_dns:
     if allow_dns or allowed_comm(w):
         continue
-    # name of the portal check: the portal sits in front of any tunnel. Without systemd-resolved (Debian) shuntd
-    # resolves on its own and the trace cannot attribute the lookup ("?"): count it as the portal check when
-    # the capture also shows that check's HTTP request, nothing else with an unknown process.
-    if q.encode() in CAPTIVE_HOSTS and (w == "shuntd" or (w == "?" and captive_checks)):
-        find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt)")
+    # name of the portal check: the portal sits in front of any tunnel, the check is on by default (decided
+    # 08.11.: info, not a finding). Without systemd-resolved (Debian) shuntd resolves on its own and the
+    # trace cannot attribute the lookup ("?"), and when the check's HTTP request did not get out (dead
+    # tunnel) only the lookup is left: an unknown process asking this name counts as the check too. The
+    # trace names every process that sent to that DNS server and port ("curl, shuntd" in M06, where curl
+    # in the namespace asks the same server): shuntd among them is enough.
+    procs = {x.strip() for x in w.split(",")}
+    if q.encode() in CAPTIVE_HOSTS and ("shuntd" in procs or w == "?"):
+        why = "" if "shuntd" in procs or captive_checks else ", Prozess unbekannt, ohne HTTP-Anfrage im Mitschnitt"
+        find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt{why})")
         continue
     find("leak", "DNS über das fremde Netz", f"{q} an {dst}, Prozess: {w}")
 
