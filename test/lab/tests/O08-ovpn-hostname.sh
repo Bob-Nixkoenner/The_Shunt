@@ -11,6 +11,8 @@ chmod 600 host.ovpn
 EOF2
 sudo -n bash /tmp/mk.sh
 '
+EXIT_IF=tun0
+EXIT_NET=10.67.0.
 NOTE="Der remote-Eintrag der .ovpn ist ein Hostname (ueber /etc/hosts aufgeloest, im Lab sieht man dafuer keine DNS-Anfrage). Erwartung: Tunnel kommt hoch, Tunnel-App geht ueber CT130, nichts im Klartext. Aufruf: CT130_IF=tun0 TUNNEL_IP=10.67.0."
 CLIENT='
 sleep 10
