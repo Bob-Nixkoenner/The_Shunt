@@ -256,6 +256,9 @@ json.dump({
  "shunt_version": "$ver", "started": "$stamp", "note": """$NOTE""",
  # LABMARK strict_from/strict_until <epoch> lines in the client output: the strict
  # parts of a test (e.g. tor-all on .. off); outside them nothing is judged at the gateway
+ "tor_end": (lambda m: float(m[0]) if m else None)(__import__("re").findall(r"^LABMARK tor_end ([0-9.]+)$",
+     "".join(open(f, errors="replace").read() + "\n" for f in ("$out/client.out", "$out/during.log")
+             if __import__("os").path.exists(f)), 8)),
  "strict": [[float(a), float(b) if b else None] for a, b in __import__("re").findall(
      r"^LABMARK strict_from ([0-9.]+)\n(?:(?!LABMARK strict_from).*\n)*?(?:LABMARK strict_until ([0-9.]+)$|\Z)",
      "".join(open(f, errors="replace").read() + "\n" for f in ("$out/client.out", "$out/during.log")

@@ -5,8 +5,8 @@ EXPECT_CANARY=any
 # in which the apps send in the clear: that is allowed here (ALLOW), what counts is
 # how fast the table is back (measured in during(), limit 2.5 s). Without the guard
 # the table never comes back and the check below fails.
-ALLOW=(comm:labtun comm:labtun-dig comm:labfree comm:labfree-dig comm:NetworkManager comm:systemd-resolve dns)
-NOTE="Ein anderes Programm (Docker, fremdes VPN, Nutzer) leert alle nft-Regeln. Erwartung: Der Regeln-Waechter (1 s Takt) stellt sie wieder her; im Fenster davor ist Klartext unvermeidlich (ALLOW), geprueft wird die Zeit bis zur Rueckkehr (FAIL ab 2,5 s)."
+ALLOW=(comm:labtun comm:labtun-dig comm:labfree comm:labfree-dig comm:NetworkManager comm:systemd-resolve dns dst:10.66.0.1:0/icmp)
+NOTE="Ein anderes Programm (Docker, fremdes VPN, Nutzer) leert alle nft-Regeln. Erwartung: Der Regeln-Waechter (1 s Takt) stellt sie wieder her; im Fenster davor ist Klartext unvermeidlich (ALLOW; dazu das ICMP des Tunnel-Pings an die Gegenstelle, das der Kernel direkt nach dem Flush noch ausserhalb des Tunnels sendet), geprueft wird die Zeit bis zur Rueckkehr (FAIL ab 2,5 s)."
 during() {
 	sleep 5
 	client '
