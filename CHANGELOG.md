@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Linux: quiet mode now holds from the start. The `quiet_out` chain used to appear only after the daemon had detected a link (every 5 s, none at all at boot when shuntd starts before NetworkManager), so discovery packets could leave a fresh uplink in that window. The chain is now always there while quiet applies (default: quiet until a trusted network is recognised) and also covers the usual link names (`wl*`, `en*`, `eth*`, `ww*`) besides the detected interfaces.
+
 - Packaging: a release without lyrebird (Tor bridges) cannot go out unnoticed any more. `packaging/deb/build.sh` warns on stderr when `lyrebird` is missing and aborts with `REQUIRE_LYREBIRD=1`; `packaging/windows/build.sh` warns on `NO_TOR` and aborts with `REQUIRE_TOR=1` (and when tor.exe/lyrebird.exe are missing after unpacking); the release workflow sets both and runs the new `packaging/check-package.sh` (lists .deb/.zip/.tar.gz contents).
 
 - Linux: the host name no longer leaks from new profiles (NetworkManager 1.46, e.g. Pop!_OS 24.04). `ipv4/ipv6.dhcp-send-hostname` are profile properties there, not conf.d defaults ("unknown key", ignored), so a freshly created profile sent the host name (option 12) and the DHCPv6 FQDN. `shuntd` now sets both to `no` per profile (at start, and as soon as NetworkManager adds a profile or a device comes up, with a runtime-only `--temporary` fallback for profiles that live in `/run`); a trusted network (`dhcp_hostname = "send"`) is left alone or set back to `yes`. The useless lines are gone from the NetworkManager drop-ins (installer, .deb and the runtime file) and are removed from existing ones on update; no more "unknown key" warnings.

@@ -562,7 +562,7 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 		}
 		p.Inbound = in
 	}
-	if c.QuietFor(network) && len(p.LinkIfaces) > 0 {
+	if c.QuietFor(network) {
 		q := &Quiet{Uplinks: slices.Clone(p.LinkIfaces)}
 		sort.Strings(q.Uplinks)
 		p.Quiet = q
