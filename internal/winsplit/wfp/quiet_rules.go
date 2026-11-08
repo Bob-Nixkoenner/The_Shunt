@@ -28,6 +28,23 @@ type QuietRule struct {
 	Prefix     netip.Prefix
 }
 
+// QuietWeight is the weight (0..15) of a quiet filter. In the own sublayer
+// the permits (15) come before the drops (10). The boot-time copies share the
+// default sublayer with the kill switch's boot-time copies (weights: service
+// and DNS 14/15, loopback 13, DHCP/ND/tunnel 12, LAN 11, block 0), where the
+// higher weight wins: the drops (13) must beat its LAN permit (multicast,
+// broadcast) and its DHCP permit (255.255.255.255), the own DHCP/ND permits
+// (15) the drops.
+func QuietWeight(r QuietRule, boot bool) uint8 {
+	switch {
+	case r.Permit:
+		return 15
+	case boot:
+		return 13
+	}
+	return 10
+}
+
 // QuietRules returns the filters in the order they are weighed: first the
 // permits (DHCP, DHCPv6 and IPv6 neighbour/router discovery), then the drops.
 // broadcasts are subnet broadcast addresses (IPv4) to drop as well.
