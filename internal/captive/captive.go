@@ -5,7 +5,8 @@
 // Firefox and Android do. The request goes out directly (shuntd's own
 // traffic is not classified); it tells the probe host (GNOME's, which
 // NetworkManager on most distributions asks anyway) that you are online.
-// daemon.captive_check = false turns it off.
+// daemon.captive_check = false turns it off; without the key it is off with
+// daemon.config_check = "strict" (the opsec level).
 package captive
 
 import (
