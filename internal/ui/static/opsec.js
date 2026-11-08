@@ -7,7 +7,8 @@
 // Item fields: sets = config fields [path, value] written when on (os: where
 // the service has them), builtin = systems
 // where it is always on anyway, na = systems where it does not exist (with
-// the reason). Opsec is about what the network and others see, not about
+// the reason), isOn = own test of "already set", custom = written by its own
+// code after the others. Opsec is about what the network and others see, not about
 // what stays on this computer: statistics and the speed test history are
 // kept.
 
@@ -29,9 +30,12 @@ const OPSEC_ITEMS = [
   { id: "quiet", text: "Quiet mode: no discovery, multicast or broadcast out on foreign networks",
     help: "KDE Connect, Syncthing, mDNS, LLMNR, NetBIOS and SSDP announcements do not leave the computer on networks you have not trusted. Addresses (DHCP) and IPv6 neighbour discovery keep working; trusted network profiles are not quiet.",
     os: ["linux", "windows"], sets: [[["daemon", "quiet"], true]] },
+  // the stricter check below leaves the portal check out by itself (without
+  // an explicit captive_check), so this item only writes the key where the
+  // result would differ from what the user ticked (see opsecCaptive)
   { id: "captive", text: "No check for Wi-Fi login pages",
-    help: "The check asks a test address directly over the network you are in, on purpose (a login page sits in front of every tunnel). Without it you open login pages yourself: tray → “Wi-Fi login page…”.",
-    os: ["linux"], sets: [[["daemon", "captive_check"], false]],
+    help: "Without the check The Shunt does not notice Wi-Fi login pages (hotel, train): open the login browser yourself (tray → “Wi-Fi login page…”). The check asks a test address over plain HTTP, directly past the tunnels.",
+    os: ["linux"], sets: [[["daemon", "captive_check"], false]], isOn: (m) => !captiveCheckOn(m), custom: true,
     builtin: { windows: "The Shunt makes no such check on Windows." } },
   { id: "inbound", text: "Incoming connections closed",
     help: "Nothing new reaches this computer from the network or through a tunnel; answers to your own connections pass. Network profiles you trust can open single ports.",
@@ -71,7 +75,19 @@ function opsecState(it) {
   return it.builtin && it.builtin[opsecOS()] ? "builtin" : "na";
 }
 function opsecIsOn(it) {
-  return !!model && it.sets.every(([p, v]) => cfgGet(model, p) === v);
+  if (!model) return false;
+  return it.isOn ? it.isOn(model) : it.sets.every(([p, v]) => cfgGet(model, p) === v);
+}
+
+// opsecCaptive writes daemon.captive_check only where the default (off with
+// the strict check, else on) differs from the user's tick: ticked = no check.
+// Returns the undo record, or null when nothing was written.
+function opsecCaptive(box) {
+  const path = ["daemon", "captive_check"], wantOn = !box.checked;
+  if (captiveCheckOn(model) === wantOn) return null;
+  const rec = { cfg: [[path, cfgGet(model, path) ?? null]] };
+  cfgPut(model, path, wantOn);
+  return rec;
 }
 
 function opsecUndo() { try { return JSON.parse(lvGet("shunt-opsec-undo") || "{}") || {}; } catch (e) { return {}; } }
@@ -149,10 +165,14 @@ async function opsecOn() {
   let cfgChanged = false;
   for (const it of OPSEC_ITEMS) {
     const box = boxes[it.id];
-    if (!box || !box.checked) continue;
+    if (it.custom || !box || !box.checked) continue;
     recs[it.id] = { cfg: it.sets.map(([p]) => [p, cfgGet(model, p) ?? null]) };
     for (const [p, v] of it.sets) cfgPut(model, p, v);
     cfgChanged = true;
+  }
+  if (boxes.captive) {
+    const rec = opsecCaptive(boxes.captive);
+    if (rec) { recs.captive = rec; cfgChanged = true; }
   }
   if (cfgChanged && !(await opsecSave())) return false; // nothing changed, the level stays
   // an earlier, kept Opsec change keeps its value from before that time
