@@ -362,3 +362,27 @@ quiet = true
 		t.Error("daemon.quiet = false / network quiet = true")
 	}
 }
+
+// The portal check is on by default, off with the strict config check (the
+// opsec level), and an explicit captive_check always wins.
+func TestCaptiveCheckOn(t *testing.T) {
+	for _, tc := range []struct {
+		toml string
+		want bool
+	}{
+		{"", true},
+		{"config_check = \"normal\"\n", true},
+		{"config_check = \"strict\"\n", false},
+		{"config_check = \"strict\"\ncaptive_check = true\n", true},
+		{"captive_check = false\n", false},
+		{"captive_check = true\n", true},
+	} {
+		c, err := Parse("[daemon]\n" + tc.toml)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.Daemon.CaptiveCheckOn(); got != tc.want {
+			t.Errorf("%q: CaptiveCheckOn = %v, want %v", tc.toml, got, tc.want)
+		}
+	}
+}
