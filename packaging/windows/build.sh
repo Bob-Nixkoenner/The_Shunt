@@ -6,10 +6,15 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 DIST=${DIST:-dist}; mkdir -p "$DIST"; DIST=$(cd "$DIST" && pwd)
-OUT=$(mktemp -d); tmp=$(mktemp -d); trap 'rm -rf "$OUT" "$tmp"' EXIT
+SYSOS="cmd/shunt-desktop/resource_windows_amd64.syso cmd/shuntd-win/resource_windows_amd64.syso"
+OUT=$(mktemp -d); tmp=$(mktemp -d); trap 'rm -rf "$OUT" "$tmp" $SYSOS' EXIT
 export CGO_ENABLED=0
 GOOS=windows GOARCH=amd64
 export GOOS GOARCH
+# VERSIONINFO resource (ProductVersion/FileVersion in the file properties): a .syso next to each main package
+# for the build only (packaging/windows/mkversion writes it, no extra tool needed)
+GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkversion "$VERSION" "The Shunt (desktop)" shunt-desktop.exe cmd/shunt-desktop/resource_windows_amd64.syso
+GOOS=linux GOARCH=amd64 go run ./packaging/windows/mkversion "$VERSION" "The Shunt (service)" shuntd-win.exe cmd/shuntd-win/resource_windows_amd64.syso
 go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$VERSION" -o "$OUT/shunt-desktop.exe" ./cmd/shunt-desktop
 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/shuntd-win.exe" ./cmd/shuntd-win
 
