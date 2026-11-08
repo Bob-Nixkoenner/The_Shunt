@@ -752,7 +752,10 @@ func status(c *api.Client, args []string) error {
 			if t.Driver == "openvpn" && !hasHandshake(t.Peers) {
 				state = "connecting/openvpn"
 			}
-			if h := t.Health; h != nil && h.State != "unknown" {
+			if noHandshake(t.Driver, t.Peers) {
+				// never a handshake (wrong key, peer unreachable): no "ok", whatever the probe said
+				state += " " + i18n.T("no-handshake")
+			} else if h := t.Health; h != nil && h.State != "unknown" {
 				state += " " + h.State
 				if h.LatencyMs > 0 {
 					state += fmt.Sprintf(" %dms", h.LatencyMs)
@@ -1271,6 +1274,17 @@ func probeNote(n string) string {
 		return i18n.T("probe failed: {detail}", "detail", d)
 	}
 	return i18n.T(n)
+}
+
+// noHandshake is true for a WireGuard tunnel that never completed a
+// handshake: its health may not say "ok" then (wrong key, unreachable peer).
+// OpenVPN, Tailscale and Tor have their own notion of "connected".
+func noHandshake(driver string, peers []tunnel.PeerStatus) bool {
+	switch driver {
+	case "openvpn", "tailscale", "tor":
+		return false
+	}
+	return !hasHandshake(peers)
 }
 
 // hasHandshake reports whether any peer ever completed a handshake (for OpenVPN: is connected).
