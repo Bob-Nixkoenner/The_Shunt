@@ -46,7 +46,8 @@ func TestForbidden(t *testing.T) {
 	for _, l := range []string{
 		"up /tmp/x.sh", "script-security 2", "plugin /lib/x.so", `"up" x`, "--up x",
 		"log /etc/passwd", "management 127.0.0.1 7505", "user nobody", "UP x",
-		"<plugin>\nx\n</plugin>",
+		"<plugin>\nx\n</plugin>", "engine /tmp/x.so", "providers legacy /tmp/x", "pkcs11-providers /tmp/p11.so",
+		"tls-export-cert /tmp",
 	} {
 		_, err := Parse("client\nremote a.example 1194\n"+l+"\n", "")
 		if err == nil || !strings.Contains(err.Error(), "not allowed") {

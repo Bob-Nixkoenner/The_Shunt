@@ -59,6 +59,8 @@ var forbidden = map[string]string{
 	"client-config-dir": "server mode", "ifconfig-pool": "server mode",
 	"echo": "talks to a management client", "syslog": "Shunt collects the log",
 	"setcon": "SELinux context switch",
+	"engine": "loads a library", "providers": "loads a library", "pkcs11-providers": "loads a library",
+	"tls-export-cert": "writes files",
 }
 
 // fileArgs take a path (or an inline block) as first argument.
