@@ -97,6 +97,57 @@ func TestCheckSkipsPlacedProcesses(t *testing.T) {
 	}
 }
 
+// A script that starts a child before the watcher moved it takes the child
+// along (else the child's sockets keep the default route); every decided
+// process is reported to the start guard, placed ones are not.
+func TestCheckMovesChildrenAndDecides(t *testing.T) {
+	proc := t.TempDir()
+	mk := func(pid int, comm, cg string, kids ...string) {
+		d := filepath.Join(proc, strconv.Itoa(pid))
+		_ = os.MkdirAll(filepath.Join(d, "task", strconv.Itoa(pid)), 0o755)
+		_ = os.WriteFile(filepath.Join(d, "comm"), []byte(comm+"\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(d, "cgroup"), []byte("0::/"+cg+"\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(d, "cmdline"), []byte(comm+"\x00"), 0o644)
+		kidList := ""
+		for _, k := range kids {
+			kidList += k + " "
+		}
+		_ = os.WriteFile(filepath.Join(d, "task", strconv.Itoa(pid), "children"), []byte(kidList), 0o644)
+	}
+	mk(20, "labtun-x", "user.slice/x.scope", "21", "22")
+	mk(21, "dig", "user.slice/x.scope", "23")
+	mk(22, "curl", "shunt/apps/app/r9") // placed by its own rule: keep
+	mk(23, "dig", "user.slice/x.scope")
+	mk(30, "shuntd", "shunt/shuntd.service")
+	m := &fakeMover{moved: map[int]string{}}
+	decided := map[int]int64{}
+	w := &Watcher{Log: slog.New(slog.DiscardHandler), Mover: m, Proc: proc,
+		Decided: func(pid int, since int64) { decided[pid] = since },
+		Now:     func() int64 { return 42 }}
+	w.SetTargets([]Target{
+		{Name: "labtun", Sels: []config.AppSel{{Kind: "name", Value: "labtun-x"}}, Path: "shunt/apps/app/r1"},
+	}, "shunt")
+	want := map[int]string{20: "shunt/apps/app/r1", 21: "shunt/apps/app/r1", 23: "shunt/apps/app/r1"}
+	if len(m.moved) != len(want) {
+		t.Errorf("moved %v", m.moved)
+	}
+	for pid, g := range want {
+		if m.moved[pid] != g {
+			t.Errorf("pid %d: moved %v", pid, m.moved)
+		}
+	}
+	for _, pid := range []int{20, 21, 23} {
+		if decided[pid] != 42 {
+			t.Errorf("pid %d not reported: %v", pid, decided)
+		}
+	}
+	for _, pid := range []int{22, 30} {
+		if _, ok := decided[pid]; ok {
+			t.Errorf("placed pid %d reported", pid)
+		}
+	}
+}
+
 // Needs root in the initial network namespace: SHUNT_LIVE=1 go test -run Live
 func TestConnectorLive(t *testing.T) {
 	if os.Getenv("SHUNT_LIVE") == "" {
