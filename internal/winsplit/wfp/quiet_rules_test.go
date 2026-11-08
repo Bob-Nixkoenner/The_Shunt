@@ -52,3 +52,24 @@ func TestBroadcastAddrs(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// The boot-time copies share the default sublayer with the kill switch's
+// boot-time copies (LAN permit 11, DHCP/ND permit 12): the drops must weigh
+// more than those, the own DHCP/ND permits more than the drops.
+func TestQuietWeightBoot(t *testing.T) {
+	const ksLAN, ksDHCP = 11, 12
+	for _, boot := range []bool{false, true} {
+		for _, r := range QuietRules(nil) {
+			w := QuietWeight(r, boot)
+			if w > 15 {
+				t.Fatalf("weight %d out of range", w)
+			}
+			if r.Permit && w <= QuietWeight(QuietRule{}, boot) {
+				t.Errorf("boot=%v: permit %+v not above the drops", boot, r)
+			}
+			if boot && !r.Permit && (w <= ksLAN || w <= ksDHCP) {
+				t.Errorf("boot drop %+v weight %d not above the kill switch permits", r, w)
+			}
+		}
+	}
+}

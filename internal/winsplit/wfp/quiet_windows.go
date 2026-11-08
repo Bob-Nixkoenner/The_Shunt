@@ -16,12 +16,17 @@ import (
 // of the service, and while it is stopped. The service takes them away on a
 // trusted network (EnableQuiet/DisableQuiet follow the network profile).
 // Several sublayers are all weighed and a block anywhere wins, so the kill
-// switch's permit for the local network cannot open them again.
+// switch's permit for the local network cannot open them again. Each filter
+// also has a boot-time copy for the seconds before BFE runs (LLMNR went out
+// in the first seconds of a boot before the persistent filters were loaded).
 
 var (
 	quProvider = windows.GUID{Data1: 0x5e4a7c30, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x21}}
 	quSublayer = windows.GUID{Data1: 0x5e4a7c31, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x22}}
 	quBase     = windows.GUID{Data1: 0x5e4a7f00, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x23}}
+	// boot-time copies (see bootFilterBase): enforced from the start of the
+	// TCP/IP stack until BFE loads the persistent filters
+	quBootBase = windows.GUID{Data1: 0x5e4a8100, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x24}}
 )
 
 const quMaxFilters = 128
@@ -83,37 +88,49 @@ func EnableQuiet(broadcasts []netip.Addr) error {
 			if r.V6 {
 				layer, fam = cFWPM_LAYER_ALE_AUTH_CONNECT_V6, "IPv6"
 			}
-			action, weight, name := cFWP_ACTION_BLOCK, uint8(10), "Quiet: drop discovery ("+fam+")"
+			action, name := cFWP_ACTION_BLOCK, "Quiet: drop discovery ("+fam+")"
 			if r.Permit {
-				action, weight, name = cFWP_ACTION_PERMIT, 15, "Quiet: permit DHCP/ND ("+fam+")"
+				action, name = cFWP_ACTION_PERMIT, "Quiet: permit DHCP/ND ("+fam+")"
 			}
-			fd, err := createWtFwpmDisplayData0(name, "")
-			if err != nil {
-				return wrapErr(err)
-			}
-			k := quBase
-			k.Data1 += next
-			next++
-			f := wtFwpmFilter0{
-				filterKey:   k,
-				displayData: *fd,
-				flags:       cFWPM_FILTER_FLAG_PERSISTENT,
-				providerKey: &prov,
-				layerKey:    layer,
-				subLayerKey: quSublayer,
-				weight:      filterWeight(weight),
-				action:      wtFwpmAction0{_type: action},
-			}
+			var cs []wtFwpmFilterCondition0
 			if len(conds) > 0 {
-				cs := append([]wtFwpmFilterCondition0(nil), conds...)
+				cs = append([]wtFwpmFilterCondition0(nil), conds...)
 				keep = append(keep, cs)
-				f.numFilterConditions = uint32(len(cs))
-				f.filterCondition = &cs[0]
 			}
-			var id uint64
-			if err := wrapErr0(fwpmFilterAdd0(session, &f, 0, &id)); err != nil {
-				return err
+			// persistent in the own sublayer, and a boot-time copy without
+			// provider in the default sublayer; there it shares the sublayer
+			// with the kill switch's boot-time copies, so its weights put the
+			// drops above the kill switch's LAN/DHCP permits (QuietWeight)
+			for _, boot := range []bool{false, true} {
+				fd, err := createWtFwpmDisplayData0(name, "")
+				if err != nil {
+					return wrapErr(err)
+				}
+				k, flags, sub, pk := quBase, cFWPM_FILTER_FLAG_PERSISTENT, quSublayer, &prov
+				if boot {
+					k, flags, sub, pk = quBootBase, cFWPM_FILTER_FLAG_BOOTTIME, windows.GUID{}, nil
+				}
+				k.Data1 += next
+				f := wtFwpmFilter0{
+					filterKey:   k,
+					displayData: *fd,
+					flags:       flags,
+					providerKey: pk,
+					layerKey:    layer,
+					subLayerKey: sub,
+					weight:      filterWeight(QuietWeight(r, boot)),
+					action:      wtFwpmAction0{_type: action},
+				}
+				if len(cs) > 0 {
+					f.numFilterConditions = uint32(len(cs))
+					f.filterCondition = &cs[0]
+				}
+				var id uint64
+				if err := wrapErr0(fwpmFilterAdd0(session, &f, 0, &id)); err != nil {
+					return err
+				}
 			}
+			next++
 		}
 		return nil
 	})
@@ -122,6 +139,9 @@ func EnableQuiet(broadcasts []netip.Addr) error {
 func removeQuiet(session uintptr) {
 	for i := uint32(0); i < quMaxFilters; i++ {
 		k := quBase
+		k.Data1 += i
+		_ = fwpmFilterDeleteByKey0(session, &k)
+		k = quBootBase
 		k.Data1 += i
 		_ = fwpmFilterDeleteByKey0(session, &k)
 	}
