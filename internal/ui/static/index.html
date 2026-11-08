@@ -582,6 +582,9 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-quiet">Quiet mode</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-quiet"> no discovery, multicast or broadcast out on networks you have not trusted</label>
         <div class="muted">KDE Connect, Syncthing, mDNS, LLMNR, NetBIOS and SSDP announcements stay inside this computer; IP addresses (DHCP) and IPv6 neighbour discovery keep working. Trusted network profiles (incoming = LAN, real MAC or host name sent) are not quiet, so local names and devices work there.</div></div>
+      <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-captive">Wi-Fi login pages</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-captive"> check for them after every network change</label>
+        <div class="muted">Asks nmcheck.gnome.org over plain HTTP, directly, past the tunnels (a login page sits in front of every tunnel). On by default, off in the opsec level. Without the check The Shunt does not notice Wi-Fi login pages: open the login browser yourself (tray → “Wi-Fi login page…”).</div></div>
       <div data-lv="inbound"><label class="t" for="c-inbound">Incoming connections</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
         <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">

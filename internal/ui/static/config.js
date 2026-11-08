@@ -47,6 +47,15 @@ function markDirty() {
   cmsg("Unsaved changes – press “Save & apply” (or “Check” first).", "warn");
 }
 
+// The portal check (daemon.captive_check): on by default, off with the strict
+// config check (the opsec level); an explicit value wins. Same as
+// config.Daemon.CaptiveCheckOn.
+function captiveCheckDefault(m) { return !(m && m.daemon && m.daemon.config_check === "strict"); }
+function captiveCheckOn(m) {
+  const v = m && m.daemon ? m.daemon.captive_check : undefined;
+  return typeof v === "boolean" ? v : captiveCheckDefault(m);
+}
+
 async function loadConfig(quiet) {
   try {
     cfgView = await api("GET", "/api/config");
@@ -121,6 +130,7 @@ function renderConfig() {
   $("#c-hostname").value = model.daemon.dhcp_hostname || "";
   $("#c-mac").value = model.daemon.mac || "";
   $("#c-quiet").checked = model.daemon.quiet !== false;
+  $("#c-captive").checked = captiveCheckOn(model);
   $("#c-bootlock").value = model.daemon.boot_lockdown === "auto" ? "" : model.daemon.boot_lockdown || "";
   $("#c-inbound").checked = !!(model.inbound && model.inbound.enabled);
   $("#c-inallow").value = ((model.inbound && model.inbound.allow) || []).join(" ");
@@ -245,6 +255,11 @@ $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch 
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
 $("#c-mac").addEventListener("change", (e) => { model.daemon.mac = e.target.value || undefined; markDirty(); });
 $("#c-quiet").addEventListener("change", (e) => { model.daemon.quiet = e.target.checked ? undefined : false; markDirty(); });
+// the key is written only where it differs from the default (on, off with the strict check)
+$("#c-captive").addEventListener("change", (e) => {
+  model.daemon.captive_check = e.target.checked === captiveCheckDefault(model) ? undefined : e.target.checked;
+  markDirty();
+});
 $("#c-bootlock").addEventListener("change", (e) => { model.daemon.boot_lockdown = e.target.value || undefined; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
