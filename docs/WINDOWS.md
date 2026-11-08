@@ -52,6 +52,11 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   client and NetBIOS name queries of the kernel (UDP 5355/5353/137), which broadcast names to the
   local network. The direct route uses the network's
   DHCP DNS server unless `dns.direct` is set.
+- A program set to `direct` sends its own traffic past the tunnel, but its host name lookups are
+  made by Windows' DNS client service (svchost.exe), so The Shunt sees svchost as the asker, not the
+  program: the name goes the default route (through the tunnel when that is one). Use a domain
+  rule (or `dns.direct` with a rule for the name) when a name must be asked directly. Linux resolves
+  inside the program and does not have this limit.
 - Kill switch (`[daemon] kill_switch`, **on by default** since 0.7.1; `false` turns it off):
   Windows Firewall blocks all outgoing traffic except the service, the adapter's address
   (= apps whose packets entered the split), the local network (without its DNS, ports 53/853)
