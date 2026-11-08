@@ -13,7 +13,7 @@ import (
 
 // allIDs is every finding the package can make; worstCase must trigger each.
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
-	"network.ssid_only", "stealth.unset", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
+	"network.ssid_only", "stealth.unset", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype",
 	"rule.direct"}
 
@@ -61,7 +61,7 @@ default_route = "direct"
 		}
 	}
 	// default_route direct hides bootlock.off: use a tunnel default for it
-	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n")
+	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\nmac = \"\"\nquiet = false\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n")
 	for _, f := range Config(c2, Env{}) {
 		seen[f.ID] = true
 	}
@@ -234,7 +234,7 @@ func TestCheckStrictMode(t *testing.T) {
 		}
 	}
 	// other findings go one level up: info → warn, warn → bad
-	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nconfig_check = \"strict\"\n[tunnel.a]\nconfig = \"a.ovpn\"\ndriver = \"openvpn\"\n")
+	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nconfig_check = \"strict\"\nmac = \"\"\n[tunnel.a]\nconfig = \"a.ovpn\"\ndriver = \"openvpn\"\n")
 	cbc := &ovpnconf.Config{Ciphers: []string{"AES-256-CBC"}, TLSWrap: true, RemoteCertTLS: true}
 	got = levels(Config(c2, Env{OVPN: func(string) *ovpnconf.Config { return cbc }}))
 	want = map[string]string{"ovpn.cbc": Bad, "stealth.unset": Warn, "inbound.off": Warn}

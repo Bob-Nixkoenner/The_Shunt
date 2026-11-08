@@ -201,9 +201,18 @@ type Plan struct {
 	FilterRoutes []*Route
 	// Inbound: incoming connections (nil = not filtered).
 	Inbound *Inbound
+	// Quiet: nothing that announces this machine leaves the uplinks (nil =
+	// off).
+	Quiet *Quiet
 	// Gateway: groups of client interfaces routed through The Shunt
 	// (nil = off).
 	Gateway *Gateway
+}
+
+// Quiet is the quiet mode in effect: what leaves these interfaces is
+// stripped of multicast, broadcast and discovery traffic.
+type Quiet struct {
+	Uplinks []string
 }
 
 // Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
@@ -552,6 +561,11 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			}
 		}
 		p.Inbound = in
+	}
+	if c.QuietFor(network) && len(p.LinkIfaces) > 0 {
+		q := &Quiet{Uplinks: slices.Clone(p.LinkIfaces)}
+		sort.Strings(q.Uplinks)
+		p.Quiet = q
 	}
 	p.Gateway = compileGateway(c, p)
 	return p, nil

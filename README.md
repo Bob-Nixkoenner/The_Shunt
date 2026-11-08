@@ -181,8 +181,18 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
   asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
   or the tray)
-- Installer option: own MAC address per Wi-Fi, no host name in DHCP, IPv6 privacy
-  addresses (NetworkManager)
+- Disguise in foreign networks (Linux, NetworkManager), **on by default**: a new MAC address
+  on every connection (Wi-Fi and cable), no host name in DHCP, device IDs (DHCPv6 DUID,
+  client ID) and IPv6 addresses not derived from the device. Trusted networks say otherwise
+  per `[[network]]` (`mac = "permanent"`, `dhcp_hostname = "send"`); `mac = ""` /
+  `dhcp_hostname = ""` in `[daemon]` switch it off. At home use "the real one" in the profile
+  if your router has a reservation or MAC filter.
+- **Quiet mode** (Linux, **on by default**): on networks you have not trusted, nothing that
+  announces the computer leaves Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing,
+  mDNS, LLMNR, NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery keep working).
+  A profile with incoming = LAN, the real MAC or the host name sent counts as trusted and is
+  not quiet, so local names and devices work at home. `daemon.quiet = false` or per
+  `[[network]]` `quiet = true|false`. Not on Windows yet.
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;

@@ -280,3 +280,85 @@ func TestTorTunnel(t *testing.T) {
 		}
 	}
 }
+
+func TestStealthDefaults(t *testing.T) {
+	for _, src := range []string{"", "[daemon]\ndefault_route = \"direct\"\n"} {
+		c, err := Parse(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Daemon.DHCPHostname != HostnameNone || c.Daemon.MAC != MACRandom {
+			t.Errorf("missing keys: hostname %q mac %q, want none/random", c.Daemon.DHCPHostname, c.Daemon.MAC)
+		}
+	}
+	// set values stay, an explicit "" means: leave the profiles alone
+	c, err := Parse("[daemon]\ndhcp_hostname = \"\"\nmac = \"stable\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Daemon.DHCPHostname != "" || c.Daemon.MAC != MACStable {
+		t.Errorf("explicit values changed: %q %q", c.Daemon.DHCPHostname, c.Daemon.MAC)
+	}
+	// ... also after saving and reading again
+	raw, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Parse(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.Daemon.DHCPHostname != "" || c2.Daemon.MAC != MACStable {
+		t.Errorf("after Encode: %q %q", c2.Daemon.DHCPHostname, c2.Daemon.MAC)
+	}
+	// a trusted network can still override
+	c3, err := Parse("[[network]]\nname = \"home\"\nssid = [\"Home\"]\ndefault_route = \"direct\"\ndhcp_hostname = \"send\"\nmac = \"permanent\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := c3.MatchNetwork("Home", ""); n == nil || n.MAC != MACPermanent || n.DHCPHostname != HostnameSend {
+		t.Errorf("profile override lost: %+v", n)
+	}
+}
+
+func TestQuietFor(t *testing.T) {
+	c, err := Parse(`
+[[network]]
+name = "plain"
+ssid = ["a"]
+default_route = "direct"
+[[network]]
+name = "lan"
+ssid = ["b"]
+default_route = "direct"
+inbound = "lan"
+[[network]]
+name = "real-mac"
+ssid = ["c"]
+default_route = "direct"
+mac = "permanent"
+[[network]]
+name = "named"
+ssid = ["d"]
+default_route = "direct"
+dhcp_hostname = "send"
+[[network]]
+name = "forced"
+ssid = ["e"]
+default_route = "direct"
+mac = "permanent"
+quiet = true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, want := range map[string]bool{"": true, "plain": true, "unknown": true, "lan": false, "real-mac": false, "named": false, "forced": true} {
+		if got := c.QuietFor(n); got != want {
+			t.Errorf("QuietFor(%q) = %v, want %v", n, got, want)
+		}
+	}
+	off, _ := Parse("[daemon]\nquiet = false\n[[network]]\nname = \"x\"\nssid = [\"x\"]\ndefault_route = \"direct\"\nquiet = true\n")
+	if off.QuietFor("") || !off.QuietFor("x") {
+		t.Error("daemon.quiet = false / network quiet = true")
+	}
+}
