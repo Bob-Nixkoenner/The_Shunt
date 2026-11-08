@@ -56,8 +56,8 @@ function hiddenInUse() {
   n(Object.keys(model.dns.upstream).length, "{n} own DNS server", "{n} own DNS servers");
   n(Object.values(model.tunnel).filter((t) => t.via).length, "{n} multi-hop tunnel", "{n} multi-hop tunnels");
   n((model.dns.allow_doh ? 1 : 0) + (model.dns.allow_dot ? 1 : 0), "{n} encrypted DNS allowed", "{n} encrypted DNS kinds allowed");
-  n(model.daemon.dhcp_hostname ? 1 : 0, "{n} host name setting", "{n} host name settings");
-  n(model.daemon.mac ? 1 : 0, "{n} MAC setting", "{n} MAC settings");
+  n((model.daemon.dhcp_hostname || "") !== "none" ? 1 : 0, "{n} host name setting", "{n} host name settings");
+  n((model.daemon.mac || "") !== "random" ? 1 : 0, "{n} MAC setting", "{n} MAC settings");
   n(apps.filter((a) => a.clone).length, "{n} launcher", "{n} launchers");
   n((model.network || []).length, "{n} network profile", "{n} network profiles");
   n(model.inbound && model.inbound.enabled ? 1 : 0, "incoming protection on", "incoming protection on");

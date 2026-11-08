@@ -70,6 +70,7 @@ func TestMAC(t *testing.T) {
 	c, err := config.Parse(`
 [daemon]
 mac = "random"
+dhcp_hostname = ""
 [[network]]
 name = "home"
 ssid = ["Home"]

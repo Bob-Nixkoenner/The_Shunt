@@ -144,7 +144,7 @@ func Config(c *config.Config, env Env) []Finding {
 		}
 	}
 	if env.linux() && (c.Daemon.MAC == "" || c.Daemon.DHCPHostname == "") {
-		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac and daemon.dhcp_hostname are not set).", "daemon.mac")
+		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac or daemon.dhcp_hostname is switched off with an empty value).", "daemon.mac")
 	}
 	if env.linux() && c.Inbound == nil {
 		add(Info, "inbound.off", "Incoming connections are not filtered (inbound protection is off): services on this computer are reachable from every network.", "inbound")
