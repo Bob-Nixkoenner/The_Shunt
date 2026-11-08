@@ -120,6 +120,7 @@ function renderConfig() {
   $("#c-blockdot").checked = !model.dns.allow_dot;
   $("#c-hostname").value = model.daemon.dhcp_hostname || "";
   $("#c-mac").value = model.daemon.mac || "";
+  $("#c-quiet").checked = model.daemon.quiet !== false;
   $("#c-bootlock").value = model.daemon.boot_lockdown === "auto" ? "" : model.daemon.boot_lockdown || "";
   $("#c-inbound").checked = !!(model.inbound && model.inbound.enabled);
   $("#c-inallow").value = ((model.inbound && model.inbound.allow) || []).join(" ");
@@ -243,6 +244,7 @@ $("#c-clockcheck").addEventListener("change", (e) => { model.daemon.clock_check 
 $("#c-killswitch").addEventListener("change", (e) => { model.daemon.kill_switch = e.target.checked; markDirty(); });
 $("#c-hostname").addEventListener("change", (e) => { model.daemon.dhcp_hostname = e.target.value || undefined; markDirty(); });
 $("#c-mac").addEventListener("change", (e) => { model.daemon.mac = e.target.value || undefined; markDirty(); });
+$("#c-quiet").addEventListener("change", (e) => { model.daemon.quiet = e.target.checked ? undefined : false; markDirty(); });
 $("#c-bootlock").addEventListener("change", (e) => { model.daemon.boot_lockdown = e.target.value || undefined; markDirty(); });
 $("#c-default").addEventListener("change", (e) => { model.daemon.default_route = e.target.value; markDirty(); defaultHint(); });
 function defaultHint() {
@@ -597,6 +599,8 @@ function renderNetworks() {
           [["", General], ["none", "don't send"], ["send", "send"]], () => n.dhcp_hostname || "", (v) => { n.dhcp_hostname = v || undefined; }, { linux: true }),
         netField("MAC address", "MAC address on this network (when set above); applies from the next connection",
           [["", General], ["random", "new each time"], ["stable", "own per network"], ["permanent", "the real one"]], () => n.mac || "", (v) => { n.mac = v || undefined; }, { linux: true }),
+        netField("quiet mode", "Quiet mode on this network: no discovery, multicast or broadcast out (a trusted network is not quiet unless set to on)",
+          [["", General], ["on", "on"], ["off", "off"]], () => (n.quiet === true ? "on" : n.quiet === false ? "off" : ""), (v) => { n.quiet = v === "on" ? true : v === "off" ? false : undefined; }, { linux: true }),
         netField("incoming connections", "Incoming connections on this network (when switched on above)",
           [["", "closed"], ["lan", "LAN: allowed ports"], ["open", "open (no filter)"]], () => (n.inbound === "closed" ? "" : n.inbound || ""), (v) => { n.inbound = v || undefined; }, { lv: "inbound" })));
   }) : [el("div", { class: "muted" }, "No profiles – e.g. at home everything direct, everywhere else through a tunnel.")]));

@@ -579,6 +579,9 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-mac">MAC address</label>
         <select id="c-mac"><option value="">off: leave the Wi-Fi/cable profiles alone</option><option value="random">new on every connection (default)</option><option value="stable">own per network</option><option value="permanent">the real one</option></select>
         <div class="muted">Wi-Fi and cable. New or own per network also keeps the device's IDs out of DHCP and IPv6 addresses. Applies from the next connection; a login page may ask again. Foreign networks get this by default; at home use “the real one” in the network profile (router reservations, MAC filters).</div></div>
+      <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-quiet">Quiet mode</label>
+        <label class="row" style="color:var(--text)"><input type="checkbox" id="c-quiet"> no discovery, multicast or broadcast out on networks you have not trusted</label>
+        <div class="muted">KDE Connect, Syncthing, mDNS, LLMNR, NetBIOS and SSDP announcements stay inside this computer; IP addresses (DHCP) and IPv6 neighbour discovery keep working. Trusted network profiles (incoming = LAN, real MAC or host name sent) are not quiet, so local names and devices work there.</div></div>
       <div data-lv="inbound"><label class="t" for="c-inbound">Incoming connections</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
         <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">
