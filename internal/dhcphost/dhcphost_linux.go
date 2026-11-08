@@ -33,6 +33,8 @@ var nmcli = func(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
+var lookPath = exec.LookPath
+
 var mu sync.Mutex // one pass at a time (start, network change, new profile)
 
 // randomUUIDs: profiles with a new MAC on every connection, as of the last
@@ -172,13 +174,27 @@ func retryReload(log *slog.Logger) {
 	log.Warn("network privacy: NetworkManager never read the defaults; new networks get them only after the next change")
 }
 
+// modify changes single properties of a profile. A profile that lives
+// only in /run (netplan) or a file that cannot be written takes the change
+// for the running NetworkManager only.
+func modify(ctx context.Context, uuid string, props []string) error {
+	_, err := nmcli(ctx, append([]string{"connection", "modify", uuid}, props...)...)
+	if err != nil {
+		_, err2 := nmcli(ctx, append([]string{"connection", "modify", "--temporary", uuid}, props...)...)
+		if err2 == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 // Apply writes the defaults for new profiles and sets every Wi-Fi and
 // cable profile as pol wants it. A profile in
 // use gets the change at once (reapply: the address is renewed), except a
 // new MAC: that one waits for the next connection rather than cut the
 // current one.
 func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
-	if _, err := exec.LookPath("nmcli"); err != nil {
+	if _, err := lookPath("nmcli"); err != nil {
 		return // no NetworkManager
 	}
 	mu.Lock()
@@ -217,7 +233,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 		// reapply before the MAC is in the profile: a changed MAC cannot
 		// be reapplied and would fail the whole reapply
 		if len(now) > 0 {
-			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, now...)...); err != nil {
+			if err := modify(ctx, p.UUID, now); err != nil {
 				log.Warn("network privacy: cannot change profile", "uuid", p.UUID, "err", err)
 				continue
 			}
@@ -229,7 +245,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 			}
 		}
 		if len(next) > 0 {
-			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, next...)...); err != nil {
+			if err := modify(ctx, p.UUID, next); err != nil {
 				log.Warn("network privacy: cannot change the MAC", "uuid", p.UUID, "err", err)
 				continue
 			}
@@ -360,24 +376,53 @@ func WatchNew(ctx context.Context, f func()) error {
 			if !ok {
 				return errors.New("system bus closed")
 			}
-			if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
-				// a profile added and connected at once (nmcli connection
-				// add + up, joining a Wi-Fi): let it start connecting
-				// first, so the pass leaves it alone
-				time.AfterFunc(newProfileWait, f)
-				continue
-			}
-			// NM_DEVICE_STATE_DISCONNECTED = 30, _FAILED = 120
-			if len(s.Body) == 0 {
-				continue
-			}
-			if st, ok := s.Body[0].(uint32); ok && (st == 30 || st == 120) {
-				randomMu.Lock()
-				for _, u := range randomUUIDs {
-					forgetLease(u)
-				}
-				randomMu.Unlock()
-			}
+			handleSignal(s, f)
 		}
+	}
+}
+
+// activatedWait: how long after a device is up before the profiles are
+// looked at again (one pass for several signals).
+var activatedWait = 3 * time.Second
+
+var activatedTimer struct {
+	sync.Mutex
+	t *time.Timer
+}
+
+// handleSignal reacts to one NetworkManager signal.
+func handleSignal(s *dbus.Signal, f func()) {
+	if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
+		// a profile added: set it at once, before it connects (a profile
+		// that connects first would send the host name in its first DHCP
+		// request; NetworkManager 1.46 has no default for that). Again
+		// after a moment: a profile added and connected at once (nmcli
+		// connection add + up, joining a Wi-Fi) is left alone by the first
+		// pass while it connects.
+		f()
+		time.AfterFunc(newProfileWait, f)
+		return
+	}
+	if len(s.Body) == 0 {
+		return
+	}
+	st, ok := s.Body[0].(uint32)
+	if !ok {
+		return
+	}
+	switch st {
+	case 30, 120: // NM_DEVICE_STATE_DISCONNECTED, _FAILED
+		randomMu.Lock()
+		for _, u := range randomUUIDs {
+			forgetLease(u)
+		}
+		randomMu.Unlock()
+	case 100: // NM_DEVICE_STATE_ACTIVATED: a profile skipped while it connected
+		activatedTimer.Lock()
+		if activatedTimer.t != nil {
+			activatedTimer.t.Stop()
+		}
+		activatedTimer.t = time.AfterFunc(activatedWait, f)
+		activatedTimer.Unlock()
 	}
 }
