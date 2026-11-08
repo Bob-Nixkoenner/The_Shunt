@@ -67,3 +67,13 @@ lab.sh detach            # client back to plain NAT (ssh :2224)
 Results land in `~/projects/shunt-lab-results/<date>/<id>-<time>/` (pcaps,
 logs, `report.md`). Keep pcaps out of git and shared folders: they may contain
 clear text.
+
+## Restore, promisc, CPU cap, multi-hop
+
+- `lab.sh up <snapshot>` sets promisc on the physical NICs right after boot (old snapshots have no udev rule yet);
+  `client-prep` does it before the first package download. A snapshot restore also resets the VirtualBox CPU cap:
+  set `CLIENT_CAP` / `GW_CAP` (percent, e.g. 80) in `local.env` or the environment and `up` applies them again.
+- `run-mh.sh`: the hop address (`HOPIP`) comes from the `Address` line of `HOP_CONF`
+  (or `HOP_VM=<name>` -> `wg-hop-lab-<name>.conf`), not from the tunnel address.
+- Analyzer: `LABMARK tor_end <epoch>` in the client output marks an intended end of tor; contentless TCP to port 9001
+  within 15 s afterwards is reported as info. GitHub list downloads with a `direct` default route are info (#8).
