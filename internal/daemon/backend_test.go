@@ -53,17 +53,18 @@ func (f *fakeBackend) SyncRoutes(*engine.Plan, map[string]bool) error {
 	f.routes++
 	return f.syncErr
 }
-func (f *fakeBackend) Panic(bool) error                           { return nil }
-func (f *fakeBackend) ForgetTCP(uint32) (int, error)              { return 0, nil }
-func (f *fakeBackend) LiftLockdown() error                        { return nil }
-func (f *fakeBackend) Intact() bool                               { f.mu.Lock(); defer f.mu.Unlock(); return !f.flushed }
-func (f *fakeBackend) Stopped(*engine.Plan) error                 { return nil }
-func (f *fakeBackend) Cleanup() error                             { return nil }
-func (f *fakeBackend) DomainSets() dnsproxy.SetWriter             { return nil }
-func (f *fakeBackend) CgroupOf(int) (string, bool)                { return "", false }
-func (f *fakeBackend) Comm(int) (string, bool)                    { return "", false }
-func (f *fakeBackend) Pids() []int                                { return nil }
-func (f *fakeBackend) StartMarks(string, map[string]uint32) error { return nil }
+func (f *fakeBackend) Panic(bool) error                                      { return nil }
+func (f *fakeBackend) ForgetTCP(uint32) (int, error)                         { return 0, nil }
+func (f *fakeBackend) LiftLockdown() error                                   { return nil }
+func (f *fakeBackend) Intact() bool                                          { f.mu.Lock(); defer f.mu.Unlock(); return !f.flushed }
+func (f *fakeBackend) Stopped(*engine.Plan) error                            { return nil }
+func (f *fakeBackend) Cleanup() error                                        { return nil }
+func (f *fakeBackend) DomainSets() dnsproxy.SetWriter                        { return nil }
+func (f *fakeBackend) CgroupOf(int) (string, bool)                           { return "", false }
+func (f *fakeBackend) Comm(int) (string, bool)                               { return "", false }
+func (f *fakeBackend) Pids() []int                                           { return nil }
+func (f *fakeBackend) StartGuard(string, map[string]engine.StartEntry) error { return nil }
+func (f *fakeBackend) StartGuardStats() map[string]uint64                    { return nil }
 func (f *fakeBackend) Watcher(*slog.Logger, func(int, appwatch.Proc)) AppWatcher {
 	return fakeWatcher{}
 }

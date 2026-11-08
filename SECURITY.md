@@ -34,12 +34,15 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   or run it as a separate user or in a VM.
 - **App rules are best effort**: a program is moved into its route right
   after it starts; a connection opened in the first milliseconds would keep
-  the old route. On Linux with eBPF (`CAP_BPF`, kernel 6.x) the start guard
-  gives such sockets the rule's route already (rules that name programs only,
-  without arguments, ports or destinations, and only if no rule for all
-  programs comes first); `shuntd` logs a warning when it is not available.
-  Rules by path, Flatpak or arguments keep the window. Menu entries made with
-  `shunt desktop` and `shunt run` have no such window.
+  the old route. On Linux with eBPF (kernel 6.1 or later) the start guard
+  covers a program from its exec on, its threads and children included: its
+  sockets get the rule's route (rules that name programs only, without
+  arguments, ports or destinations, and only if no rule for all programs
+  comes first), or are refused for a moment until the program is in its
+  group (rules by path, arguments, ports, or after such a rule; a program
+  may then see "operation not permitted" once). Flatpak rules keep the
+  window. `shunt check` warns when the guard is not available. Menu entries
+  made with `shunt desktop` and `shunt run` have no such window.
 - **Domain rules trust DNS.** Whatever the route's resolver answers is
   routed. On foreign networks use an encrypted `dns.direct` (tls/https).
 - **Apps with their own encrypted DNS** bypass domain rules (app, IP and
