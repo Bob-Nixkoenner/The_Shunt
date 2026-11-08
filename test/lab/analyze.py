@@ -69,6 +69,14 @@ def allowed_net(dst, dport, proto):
 
 
 allow_dns = "dns" in allow
+# LABMARK tor_end: tor was ended on purpose; what follows within TOR_REST seconds (FIN/RST/ACK without payload to a
+# relay's OR port 9001, no process) is the teardown of its relay connections, not user traffic
+tor_end = meta.get("tor_end")
+TOR_REST = 15
+# GitHub (raw.githubusercontent.com): download of the DNS filter lists. It follows the default route (issue #8):
+# direct by design when the default route is "direct"
+GITHUB_NETS = [ipaddress.ip_network(n) for n in ("185.199.108.0/22", "140.82.112.0/20")]
+DIRECT_CONFIGS = {"direct", "filter-real-direct"}
 strict_fp = "fingerprint" in meta.get("checks", [])
 
 findings = []  # (severity, group, text)
@@ -127,6 +135,7 @@ client_ips = set(meta.get("client_ips", []))
 names = {}  # ip -> name, from DNS answers seen anywhere
 inbound = set()  # (remote ip, remote port, client port) of connections opened towards the client
 outbound = set()  # (remote ip, remote port, client port) the client opened
+tor_rest = Counter()  # (relay, port) -> packets after tor ended
 replies_lan = Counter()  # answers to the untrusted network's own probes
 http_fp = set()
 
@@ -325,12 +334,23 @@ if os.path.exists(p("gw.pcap")):
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
             continue
+        if tor_end and TCP in pkt and dport == 9001 and w in ("?", "kernel") and not pkt[TCP].payload \
+                and tor_end <= float(pkt.time) <= tor_end + TOR_REST:
+            tor_rest[(dst, dport)] += 1
+            continue
         gw_flows[(dst, dport, proto, w)] += 1
 
 for k in [k for k in gw_flows if k[0] in captive_dsts and k[1] == 80 and k[2] == "tcp"]:
     captive_checks[label(k[0])] += gw_flows.pop(k)
+for (dst, dport), n in tor_rest.items():
+    find("info", "Tor-Rest nach tor-Ende", f"tcp → {dst}:{dport} ({n} Pakete ohne Inhalt, Verbindungsabbau eines Relays nach dem Beenden von tor)")
 for k, n in gw_flows.items():
     dst, dport, proto, w = k
+    if dport == 443 and proto in ("tcp", "tcp-Antwort") and meta.get("config") in DIRECT_CONFIGS \
+            and ":" not in dst and any(ipaddress.ip_address(dst) in net for net in GITHUB_NETS):
+        find("info", "Listen-Download des DNS-Filters", f"{label(dst)}:{dport} ({n} Pakete): folgt der Standardroute, bei direct"
+             " also direkt, gewollt (#8)")
+        continue
     if proto == "tcp-Antwort":
         find("leak", "Antwort am Tunnel vorbei", f"tcp → {label(dst)}:{dport} ({n} Pakete), Prozess: {w}"
              " – Verbindung kam nicht über dieses Netz, die Antwort geht aber hier raus")
