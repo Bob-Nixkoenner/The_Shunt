@@ -118,6 +118,56 @@ type Guard struct {
 	m     bpfMaps
 	progs []*ebpf.Program
 	links []link.Link
+	// Partial: the tracepoints could not be loaded or attached (no tracefs,
+	// perf_event_open filtered …): only the name table at socket creation
+	// works, without threads, children and holds.
+	Partial error
+}
+
+// attachTracepoints loads and attaches exec/fork/exit; on error none stays.
+func (g *Guard) attachTracepoints(fd fds) (err error) {
+	nl := len(g.links)
+	defer func() {
+		if err != nil {
+			for _, l := range g.links[nl:] {
+				l.Close()
+			}
+			g.links = g.links[:nl]
+		}
+	}()
+	load := func(name string, insns asm.Instructions) (*ebpf.Program, error) {
+		p, err := ebpf.NewProgram(&ebpf.ProgramSpec{Name: name, Type: ebpf.TracePoint, License: "Apache-2.0", Instructions: insns})
+		if err != nil {
+			return nil, fmt.Errorf("program %s: %w", name, err)
+		}
+		g.progs = append(g.progs, p)
+		return p, nil
+	}
+	exec, err := load("shunt_exec", execInsns(fd))
+	if err != nil {
+		return err
+	}
+	fork, err := load("shunt_fork", forkInsns(fd, forkChildOffset()))
+	if err != nil {
+		return err
+	}
+	exit, err := load("shunt_exit", exitInsns(fd))
+	if err != nil {
+		return err
+	}
+	// exit and fork before exec: a child forked between the attaches must
+	// not miss its parent's state
+	for _, tp := range []struct {
+		name string
+		p    *ebpf.Program
+	}{{"sched_process_exit", exit}, {"sched_process_fork", fork}, {"sched_process_exec", exec}} {
+		l, err := link.Tracepoint("sched", tp.name, tp.p, nil)
+		if err != nil {
+			return fmt.Errorf("attach %s: %w", tp.name, err)
+		}
+		g.links = append(g.links, l)
+	}
+	return nil
 }
 
 // Start loads the programs and attaches them. root is shuntd's cgroup
@@ -177,30 +227,9 @@ func Start(mount, root string) (g *Guard, err error) {
 	if err != nil {
 		return
 	}
-	exec, err := load("shunt_exec", ebpf.TracePoint, ebpf.AttachNone, execInsns(fd))
-	if err != nil {
-		return
-	}
-	fork, err := load("shunt_fork", ebpf.TracePoint, ebpf.AttachNone, forkInsns(fd, forkChildOffset()))
-	if err != nil {
-		return
-	}
-	exit, err := load("shunt_exit", ebpf.TracePoint, ebpf.AttachNone, exitInsns(fd))
-	if err != nil {
-		return
-	}
-	// fork before exec: a child forked between the two attaches must not
-	// miss its parent's state
-	for _, tp := range []struct {
-		name string
-		p    *ebpf.Program
-	}{{"sched_process_exit", exit}, {"sched_process_fork", fork}, {"sched_process_exec", exec}} {
-		l, err := link.Tracepoint("sched", tp.name, tp.p, nil)
-		if err != nil {
-			return g, fmt.Errorf("attach %s: %w", tp.name, err)
-		}
-		g.links = append(g.links, l)
-	}
+	g.Partial = g.attachTracepoints(fd)
+	// on error sockets are still marked by name (the guard of old):
+	// better than nothing; the daemon reports the reason
 	l, err := link.AttachCgroup(link.CgroupOptions{Path: mount, Attach: ebpf.AttachCGroupInetSockCreate, Program: sock})
 	if err != nil {
 		return g, fmt.Errorf("attach sock_create: %w", err)

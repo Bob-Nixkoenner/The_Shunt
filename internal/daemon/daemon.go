@@ -858,8 +858,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
-	if err := d.Backend.StartGuard(p.Plan.CgroupRoot, p.Plan.StartGuard()); err != nil {
-		d.startErr = err
+	d.startErr = d.Backend.StartGuard(p.Plan.CgroupRoot, p.Plan.StartGuard())
+	if err := d.startErr; err != nil {
 		if !d.startWarned {
 			d.startWarned = true
 			d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)

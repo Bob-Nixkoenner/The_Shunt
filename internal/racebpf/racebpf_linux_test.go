@@ -116,6 +116,9 @@ func TestStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
+	if g.Partial != nil {
+		t.Fatalf("tracepoints: %v", g.Partial)
+	}
 	comm, _ := os.ReadFile("/proc/self/comm")
 	name := string(comm[:len(comm)-1])
 

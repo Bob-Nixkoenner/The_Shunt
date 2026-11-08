@@ -31,8 +31,9 @@ ExecStartPre=-+/usr/bin/mkdir -p /run/NetworkManager/conf.d
 
 # Hardening. Root uid is needed to own the delegated cgroups and to move
 # other users' processes into them, but capabilities are cut to networking.
-# CAP_BPF + CAP_PERFMON (reading a process name in eBPF) + bpf(): the start
-# guard (internal/racebpf), optional.
+# CAP_BPF + CAP_PERFMON (reading a process name in eBPF, tracepoints) +
+# bpf() + perf_event_open() (attaching the exec/fork/exit tracepoints, read
+# from tracefs): the start guard (internal/racebpf), optional.
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -59,7 +60,7 @@ MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=bpf
+SystemCallFilter=bpf perf_event_open
 # Not set on purpose: ProtectKernelTunables (needs /proc/sys/net),
 # ProtectControlGroups (needs to write its cgroups), PrivateDevices (/dev/net/tun).
 
