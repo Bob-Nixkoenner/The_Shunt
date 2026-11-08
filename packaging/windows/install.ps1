@@ -22,6 +22,9 @@ foreach ($ps in 'uninstall.ps1') { if (Test-Path "$here\$ps") { Copy-Item "$here
 
 if (-not $svc) { & "$Dir\shuntd-win.exe" install; if ($LASTEXITCODE) { throw 'service install failed' } }
 else { sc.exe config Shunt binPath= "`"$Dir\shuntd-win.exe`"" | Out-Null }
+# who may change settings: local group "shunt" (created if missing), with this user
+& "$Dir\shuntd-win.exe" allow-user $env:USERNAME
+if ($LASTEXITCODE) { Write-Warning 'could not add you to the local group "shunt": settings need "Run as administrator"' }
 Start-Service Shunt
 
 $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\The Shunt.lnk")
