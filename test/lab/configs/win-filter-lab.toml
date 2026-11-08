@@ -1,0 +1,24 @@
+# Windows lab: DNS filter with one local list that blocks every canary (*.shuntlab.test).
+# The PREP of the tests writes C:\ProgramData\Shunt\lab-filter.txt; nothing is downloaded.
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+
+[dns_filter]
+default = "normal"
+low = []
+normal = ['file:C:\ProgramData\Shunt\lab-filter.txt']
+paranoid = ['file:C:\ProgramData\Shunt\lab-filter.txt']

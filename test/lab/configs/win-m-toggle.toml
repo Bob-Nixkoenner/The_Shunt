@@ -1,0 +1,27 @@
+# Windows M05: labtog (copy of curl.exe, PREP) is switched between tunnel and direct live.
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[[rule]]
+name = "lab: toggle"
+app = ["labtog"]
+route = "tunnel:intern"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []

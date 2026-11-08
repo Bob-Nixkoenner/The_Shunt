@@ -202,11 +202,41 @@ $ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.js
 toggle; wait_vpn up || true
 sleep 6
 check "adb shell -> tunnel inner (through home)" "tunnel=inner" "$(get || true)"
+echo "== dead tunnels: wrong endpoint / wrong server key, the app is blocked, never direct"
+python3 -m http.server "${DEADPORT:-18081}" --bind 127.0.0.1 --directory "$W" >/dev/null 2>&1 &
+WEB=$!
+for kind in endpoint key; do
+	python3 - "$W/settings.json" "$W/work.conf" "$kind" <<'PY6'
+import base64, json, os, re, sys
+p, conf, kind = sys.argv[1], open(sys.argv[2]).read(), sys.argv[3]
+if kind == "endpoint":
+    conf = re.sub(r"(?m)^Endpoint *=.*$", "Endpoint = 192.0.2.77:51820", conf)
+else:
+    conf = re.sub(r"(?m)^PublicKey *=.*$", "PublicKey = " + base64.b64encode(os.urandom(32)).decode(), conf)
+c = json.load(open(p))
+c["tunnels"] = [t for t in c["tunnels"] if t["name"] not in ("inner", "dead")] + [{"name": "dead", "conf": conf, "via": ""}]
+c["apps"] = {"com.android.shell": "tunnel:dead"}; c["networks"] = []
+json.dump(c, open(p, "w"))
+PY6
+	$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+	$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+	sleep 1
+	toggle; wait_vpn down || true
+	$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+	toggle; wait_vpn up || true
+	sleep 6
+	r=$(get || true)
+	[[ $r != *tunnel=* ]] && echo "  ok   dead tunnel ($kind): no answer through any tunnel" || { echo "  FAIL dead tunnel ($kind): answer $r"; fails=$((fails + 1)); }
+	# the host's loopback (10.0.2.2) is reachable only directly: an answer = fell back to direct
+	d=$($ADB shell "printf 'GET / HTTP/1.0\r\n\r\n' | nc -w 4 10.0.2.2 ${DEADPORT:-18081}" 2>&1 | head -1 | tr -d '\r' || true)
+	[[ $d != *HTTP/* ]] && echo "  ok   dead tunnel ($kind): not direct either" || { echo "  FAIL dead tunnel ($kind): went direct ($d)"; fails=$((fails + 1)); }
+done
+kill $WEB 2>/dev/null || true
 echo "== network profile: on mobile data another default route"
 python3 - "$W/settings.json" <<'PY4'
 import json, sys
 p = sys.argv[1]; c = json.load(open(p))
-c["apps"] = {}; c["default"] = "tunnel:home"; c["tunnels"] = [t for t in c["tunnels"] if t["name"] != "inner"]
+c["apps"] = {}; c["default"] = "tunnel:home"; c["tunnels"] = [t for t in c["tunnels"] if t["name"] not in ("inner", "dead")]
 c["networks"] = [{"name": "mobile", "link": "mobile", "default": "tunnel:work"}]
 json.dump(c, open(p, "w"))
 PY4

@@ -1,0 +1,33 @@
+# Windows lab: WireGuard in WireGuard. "hop" (CT130 wgt1, 10.66.0.1:51831) runs inside
+# "intern" (wgt0). tunnels\hop.conf comes from winclient.sh (WIN_HOP_CONF = wg-hop-lab-win.conf).
+# Capture the inner hop on CT130: CT130_IF=wgt1 TUNNEL_IP=<Address of the hop file> (see README).
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.hop]
+config = "tunnels/hop.conf"
+via = "tunnel:intern"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun"]
+route = "tunnel:hop"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir"]
+route = "direct"
+
+[[rule]]
+name = "lab: toggle"
+app = ["labtog"]
+route = "tunnel:hop"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []

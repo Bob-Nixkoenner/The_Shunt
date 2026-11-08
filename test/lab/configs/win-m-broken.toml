@@ -1,0 +1,34 @@
+# Windows M04: a tunnel that never comes up (wrong endpoint) and one with a wrong key.
+# dead.conf / badkey.conf are written by the PREP of tests-win/M04 from tunnels\intern.conf.
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.dead]
+config = "tunnels/dead.conf"
+
+[tunnel.badkey]
+config = "tunnels/badkey.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun"]
+route = "tunnel:dead"
+
+[[rule]]
+name = "lab: badkey"
+app = ["labtog"]
+route = "tunnel:badkey"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir"]
+route = "direct"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []
