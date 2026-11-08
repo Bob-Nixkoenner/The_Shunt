@@ -86,7 +86,8 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		err = os.WriteFile(defaultsFile, []byte(want), 0o644)
 	}
 	if err != nil && !os.IsNotExist(err) {
-		log.Warn("network privacy: cannot write NetworkManager defaults", "err", err)
+		log.Warn("network privacy: cannot write NetworkManager defaults, trying again", "err", err)
+		retryWrite(ctx, c, log)
 		return
 	}
 	_, err = nmcli(ctx, "general", "reload", "conf")
@@ -98,6 +99,59 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		log.Warn("network privacy: NetworkManager did not reload its configuration, trying again", "err", err)
 		go retryReload(log)
 	}
+}
+
+// writeRetrying: one retryWrite at a time.
+var writeRetrying atomic.Bool
+
+// retryWrite tries writeDefaults again every few seconds until the file is
+// in place (and NetworkManager reloaded): the directory may not exist yet at
+// boot, because shuntd starts before NetworkManager.
+func retryWrite(ctx context.Context, c *config.Config, log *slog.Logger) {
+	if !writeRetrying.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer writeRetrying.Store(false)
+		for i := 0; i < reloadRetries; i++ {
+			time.Sleep(reloadEvery)
+			if ctx.Err() != nil {
+				return
+			}
+			mu.Lock()
+			want := Defaults(c)
+			err := tryWrite(want)
+			if err == nil {
+				// reload NetworkManager so connections already up get the defaults
+				_, err = nmcli(ctx, "general", "reload", "conf")
+				defaultsLive.Store(err == nil && want != "")
+				if err != nil {
+					log.Warn("network privacy: NetworkManager did not reload its configuration, trying again", "err", err)
+					go retryReload(log)
+				} else {
+					log.Info("network privacy: NetworkManager defaults written")
+				}
+				mu.Unlock()
+				return
+			}
+			mu.Unlock()
+		}
+		log.Warn("network privacy: NetworkManager defaults could not be written; restart shuntd once NetworkManager runs")
+	}()
+}
+
+// tryWrite puts want in defaultsFile (removes it when empty).
+func tryWrite(want string) error {
+	var err error
+	if want == "" {
+		err = os.Remove(defaultsFile)
+	} else if err = os.MkdirAll(filepath.Dir(defaultsFile), 0o755); err == nil {
+		err = os.WriteFile(defaultsFile, []byte(want), 0o644)
+	}
+	if os.IsNotExist(err) && want == "" {
+		return nil
+	}
+	return err
 }
 
 // reloadRetries, reloadEvery: how long retryReload keeps trying.
