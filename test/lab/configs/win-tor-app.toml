@@ -1,0 +1,26 @@
+# Windows lab: Tor as the route of single apps (labtun, labdir). Everything else stays on the
+# WireGuard tunnel, so the gateway sees only WireGuard plus tor.exe (H04, H05, H08).
+[daemon]
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[tunnel.tor]
+driver = "tor"
+[[rule]]
+name = "lab: tor"
+app = ["labtun"]
+route = "tunnel:tor"
+
+# a second rule: Tor isolates per rule (isolate = "app"), H05
+[[rule]]
+name = "lab: tor 2"
+app = ["labdir"]
+route = "tunnel:tor"
+
+[dns_filter]
+default = "off"
+low = []
+normal = []
+paranoid = []

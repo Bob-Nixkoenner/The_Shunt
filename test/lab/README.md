@@ -77,3 +77,33 @@ clear text.
   (or `HOP_VM=<name>` -> `wg-hop-lab-<name>.conf`), not from the tunnel address.
 - Analyzer: `LABMARK tor_end <epoch>` in the client output marks an intended end of tor; contentless TCP to port 9001
   within 15 s afterwards is reported as info. GitHub list downloads with a `direct` default route are info (#8).
+
+## Windows client (CLIENT_OS=windows)
+
+`CLIENT_OS=windows lab.sh run …` drives the Windows VM with PowerShell (`winclient.sh`, tests in `tests-win/`,
+configs `configs/win-<CONFIG>.toml`). No process trace: findings come from the gateway/CT130 captures and the
+`FAIL …` lines of the test scripts. Test IDs mirror the Linux ones where the test is the same idea.
+The API is used through `curl.exe --unix-socket C:\ProgramData\Shunt\shuntd.sock` (status, reload).
+
+Ported on 2026-11-08 (branch `lab-parity`, not run yet):
+
+| Tests | What | Config |
+|---|---|---|
+| M01, M02 | ARP / CVE-2019-14899 against the tunnel address and the Shunt adapter address 10.111.0.2 | `win-base` |
+| M03 | reload (API) and `Restart-Service` while apps send | `win-base` |
+| M04 | rule on a tunnel with dead endpoint / wrong key (PREP writes `dead.conf`, `badkey.conf`, `labtog.exe`) | `win-m-broken` |
+| M05 | rule switched live tunnel → direct → tunnel; "direct" is told by the exit IP (LAN targets always go direct on Windows) | `win-m-toggle` |
+| FL01–FL03, FL07, FL08 | DNS filter with a local list (`C:\ProgramData\Shunt\lab-filter.txt`, PREP); only the `default` level exists on Windows, so no FL04 | `win-filter-lab`, `win-filter-lab-allow` |
+| H04, H05, H06, H08 | Tor as app route: tor.exe suspended/killed, isolation, obfs4 bridges, `.onion` names. tor.exe's relay connections are allowed through the client's consensus (`LABALLOW`) | `win-tor-app`, `win-tor-bridge` |
+| MH01–MH03, MH08 | WireGuard in WireGuard (`via`); the hop file is `WIN_HOP_CONF` (default `wg-hop-lab-win.conf`), installed by `winclient.sh`, `HOP_BADKEY=1` for MH03 | `win-hop` |
+
+Multi-hop capture on CT130 (like `run-mh.sh`):
+
+```sh
+HOPIP=$(sed -n 's|^Address *= *\([0-9.]*\)/.*|\1|p' "$WIN_HOP_CONF" | head -n1)
+CLIENT_OS=windows CT130_IF=wgt1 TUNNEL_IP=$HOPIP ./lab.sh run MH01 MH02 MH08
+CLIENT_OS=windows CT130_IF=wgt0 ./lab.sh run MH03
+```
+
+Not ported because Windows lacks the feature: tor-all (H01–H03, H09–H11), Tor `via` (H07), OpenVPN (O*, MH04, MH05),
+`dns_filter` per rule (FL04), `panic_kill` (P03), forwarded traffic (M06, M09).
