@@ -33,6 +33,12 @@ type Watcher struct {
 	// Unknown, if set, gets every process no target matched (and that
 	// is not already placed by Shunt): the app firewall decides on it.
 	Unknown func(pid int, p Proc)
+	// Decided, if set, is told about every process the watcher has made up
+	// its mind on (moved, or no target matched); since is Now() from when
+	// it began to look. The eBPF start guard ends its hold then.
+	Decided func(pid int, since int64)
+	// Now is the clock for Decided (the guard's monotonic clock).
+	Now func() int64
 
 	mu      sync.RWMutex
 	fast    bool // app firewall on: rescan often, a missed start would leave unasked
@@ -144,6 +150,10 @@ func (w *Watcher) proc() string {
 
 // check looks at one process and moves it if a target matches.
 func (w *Watcher) check(pid int) {
+	var since int64
+	if w.Now != nil {
+		since = w.Now()
+	}
 	w.mu.Lock()
 	if w.seen == nil {
 		w.seen = map[int]string{}
@@ -162,6 +172,9 @@ func (w *Watcher) check(pid int) {
 	if skip != "" && (info.cgroup == skip || strings.HasPrefix(info.cgroup, skip+"/")) && !held {
 		return // shuntd itself, or already placed (shunt run wins)
 	}
+	if w.Decided != nil {
+		defer w.Decided(pid, since)
+	}
 	for _, t := range targets {
 		if t.Path == info.cgroup {
 			return
@@ -175,11 +188,36 @@ func (w *Watcher) check(pid int) {
 			}
 			w.Log.Info("app attached", "pid", pid, "app", info.comm, "rule", t.Name)
 			w.Place(pid, t.Path)
+			w.moveChildren(pid, t, skip, 0)
 			return
 		}
 	}
 	if unknown != nil {
 		unknown(pid, Proc{Comm: info.comm, Exe: info.exe, Argv0: info.argv0, Cgroup: info.cgroup, TTY: info.tty, UID: info.uid})
+	}
+}
+
+// moveChildren follows a program into its group with the children it
+// started before the move (a script that ran dig at once): forked after
+// the move they would be there anyway. Children already placed by Shunt
+// keep their group. Needs /proc/<pid>/task/<tid>/children
+// (CONFIG_PROC_CHILDREN); without it they stay where they are and the
+// start guard's inherited mark is all they have.
+func (w *Watcher) moveChildren(pid int, t Target, skip string, depth int) {
+	if depth > 8 {
+		return
+	}
+	for _, c := range children(w.proc(), pid) {
+		info, err := readProc(w.proc(), c)
+		if err != nil || info.cgroup == t.Path || (skip != "" && strings.HasPrefix(info.cgroup, skip+"/")) {
+			continue
+		}
+		if err := w.Mover.Move(t.Path, c); err != nil {
+			continue
+		}
+		w.Log.Info("app attached", "pid", c, "app", info.comm, "rule", t.Name, "parent", pid)
+		w.Place(c, t.Path)
+		w.moveChildren(c, t, skip, depth+1)
 	}
 }
 

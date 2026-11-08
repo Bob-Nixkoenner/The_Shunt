@@ -6,9 +6,14 @@
 // /proc scan every 250ms takes over. A slow rescan also runs alongside the
 // connector because netlink can drop events under load.
 //
-// This is best effort by nature: a program could open a socket in the short
-// window between exec and the move; that socket keeps its old route. For
-// a race-free start use `shunt run` or a menu entry made by `shunt desktop`.
+// On its own this is best effort: a program could open a socket in the
+// short window between exec and the move, and that socket keeps its old
+// route (nftables matches the cgroup a socket was created in). The eBPF
+// start guard (package racebpf) closes the window where the kernel allows
+// it: it marks or refuses those sockets until the watcher has decided
+// (Watcher.Decided). Without it, a race-free start needs `shunt run` or a
+// menu entry made by `shunt desktop`. Children a program started before
+// the move are moved along with it.
 package appwatch
 
 import "github.com/Bob-Nixkoenner/the_shunt/internal/config"

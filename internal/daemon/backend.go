@@ -57,10 +57,13 @@ type Backend interface {
 	// Watcher moves programs into their app rule's group when they start;
 	// unknown gets the ones no rule matched (app firewall).
 	Watcher(log *slog.Logger, unknown func(pid int, p appwatch.Proc)) AppWatcher
-	// StartMarks gives programs their app rule's route mark from the first
-	// socket on, until the watcher has moved them (package racebpf); root
-	// is shuntd's group. An error means: not available, the race stays.
-	StartMarks(root string, marks map[string]uint32) error
+	// StartGuard covers programs from their exec until the watcher has
+	// moved them: their sockets get their app rule's route mark or are
+	// refused meanwhile (package racebpf); root is shuntd's group. An
+	// error means: not available, the race stays.
+	StartGuard(root string, entries map[string]engine.StartEntry) error
+	// StartGuardStats: the guard's counters (nil = not loaded).
+	StartGuardStats() map[string]uint64
 
 	// CgroupOf returns the group path pid runs in, Comm its name, Pids all
 	// running processes.
