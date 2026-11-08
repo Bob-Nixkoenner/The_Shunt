@@ -85,7 +85,8 @@ func main() {
 	case "killswitch-off": // emergency: lift the firewall rules and policy
 		winsplit.DisableKillSwitch()
 		winsplit.DisableDNSGuard()
-		fmt.Println("kill switch and DNS guard lifted")
+		winsplit.DisableQuiet()
+		fmt.Println("kill switch, DNS guard and quiet mode lifted")
 	case "version":
 		fmt.Println(version)
 	default:
@@ -121,6 +122,10 @@ func (w logWriter) Write(p []byte) (int, error) {
 
 // handler is the Service Control Manager side.
 type handler struct{}
+
+// quietBoot: quiet mode applies in general (daemon.quiet not off); on a
+// system shutdown the filters are put back for the next boot.
+var quietBoot atomic.Bool
 
 // resumed: the machine woke up (power event); runCore restarts the tunnel sessions.
 var resumed = make(chan struct{}, 1)
@@ -161,6 +166,12 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 				st <- svc.Status{State: svc.StopPending}
 				cancel()
 				<-done
+				if c.Cmd == svc.Shutdown && quietBoot.Load() {
+					// the next boot starts before this service: cover it
+					if err := winsplit.EnableQuietBoot(); err != nil {
+						log.Printf("quiet boot filter: %v", err)
+					}
+				}
 				return false, 0
 			}
 		case err := <-done: // stopped by the API (restart) or died
@@ -254,6 +265,41 @@ func runCore(ctx context.Context, ready func()) error {
 		inboundOn = true
 		log.Printf("inbound protection on (lan=%v, %d open ports)", a.LAN, len(ports))
 	}
+	// quiet mode (daemon.quiet, per network): persistent WFP filters drop
+	// outgoing discovery (NetBIOS, LLMNR, mDNS, SSDP, multicast, broadcast).
+	// On a trusted network they are lifted; a boot filter (the same set) keeps
+	// them in the minutes before the service runs.
+	var quMu sync.Mutex
+	quState := ""
+	applyQuiet := func() {
+		quMu.Lock()
+		defer quMu.Unlock()
+		socksMu.Lock()
+		c := socksCfg
+		socksMu.Unlock()
+		if c == nil {
+			return
+		}
+		nw := inNetwork.Load().(string)
+		want := c.QuietFor(nw)
+		quietBoot.Store(c.Daemon.Quiet == nil || *c.Daemon.Quiet)
+		state := fmt.Sprintf("%v|%s", want, nw)
+		if state == quState {
+			return
+		}
+		if !want {
+			winsplit.DisableQuiet()
+			quState = state
+			log.Print("quiet mode off")
+			return
+		}
+		if err := winsplit.EnableQuiet(); err != nil {
+			log.Printf("quiet mode: %v", err)
+			return
+		}
+		quState = state
+		log.Print("quiet mode on")
+	}
 	applySocks := func() {
 		socksMu.Lock()
 		defer socksMu.Unlock()
@@ -289,6 +335,7 @@ func runCore(ctx context.Context, ready func()) error {
 			socksMu.Unlock()
 			applySocks()
 			go applyInbound()
+			go applyQuiet()
 			ksApps = nil
 			for _, t := range c.Tunnels {
 				if t.IsTor() && !t.Disabled {
@@ -346,6 +393,7 @@ func runCore(ctx context.Context, ready func()) error {
 	ksMu.Unlock()
 	applyKS()
 	applyInbound()
+	applyQuiet()
 	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
 		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
 	}
@@ -396,7 +444,7 @@ func runCore(ctx context.Context, ready func()) error {
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); applyInbound() })
+	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); applyInbound(); applyQuiet() })
 	go func() {
 		for {
 			select {
@@ -661,6 +709,7 @@ func install() error {
 func uninstall() error {
 	winsplit.DisableKillSwitch()
 	winsplit.DisableDNSGuard()
+	winsplit.DisableQuiet()
 	return control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)
