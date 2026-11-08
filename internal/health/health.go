@@ -25,6 +25,10 @@ const (
 	Idle    = "idle"  // no traffic, nothing wrong
 	Stale   = "stale" // sending without answers, or probes failing
 	Down    = "down"  // no handshake/answers for a long time: reconnect
+	// NoHandshake: the tunnel is up but never completed a handshake (wrong
+	// key, peer unreachable). Probes and latency say nothing then: whatever
+	// answered did not come through this tunnel.
+	NoHandshake = "nohandshake"
 )
 
 const (
@@ -33,6 +37,8 @@ const (
 	failsForStale = 2 // probes in a row
 	failsForDown  = 4
 	reconnectGap  = time.Minute // at most one reconnect per gap
+	// a fresh tunnel needs a moment for its first handshake
+	handshakeGrace = 30 * time.Second
 )
 
 // Report is what UIs show.
@@ -51,6 +57,7 @@ type Monitor struct {
 	rxAt      time.Time // last time rx grew
 	txAt      time.Time // last time tx grew
 	observed  bool
+	firstSeen time.Time     // first Observe: start of the handshake grace
 	rtt       time.Duration // EWMA
 	fails     int           // probes failed in a row
 	results   []bool        // last probe results, true = ok
@@ -66,6 +73,9 @@ func (m *Monitor) Observe(handshake time.Time, rx, tx int64, now time.Time) {
 	}
 	if !m.observed || tx > m.tx {
 		m.txAt = now
+	}
+	if !m.observed {
+		m.firstSeen = now
 	}
 	m.handshake, m.rx, m.tx, m.observed = handshake, rx, tx, true
 }
@@ -109,6 +119,9 @@ func (m *Monitor) state(now time.Time) string {
 		return Stale
 	}
 	if never {
+		if m.observed && now.Sub(m.firstSeen) > handshakeGrace {
+			return NoHandshake
+		}
 		return Unknown
 	}
 	if age > staleAfter {
@@ -122,6 +135,9 @@ func (m *Monitor) Report(now time.Time) Report {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := Report{State: m.state(now), LatencyMs: m.rtt.Milliseconds(), HandshakeAge: -1}
+	if m.handshake.IsZero() {
+		r.LatencyMs = 0 // an answer without a handshake did not come through this tunnel
+	}
 	if !m.handshake.IsZero() {
 		r.HandshakeAge = int64(now.Sub(m.handshake).Seconds())
 	}

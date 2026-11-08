@@ -111,3 +111,23 @@ func TestDNSProbe(t *testing.T) {
 		t.Fatal("probe to a silent port succeeded")
 	}
 }
+
+func TestNoHandshake(t *testing.T) {
+	t0 := time.Unix(1_800_000_000, 0)
+	var m Monitor
+	m.Observe(time.Time{}, 0, 148, t0)
+	// a probe "answers" (e.g. it took another way): still no handshake, no latency
+	m.Probed(62*time.Millisecond, nil)
+	if r := m.Report(t0.Add(10 * time.Second)); r.State != Unknown || r.LatencyMs != 0 {
+		t.Fatalf("within the grace: %+v", r)
+	}
+	r := m.Report(t0.Add(time.Minute))
+	if r.State != NoHandshake || r.LatencyMs != 0 || r.HandshakeAge != -1 {
+		t.Fatalf("never a handshake: %+v", r)
+	}
+	// the handshake comes: normal again
+	m.Observe(t0.Add(70*time.Second), 100, 200, t0.Add(71*time.Second))
+	if r := m.Report(t0.Add(72 * time.Second)); r.State != OK {
+		t.Fatalf("after handshake: %+v", r)
+	}
+}
