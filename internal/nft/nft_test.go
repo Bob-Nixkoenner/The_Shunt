@@ -574,3 +574,77 @@ default_route = "block"
 		t.Errorf("ruleset differs from %s (run with -update after checking):\n%s", golden, got)
 	}
 }
+
+func TestQuietOut(t *testing.T) {
+	c, err := config.Parse(`
+[tunnel.vps]
+config = "vps.conf"
+[[network]]
+name = "home"
+ssid = ["h"]
+default_route = "direct"
+mac = "permanent"
+[[network]]
+name = "work"
+ssid = ["w"]
+default_route = "direct"
+[[network]]
+name = "club"
+ssid = ["c"]
+default_route = "direct"
+inbound = "lan"
+quiet = true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ti := map[string]engine.TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}}
+	render := func(network string) string {
+		p, err := engine.CompileOn(c, "shunt", ti, network, map[string]string{"wifi": "wlan0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := Render(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	on := []string{
+		"chain quiet_out {",
+		"type filter hook output priority filter; policy accept;",
+		`oifname != { "wlan0" } return`,
+		"udp sport 68 udp dport 67 accept",
+		"udp sport 546 udp dport 547 accept",
+		"nd-neighbor-solicit",
+		"udp dport { 137, 138, 1716, 1900, 5353, 5355, 21027 } counter drop",
+		"ip daddr { 224.0.0.0/4, 255.255.255.255 } counter drop",
+		"ip6 daddr ff00::/8 counter drop",
+	}
+	for _, network := range []string{"", "work", "club"} { // unknown, profile without trust, trusted but quiet = true
+		out := render(network)
+		for _, w := range on {
+			if !strings.Contains(out, w) {
+				t.Errorf("network %q: missing %q", network, w)
+			}
+		}
+		// DHCP and discovery of neighbours come before the drops
+		if strings.Index(out, "udp dport 67 accept") > strings.Index(out, "224.0.0.0/4") {
+			t.Errorf("network %q: DHCP accept after the multicast drop", network)
+		}
+	}
+	// trusted network: no chain, local names keep working
+	if out := render("home"); strings.Contains(out, "quiet_out") {
+		t.Error("quiet chain on a trusted network")
+	}
+	// switched off for everyone
+	off := false
+	c.Daemon.Quiet = &off
+	if out := render(""); strings.Contains(out, "quiet_out") {
+		t.Error("quiet chain although daemon.quiet = false")
+	}
+	// a profile can switch it on again
+	if out := render("club"); !strings.Contains(out, "quiet_out") {
+		t.Error("network quiet = true ignored")
+	}
+}

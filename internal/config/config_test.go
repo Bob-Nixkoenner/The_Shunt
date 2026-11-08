@@ -320,3 +320,45 @@ func TestStealthDefaults(t *testing.T) {
 		t.Errorf("profile override lost: %+v", n)
 	}
 }
+
+func TestQuietFor(t *testing.T) {
+	c, err := Parse(`
+[[network]]
+name = "plain"
+ssid = ["a"]
+default_route = "direct"
+[[network]]
+name = "lan"
+ssid = ["b"]
+default_route = "direct"
+inbound = "lan"
+[[network]]
+name = "real-mac"
+ssid = ["c"]
+default_route = "direct"
+mac = "permanent"
+[[network]]
+name = "named"
+ssid = ["d"]
+default_route = "direct"
+dhcp_hostname = "send"
+[[network]]
+name = "forced"
+ssid = ["e"]
+default_route = "direct"
+mac = "permanent"
+quiet = true
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n, want := range map[string]bool{"": true, "plain": true, "unknown": true, "lan": false, "real-mac": false, "named": false, "forced": true} {
+		if got := c.QuietFor(n); got != want {
+			t.Errorf("QuietFor(%q) = %v, want %v", n, got, want)
+		}
+	}
+	off, _ := Parse("[daemon]\nquiet = false\n[[network]]\nname = \"x\"\nssid = [\"x\"]\ndefault_route = \"direct\"\nquiet = true\n")
+	if off.QuietFor("") || !off.QuietFor("x") {
+		t.Error("daemon.quiet = false / network quiet = true")
+	}
+}
