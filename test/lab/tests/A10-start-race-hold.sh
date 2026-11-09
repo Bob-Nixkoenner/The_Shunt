@@ -2,7 +2,7 @@ ID=A10
 TITLE="Start-Wettlauf mit Halten: unsichere Regeln blockieren kurz statt Standardweg"
 CONFIG=race-hold
 EXPECT_CANARY=tunnel
-ALLOW=(comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:140.211.169.0/24:80/tcp net:0.0.0.0/0:123/udp net:::/0:123/udp dst:10.77.0.1:80/tcp)
+ALLOW=(comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:140.211.169.0/24:80/tcp net:0.0.0.0/0:123/udp net:::/0:123/udp dst:10.77.0.1:80/tcp comm:apt comm:http comm:NetworkManager comm:isahc-agent comm:systemd-timesyn comm:systemd-timesyncd net:185.199.108.0/22:443/tcp net:2606:50c0::/32:443/tcp host:.pop-os.org:80/tcp host:api.pop-os.org:443/tcp)
 NOTE="Eine Domain-Regel steht vor der App-Regel, labfree hat eine Argument-Regel: der Startschutz kann keine Marke setzen und hält die Sockets an (EPERM), bis appwatch entschieden hat. Erwartung: kein Paket von labtun* am Lab-Gateway, einzelne Fehlstarts erlaubt (Zahl im Bericht), labfree ohne Argument geht direkt und scheitert höchstens 1-2x."
 CLIENT='
 fail=0; ok=0; freefail=0

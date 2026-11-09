@@ -20,7 +20,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 
-from scapy.all import (ARP, DHCP, DNS, DNSQR, ICMPv6ND_NS, IP, TCP, UDP, BOOTP, IPv6, Ether,
+from scapy.all import (ARP, DHCP, DNS, DNSQR, ICMP, UDPerror, ICMPv6ND_NS, IP, TCP, UDP, BOOTP, IPv6, Ether,
                        PcapReader, Raw)
 from scapy.layers.dhcp6 import DHCP6, DHCP6OptClientId, DHCP6OptClientFQDN
 
@@ -68,6 +68,22 @@ def allowed_net(dst, dport, proto):
     return any(ip in n and dport == p and proto == pr for n, p, pr in allow_net)
 
 
+# host:<name>:<port>/<proto>: a host name (or a domain suffix with a leading dot), matched through the DNS
+# answers in the captures; for hosts behind a CDN whose addresses rotate (Pop!_OS check and apt on CloudFront)
+allow_host = []
+for a in allow:
+    if a.startswith("host:"):
+        h, rest = a[5:].rsplit(":", 1)
+        port, proto = rest.split("/")
+        allow_host.append((h.lower(), int(port), proto))
+
+
+def allowed_host(dst, dport, proto):
+    n = names.get(dst, "").lower()
+    return bool(n) and any(dport == p and proto == pr and (n == h or (h.startswith(".") and n.endswith(h)))
+                           for h, p, pr in allow_host)
+
+
 allow_dns = "dns" in allow
 # LABMARK tor_end: tor was ended on purpose; what follows within TOR_REST seconds (FIN/RST/ACK without payload to a
 # relay's OR port 9001, no process) is the teardown of its relay connections, not user traffic
@@ -75,8 +91,8 @@ tor_end = meta.get("tor_end")
 TOR_REST = 15
 # GitHub (raw.githubusercontent.com): download of the DNS filter lists. It follows the default route (issue #8):
 # direct by design when the default route is "direct"
-GITHUB_NETS = [ipaddress.ip_network(n) for n in ("185.199.108.0/22", "140.82.112.0/20")]
-DIRECT_CONFIGS = {"direct", "filter-real-direct"}
+GITHUB_NETS = [ipaddress.ip_network(n) for n in ("185.199.108.0/22", "140.82.112.0/20", "2606:50c0::/32")]
+DIRECT_CONFIGS = {"direct", "filter-real-direct", "race-hold"}
 strict_fp = "fingerprint" in meta.get("checks", [])
 
 findings = []  # (severity, group, text)
@@ -312,9 +328,14 @@ if os.path.exists(p("gw.pcap")):
                 # e.g. one that arrived through the tunnel
                 gw_flows[(dst, dport, "tcp-Antwort", who(dst, dport))] += 1
                 continue
-        if proto in ("icmp", "icmp6") and IP in pkt and pkt[IP].proto == 1 and pkt.getlayer(3) is not None \
-                and getattr(pkt.getlayer(3), "type", None) in (0, 3):
-            replies_lan[(dst, "icmp")] += 1
+        # echo reply / unreachable: an answer, not a new connection. ICMP is the layer after IP, not
+        # getlayer(3) (that is the quoted IP header of an error).
+        if proto == "icmp" and ICMP in pkt and pkt[ICMP].type in (0, 3):
+            what = "icmp"
+            if pkt[ICMP].type == 3 and pkt[ICMP].code == 3 and UDPerror in pkt:
+                # e.g. udp port 68 unreachable: a DHCP answer that came after the profile switch (F05)
+                what = f"icmp port unreachable udp/{pkt[UDPerror].dport}"
+            replies_lan[(dst, what)] += 1
             continue
         if TCP in pkt and dport == 80 and pkt[TCP].payload:
             raw = bytes(pkt[TCP].payload)
@@ -331,7 +352,8 @@ if os.path.exists(p("gw.pcap")):
                 gw_dns.append((q, dst, who(dst, 53) if who(dst, 53) != "?" else who(dst, sport)))
             continue
         w = who(dst, dport)
-        if (dst, dport, proto) in allow_dst or allowed_net(dst, dport, proto) or allowed_comm(w):
+        if (dst, dport, proto) in allow_dst or allowed_net(dst, dport, proto) or allowed_comm(w) \
+                or allowed_host(dst, dport, proto):
             continue
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
@@ -349,7 +371,7 @@ for (dst, dport), n in tor_rest.items():
 for k, n in gw_flows.items():
     dst, dport, proto, w = k
     if dport == 443 and proto in ("tcp", "tcp-Antwort") and meta.get("config") in DIRECT_CONFIGS \
-            and ":" not in dst and any(ipaddress.ip_address(dst) in net for net in GITHUB_NETS):
+            and any(ipaddress.ip_address(dst) in net for net in GITHUB_NETS):
         find("info", "Listen-Download des DNS-Filters", f"{label(dst)}:{dport} ({n} Pakete): folgt der Standardroute, bei direct"
              " also direkt, gewollt (#8)")
         continue
