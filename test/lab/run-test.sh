@@ -7,7 +7,8 @@
 #   EXPECT_CANARY [tunnel]    where the canary name may show up: tunnel|gw|none|any
 #   ALLOW=()                  extra things the café network may see:
 #                             comm:<name> (packets of that process), dst:ip:port/proto,
-#                             net:<cidr>:port/proto (rotating addresses), dns
+#                             net:<cidr>:port/proto (rotating addresses), dns,
+#                             host:<name or .suffix>:port/proto (CDN hosts, via DNS answers)
 #   CHECKS=()                 fingerprint = DHCP name, EUI-64, real MAC … count as findings
 #   RENEW [0]                 1 = reconnect the client's network while capturing
 #   SCAN [0]                  1 = nmap the client from the gateway while it runs
