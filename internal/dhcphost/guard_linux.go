@@ -184,6 +184,7 @@ func quickSet(ctx context.Context, conn *dbus.Conn, path dbus.ObjectPath, polf f
 			s[sec][k] = v
 		}
 	}
+	dropUntyped(s)
 	for _, fam := range []string{"ipv4", "ipv6"} {
 		if s[fam] == nil {
 			s[fam] = map[string]dbus.Variant{}
@@ -243,4 +244,19 @@ func inUse(ctx context.Context, conn *dbus.Conn, path dbus.ObjectPath) bool {
 		}
 	}
 	return false
+}
+
+// dropUntyped removes values whose D-Bus type cannot be sent back as read:
+// arrays of structs (the deprecated ipv6 "addresses" and "routes",
+// a(ayuay)) come back as untyped arrays and Update2 refuses them. The same
+// data is in "address-data" and "route-data".
+func dropUntyped(s map[string]map[string]dbus.Variant) {
+	for _, m := range s {
+		for k, v := range m {
+			switch v.Value().(type) {
+			case []interface{}, [][]interface{}:
+				delete(m, k)
+			}
+		}
+	}
 }
