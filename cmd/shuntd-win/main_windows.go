@@ -444,9 +444,26 @@ func runCore(ctx context.Context, ready func()) error {
 			}
 		}
 	}()
+	owners := winsplit.NewOwners(jobs)
+	// Windows' DNS client service sends the lookups of every program: its
+	// events tell which program asked, so a name takes that program's route
+	// (Tor, its own tunnel, blocked) instead of the default route
+	dnsWatch, err := winsplit.StartDNSWatch(owners.App, func(s string) { log.Print(s) })
+	if err != nil {
+		log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
+	} else {
+		defer dnsWatch.Close()
+		log.Print("DNS askers: watching which program asks (DNS client events)")
+	}
 	e, err := splitstack.New(splitstack.Options{
-		Link:       link,
-		Owner:      winsplit.NewOwners(jobs).Owner,
+		Link:  link,
+		Owner: owners.Owner,
+		DNSAskers: func(app, name string, arrived time.Time) []string {
+			if dnsWatch == nil || !winsplit.IsDNSClient(app) {
+				return nil
+			}
+			return dnsWatch.Askers(name, arrived)
+		},
 		Log:        func(s string) { log.Print(s) },
 		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {

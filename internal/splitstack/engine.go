@@ -218,6 +218,13 @@ type Options struct {
 	// (Windows: conn.BindSocketToInterface to leave through the physical
 	// interface). nil: nothing.
 	BindUp func(conn.Bind) error
+	// DNSAskers names the programs (app IDs as Owner returns them, newest
+	// first) that asked for name, when app is a resolver that asks for
+	// others: Windows' DNS client service (svchost.exe) sends the lookups of
+	// every program itself. It may wait briefly for the platform to learn
+	// who asked; arrived is when the query came in. nil, or no askers: the
+	// query takes the route of app itself (see askedRoute).
+	DNSAskers func(app, name string, arrived time.Time) []string
 }
 
 // Engine runs while the VPN is up.
