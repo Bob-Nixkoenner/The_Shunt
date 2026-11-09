@@ -1,6 +1,7 @@
 package splitstack
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -137,6 +138,7 @@ func TestDNSAskersRoute(t *testing.T) {
 		"mixed.test": {`c:\lab\labdir.exe`, svchost, `c:\lab\labtor.exe`},
 		"pin.test":   {Pinned("tunnel:work", `c:\lab\labfree.exe`)},
 		"x.dom.test": {`c:\lab\labdom.exe`},
+		"y.dir.test": {`c:\lab\labdom.exe`},
 	}
 	b, _ := json.Marshal(map[string]any{
 		"tunnels": []map[string]string{
@@ -149,13 +151,38 @@ func TestDNSAskersRoute(t *testing.T) {
 		"default": "tunnel:home",
 		"apps": map[string]string{"labwork.exe": "tunnel:work", "labdead.exe": "tunnel:dead", "labtor.exe": "tunnel:tor",
 			"labtordown.exe": "tunnel:tordown", "labblock.exe": "block", "labdir.exe": "direct"},
-		"rules": []map[string]any{{"name": "dom", "apps": []string{"labdom.exe"}, "domains": []string{"dom.test"}, "route": "tunnel:work"}},
+		"rules": []map[string]any{{"name": "dom", "apps": []string{"labdom.exe"}, "domains": []string{"dom.test"}, "route": "tunnel:work"},
+			{"name": "dir", "apps": []string{"labdom.exe"}, "domains": []string{"dir.test"}, "route": "direct"}},
 	})
 	appDev, apps, _ := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("10.111.0.2")}, nil, 1280)
 	link, stop := TunLink(appDev, 1280)
 	t.Cleanup(func() { appDev.Close(); stop() })
+	// the direct route's DNS: a local server answering 192.0.2.9
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var directMu sync.Mutex
+	var directAsked []string
+	go dns.ActivateAndServe(nil, pc, dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
+		directMu.Lock()
+		directAsked = append(directAsked, strings.TrimSuffix(q.Question[0].Name, "."))
+		directMu.Unlock()
+		r := new(dns.Msg)
+		r.SetReply(q)
+		r.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: q.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(192, 0, 2, 9)}}
+		w.WriteMsg(r)
+	}))
+	t.Cleanup(func() { pc.Close() })
 	var calls sync.Map
 	e, err := New(Options{Link: link, HealthEvery: time.Hour,
+		DialDirect: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if network != "udp" || !strings.HasSuffix(addr, ":53") {
+				return nil, fmt.Errorf("unexpected direct %s %s", network, addr)
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, "udp", pc.LocalAddr().String())
+		},
 		Owner: func(int, netip.AddrPort, netip.AddrPort) string { return svchost },
 		DNSAskers: func(app, name string, arrived time.Time) []string {
 			if app != svchost || arrived.IsZero() {
@@ -181,6 +208,7 @@ func TestDNSAskersRoute(t *testing.T) {
 		{"mixed.test", "192.0.2.7"}, // one asker on Tor: Tor
 		{"pin.test", "192.0.2.2"},   // started in a route (run --via)
 		{"x.dom.test", "192.0.2.2"}, // the asker's domain rule
+		{"y.dir.test", "192.0.2.9"}, // a domain rule says direct: the user named the domain
 	} {
 		got, err := resolve(apps, c.name+".")
 		if err != nil || got != c.want {
@@ -206,6 +234,11 @@ func TestDNSAskersRoute(t *testing.T) {
 	if got := strings.Join(torAsked(), " "); got != "t.test mixed.test" {
 		t.Errorf("Tor asked for %q", got)
 	}
+	directMu.Lock()
+	if got := strings.Join(directAsked, " "); got != "y.dir.test" {
+		t.Errorf("direct route asked for %q", got)
+	}
+	directMu.Unlock()
 	// the domain rule learned the address: the asker's connection takes the rule's route
 	if r, _ := e.ruleRoute(`c:\lab\labdom.exe`, 6, netip.MustParseAddrPort("192.0.2.2:443")); r != "tunnel:work" {
 		t.Errorf("domain rule address not learned: route %q", r)

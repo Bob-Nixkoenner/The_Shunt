@@ -399,9 +399,10 @@ var routeDNSWait = 5 * time.Second
 // other programs (Options.DNSAskers): the route of the program that asked,
 // when that is a tunnel or block other than the flow's own. So the names of
 // a Tor app go through Tor and those of an app whose tunnel is down go
-// nowhere, instead of out on the default route. A domain rule of the asking
-// program comes first (rule != nil then). Programs on the direct route keep
-// the flow's route: their names never go out in the clear because of this.
+// nowhere, instead of out on the default route. A domain rule for the
+// asking program comes first (rule != nil then, any route: the user named
+// the domain). Programs on the direct route otherwise keep the flow's
+// route: their names never go out in the clear because of this.
 func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route string, r *rule, ok bool) {
 	if e.o.DNSAskers == nil || f.app == "" {
 		return "", nil, false
@@ -411,8 +412,8 @@ func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route stri
 		if app == f.app && pinned == f.pinned {
 			continue
 		}
-		var rt string
 		dr := e.domainRule(app, name)
+		rt := ""
 		if dr != nil {
 			rt = dr.route
 		} else {
@@ -420,11 +421,12 @@ func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route stri
 		}
 		rt, _ = e.resolveLink(rt)
 		rt = e.ov.Route(rt, time.Now())
-		if rt == f.route || rt == RouteDirect {
-			continue
-		}
-		if rt == RouteBlock || strings.HasPrefix(rt, tunnelPref) {
+		switch {
+		case rt == f.route:
+		case dr != nil:
 			return rt, dr, true
+		case rt == RouteBlock || strings.HasPrefix(rt, tunnelPref):
+			return rt, nil, true
 		}
 	}
 	return "", nil, false
@@ -434,6 +436,7 @@ func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route stri
 // not nil, sees the answer first). A route that cannot be reached answers
 // SERVFAIL, block REFUSED: the name must not leak out on the app's own route.
 func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, answered func(*dns.Msg)) {
+	route, _ = e.resolveLink(route) // link:<kind> is direct or block right now
 	var q dns.Msg
 	q.Unpack(query)
 	fail := func(rcode int) {
