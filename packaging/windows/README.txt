@@ -31,3 +31,7 @@ purpose lifts it. Emergency, as Administrator:
 DNS filter: default level (blocklists), per-rule levels not yet. Not yet: OpenVPN, groups, app firewall.
 
 Uninstall: powershell -ExecutionPolicy Bypass -File uninstall.ps1  [-Purge]
+
+Quiet mode on Windows also switches off LLMNR, mDNS and NetBIOS over TCP/IP in the
+registry (so they are silent even in the first seconds of a boot). When quiet mode
+is off (quiet = false, trusted network, uninstall) the earlier settings come back.
