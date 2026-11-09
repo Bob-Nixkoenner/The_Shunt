@@ -107,7 +107,10 @@ verified release, imports your WireGuard config, writes
 `sudo bash install.sh --dry-run` only shows what it would do. It takes the newest release
 (pre-releases included) whose `SHA256SUMS` carry the release signature (`ssh-keygen -Y
 verify`, key in `install.sh`) and hands over to the installer of that release, so code
-merged after a release is not installed until it is released. Without a signed release it
+merged after a release is not installed until it is released. The signed list names its
+release (`# tag …`, from v0.7.1-rc24 on) and also covers the systemd units, desktop entry
+and polkit policy (`shunt_linux_extras.tar.gz`); nothing the installer puts in place as root
+is downloaded unsigned. Without a signed release it
 builds from source. Everything is logged to
 `/var/log/shunt-install.log`.
 Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).

@@ -267,13 +267,26 @@ jobs:
           merge-multiple: true
         continue-on-error: true # none when Windows is off
       - name: checksums
+        env:
+          TAG: ${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}
         run: |
           # the installer of this tag is a release file too: the app's
           # Linux update and install.sh only run it when its hash is in
           # the signed list
           cp install.sh dist/install.sh
-          # every file of the release, built by the jobs above
-          (cd dist && shopt -s nullglob && sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json install.sh > SHA256SUMS)
+          # systemd units, desktop entry and polkit policy of this tag:
+          # install.sh installs them as root, so only from the signed list
+          # (the .deb packages carry their own copies)
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -czf dist/shunt_linux_extras.tar.gz -C packaging \
+            systemd/shuntd.service systemd/shunt-lockdown.service systemd/shuntd-tailscale.conf \
+            desktop/the-shunt.desktop desktop/the-shunt.svg polkit/org.theshunt.policy
+          # the first line names the release, so that the signature cannot
+          # be reused for an old release under a new tag (the app and
+          # install.sh compare it with the tag they asked for);
+          # sha256sum -c skips lines starting with '#'
+          # then every file of the release, built by the jobs above
+          (cd dist && shopt -s nullglob && { printf '# tag %s\n' "$TAG"; sha256sum *.tar.gz *.apk *.aab *.zip *.exe *.deb *.cdx.json install.sh; } > SHA256SUMS)
+          cat dist/SHA256SUMS
       - name: sign checksums
         if: github.event_name != 'pull_request'
         # install.sh only uses releases whose SHA256SUMS carry this signature
