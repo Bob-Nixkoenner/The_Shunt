@@ -259,3 +259,53 @@ func TestDNSAskersOff(t *testing.T) {
 		t.Errorf("%q %v %v", got, err, homeAsked())
 	}
 }
+
+// Finding the asker may take a while (Windows waits for an event): the next
+// query on the same flow must not wait behind it.
+func TestDNSAskersNoQueue(t *testing.T) {
+	home, _ := wgDNSLog(t, 1)
+	b, _ := json.Marshal(map[string]any{"tunnels": []map[string]string{{"name": "home", "conf": home}}, "default": "tunnel:home"})
+	appDev, apps, _ := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("10.111.0.2")}, nil, 1280)
+	link, stop := TunLink(appDev, 1280)
+	t.Cleanup(func() { appDev.Close(); stop() })
+	e, err := New(Options{Link: link, HealthEvery: time.Hour,
+		Owner: func(int, netip.AddrPort, netip.AddrPort) string { return svchost },
+		DNSAskers: func(_, name string, _ time.Time) []string {
+			if strings.HasPrefix(name, "slow.") {
+				time.Sleep(time.Second)
+			}
+			return nil
+		}}, string(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(e.Stop)
+	c, err := apps.DialUDPAddrPort(netip.AddrPort{}, netip.AddrPortFrom(netip.MustParseAddr(DNSAddr), 53))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i, n := range []string{"slow.test.", "fast.test."} {
+		q := new(dns.Msg)
+		q.SetQuestion(n, dns.TypeA)
+		q.Id = uint16(100 + i)
+		p, _ := q.Pack()
+		c.Write(p)
+	}
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	buf := make([]byte, 1500)
+	var order []string
+	for len(order) < 2 {
+		n, err := c.Read(buf)
+		if err != nil {
+			t.Fatalf("after %v: %v", order, err)
+		}
+		var r dns.Msg
+		if r.Unpack(buf[:n]) == nil && len(r.Question) == 1 {
+			order = append(order, r.Question[0].Name)
+		}
+	}
+	if order[0] != "fast.test." {
+		t.Errorf("answers in order %v: the fast query waited behind the slow one", order)
+	}
+}

@@ -24,8 +24,9 @@ const (
 	// that caused it (the DNS client sends within milliseconds).
 	askFresh = time.Second
 	// askWait: how long a query waits for the event of its asker (events
-	// arrive in batches; the watch flushes them when a query comes in).
-	askWait = 250 * time.Millisecond
+	// arrive in batches; the watch flushes them when a query comes in, and
+	// they arrive within some 20-70 ms then).
+	askWait = 200 * time.Millisecond
 
 	askMaxNames = 4096
 	askPerName  = 8

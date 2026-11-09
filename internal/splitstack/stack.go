@@ -363,27 +363,43 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 				go e.resolveForRule(f, r, append([]byte(nil), buf[:n]...), in)
 				continue
 			}
-			if route, r, ok := e.askedRoute(f, q.Question[0].Name, arrived); ok {
-				query := append([]byte(nil), buf[:n]...)
-				if r != nil {
-					go e.resolveForRule(f, r, query, in)
-				} else {
-					go e.resolveOn(f, route, query, in, nil)
-				}
+			if e.o.DNSAskers != nil && f.app != "" {
+				// finding the asker may take a moment: each query on its own,
+				// so the next ones on this flow do not queue up behind it
+				query, name := append([]byte(nil), buf[:n]...), q.Question[0].Name
+				go func() {
+					if route, r, ok := e.askedRoute(f, name, arrived); ok {
+						if r != nil {
+							e.resolveForRule(f, r, query, in)
+						} else {
+							e.resolveOn(f, route, query, in, nil)
+						}
+						return
+					}
+					e.forwardDNS(f, query, in, out, &pending)
+				}()
 				continue
 			}
 		}
-		if _, err := out.Write(buf[:n]); err != nil {
+		if !e.forwardDNS(f, buf[:n], in, out, &pending) {
 			break
-		}
-		e.touch(f.route)
-		if f.dnsTried.IsValid() && f.route != RouteBlock && len(e.dnsServers(f.route)) > 1 {
-			e.watchDNS(f, append([]byte(nil), buf[:n]...), f.dnsTried, in, &pending)
 		}
 	}
 	in.Close()
 	out.Close()
 	<-done
+}
+
+// forwardDNS sends a query on the flow's own route (out); false if out is gone.
+func (e *Engine) forwardDNS(f *flow, query []byte, in, out net.Conn, pending *sync.Map) bool {
+	if _, err := out.Write(query); err != nil {
+		return false
+	}
+	e.touch(f.route)
+	if f.dnsTried.IsValid() && f.route != RouteBlock && len(e.dnsServers(f.route)) > 1 {
+		e.watchDNS(f, append([]byte(nil), query...), f.dnsTried, in, pending)
+	}
+	return true
 }
 
 // resolveForRule sends one query for a domain rule's name over the rule's

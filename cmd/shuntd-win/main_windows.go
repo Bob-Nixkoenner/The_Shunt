@@ -197,6 +197,22 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
+	// processes started in a route (shunt-desktop run --via): kept across restarts
+	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
+	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
+	jobs.Load()
+	owners := winsplit.NewOwners(jobs)
+	// Windows' DNS client service sends the lookups of every program: its
+	// events tell which program asked, so a name takes that program's route
+	// (Tor, its own tunnel, blocked) instead of the default route. Started
+	// first: Windows needs a few seconds before the events flow.
+	dnsWatch, err := winsplit.StartDNSWatch(owners.App, func(s string) { log.Print(s) })
+	if err != nil {
+		log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
+	} else {
+		defer dnsWatch.Close()
+		log.Print("DNS askers: watching which program asks (DNS client events)")
+	}
 	// The kill switch follows [daemon] kill_switch at once, also when edited
 	// in the window. It needs the adapter's LUID, so it goes on once the
 	// adapter is up; until then the persistent filters of an earlier run keep
@@ -428,10 +444,6 @@ func runCore(ctx context.Context, ready func()) error {
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
-	// processes started in a route (shunt-desktop run --via): kept across restarts
-	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
-	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
-	jobs.Load()
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
@@ -444,17 +456,6 @@ func runCore(ctx context.Context, ready func()) error {
 			}
 		}
 	}()
-	owners := winsplit.NewOwners(jobs)
-	// Windows' DNS client service sends the lookups of every program: its
-	// events tell which program asked, so a name takes that program's route
-	// (Tor, its own tunnel, blocked) instead of the default route
-	dnsWatch, err := winsplit.StartDNSWatch(owners.App, func(s string) { log.Print(s) })
-	if err != nil {
-		log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
-	} else {
-		defer dnsWatch.Close()
-		log.Print("DNS askers: watching which program asks (DNS client events)")
-	}
 	e, err := splitstack.New(splitstack.Options{
 		Link:  link,
 		Owner: owners.Owner,
