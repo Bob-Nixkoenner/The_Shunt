@@ -617,7 +617,7 @@ quiet = true
 		"udp sport 68 udp dport 67 accept",
 		"udp sport 546 udp dport 547 accept",
 		"nd-neighbor-solicit",
-		"udp dport { 137, 138, 1716, 1900, 5353, 5355, 21027 } counter drop",
+		"udp dport { 137, 138, 1716, 1900, 3702, 5353, 5355, 21027 } counter drop",
 		"ip daddr { 224.0.0.0/4, 255.255.255.255 } counter drop",
 		"ip6 daddr ff00::/8 counter drop",
 	}
