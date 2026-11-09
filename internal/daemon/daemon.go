@@ -573,7 +573,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
 	go func() {
-		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
+		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }, d.netPolicy, d.Log); err != nil {
 			d.Log.Debug("dhcp host name: no NetworkManager signals", "err", err)
 		}
 	}()
@@ -983,17 +983,25 @@ func firewallSettings(p *Prepared) firewall.Settings {
 // applyNetPrivacy sets the NetworkManager profiles for daemon.dhcp_hostname
 // and daemon.mac; the network we are on decides for the profile in use.
 func (d *Daemon) applyNetPrivacy() {
+	if pol, ok := d.netPolicy(); ok {
+		dhcphost.Apply(context.Background(), pol, d.Log)
+	}
+}
+
+// netPolicy is the policy for the NetworkManager profiles (false = no
+// config yet).
+func (d *Daemon) netPolicy() (dhcphost.Policy, bool) {
 	d.mu.Lock()
 	c, info := d.cfg, d.netInfo
 	d.mu.Unlock()
 	if c == nil {
-		return
+		return dhcphost.Policy{}, false
 	}
 	pol := dhcphost.Policy{Config: c}
 	if n := c.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
 		pol.Current = n.Name
 	}
-	dhcphost.Apply(context.Background(), pol, d.Log)
+	return pol, true
 }
 
 // checkNetwork follows network changes (Wi-Fi roaming, cable plugged in)
