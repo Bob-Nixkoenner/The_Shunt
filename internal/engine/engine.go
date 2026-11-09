@@ -272,8 +272,19 @@ type StartEntry struct {
 // without a group: a program not yet in its group could match them first)
 // or after a Flatpak selector (its programs can have any name). The first
 // rule naming a program decides, as in the watcher and in nftables.
-func (p *Plan) StartGuard() map[string]StartEntry {
+//
+// hold false (the default levels, decided 09.11.2026): such programs get
+// the mark of the first rule naming them instead of being held, when that
+// rule takes the program as a whole (after a rule for every program, an
+// exe path, an own filter level); rules for arguments, ports or one address
+// family are left to the watcher. Holding
+// makes every program that does not retry (curl, git, scripts) fail its
+// first connection; marking can, rarely, give a first packet the route of
+// a rule further down. hold true is the opsec level: rather a failed start
+// than a wrong route.
+func (p *Plan) StartGuard(hold bool) map[string]StartEntry {
 	out := map[string]StartEntry{}
+	left := map[string]bool{} // named first by a rule left to the watcher
 	holdRest := false
 	for _, r := range p.Rules {
 		if len(r.Groups) == 0 {
@@ -289,12 +300,12 @@ func (p *Plan) StartGuard() map[string]StartEntry {
 		flatpak := false
 		for _, a := range r.Apps {
 			var n string
-			hold := holdRest || !whole
+			must := holdRest || !whole // a mark would not be exact
 			switch a.Kind {
 			case "name":
 				n = a.Value
 			case "exe":
-				n, hold = path.Base(a.Value), true
+				n, must = path.Base(a.Value), true
 			default: // flatpak: the same rule's names still decide alone
 				flatpak = true
 				continue
@@ -305,11 +316,23 @@ func (p *Plan) StartGuard() map[string]StartEntry {
 			if n == "" || n == "/" || n == "." {
 				continue
 			}
-			if _, seen := out[n]; seen {
+			if _, seen := out[n]; seen || left[n] {
 				continue
 			}
-			e := StartEntry{Hold: hold}
-			if !hold {
+			if must && !hold {
+				if r.Route == nil || len(r.Args) > 0 || len(r.Ports) > 0 || !r.AnyFamily {
+					// no route of its own (a filter level only), or the rule
+					// takes only part of the program (arguments, ports, one
+					// address family): its mark would be wrong for every
+					// other start; the watcher decides alone, as before
+					// (and no later rule may claim the name)
+					left[n] = true
+					continue
+				}
+				must = false
+			}
+			e := StartEntry{Hold: must}
+			if !must {
 				e.Mark = r.Route.Mark
 			}
 			out[n] = e

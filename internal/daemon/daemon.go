@@ -871,7 +871,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
-	d.startErr = d.Backend.StartGuard(p.Plan.CgroupRoot, p.Plan.StartGuard())
+	guard := p.Plan.StartGuard(p.Config.Daemon.ConfigCheck == config.CheckStrict)
+	d.startErr = d.Backend.StartGuard(p.Plan.CgroupRoot, guard)
 	if err := d.startErr; err != nil {
 		if !d.startWarned {
 			d.startWarned = true
@@ -880,7 +881,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	} else if !d.startLogged && d.Backend.StartGuardStats() != nil {
 		d.startLogged = true
 		st := d.Backend.StartGuardStats()
-		d.Log.Info("eBPF start guard loaded", "programs", len(p.Plan.StartGuard()),
+		d.Log.Info("eBPF start guard loaded", "programs", len(guard),
 			"raw_tracepoints", st["raw_tracepoints"] == 1, "children_followed", st["no_child_inherit"] == 0)
 	}
 	// After a restart the processes are still in their groups but the new
