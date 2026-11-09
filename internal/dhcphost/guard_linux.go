@@ -132,3 +132,115 @@ func restartSet(ctx context.Context, conn *dbus.Conn, dev dbus.ObjectPath, uuid 
 	}
 	log.Info("network privacy: connecting again without the host name", "uuid", uuid)
 }
+
+// The quick set. A profile added first and connected a moment later (nmcli
+// connection add, then up; a program that adds before it activates) is set
+// straight away over D-Bus when NetworkManager announces it, before the
+// activation copies it: the regular pass (Apply) runs nmcli for every
+// profile and comes too late, and the start guard can only stop a cable
+// connection after its first DHCP request has gone out (NetworkManager
+// walks from PREPARE to DHCP in a few milliseconds).
+//
+// Update2 replaces the whole profile; the settings read just before are
+// sent back with the host name switched off, together with the secrets
+// NetworkManager keeps for it (a Wi-Fi password), so nothing else changes.
+// A profile that is connecting already (AddAndActivateConnection) is left to
+// the start guard: changing a connecting profile can stall its DHCP.
+
+const (
+	nmConnection = nmSettings + ".Connection"
+	// Update2 flags: keep the storage (0), do not reapply to an active connection
+	update2NoReapply = uint32(0x40)
+)
+
+// quickSet switches the host name off in the new profile at path if the
+// policy wants that.
+func quickSet(ctx context.Context, conn *dbus.Conn, path dbus.ObjectPath, polf func() (Policy, bool), log *slog.Logger) {
+	pol, ok := polf()
+	if !ok {
+		return
+	}
+	obj := conn.Object(nmBus, path)
+	var s map[string]map[string]dbus.Variant
+	if err := obj.CallWithContext(ctx, nmConnection+".GetSettings", 0).Store(&s); err != nil {
+		return
+	}
+	a, ok := appliedOf(s)
+	if !ok || !pol.GuardNeeded(a) || inUse(ctx, conn, path) {
+		return
+	}
+	for _, sec := range []string{"802-11-wireless-security", "802-1x"} {
+		if _, ok := s[sec]; !ok {
+			continue
+		}
+		var sec2 map[string]map[string]dbus.Variant
+		if err := obj.CallWithContext(ctx, nmConnection+".GetSecrets", 0, sec).Store(&sec2); err != nil {
+			// without them Update2 keeps the stored ones (NetworkManager
+			// merges when none are sent); log, go on
+			log.Debug("network privacy: no secrets read for the quick set", "uuid", a.UUID, "err", err)
+			continue
+		}
+		for k, v := range sec2[sec] {
+			s[sec][k] = v
+		}
+	}
+	for _, fam := range []string{"ipv4", "ipv6"} {
+		if s[fam] == nil {
+			s[fam] = map[string]dbus.Variant{}
+		}
+		s[fam]["dhcp-send-hostname"] = dbus.MakeVariant(false)
+	}
+	with2 := cloneSettings(s)
+	for _, fam := range []string{"ipv4", "ipv6"} {
+		with2[fam]["dhcp-send-hostname-v2"] = dbus.MakeVariant(int32(0))
+	}
+	err := update2(ctx, obj, with2)
+	if err != nil {
+		// NetworkManager before 1.52 does not know -v2
+		err = update2(ctx, obj, s)
+	}
+	if err != nil {
+		log.Warn("network privacy: cannot switch off the host name in a new profile at once", "uuid", a.UUID, "err", err)
+		return
+	}
+	log.Info("network privacy: new profile set before it connects", "uuid", a.UUID, "set", "ipv4.dhcp-send-hostname no ipv6.dhcp-send-hostname no")
+}
+
+func update2(ctx context.Context, obj dbus.BusObject, s map[string]map[string]dbus.Variant) error {
+	var res map[string]dbus.Variant
+	return obj.CallWithContext(ctx, nmConnection+".Update2", 0, s, update2NoReapply, map[string]dbus.Variant{}).Store(&res)
+}
+
+func cloneSettings(s map[string]map[string]dbus.Variant) map[string]map[string]dbus.Variant {
+	c := make(map[string]map[string]dbus.Variant, len(s))
+	for k, m := range s {
+		c[k] = make(map[string]dbus.Variant, len(m))
+		for k2, v := range m {
+			c[k][k2] = v
+		}
+	}
+	return c
+}
+
+// inUse tells whether an active connection (connecting or up) runs the
+// profile at path. When unsure: yes.
+func inUse(ctx context.Context, conn *dbus.Conn, path dbus.ObjectPath) bool {
+	v, err := conn.Object(nmBus, nmPath).GetProperty(nmBus + ".ActiveConnections")
+	if err != nil {
+		return true
+	}
+	acs, ok := v.Value().([]dbus.ObjectPath)
+	if !ok {
+		return true
+	}
+	for _, ac := range acs {
+		c, err := conn.Object(nmBus, ac).GetProperty(nmBus + ".Connection.Active.Connection")
+		if err != nil {
+			continue // gone meanwhile
+		}
+		if p, _ := c.Value().(dbus.ObjectPath); p == path {
+			return true
+		}
+	}
+	return false
+}
