@@ -68,6 +68,7 @@ type Daemon struct {
 	tunnels   map[string]tunnel.Device
 	specHash  map[string]string
 	tunErrors map[string]string
+	tsSetup   []string // Tailscale tunnels blocked only for want of the systemd drop-in
 	panic     bool
 	proxy     *dnsproxy.Proxy
 	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
@@ -921,6 +922,7 @@ func (d *Daemon) syncTunnels() error {
 		return err
 	}
 	d.tunErrors = map[string]string{}
+	d.tsSetup = nil
 	for name, tc := range p.Config.Tunnels {
 		if _, ok := d.tunnels[name]; ok || tc.Disabled {
 			continue
@@ -955,6 +957,10 @@ func (d *Daemon) syncTunnels() error {
 		if err != nil {
 			d.Log.Error("tunnel up failed, its traffic stays blocked", "tunnel", name, "err", err)
 			d.tunErrors[name] = err.Error()
+			if tc.IsTailscale() && tailscaleNeedsSetup(err) {
+				d.tsSetup = append(d.tsSetup, name)
+				d.tunErrors[name] += " (run: sudo shuntd setup-tailscale)"
+			}
 			continue
 		}
 		d.tunnels[name] = t
@@ -1865,6 +1871,11 @@ func (d *Daemon) status() api.Status {
 	st.StartGuard = d.Backend.StartGuardStats()
 	if d.startErr != nil && len(d.plan.AppRules()) > 0 {
 		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a newer kernel (6.1 or later).", "err", d.startErr.Error())
+		notes = append(notes, f)
+		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
+	}
+	if len(d.tsSetup) > 0 {
+		f := check.Note("tailscale-setup", "Tailscale tunnel {names} stays blocked: the service may not create the network namespace it needs. Allow it once with: sudo shuntd setup-tailscale", "names", strings.Join(d.tsSetup, ", "))
 		notes = append(notes, f)
 		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
 	}
