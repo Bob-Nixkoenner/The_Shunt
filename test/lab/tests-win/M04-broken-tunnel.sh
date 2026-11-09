@@ -12,7 +12,7 @@ $k=[Convert]::ToBase64String([byte[]](1..32 | ForEach-Object { Get-Random -Maxim
 (Get-Content "$d\intern.conf") -replace "^PublicKey *=.*","PublicKey = $k" | Set-Content -Encoding ascii "$d\badkey.conf"
 Copy-Item -Force C:\Windows\System32\curl.exe C:\lab\labtog.exe
 '
-NOTE="labtun-Regel zeigt auf einen Tunnel mit totem Endpunkt, labtog auf einen mit falschem Schluessel. Erwartung: blockiert, im Status (API, curl.exe --unix-socket) nicht als ok, nichts im Klartext. Der Name der Canary geht ueber Dnscache und den Standardweg (Tunnel intern): ohne Prozess-Trace ist am CT130 nicht zu unterscheiden, wer gefragt hat, deshalb fragt der Test nur per HTTP (Name wird trotzdem aufgeloest) und EXPECT_CANARY=none prueft nur Gateway/Klartext. Hinweis: kommt die Canary am CT130 an, ist das die Namensaufloesung ueber den Standardweg, kein Leck (Ergebnis im Bericht pruefen)."
+NOTE="labtun-Regel zeigt auf einen Tunnel mit totem Endpunkt, labtog auf einen mit falschem Schluessel. Erwartung: blockiert, im Status (API, curl.exe --unix-socket) nicht als ok, nichts im Klartext. Die Namen fragt Windows ueber Dnscache; der Dienst liest aus den DNS-Client-Ereignissen, welche App gefragt hat, und schickt sie in deren Tunnel (keine Antwort). Die Canary darf weder am Gateway noch am CT130 (Standardweg) auftauchen."
 CLIENT='
 Start-Sleep 4
 1..8 | ForEach-Object {

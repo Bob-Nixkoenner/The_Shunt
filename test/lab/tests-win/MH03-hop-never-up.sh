@@ -3,7 +3,7 @@ TITLE="Multi-Hop: innerer Tunnel kommt nie hoch (falscher Schluessel): kein Ruec
 CONFIG=hop
 HOP_BADKEY=1
 EXPECT_CANARY=none
-NOTE="tunnels\\hop.conf mit falschem Server-Schluessel (winclient.sh). labtun auf tunnel:hop bekommt nichts; die Anfrage darf weder im Klartext noch auf wgt0 (Rueckfall auf Hop A) noch am Gateway erscheinen. Aufruf: CT130_IF=wgt0 CLIENT_OS=windows lab.sh run MH03. Achtung: der Name der Canary geht unter Windows ueber Dnscache und den Standardweg (intern = wgt0); taucht nur die DNS-Anfrage am wgt0 auf, ist das kein Rueckfall, nur eine HTTP-Anfrage dort waere einer (im Bericht pruefen)."
+NOTE="tunnels\\hop.conf mit falschem Server-Schluessel (winclient.sh). labtun auf tunnel:hop bekommt nichts; die Anfrage darf weder im Klartext noch auf wgt0 (Rueckfall auf Hop A) noch am Gateway erscheinen. Aufruf: CT130_IF=wgt0 CLIENT_OS=windows lab.sh run MH03. Die Namen fragt Windows ueber Dnscache; der Dienst schickt sie in den Tunnel der App (hop, keine Antwort): auch die DNS-Anfrage darf am wgt0 nicht auftauchen."
 CLIENT='
 function Status { $raw = & C:\Windows\System32\curl.exe -s -m 10 --unix-socket C:\ProgramData\Shunt\shuntd.sock http://shuntd/v1/status; if (-not $raw) { "FAIL Status ueber die API nicht lesbar (curl.exe --unix-socket)"; return }; $st = $raw | ConvertFrom-Json; foreach ($t in $st.tunnels) { "Tunnel $($t.name): up=$($t.up) via=$($t.via) health=$($t.health.state) error=$($t.error)" }; $script:hop = $st.tunnels | Where-Object { $_.name -eq "hop" } }
 Start-Sleep 6

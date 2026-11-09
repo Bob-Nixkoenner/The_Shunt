@@ -148,7 +148,7 @@ func (e *Engine) domainRule(app, name string) *rule {
 	defer e.mu.RUnlock()
 	for i := range e.rules {
 		r := &e.rules[i]
-		if len(r.domains) == 0 || (r.apps != nil && !r.apps[app]) {
+		if len(r.domains) == 0 || (r.apps != nil && !appInSet(r.apps, app)) {
 			continue
 		}
 		if matchDomain(name, r.domains) {

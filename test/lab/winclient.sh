@@ -27,11 +27,11 @@ client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
 # Multi-hop (configs/win-hop.toml): the inner WireGuard hop needs tunnels\hop.conf in the client.
 # WIN_HOP_CONF = the Windows VM's hop file (test keys, not in git); HOP_BADKEY=1 (test file) writes
 # it with a wrong server key (MH03). Copied only when it differs; a change restarts the service below.
-WIN_HOP_CONF=${WIN_HOP_CONF:-$HOP_DIR/wg-hop-lab-win.conf}
+# (resolved when used: lab.sh sources this file before run-test.sh sets HOP_DIR)
 win_ensure_hop() {
-	local tmp want
+	local tmp want conf=${WIN_HOP_CONF:-$HOP_DIR/wg-hop-lab-win.conf}
 	tmp=$(mktemp)
-	cp "$WIN_HOP_CONF" "$tmp" || { rm -f "$tmp"; echo "no $WIN_HOP_CONF" >&2; return 1; }
+	cp "$conf" "$tmp" || { rm -f "$tmp"; echo "no $conf" >&2; return 1; }
 	[[ ${HOP_BADKEY:-0} == 1 ]] && sed -i "s|^PublicKey *=.*|PublicKey = $(head -c32 /dev/urandom | base64)|" "$tmp"
 	want=$(sha256sum <"$tmp" | cut -c1-16)
 	if [[ $(client '$f="C:\ProgramData\Shunt\tunnels\hop.conf"; if (Test-Path $f) { (Get-FileHash $f -Algorithm SHA256).Hash.Substring(0,16).ToLower() }') != "$want" ]]; then

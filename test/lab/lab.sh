@@ -35,7 +35,7 @@ if [[ ${CLIENT_OS:-linux} == windows ]]; then
 	TUNNEL_IP=${TUNNEL_IP:-10.66.0.15}
 	CLIENT_IF=${CLIENT_IF:-Ethernet}
 	CLIENT_PING='exit 0'
-	CLIENT_BOOT=${CLIENT_BOOT:-900} # guest control can take >10 min after a restore
+	CLIENT_BOOT=${CLIENT_BOOT:-900} # max wait for guest control after a restore (it answers within a few minutes)
 	TESTS_DIR=${TESTS_DIR:-$(cd "$(dirname "$0")" && pwd)/tests-win}
 	TEST_EXT=sh
 	export TUNNEL_IP CLIENT_IF TESTS_DIR TEST_EXT
@@ -79,6 +79,10 @@ client_cp_to() { # files… dir
 	VBoxManage "${GC[@]}" copyto --target-directory "${dir%/}/" "${@:1:$#-1}"  # trailing slash: VirtualBox 7.2 refuses several sources otherwise
 }
 client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
+# Windows: PowerShell over guest control (winclient.sh) for up/ssh too; with the
+# bash client above, "up" waited CLIENT_BOOT seconds for a Windows guest in vain
+# shellcheck source=winclient.sh
+if [[ ${CLIENT_OS:-linux} == windows ]]; then source "$HERE/winclient.sh"; fi
 # CT130_KEY: a key that CT130 only lets run the capture commands (gw/ct130-capture)
 ct130() { ssh ${CT130_KEY:+-i "$CT130_KEY" -o IdentitiesOnly=yes} -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR "$CT130" "$@"; }
 vm_state() { VBoxManage showvminfo "$1" --machinereadable | sed -n 's/^VMState="\(.*\)"/\1/p'; }

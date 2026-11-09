@@ -52,11 +52,16 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   client and NetBIOS name queries of the kernel (UDP 5355/5353/137), which broadcast names to the
   local network. The direct route uses the network's
   DHCP DNS server unless `dns.direct` is set.
-- A program set to `direct` sends its own traffic past the tunnel, but its host name lookups are
-  made by Windows' DNS client service (svchost.exe), so The Shunt sees svchost as the asker, not the
-  program: the name goes the default route (through the tunnel when that is one). Use a domain
-  rule (or `dns.direct` with a rule for the name) when a name must be asked directly. Linux resolves
-  inside the program and does not have this limit.
+- Host name lookups are made by Windows' DNS client service (svchost.exe) for every program, so the
+  TUN shows svchost as the asker. The service reads which program asked from the DNS client's events
+  (ETW, provider Microsoft-Windows-DNS-Client, event 3006, written in the asking process) and sends the
+  query over that program's route: a Tor app's names through Tor, an app on another tunnel through it,
+  an app whose tunnel is down into that tunnel (no answer, SERVFAIL), a blocked app nowhere (REFUSED).
+  A program set to `direct` sends its own traffic past the tunnel, but its names still go the default
+  route (through the tunnel when that is one), so they are never asked in the clear because of the
+  split; use a domain rule (or `dns.direct` with a rule for the name) when a name must be asked
+  directly. If the events cannot be read (log: "DNS askers: ..."), every name goes the default route.
+  Names Windows still has in its cache are answered from there, whoever asked first.
 - Kill switch (`[daemon] kill_switch`, **on by default** since 0.7.1; `false` turns it off):
   Windows Firewall blocks all outgoing traffic except the service, the adapter's address
   (= apps whose packets entered the split), the local network (without its DNS, ports 53/853)
