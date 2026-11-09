@@ -2,10 +2,13 @@
 // desktop user, never as root, and talks to shuntd through the same API as
 // the CLI. Everything is embedded: no CDN, no fonts, no tracking.
 //
-// Access control: the server binds 127.0.0.1 only and requires a random
-// token, handed over once via the URL and then kept in an HttpOnly,
-// SameSite=Strict cookie. Host and Origin headers are checked against DNS
-// rebinding and cross-site requests.
+// Access control: the server binds 127.0.0.1 only. The address it hands out
+// carries a one-time login token (?t=, valid for LoginTTL). Redeeming it
+// starts a session with a fresh random secret in an HttpOnly,
+// SameSite=Strict cookie; the login token is then spent, so a copy read from
+// a browser's command line or history is useless. Sessions may expire after
+// SessionIdle without requests. Host and Origin headers are checked against
+// DNS rebinding and cross-site requests.
 package ui
 
 import (
@@ -25,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
@@ -51,8 +55,17 @@ type Server struct {
 	// platform's list of programs; nil: the Linux menu.
 	Apps AppSource
 
-	token string
-	host  string
+	// LoginTTL is how long an unused login token stays valid (0: 10 min).
+	LoginTTL time.Duration
+	// SessionIdle ends a session after this long without requests
+	// (0: never; the desktop app keeps its window for days).
+	SessionIdle time.Duration
+
+	host string
+
+	authMu   sync.Mutex
+	logins   map[string]time.Time // one-time login token -> expiry
+	sessions map[string]time.Time // cookie secret -> last request
 
 	speed speedtest.Job // the speed test the page started (one at a time)
 }
@@ -83,14 +96,111 @@ func (s *Server) Listen(port int) (net.Listener, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
+	s.host = ln.Addr().String()
+	u, err := s.LoginURL()
+	if err != nil {
 		ln.Close()
 		return nil, "", err
 	}
-	s.token = hex.EncodeToString(b)
-	s.host = ln.Addr().String()
-	return ln, fmt.Sprintf("http://%s/?t=%s", s.host, s.token), nil
+	return ln, u, nil
+}
+
+const defaultLoginTTL = 10 * time.Minute
+
+// LoginURL returns the address with a new one-time login token. Call it
+// when the page is actually opened, so the token is fresh.
+func (s *Server) LoginURL() (string, error) {
+	tok, err := newSecret()
+	if err != nil {
+		return "", err
+	}
+	ttl := s.LoginTTL
+	if ttl <= 0 {
+		ttl = defaultLoginTTL
+	}
+	now := time.Now()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	if s.logins == nil {
+		s.logins = map[string]time.Time{}
+	}
+	for t, exp := range s.logins {
+		if now.After(exp) {
+			delete(s.logins, t)
+		}
+	}
+	s.logins[tok] = now.Add(ttl)
+	return fmt.Sprintf("http://%s/?t=%s", s.host, tok), nil
+}
+
+func newSecret() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// lookup finds key in m, comparing every entry in constant time, so the
+// timing does not depend on how much of a guess was right.
+func lookup(m map[string]time.Time, key string) (string, bool) {
+	found, hit := "", false
+	for k := range m {
+		if subtle.ConstantTimeCompare([]byte(k), []byte(key)) == 1 {
+			found, hit = k, true
+		}
+	}
+	return found, hit
+}
+
+// redeem spends a login token and returns the secret of a new session.
+func (s *Server) redeem(tok string) (string, bool) {
+	now := time.Now()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	k, ok := lookup(s.logins, tok)
+	if !ok {
+		return "", false
+	}
+	exp := s.logins[k]
+	delete(s.logins, k) // one-time, also when expired
+	if now.After(exp) {
+		return "", false
+	}
+	sec, err := newSecret()
+	if err != nil {
+		return "", false
+	}
+	if s.sessions == nil {
+		s.sessions = map[string]time.Time{}
+	}
+	if s.SessionIdle > 0 {
+		for k, last := range s.sessions {
+			if now.Sub(last) > s.SessionIdle {
+				delete(s.sessions, k)
+			}
+		}
+	}
+	s.sessions[sec] = now
+	return sec, true
+}
+
+// session reports whether the cookie secret belongs to a live session and
+// marks it as used.
+func (s *Server) session(sec string) bool {
+	now := time.Now()
+	s.authMu.Lock()
+	defer s.authMu.Unlock()
+	k, ok := lookup(s.sessions, sec)
+	if !ok {
+		return false
+	}
+	if s.SessionIdle > 0 && now.Sub(s.sessions[k]) > s.SessionIdle {
+		delete(s.sessions, k)
+		return false
+	}
+	s.sessions[k] = now
+	return true
 }
 
 // Serve handles requests until the listener closes.
@@ -563,16 +673,17 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 		if t := r.URL.Query().Get("t"); t != "" && r.URL.Path == "/" {
-			if subtle.ConstantTimeCompare([]byte(t), []byte(s.token)) != 1 {
-				http.Error(w, "bad token", http.StatusForbidden)
+			sec, ok := s.redeem(t)
+			if !ok {
+				http.Error(w, "this address was already used or has expired; open a new one (restart `shunt ui`)", http.StatusForbidden)
 				return
 			}
-			http.SetCookie(w, &http.Cookie{Name: cookieName, Value: s.token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			http.SetCookie(w, &http.Cookie{Name: cookieName, Value: sec, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 			http.Redirect(w, r, "/", http.StatusSeeOther) // drop the token from the address bar
 			return
 		}
 		c, err := r.Cookie(cookieName)
-		if err != nil || subtle.ConstantTimeCompare([]byte(c.Value), []byte(s.token)) != 1 {
+		if err != nil || !s.session(c.Value) {
 			http.Error(w, "open the address printed by `shunt ui`", http.StatusUnauthorized)
 			return
 		}

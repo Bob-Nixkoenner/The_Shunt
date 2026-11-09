@@ -851,7 +851,9 @@ func runUI(c *api.Client, sock string, args []string) error {
 	if err := c.Do("GET", "/v1/status", nil, nil); err != nil {
 		return fmt.Errorf("%w\n%s", err, i18n.T("(is shuntd running, and are you in group 'shunt'?)"))
 	}
-	srv := &ui.Server{Socket: sock, Self: self(), Client: c}
+	// the printed address works once; a session ends after 12 h without
+	// requests (an open page polls, so only closed tabs expire)
+	srv := &ui.Server{Socket: sock, Self: self(), Client: c, SessionIdle: 12 * time.Hour}
 	if !*noUpdate {
 		srv.Update = &update.Checker{Current: version, Installed: func() string {
 			var st api.Status
