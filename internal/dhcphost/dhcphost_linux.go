@@ -352,7 +352,8 @@ var newProfileWait = 2 * time.Second
 // pol (may be nil) gives the current policy for the start guard: a
 // connection that starts with a profile that would send the host name
 // against the policy is stopped before its DHCP, set, and started again
-// (guardDevice).
+// (guardDevice). A new profile is set over D-Bus the moment it is announced
+// (quickSet), before an activation right after can copy it.
 func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slog.Logger) error {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
@@ -371,7 +372,7 @@ func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slo
 	); err != nil {
 		return err
 	}
-	ch := make(chan *dbus.Signal, 8)
+	ch := make(chan *dbus.Signal, 64)
 	conn.Signal(ch)
 	for {
 		select {
@@ -382,6 +383,11 @@ func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slo
 				return errors.New("system bus closed")
 			}
 			// first, before anything slower: the window before DHCP is short
+			if pol != nil && s.Name == nmSettings+".NewConnection" && len(s.Body) > 0 {
+				if p, ok := s.Body[0].(dbus.ObjectPath); ok {
+					quickSet(ctx, conn, p, pol, log)
+				}
+			}
 			if pol != nil && s.Name == nmDevice+".StateChanged" && len(s.Body) > 0 {
 				if st, ok := s.Body[0].(uint32); ok && guardState(st) {
 					guardDevice(ctx, conn, s.Path, pol, log)
