@@ -73,7 +73,13 @@ func main() {
 		setupLog()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		err = runCore(ctx, nil)
+		for {
+			// nil without ctx ending = restart requested: again
+			if err = runCore(ctx, nil); err != nil || ctx.Err() != nil {
+				break
+			}
+			log.Print("restarting")
+		}
 	case "install":
 		err = install()
 	case "uninstall":
@@ -181,12 +187,20 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 				return false, 0
 			}
 		case err := <-done: // stopped by the API (restart) or died
-			cancel()
 			if err != nil {
+				cancel()
 				log.Printf("stopped: %v", err)
 				return false, 1 // non-zero: the recovery action restarts the service
 			}
-			return false, 1 // /v1/restart: also exit with an error so the SCM restarts us
+			// restart requested (/v1/restart, changed tunnels): bring
+			// everything up again in this process. Exiting with an error for
+			// the SCM to restart us took 5 s more and put an "ended
+			// unexpectedly" event (7031) in the log every time. A failing
+			// start still ends the service with an error (recovery).
+			log.Print("restarting")
+			ch := make(chan error, 1)
+			done = ch
+			go func() { ch <- runCore(ctx, nil) }()
 		}
 	}
 }
