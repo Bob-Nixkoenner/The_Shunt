@@ -274,8 +274,15 @@ func (b *linuxBackend) StartGuardStats() map[string]uint64 {
 		return nil
 	}
 	s := g.Stats()
-	return map[string]uint64{"marked": s[racebpf.StatMarked], "held": s[racebpf.StatHeld],
+	m := map[string]uint64{"marked": s[racebpf.StatMarked], "held": s[racebpf.StatHeld],
 		"expired": s[racebpf.StatExpired], "marked_by_name": s[racebpf.StatComm]}
+	if g.Raw {
+		m["raw_tracepoints"] = 1 // kernel refused perf events (Debian: perf_event_paranoid=3)
+	}
+	if g.Limited != "" {
+		m["no_child_inherit"] = 1 // children of a rule's program are not followed
+	}
+	return m
 }
 
 // release ends a held program's wait once the watcher decided on it.
