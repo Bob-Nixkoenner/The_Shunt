@@ -227,6 +227,35 @@ var cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6 = windows.GUID{
 	Data4: [8]byte{0xb8, 0x7e, 0xce, 0xe9, 0xc4, 0x83, 0x25, 0x7f},
 }
 
+// FWPM_LAYER_OUTBOUND_TRANSPORT_V4 (09e61aea-d214-46e2-9b21-b26b0b2f28c8) defined in fwpmu.h
+var cFWPM_LAYER_OUTBOUND_TRANSPORT_V4 = windows.GUID{
+	Data1: 0x09e61aea,
+	Data2: 0xd214,
+	Data3: 0x46e2,
+	Data4: [8]byte{0x9b, 0x21, 0xb2, 0x6b, 0x0b, 0x2f, 0x28, 0xc8},
+}
+
+// FWPM_LAYER_OUTBOUND_TRANSPORT_V6 (e1735bde-013f-4655-b351-a49e15762df0) defined in fwpmu.h
+var cFWPM_LAYER_OUTBOUND_TRANSPORT_V6 = windows.GUID{
+	Data1: 0xe1735bde,
+	Data2: 0x013f,
+	Data3: 0x4655,
+	Data4: [8]byte{0xb3, 0x51, 0xa4, 0x9e, 0x15, 0x76, 0x2d, 0xf0},
+}
+
+// FWPM_CONDITION_IP_DESTINATION_ADDRESS_TYPE (1ec1b7c9-4eea-4f5e-b9ef-76beaaaf17ee)
+// defined in fwpmu.h; an FWP_UINT8 holding an NL_ADDRESS_TYPE
+var cFWPM_CONDITION_IP_DESTINATION_ADDRESS_TYPE = windows.GUID{
+	Data1: 0x1ec1b7c9,
+	Data2: 0x4eea,
+	Data3: 0x4f5e,
+	Data4: [8]byte{0xb9, 0xef, 0x76, 0xbe, 0xaa, 0xaf, 0x17, 0xee},
+}
+
+// NlatBroadcast of NL_ADDRESS_TYPE (nldef.h: Unspecified, Unicast, Anycast,
+// Multicast, Broadcast, Invalid)
+const cNlatBroadcast = 4
+
 // 94c44912-9d6f-4ebf-b995-05ab8a088d1b
 var cFWPM_LAYER_OUTBOUND_MAC_FRAME_NATIVE = windows.GUID{
 	Data1: 0x94c44912,
