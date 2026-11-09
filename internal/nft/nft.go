@@ -762,7 +762,7 @@ func inboundLines(in *engine.Inbound) ([]string, error) {
 // Discovery ports a quiet machine does not use outside: KDE Connect,
 // Syncthing, mDNS, LLMNR, NetBIOS name/datagram, SSDP.
 const (
-	quietUDPPorts = "137, 138, 1716, 1900, 5353, 5355, 21027"
+	quietUDPPorts = "137, 138, 1716, 1900, 3702, 5353, 5355, 21027"
 	quietTCPPorts = "1716"
 )
 

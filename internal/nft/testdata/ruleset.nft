@@ -68,7 +68,7 @@ table inet shunt {
 		meta nfproto ipv4 udp sport 68 udp dport 67 accept
 		meta nfproto ipv6 udp sport 546 udp dport 547 accept
 		meta l4proto ipv6-icmp icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
-		meta l4proto udp udp dport { 137, 138, 1716, 1900, 5353, 5355, 21027 } counter drop
+		meta l4proto udp udp dport { 137, 138, 1716, 1900, 3702, 5353, 5355, 21027 } counter drop
 		meta l4proto tcp tcp dport { 1716 } counter drop
 		ip daddr { 224.0.0.0/4, 255.255.255.255 } counter drop
 		fib daddr type broadcast counter drop
