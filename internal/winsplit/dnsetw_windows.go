@@ -306,7 +306,7 @@ func (w *DNSWatch) Askers(name string, arrived time.Time) []string {
 		if fresh || left <= 0 {
 			return apps
 		}
-		t := time.NewTimer(min(left, 20*time.Millisecond))
+		t := time.NewTimer(min(left, 40*time.Millisecond))
 		select {
 		case <-changed:
 		case <-t.C:
