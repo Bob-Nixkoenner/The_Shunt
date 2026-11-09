@@ -23,7 +23,12 @@ default_route = "direct"    # direct | block | tunnel:<name>
 # config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
 #                            # opsec level sets it) raises every finding one level; no tls-crypt
 #                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"
-#                            # become "bad", rules with route = "direct" become warnings
+#                            # become "bad", rules with route = "direct" become warnings.
+#                            # Linux, strict only: a starting program whose rule cannot be told
+#                            # apart at once (arguments, ports, after a domain/port rule) gets its
+#                            # first connections refused for up to 2 s instead of maybe taking
+#                            # the wrong route; programs that do not retry (curl, git) then fail
+#                            # that start
 # captive_check = true       # Linux: look for Wi-Fi login pages after every network change (plain
 #                            # HTTP to nmcheck.gnome.org, directly, past the tunnels). Default on,
 #                            # off with config_check = "strict"; true/false here always wins.

@@ -1,8 +1,10 @@
 # A10: app rules the start guard cannot mark exactly (a rule for every program
 # comes first, arguments): it holds their sockets (EPERM) until the watcher
-# has moved the program.
+# has moved the program. Holding is the opsec level only (config_check =
+# "strict"); race-mark.toml is the same without it (marks instead).
 [daemon]
 socket_group = "shunt"
+config_check = "strict"
 default_route = "direct"
 
 [tunnel.intern]
