@@ -554,11 +554,16 @@ func runCore(ctx context.Context, ready func()) error {
 
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
+	// a little later: the API call that changed the tunnels (reload, config,
+	// import) still gets its answer before the service goes down (MH08:
+	// the caller saw a broken connection and took the reload as failed)
 	m.Restart = func() {
-		select {
-		case restart <- struct{}{}:
-		default:
-		}
+		time.AfterFunc(300*time.Millisecond, func() {
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+		})
 	}
 	s := &winsvc.Server{Core: e, Warnings: func() []string {
 		clockMu.Lock()
