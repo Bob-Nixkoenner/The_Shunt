@@ -215,11 +215,17 @@ func (g *Guard) attachRawTracepoints(fd fds) error {
 		{"sched_process_fork", "shunt_fork_raw", forkRawInsns(fd, off)},
 		{"sched_process_exec", "shunt_exec_raw", execInsns(fd)},
 	} {
-		p, err := ebpf.NewProgram(&ebpf.ProgramSpec{Name: tp.prog, Type: ebpf.RawTracepoint, License: "Apache-2.0", Instructions: tp.insns})
+		license := "Apache-2.0"
+		if tp.name == "sched_process_fork" {
+			// bpf_probe_read_kernel (the child's pid) is GPL-only: this one
+			// program is dual licensed for the kernel (decided 09.11.2026)
+			license = "Dual MIT/GPL"
+		}
+		p, err := ebpf.NewProgram(&ebpf.ProgramSpec{Name: tp.prog, Type: ebpf.RawTracepoint, License: license, Instructions: tp.insns})
 		if err != nil && tp.name == "sched_process_fork" {
-			// bpf_probe_read_kernel is GPL-only: without it children
-			// inherit nothing (threads still count: sockets are matched by
-			// tgid; children that exec a program of a rule get its entry)
+			// still refused: children inherit nothing (threads still count:
+			// sockets are matched by tgid; children that exec a program of
+			// a rule get its entry)
 			g.Limited = fmt.Sprintf("raw tracepoints, children not inherited: %v", err)
 			continue
 		}

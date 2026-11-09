@@ -28,8 +28,9 @@ import (
 // process's token); a caller it cannot identify may only read.
 
 // DefaultManageGroup is the local group whose members may manage when
-// daemon.socket_group is empty.
-const DefaultManageGroup = "shunt"
+// daemon.socket_group is empty. Not "shunt": a local group cannot share its
+// name with a user account, and an account named like the program is common.
+const DefaultManageGroup = "The Shunt Managers"
 
 // Caller is the process on the other end of the API socket.
 type Caller struct {

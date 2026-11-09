@@ -38,6 +38,8 @@ for u in shuntd.service shunt-lockdown.service; do
 done
 install -m644 packaging/polkit/org.theshunt.policy "$P/usr/share/polkit-1/actions/"
 install -m644 packaging/shunt.toml.example "$P/usr/share/doc/the-shunt/shunt.toml.example"
+# reference copy: 'shuntd setup-tailscale' writes the same text (not active by default)
+install -m644 packaging/systemd/shuntd-tailscale.conf "$P/usr/share/doc/the-shunt/shuntd-tailscale.conf"
 install -m644 README.md LICENSE "$P/usr/share/doc/the-shunt/" 2>/dev/null || true
 cat >"$P/DEBIAN/control" <<EOF
 Package: the-shunt
@@ -180,6 +182,11 @@ EOF
 cat >"$P/DEBIAN/postrm" <<'EOF'
 #!/bin/sh
 set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+	# drop-in of 'shuntd setup-tailscale' (kept on upgrades)
+	rm -f /etc/systemd/system/shuntd.service.d/50-tailscale.conf
+	rmdir /etc/systemd/system/shuntd.service.d 2>/dev/null || true
+fi
 systemctl daemon-reload >/dev/null 2>&1 || true
 if [ "$1" = remove ] || [ "$1" = purge ]; then
 	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf

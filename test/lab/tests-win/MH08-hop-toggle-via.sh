@@ -20,7 +20,9 @@ if (-not (Select-String -Quiet -Pattern "^via = " C:\ProgramData\Shunt\shunt.tom
 foreach ($round in 1,2) {
   SetVia "# via entfernt"
   foreach ($i in 1,2,3) { & C:\lab\labtog.exe -s -m2 -o NUL "http://l$round$i-$c/" }
-  SetVia "via = `"tunnel:intern`""; Start-Sleep 4
-  if (-not (HopOk)) { "FAIL Runde ${round}: Hop traegt nach dem Zurueckschalten nicht" }
+  SetVia "via = `"tunnel:intern`""
+  # a tunnel change restarts the Windows service (about 15 s) before the hop shakes hands again
+  $ok = $false; foreach ($w in 1..10) { if (HopOk) { $ok = $true; break }; Start-Sleep 3 }
+  if (-not $ok) { "FAIL Runde ${round}: Hop traegt 30 s nach dem Zurueckschalten nicht" }
 }
 '
