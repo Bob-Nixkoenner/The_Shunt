@@ -64,6 +64,7 @@ func main() {
 	if isSvc, _ := svc.IsWindowsService(); isSvc {
 		cmd = "service"
 	}
+	winsplit.SetStateDir(filepath.Join(dataDir, "state"))
 	var err error
 	switch cmd {
 	case "service":
@@ -350,6 +351,11 @@ func runCore(ctx context.Context, ready func()) error {
 		nw := inNetwork.Load().(string)
 		want := c.QuietFor(nw)
 		quietBoot.Store(c.Daemon.Quiet == nil || *c.Daemon.Quiet)
+		if want { // at the source, also for adapters that appeared since
+			if err := winsplit.QuietSource(); err != nil {
+				log.Printf("quiet mode (registry): %v", err)
+			}
+		}
 		state := fmt.Sprintf("%v|%s", want, nw)
 		if state == quState {
 			return

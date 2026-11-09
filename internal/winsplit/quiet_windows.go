@@ -17,4 +17,7 @@ func EnableQuietBoot() error { return wfp.EnableQuiet() }
 
 // DisableQuiet removes the quiet-mode filters (also one left by an earlier
 // run). Safe to call when nothing is installed.
-func DisableQuiet() { _ = wfp.DisableQuiet() }
+func DisableQuiet() {
+	_ = wfp.DisableQuiet()
+	_ = QuietSourceRestore() // LLMNR/mDNS/NetBIOS registry values back
+}
