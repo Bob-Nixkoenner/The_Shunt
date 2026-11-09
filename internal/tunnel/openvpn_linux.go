@@ -39,7 +39,11 @@ type OpenVPN struct {
 	pending   []netip.Addr // from the last PUSH_REPLY, applied on connect
 	lastErr   string
 	proc      *os.Process
-	gen       int // counts connections, for watchStall
+	gen       int       // counts connections, for watchStall
+	watch     int       // counts watchStall runs: only the newest one acts
+	hostKey   string    // the machine's addresses at the last CheckNetwork
+	staleSeen bool      // CheckNetwork saw a gone source address once
+	netKick   time.Time // CheckNetwork's last restart
 
 	stop chan struct{}
 	done chan struct{}
@@ -208,7 +212,7 @@ func (o *OpenVPN) handleLine(l string) {
 		notify = true
 		o.log.Info("openvpn connected", "tunnel", o.spec.Name, "endpoint", o.endpoint, "dns", o.dns)
 		o.gen++
-		go o.watchStall(o.gen)
+		o.armStall()
 	case strings.Contains(l, "PUSH: Received control message:"):
 		o.pending = pushedDNS(l)
 	case strings.Contains(l, "Peer Connection Initiated with"):
@@ -248,6 +252,13 @@ var (
 	stallBytes = uint64(600)
 )
 
+// armStall starts a new watchStall for the current connection; an older
+// one still running stops. Caller holds o.mu.
+func (o *OpenVPN) armStall() {
+	o.watch++
+	go o.watchStall(o.gen, o.watch)
+}
+
 // watchStall restarts a connection that reports "connected" but carries
 // nothing: openvpn would notice only at its ping-restart (60 s with the usual
 // keepalive 10 60), and meanwhile every first DNS query and connection of the
@@ -255,7 +266,8 @@ var (
 // (tx) but not one came back (rx) since the connection was made. The first
 // answer, even from the health probe, ends the watch. SIGUSR1 restarts
 // openvpn inside its process (persist-tun keeps the interface).
-func (o *OpenVPN) watchStall(gen int) {
+// CheckNetwork arms it again after the machine's addresses changed.
+func (o *OpenVPN) watchStall(gen, watch int) {
 	rx0, tx0, ok := o.tunBytes()
 	if !ok {
 		return
@@ -269,7 +281,7 @@ func (o *OpenVPN) watchStall(gen int) {
 		case <-time.After(stallPoll):
 		}
 		o.mu.Lock()
-		cur, p := o.connected && o.gen == gen, o.proc
+		cur, p := o.connected && o.gen == gen && o.watch == watch, o.proc
 		o.mu.Unlock()
 		if !cur || p == nil {
 			return

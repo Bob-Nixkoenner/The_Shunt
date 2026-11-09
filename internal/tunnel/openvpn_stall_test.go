@@ -18,7 +18,7 @@ func TestWatchStallNoInterface(t *testing.T) {
 		stop: make(chan struct{}),
 	}
 	done := make(chan struct{})
-	go func() { o.watchStall(1); close(done) }()
+	go func() { o.watchStall(1, 1); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
