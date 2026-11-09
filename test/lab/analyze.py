@@ -218,6 +218,11 @@ def in_strict(t):
     return any(a <= t and (b is None or t <= b) for a, b in strict)
 
 
+# host: rules also match names resolved through the tunnel (the app asked there, then went direct)
+if allow_host and os.path.exists(p("ct130.pcap")):
+    for pkt in PcapReader(p("ct130.pcap")):
+        learn_names(pkt)
+
 if os.path.exists(p("gw.pcap")):
     for pkt in PcapReader(p("gw.pcap")):
         if Ether not in pkt:
