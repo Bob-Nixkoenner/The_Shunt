@@ -53,7 +53,7 @@ const (
 	eventTraceControlStop              = 1
 	eventTraceControlFlush             = 3
 	eventControlCodeEnable             = 1
-	traceLevelInformation              = 4
+	traceLevelVerbose                  = 5 // 3006 is information (4); verbose in case a build files it lower
 	processTraceModeRealTime           = 0x00000100
 	processTraceModeEventRecord        = 0x10000000
 	invalidProcessTraceHandle          = ^uint64(0)
@@ -213,7 +213,7 @@ func StartDNSWatch(app func(pid uint32) string, logf func(string)) (*DNSWatch, e
 		return nil, fmt.Errorf("StartTrace: %w", windows.Errno(r))
 	}
 	if r, _, _ := procEnableTraceEx2.Call(uintptr(w.session), uintptr(unsafe.Pointer(&dnsClientProvider)), eventControlCodeEnable,
-		traceLevelInformation, uintptr(allKeywords), 0, 0, 0); r != 0 {
+		traceLevelVerbose, uintptr(allKeywords), 0, 0, 0); r != 0 {
 		stopSession(w.session, nil)
 		return nil, fmt.Errorf("EnableTraceEx2: %w", windows.Errno(r))
 	}
