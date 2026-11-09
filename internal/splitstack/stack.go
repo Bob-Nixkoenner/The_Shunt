@@ -336,6 +336,7 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		if err != nil {
 			break
 		}
+		arrived := time.Now()
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
 			e.mu.RLock()
@@ -362,6 +363,15 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 				go e.resolveForRule(f, r, append([]byte(nil), buf[:n]...), in)
 				continue
 			}
+			if route, r, ok := e.askedRoute(f, q.Question[0].Name, arrived); ok {
+				query := append([]byte(nil), buf[:n]...)
+				if r != nil {
+					go e.resolveForRule(f, r, query, in)
+				} else {
+					go e.resolveOn(f, route, query, in, nil)
+				}
+				continue
+			}
 		}
 		if _, err := out.Write(buf[:n]); err != nil {
 			break
@@ -377,10 +387,53 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 }
 
 // resolveForRule sends one query for a domain rule's name over the rule's
-// route, remembers the addresses for the rule and answers the app. A route
-// that cannot be reached answers SERVFAIL: the name must not leak out on
-// the app's own route.
+// route, remembers the addresses for the rule and answers the app.
 func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
+	e.resolveOn(f, r.route, query, in, func(resp *dns.Msg) { e.domains.add(r.key, resp, time.Now()) })
+}
+
+// routeDNSWait is how long resolveOn waits for the answer.
+var routeDNSWait = 5 * time.Second
+
+// askedRoute picks the route for a query that a resolver sent on behalf of
+// other programs (Options.DNSAskers): the route of the program that asked,
+// when that is a tunnel or block other than the flow's own. So the names of
+// a Tor app go through Tor and those of an app whose tunnel is down go
+// nowhere, instead of out on the default route. A domain rule of the asking
+// program comes first (rule != nil then). Programs on the direct route keep
+// the flow's route: their names never go out in the clear because of this.
+func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route string, r *rule, ok bool) {
+	if e.o.DNSAskers == nil || f.app == "" {
+		return "", nil, false
+	}
+	for _, id := range e.o.DNSAskers(f.app, name, arrived) {
+		pinned, app := splitPinned(id)
+		if app == f.app && pinned == f.pinned {
+			continue
+		}
+		var rt string
+		dr := e.domainRule(app, name)
+		if dr != nil {
+			rt = dr.route
+		} else {
+			rt, _ = e.routeFor(app, pinned, 17, f.dst, true)
+		}
+		rt, _ = e.resolveLink(rt)
+		rt = e.ov.Route(rt, time.Now())
+		if rt == f.route || rt == RouteDirect {
+			continue
+		}
+		if rt == RouteBlock || strings.HasPrefix(rt, tunnelPref) {
+			return rt, dr, true
+		}
+	}
+	return "", nil, false
+}
+
+// resolveOn sends one query over route and answers the app (answered, if
+// not nil, sees the answer first). A route that cannot be reached answers
+// SERVFAIL, block REFUSED: the name must not leak out on the app's own route.
+func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, answered func(*dns.Msg)) {
 	var q dns.Msg
 	q.Unpack(query)
 	fail := func(rcode int) {
@@ -390,7 +443,7 @@ func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
 			in.Write(b)
 		}
 	}
-	rf := &flow{proto: 17, src: f.src, dst: f.dst, app: f.app, pinned: f.pinned, route: e.ov.Route(r.route, time.Now())}
+	rf := &flow{proto: 17, src: f.src, dst: f.dst, app: f.app, pinned: f.pinned, route: e.ov.Route(route, time.Now())}
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimout)
 	out, err := e.dial(ctx, rf)
 	cancel()
@@ -403,7 +456,7 @@ func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
 		return
 	}
 	defer out.Close()
-	out.SetDeadline(time.Now().Add(5 * time.Second))
+	out.SetDeadline(time.Now().Add(routeDNSWait))
 	if _, err := out.Write(query); err != nil {
 		fail(dns.RcodeServerFailure)
 		return
@@ -419,7 +472,9 @@ func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
 		if resp.Unpack(buf[:n]) != nil || resp.Id != q.Id {
 			continue
 		}
-		e.domains.add(r.key, &resp, time.Now())
+		if answered != nil {
+			answered(&resp)
+		}
 		in.Write(buf[:n])
 		return
 	}

@@ -100,6 +100,10 @@ func (o *Owners) Owner(proto int, src, _ netip.AddrPort) string {
 	return o.path(pid)
 }
 
+// App returns the app ID of a process (as Owner does for its connections),
+// "" if it cannot be read.
+func (o *Owners) App(pid uint32) string { return o.path(pid) }
+
 func (o *Owners) path(pid uint32) string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
