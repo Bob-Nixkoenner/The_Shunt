@@ -238,6 +238,13 @@ func StartDNSWatch(app func(pid uint32) string, logf func(string)) (*DNSWatch, e
 	return w, nil
 }
 
+// StopDNSWatchSession ends the ETW session of a watch that is not running
+// any more (the service crashed); nothing happens when there is none.
+func StopDNSWatchSession() {
+	name, _ := windows.UTF16PtrFromString(etwSessionName)
+	stopSession(0, name)
+}
+
 func stopSession(h uint64, name *uint16) {
 	tp := newTraceProps()
 	procControlTraceW.Call(uintptr(h), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(tp)), eventTraceControlStop)

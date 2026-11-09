@@ -386,6 +386,9 @@ if [[ $MODE == uninstall ]]; then
 		rm -f "$NM_PRIVACY" && ok "network privacy settings removed"
 		nmcli general reload conf >/dev/null 2>&1 || true
 	fi
+	# drop-in of 'shuntd setup-tailscale'
+	rm -f /etc/systemd/system/shuntd.service.d/50-tailscale.conf
+	rmdir /etc/systemd/system/shuntd.service.d 2>/dev/null || true
 	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt" "$BIN_DIR/shunt-desktop" "$DESKTOP_ENTRY" "$DESKTOP_ICON"
 	if [[ -n ${SUDO_USER:-} ]]; then rm -f "$(user_home "$SUDO_USER")/.config/autostart/the-shunt.desktop"; fi
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
@@ -475,6 +478,13 @@ find_release() { # -> sets tag (empty: build from source) and why
 	fi
 	if ((FROM_SOURCE)); then
 		why="--from-source"
+		return
+	fi
+	if [[ -n ${SHUNT_RELEASE_INSTALLER:-} ]]; then
+		# started for exactly this signed release (by the app's update or an
+		# older installer): its signed files or nothing - never fall back to
+		# an unsigned source build when the release list cannot be read
+		tag=$REF
 		return
 	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }

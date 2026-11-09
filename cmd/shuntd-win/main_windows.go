@@ -73,7 +73,13 @@ func main() {
 		setupLog()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		err = runCore(ctx, nil)
+		for {
+			// nil without ctx ending = restart requested: again
+			if err = runCore(ctx, nil); err != nil || ctx.Err() != nil {
+				break
+			}
+			log.Print("restarting")
+		}
 	case "install":
 		err = install()
 	case "uninstall":
@@ -98,6 +104,9 @@ func main() {
 	default:
 		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|allow-user [USER]|start|stop|run|killswitch-off|version")
 		os.Exit(2)
+	}
+	if dnsWatchRun != nil { // the ETW session would outlive the process
+		dnsWatchRun.Close()
 	}
 	if err != nil {
 		log.Printf("%s failed: %v", cmd, err)
@@ -181,14 +190,51 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 				return false, 0
 			}
 		case err := <-done: // stopped by the API (restart) or died
-			cancel()
 			if err != nil {
+				cancel()
 				log.Printf("stopped: %v", err)
 				return false, 1 // non-zero: the recovery action restarts the service
 			}
-			return false, 1 // /v1/restart: also exit with an error so the SCM restarts us
+			// restart requested (/v1/restart, changed tunnels): bring
+			// everything up again in this process. Exiting with an error for
+			// the SCM to restart us took 5 s more and put an "ended
+			// unexpectedly" event (7031) in the log every time. A failing
+			// start still ends the service with an error (recovery).
+			log.Print("restarting")
+			ch := make(chan error, 1)
+			done = ch
+			go func() { ch <- runCore(ctx, nil) }()
 		}
 	}
+}
+
+// Windows' DNS client service sends the lookups of every program: its events
+// tell which program asked, so a name takes that program's route (Tor, its
+// own tunnel, blocked) instead of the default route. One watch for the whole
+// process: Windows needs a few seconds before its events flow, and a restart
+// in the process (changed tunnels) keeps it running.
+var (
+	dnsWatchOnce sync.Once
+	dnsWatchRun  *winsplit.DNSWatch              // nil: not available (logged)
+	dnsOwners    atomic.Pointer[winsplit.Owners] // of the running core
+)
+
+func startDNSWatch() *winsplit.DNSWatch {
+	dnsWatchOnce.Do(func() {
+		w, err := winsplit.StartDNSWatch(func(pid uint32) string {
+			if o := dnsOwners.Load(); o != nil {
+				return o.App(pid)
+			}
+			return ""
+		}, func(s string) { log.Print(s) })
+		if err != nil {
+			log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
+			return
+		}
+		dnsWatchRun = w
+		log.Print("DNS askers: watching which program asks (DNS client events)")
+	})
+	return dnsWatchRun
 }
 
 // runCore brings everything up and blocks until ctx ends or the API asks for
@@ -197,22 +243,21 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
+	// ProgramData grants every user read and create rights by default: the
+	// tunnel keys, shunt.toml and the log would be open to any local user
+	// (OWASP T7). SYSTEM and Administrators only, also for files that were
+	// there before (upgrades, files copied in by hand). The API socket is
+	// made below and opened to users on its own (grantUsers); reaching it
+	// needs no rights on the directory (traverse checking is bypassed for
+	// everyone by default).
+	lockDataDir(dataDir)
 	// processes started in a route (shunt-desktop run --via): kept across restarts
 	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
 	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
 	jobs.Load()
 	owners := winsplit.NewOwners(jobs)
-	// Windows' DNS client service sends the lookups of every program: its
-	// events tell which program asked, so a name takes that program's route
-	// (Tor, its own tunnel, blocked) instead of the default route. Started
-	// first: Windows needs a few seconds before the events flow.
-	dnsWatch, err := winsplit.StartDNSWatch(owners.App, func(s string) { log.Print(s) })
-	if err != nil {
-		log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
-	} else {
-		defer dnsWatch.Close()
-		log.Print("DNS askers: watching which program asks (DNS client events)")
-	}
+	dnsOwners.Store(owners)
+	dnsWatch := startDNSWatch() // before anything else: Windows needs a few seconds
 	// The kill switch follows [daemon] kill_switch at once, also when edited
 	// in the window. It needs the adapter's LUID, so it goes on once the
 	// adapter is up; until then the persistent filters of an earlier run keep
@@ -564,11 +609,16 @@ func runCore(ctx context.Context, ready func()) error {
 
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
+	// a little later: the API call that changed the tunnels (reload, config,
+	// import) still gets its answer before the service goes down (MH08:
+	// the caller saw a broken connection and took the reload as failed)
 	m.Restart = func() {
-		select {
-		case restart <- struct{}{}:
-		default:
-		}
+		time.AfterFunc(300*time.Millisecond, func() {
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+		})
 	}
 	s := &winsvc.Server{Core: e, Warnings: func() []string {
 		clockMu.Lock()
@@ -725,6 +775,18 @@ func lockDown(dir string) {
 	}
 }
 
+// lockDataDir locks dir down (lockDown) and makes everything below it
+// inherit from it only, dropping rights granted to users on single files.
+func lockDataDir(dir string) {
+	lockDown(dir)
+	if ents, _ := os.ReadDir(dir); len(ents) == 0 {
+		return // nothing below it yet (icacls would complain about "*")
+	}
+	if out, err := exec.Command("icacls", filepath.Join(dir, "*"), "/reset", "/T", "/C", "/Q").CombinedOutput(); err != nil {
+		log.Printf("icacls %s: %v: %s", dir, err, out)
+	}
+}
+
 func install() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -771,11 +833,13 @@ func uninstall() error {
 	winsplit.DisableKillSwitch()
 	winsplit.DisableDNSGuard()
 	winsplit.DisableQuiet()
-	return control(func(s *mgr.Service) error {
+	err := control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)
 		return s.Delete()
 	})
+	winsplit.StopDNSWatchSession() // left over if the service ever crashed
+	return err
 }
 
 func control(f func(*mgr.Service) error) error {

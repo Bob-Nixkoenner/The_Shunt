@@ -453,10 +453,18 @@ func (e *Engine) reconnect(t *wgTunnel) error {
 	if err := t.dev.BindUpdate(); err != nil {
 		return err
 	}
-	if e.o.BindUp != nil {
-		return e.o.BindUp(t.dev.Bind())
+	return e.bindUp(t)
+}
+
+// bindUp hands a tunnel's freshly opened sockets to Options.BindUp (Windows:
+// pin them to the physical interface). A multi-hop tunnel (viaName) has no
+// sockets of its own, its Bind lives in the carrier's netstack: nothing to
+// pin, and BindUp would refuse it ("cannot be pinned to an interface").
+func (e *Engine) bindUp(t *wgTunnel) error {
+	if e.o.BindUp == nil || t.viaName != "" {
+		return nil
 	}
-	return nil
+	return e.o.BindUp(t.dev.Bind())
 }
 
 // tsStatus: a Tailscale tunnel is "up" once it is on the tailnet (and, with

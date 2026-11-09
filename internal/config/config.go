@@ -241,7 +241,9 @@ type Daemon struct {
 	// level sets it) raises every finding one level and makes the hints
 	// that matter for leaving no traces findings of their own: an OpenVPN
 	// file without tls-crypt, DNS that can go past the tunnel, everything
-	// else going direct, rules that send traffic direct.
+	// else going direct, rules that send traffic direct. Linux: with
+	// "strict" the eBPF start guard holds (refuses) the first sockets of
+	// programs it cannot mark exactly (engine.Plan.StartGuard).
 	ConfigCheck string `toml:"config_check,omitempty" json:"config_check,omitempty"`
 }
 

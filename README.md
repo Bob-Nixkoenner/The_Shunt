@@ -155,7 +155,8 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   pushed DNS servers are used for that route)
 - **Tailscale / Headscale tunnels**: a `NAME.ts` file (`login_server`, `auth_key`, optional
   `exit_node`) – on Linux Shunt runs its own `tailscaled` in a private network namespace
-  (needs `tailscaled`/`tailscale` installed), on Windows it uses Tailscale's userspace client
+  (needs `tailscaled`/`tailscale` installed, and once `sudo shuntd setup-tailscale`: the
+  service is not allowed network namespaces by default), on Windows it uses Tailscale's userspace client
   inside the service. With an exit node everything routed into the tunnel leaves through it
   (IPv4 only); without one only the tailnet is reachable. Not on Android yet
 - **Multi-hop**: `via = "tunnel:home"` sends a tunnel's encrypted packets through
