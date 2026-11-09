@@ -480,6 +480,13 @@ find_release() { # -> sets tag (empty: build from source) and why
 		why="--from-source"
 		return
 	fi
+	if [[ -n ${SHUNT_RELEASE_INSTALLER:-} ]]; then
+		# started for exactly this signed release (by the app's update or an
+		# older installer): its signed files or nothing - never fall back to
+		# an unsigned source build when the release list cannot be read
+		tag=$REF
+		return
+	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
 	asset() { curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$1/$2" 2>/dev/null; }
 	local t
