@@ -13,6 +13,8 @@
 #   RENEW [0]                 1 = reconnect the client's network while capturing
 #   SCAN [0]                  1 = nmap the client from the gateway while it runs
 #   EXPECT_OPEN=()            ports that may be open in the scan ("22/tcp")
+#   ENDPOINTS=()              tunnel endpoints (ip:port/proto) beyond LAB_ENDPOINTS,
+#                             e.g. a TCP server only this test uses
 #   NETEM                     tc netem args on the lab LAN during the test
 #   SETTLE [3]                seconds to wait after setup before the client script
 #   PREP                      bash run in the client before the config is applied (extra files)
@@ -150,7 +152,7 @@ run_test() {
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
 	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel HOP_BADKEY=0 RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
-	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP='' EXIT_IF='' EXIT_NET=''
+	ALLOW=() CHECKS=() EXPECT_OPEN=() ENDPOINTS=() PREP='' EXIT_IF='' EXIT_NET=''
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
@@ -255,7 +257,7 @@ json.dump({
              if __import__("os").path.exists(f)), 8),
  "checks": [$(jarr "${CHECKS[@]}")],
  "expect_open": [$(jarr "${EXPECT_OPEN[@]}")],
- "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))'),
+ "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))') + [$(jarr "${ENDPOINTS[@]}")],
  "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$tun_ip",
  "shunt_version": "$ver", "started": "$stamp", "note": """$NOTE""",
  # LABMARK strict_from/strict_until <epoch> lines in the client output: the strict
