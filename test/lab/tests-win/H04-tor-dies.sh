@@ -23,11 +23,17 @@ if (-not $p) { "FAIL kein tor.exe gefunden" } else {
   [void][Lab.Nt]::NtResumeProcess($p.Handle)
 }
 AllowRelays
+# the service starts tor.exe again after 5 s: check 1.1.1.1 first, while it is surely down
 Stop-Process -Name tor -Force -ErrorAction SilentlyContinue; "tor beendet $(Get-Date -Format HH:mm:ss.fff)"; Start-Sleep 1
-& C:\lab\labtun.exe -s -m6 -o NUL "http://k-$c/"; if ($LASTEXITCODE -eq 0) { "FAIL Canary erreichbar nach tor-Ende" }
 $t0 = Get-Date -Format HH:mm:ss.fff
-$w = & C:\lab\labtun.exe -s -m6 -o NUL -w "http=%{http_code} ip=%{remote_ip}:%{remote_port} connect=%{time_connect}s total=%{time_total}s" http://1.1.1.1/; $rc = $LASTEXITCODE
+$w = & C:\lab\labtun.exe -s -m3 -o NUL -w "http=%{http_code} ip=%{remote_ip}:%{remote_port} connect=%{time_connect}s total=%{time_total}s" http://1.1.1.1/; $rc = $LASTEXITCODE
 "1.1.1.1 nach tor-Ende ab $t0 : rc=$rc $w"
-if ($rc -eq 0) { "FAIL 1.1.1.1 erreichbar nach tor-Ende"; $s = (Api /v1/status) | ConvertFrom-Json -ErrorAction SilentlyContinue; $s.tunnels | Where-Object { $_.name -eq "tor" } | ForEach-Object { "Tor-Status: up=$($_.up) bootstrap=$($_.bootstrap) error=$($_.error)" }; Get-Process tor -ErrorAction SilentlyContinue | ForEach-Object { "tor.exe pid $($_.Id) seit $(Get-Date $_.StartTime -Format HH:mm:ss.fff)" } }
+if ($rc -eq 0) {
+  $np = Get-Process tor -ErrorAction SilentlyContinue | Select-Object -First 1
+  $s = (Api /v1/status) | ConvertFrom-Json -ErrorAction SilentlyContinue; $s.tunnels | Where-Object { $_.name -eq "tor" } | ForEach-Object { "Tor-Status: up=$($_.up) bootstrap=$($_.bootstrap) error=$($_.error)" }
+  # reached through the restarted tor.exe = through Tor (the captures check that nothing went elsewhere)
+  if ($np) { "Hinweis: 1.1.1.1 ueber das neu gestartete tor.exe erreicht (pid $($np.Id) seit $(Get-Date $np.StartTime -Format HH:mm:ss.fff))" } else { "FAIL 1.1.1.1 erreichbar nach tor-Ende" }
+}
+& C:\lab\labtun.exe -s -m6 -o NUL "http://k-$c/"; if ($LASTEXITCODE -eq 0) { "FAIL Canary erreichbar nach tor-Ende" }
 Start-Sleep 15; if (-not (TorReady)) { "FAIL tor startet nicht wieder" }
 '
