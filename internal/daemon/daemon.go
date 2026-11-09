@@ -77,6 +77,7 @@ type Daemon struct {
 	filter      *blocklist.Manager
 	watcher     AppWatcher
 	startWarned bool       // the eBPF start guard failed (logged once)
+	startLogged bool       // the eBPF start guard loaded (logged once)
 	startErr    error      // why the eBPF start guard is not loaded (status note)
 	saveMu      sync.Mutex // serializes config writes
 	dnsUps      dnsproxy.RouteUpstreams
@@ -876,6 +877,9 @@ func (d *Daemon) reload(selfCgroup string) error {
 			d.startWarned = true
 			d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
 		}
+	} else if !d.startLogged && d.Backend.StartGuardStats() != nil {
+		d.startLogged = true
+		d.Log.Info("eBPF start guard loaded", "programs", len(p.Plan.StartGuard()))
 	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
