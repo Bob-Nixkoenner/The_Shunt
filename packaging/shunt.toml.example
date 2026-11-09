@@ -39,6 +39,13 @@ default_route = "direct"    # direct | block | tunnel:<name>
 config = "/etc/shunt/tunnels/vps.conf"
 # driver = "auto"           # auto | kernel | userspace
 
+# Tailscale/Headscale: a NAME.ts file (login_server, auth_key, optional exit_node), Shunt runs
+# its own tailscaled in a network namespace. The service may not create namespaces by
+# default: allow it once with `sudo shuntd setup-tailscale` (undo: --off).
+# [tunnel.tail]
+# config = "/etc/shunt/tunnels/tail.ts"
+# driver = "tailscale"       # set by `shunt import` / the window for a .ts file
+
 # DNS filter: blocklists inside Shunt (lists: github.com/RPiList/specials – thanks!).
 # Without this section the built-in lists apply, see docs/DNS-LISTS.md. Levels can also
 # be set per tunnel, per [[network]] and per [[rule]] (dns_filter = "off|low|normal|paranoid").
