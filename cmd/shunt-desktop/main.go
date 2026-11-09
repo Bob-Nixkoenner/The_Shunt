@@ -80,9 +80,9 @@ func main() {
 	}
 	// a fixed port keeps the page's origin (and with it the saved UI
 	// settings) the same across restarts; a taken port falls back to a random one
-	ln, url, err := srv.Listen(uiPort)
+	ln, _, err := srv.Listen(uiPort)
 	if err != nil {
-		ln, url, err = srv.Listen(0)
+		ln, _, err = srv.Listen(0)
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -95,7 +95,14 @@ func main() {
 		first := false
 		loadOnce.Do(func() { first = true })
 		if first {
-			windowShow(url) // carries the one-time token; the UI then uses its cookie
+			// a fresh one-time token (the window may first open hours
+			// after start); the UI then uses its session cookie
+			url, err := srv.LoginURL()
+			if err != nil {
+				log.Print(err)
+				url = ""
+			}
+			windowShow(url)
 		} else {
 			windowShow("")
 		}
