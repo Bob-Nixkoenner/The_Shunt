@@ -197,6 +197,14 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
+	// ProgramData grants every user read and create rights by default: the
+	// tunnel keys, shunt.toml and the log would be open to any local user
+	// (OWASP T7). SYSTEM and Administrators only, also for files that were
+	// there before (upgrades, files copied in by hand). The API socket is
+	// made below and opened to users on its own (grantUsers); reaching it
+	// needs no rights on the directory (traverse checking is bypassed for
+	// everyone by default).
+	lockDataDir(dataDir)
 	// The kill switch follows [daemon] kill_switch at once, also when edited
 	// in the window. It needs the adapter's LUID, so it goes on once the
 	// adapter is up; until then the persistent filters of an earlier run keep
@@ -703,6 +711,18 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 // private keys.
 func lockDown(dir string) {
 	if out, err := exec.Command("icacls", dir, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F").CombinedOutput(); err != nil {
+		log.Printf("icacls %s: %v: %s", dir, err, out)
+	}
+}
+
+// lockDataDir locks dir down (lockDown) and makes everything below it
+// inherit from it only, dropping rights granted to users on single files.
+func lockDataDir(dir string) {
+	lockDown(dir)
+	if ents, _ := os.ReadDir(dir); len(ents) == 0 {
+		return // nothing below it yet (icacls would complain about "*")
+	}
+	if out, err := exec.Command("icacls", filepath.Join(dir, "*"), "/reset", "/T", "/C", "/Q").CombinedOutput(); err != nil {
 		log.Printf("icacls %s: %v: %s", dir, err, out)
 	}
 }
