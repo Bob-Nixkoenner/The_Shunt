@@ -97,6 +97,7 @@ install_tunnel_file() { # $1 = local file, $2 = name in /etc/shunt/tunnels (copi
 	if [[ $(client "sudo -n sha256sum /etc/shunt/tunnels/$2 2>/dev/null | cut -c1-16") != "$want" ]]; then
 		VBoxManage "${GC[@]}" copyto "$1" "/tmp/$2"
 		client "sudo -n install -m600 /tmp/$2 /etc/shunt/tunnels/$2"
+		TUNNEL_FILE_CHANGED=1 # shuntd reads tunnel files at start: restart even if shunt.toml is unchanged
 	fi
 }
 
@@ -126,9 +127,13 @@ apply_config() { # $1 = config name; restarts shuntd only when it changed
 	if grep -q 'tunnels/hop' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_hop "$1" || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
 	if [[ $(client "sudo -n sha256sum /etc/shunt/shunt.toml | cut -c1-16") != "$want" ]]; then
+		TUNNEL_FILE_CHANGED=1
+	fi
+	if [[ ${TUNNEL_FILE_CHANGED:-0} == 1 ]]; then
 		VBoxManage "${GC[@]}" copyto "$HERE/configs/$1.toml" /tmp/shunt.toml
 		client "sudo -n install -m644 /tmp/shunt.toml /etc/shunt/shunt.toml && sudo -n systemctl restart shuntd && sleep 4"
 	fi
+	TUNNEL_FILE_CHANGED=0
 }
 
 renew_client() {
