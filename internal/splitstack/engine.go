@@ -616,10 +616,8 @@ func (e *Engine) NetworkChanged() {
 			e.logf("tunnel %s: rebind: %v", t.name, err)
 			continue
 		}
-		if e.o.BindUp != nil {
-			if err := e.o.BindUp(t.dev.Bind()); err != nil {
-				e.logf("tunnel %s: %v", t.name, err)
-			}
+		if err := e.bindUp(t); err != nil {
+			e.logf("tunnel %s: %v", t.name, err)
 		}
 	}
 }
@@ -648,10 +646,8 @@ func (e *Engine) Resumed() {
 			e.logf("tunnel %s: up: %v", t.name, err)
 			continue
 		}
-		if e.o.BindUp != nil {
-			if err := e.o.BindUp(t.dev.Bind()); err != nil {
-				e.logf("tunnel %s: %v", t.name, err)
-			}
+		if err := e.bindUp(t); err != nil {
+			e.logf("tunnel %s: %v", t.name, err)
 		}
 		n++
 	}
