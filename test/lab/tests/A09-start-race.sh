@@ -2,7 +2,7 @@ ID=A09
 TITLE="Start-Wettlauf: frisch gestartete Tunnel-App, erster Socket sofort nach exec, nie direkt"
 CONFIG=direct
 EXPECT_CANARY=tunnel
-ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:140.211.169.0/24:80/tcp net:0.0.0.0/0:123/udp net:::/0:123/udp comm:apt comm:http comm:NetworkManager comm:isahc-agent comm:systemd-timesyn comm:systemd-timesyncd net:185.199.108.0/22:443/tcp net:2606:50c0::/32:443/tcp host:.pop-os.org:80/tcp host:api.pop-os.org:443/tcp) # default route direct: connectivity check and NTP of the distro
+ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46:80/tcp net:185.125.188.0/22:80/tcp net:91.189.88.0/21:80/tcp net:140.211.169.0/24:80/tcp net:0.0.0.0/0:123/udp net:::/0:123/udp comm:apt comm:http comm:NetworkManager comm:isahc-agent comm:systemd-timesyn comm:systemd-timesyncd net:185.199.108.0/22:443/tcp net:2606:50c0::/32:443/tcp host:.pop-os.org:80/tcp host:api.pop-os.org:443/tcp host:.fedoraproject.org:80/tcp) # default route direct: connectivity check and NTP of the distro
 NOTE="Standardweg direkt, labtun*/labtun-dig in den Tunnel. Jede Runde ein neuer Prozess, der sofort nach exec einen Socket öffnet (dig: aus einem eigenen Thread; labtun-sh: Kind vor dem Verschieben). Erwartung: kein Paket von labtun* am Lab-Gateway; shunt status --json zeigt start_guard.marked > 0. Ohne eBPF-Startschutz (Warnung in shunt check) ist ein Fund hier erwartet."
 CLIENT='
 for i in $(seq 40); do
