@@ -147,6 +147,17 @@ func Config(c *config.Config, env Env) []Finding {
 	if env.linux() && (c.Daemon.MAC == "" || c.Daemon.DHCPHostname == "") {
 		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac or daemon.dhcp_hostname is switched off with an empty value).", "daemon.mac")
 	}
+	if env.linux() && c.Daemon.MAC == config.MACRandom {
+		trusted := false
+		for _, n := range c.Networks {
+			if n.Trusted() {
+				trusted = true
+			}
+		}
+		if !trusted {
+			add(Info, "stealth.home", "The disguise also applies at home: this computer gets a new MAC address on every connection, and a router with an address reservation or MAC filter will not recognise it. Add your home network as a profile with the real MAC address (mac = \"permanent\").", "network")
+		}
+	}
 	if env.Windows {
 		if c.Daemon.MAC == "" || c.Daemon.MAC == config.MACPermanent {
 			add(Info, "stealth.unset", "In foreign networks your real Wi-Fi MAC address is visible (daemon.mac is empty or permanent; Windows' random hardware addresses are not switched on).", "daemon.mac")
