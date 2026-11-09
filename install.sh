@@ -101,6 +101,9 @@ _de() {
 	'could not download the checksums of release %s') printf %s 'Prüfsummen von Release %s konnten nicht geladen werden' ;;
 	'release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)') printf %s 'Release %s: install.sh passt nicht zur signierten Prüfsumme – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die Signatur von SHA256SUMS ist falsch – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'release %s: its signed checksums belong to release %s - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen gehören zu Release %s – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'release %s: its signed checksums do not name the release - an old release under a new name? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen nennen kein Release – ein altes Release unter neuem Namen? (daraus wurde nichts installiert)' ;;
+	'release %s: older release, its signed checksums do not name the release') printf %s 'Release %s: älteres Release, die signierten Prüfsummen nennen das Release nicht' ;;
 	'Dry run - this is what the installer would do (nothing is changed)') printf %s 'Probelauf – das würde der Installer tun (es wird nichts geändert)' ;;
 	'Installing dependencies') printf %s 'Abhängigkeiten werden installiert' ;;
 	'updating package lists (apt)') printf %s 'Paketlisten werden aktualisiert (apt)' ;;
@@ -126,6 +129,11 @@ _de() {
 	'checksum mismatch - download corrupted or tampered with') printf %s 'Prüfsumme stimmt nicht – Download beschädigt oder manipuliert' ;;
 	'checksum verified') printf %s 'Prüfsumme stimmt' ;;
 	'checksum mismatch (desktop app)') printf %s 'Prüfsumme stimmt nicht (Desktop-App)' ;;
+	'could not download the service files of release %s') printf %s 'Dienst-Dateien von Release %s konnten nicht geladen werden' ;;
+	'checksum mismatch (service files)') printf %s 'Prüfsumme stimmt nicht (Dienst-Dateien)' ;;
+	'release %s has no signed service files - using the ones of %s') printf %s 'Release %s hat keine signierten Dienst-Dateien – nehme die aus %s' ;;
+	'release %s has no signed service files (systemd units, polkit policy) - nothing is downloaded unsigned; install it with its own installer') printf %s 'Release %s hat keine signierten Dienst-Dateien (systemd-Units, polkit-Regel) – unsigniert wird nichts geladen; installiere es mit seinem eigenen Installer' ;;
+	'%s is missing (neither in the signed release files nor in the source checkout)') printf %s '%s fehlt (weder in den signierten Release-Dateien noch im Quelltext)' ;;
 	'no prebuilt desktop app for %s in this release - skipping it (build from source with --from-source)') printf %s 'keine fertige Desktop-App für %s in diesem Release – wird übersprungen (aus dem Quelltext bauen mit --from-source)' ;;
 	'%s - building from source') printf %s '%s – wird aus dem Quelltext gebaut' ;;
 	'Building from source (%s)') printf %s 'Bauen aus dem Quelltext (%s)' ;;
@@ -541,6 +549,47 @@ fetch_sums() {
 	ssh-keygen -Y verify -f "$WORK/allowed_signers" -I "${RELEASE_SIGNER%% *}" -n "$RELEASE_NS" \
 		-s "$WORK/SHA256SUMS.sig" <"$WORK/SHA256SUMS" >>"$LOG" 2>&1 ||
 		die "release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)" "$tag"
+	# the signed list names its release ("# tag <tag>", releases from
+	# v0.7.1-rc24 on): an old signed release published again under a newer
+	# tag is refused. A list without the line (older releases) is only
+	# accepted for a tag the user named (SHUNT_REF=<tag>), never for the
+	# newest release picked here or for a release's own installer.
+	local signed
+	signed=$(sed -n 's/^# tag //p' "$WORK/SHA256SUMS")
+	if [[ -n $signed ]]; then
+		[[ $signed == "$tag" ]] ||
+			die "release %s: its signed checksums belong to release %s - download tampered with? (nothing was installed from it)" "$tag" "${signed//$'\n'/ }"
+	elif [[ $REF == "$tag" && -z ${SHUNT_RELEASE_INSTALLER:-} ]]; then
+		warn "release %s: older release, its signed checksums do not name the release" "$tag"
+	else
+		die "release %s: its signed checksums do not name the release - an old release under a new name? (nothing was installed from it)" "$tag"
+	fi
+}
+
+# fetch_extras: the service files of release $tag (fetch_sums ran) into
+# PKG_DIR: its signed shunt_linux_extras.tar.gz; a release without it
+# (older) only with the files of the source checkout this installer runs from
+fetch_extras() {
+	if grep -q " shunt_linux_extras.tar.gz\$" "$WORK/SHA256SUMS"; then
+		curl -fsSLo "$WORK/extras.tar.gz" "https://github.com/$REPO/releases/download/$tag/shunt_linux_extras.tar.gz" ||
+			die "could not download the service files of release %s" "$tag"
+		(cd "$WORK" && grep " shunt_linux_extras.tar.gz\$" SHA256SUMS | sed "s/shunt_linux_extras.tar.gz/extras.tar.gz/" | sha256sum -c --quiet) ||
+			die "checksum mismatch (service files)"
+		PKG_DIR=$WORK/packaging
+		rm -rf "$PKG_DIR"
+		mkdir -p "$PKG_DIR" && tar -xzf "$WORK/extras.tar.gz" -C "$PKG_DIR" --no-same-owner
+	elif [[ -f $SRC_DIR/packaging/systemd/shuntd.service ]]; then
+		PKG_DIR=$SRC_DIR/packaging
+		warn "release %s has no signed service files - using the ones of %s" "$tag" "$SRC_DIR"
+	else
+		die "release %s has no signed service files (systemd units, polkit policy) - nothing is downloaded unsigned; install it with its own installer" "$tag"
+	fi
+}
+check_extras() {
+	local f
+	for f in systemd/shuntd.service systemd/shunt-lockdown.service polkit/org.theshunt.policy desktop/the-shunt.desktop desktop/the-shunt.svg; do
+		[[ -f $PKG_DIR/$f ]] || die "%s is missing (neither in the signed release files nor in the source checkout)" "packaging/$f"
+	done
 }
 
 # before any question: a release is installed by its own installer
@@ -675,6 +724,12 @@ else
 	build_from "$WORK/src"
 	SRC_DIR=$WORK/src
 fi
+# systemd units, desktop entry and polkit policy run or decide as root: from
+# a release only its signed file shunt_linux_extras.tar.gz (or the files of
+# the source checkout this installer runs from), never downloaded unsigned
+PKG_DIR=$SRC_DIR/packaging
+[[ -z $tag ]] || fetch_extras
+check_extras
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
 if [[ -f $WORK/bin/lyrebird ]]; then
 	install -d /usr/local/libexec/shunt
@@ -686,15 +741,6 @@ fi
 # sudo's secure_path does not include /usr/local/bin everywhere (Kali)
 ln -sf "$BIN_DIR/shuntd" /usr/sbin/shuntd
 ok "installed %s to %s" "$("$BIN_DIR/shuntd" version)" "$BIN_DIR"
-
-unit_src() { # file name -> path of packaged unit (or download)
-	if [[ -f $SRC_DIR/packaging/systemd/$1 ]]; then
-		echo "$SRC_DIR/packaging/systemd/$1"
-	else
-		curl -fsSLo "$WORK/$1" "https://raw.githubusercontent.com/$REPO/$REF/packaging/systemd/$1"
-		echo "$WORK/$1"
-	fi
-}
 
 # ---------------------------------------------------------------- config
 say "Configuration"
@@ -857,15 +903,11 @@ ok "configuration valid"
 
 # ---------------------------------------------------------------- service
 say "Starting the service"
-install -m644 "$(unit_src shuntd.service)" "$UNIT"
-install -m644 "$(unit_src shunt-lockdown.service)" "$LOCKDOWN_UNIT"
+install -m644 "$PKG_DIR/systemd/shuntd.service" "$UNIT"
+install -m644 "$PKG_DIR/systemd/shunt-lockdown.service" "$LOCKDOWN_UNIT"
 if [[ -x $BIN_DIR/shunt-desktop ]]; then
-	for f in the-shunt.desktop the-shunt.svg; do
-		if [[ -f $SRC_DIR/packaging/desktop/$f ]]; then cp "$SRC_DIR/packaging/desktop/$f" "$WORK/$f"; else
-			curl -fsSLo "$WORK/$f" "https://raw.githubusercontent.com/$REPO/$REF/packaging/desktop/$f"; fi
-	done
-	install -D -m644 "$WORK/the-shunt.desktop" "$DESKTOP_ENTRY"
-	install -D -m644 "$WORK/the-shunt.svg" "$DESKTOP_ICON"
+	install -D -m644 "$PKG_DIR/desktop/the-shunt.desktop" "$DESKTOP_ENTRY"
+	install -D -m644 "$PKG_DIR/desktop/the-shunt.svg" "$DESKTOP_ICON"
 	gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
 	if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && yes_no "Show the tray icon automatically after login?" y; then
 		h=$(user_home "$SUDO_USER")
@@ -875,12 +917,7 @@ if [[ -x $BIN_DIR/shunt-desktop ]]; then
 	fi
 	ok "desktop app installed: menu entry \"The Shunt\""
 fi
-if [[ -f $SRC_DIR/packaging/polkit/org.theshunt.policy ]]; then
-	install -D -m644 "$SRC_DIR/packaging/polkit/org.theshunt.policy" "$POLKIT_POLICY"
-else
-	curl -fsSLo "$WORK/org.theshunt.policy" "https://raw.githubusercontent.com/$REPO/$REF/packaging/polkit/org.theshunt.policy"
-	install -D -m644 "$WORK/org.theshunt.policy" "$POLKIT_POLICY"
-fi
+install -D -m644 "$PKG_DIR/polkit/org.theshunt.policy" "$POLKIT_POLICY"
 systemctl daemon-reload
 systemctl enable -q shuntd.service
 # boot lockdown: shuntd lockdown decides at boot from daemon.boot_lockdown

@@ -14,7 +14,9 @@ import (
 )
 
 // release serves a fake release: files by name, SHA256SUMS signed with a
-// fresh key that the test makes the release key (when sign is true).
+// fresh key that the test makes the release key (when sign is true). The
+// list names release v1.2.3 ("# tag" line) unless sumsFor has the key
+// "# tag": its value is named instead ("" = no such line).
 func release(t *testing.T, files map[string]string, sumsFor map[string]string, sign bool) {
 	t.Helper()
 	kg, err := exec.LookPath("ssh-keygen")
@@ -27,7 +29,17 @@ func release(t *testing.T, files map[string]string, sumsFor map[string]string, s
 		t.Fatal(string(out))
 	}
 	var sums strings.Builder
+	tag, ok := sumsFor["# tag"]
+	if !ok {
+		tag = "v1.2.3"
+	}
+	if tag != "" {
+		sums.WriteString("# tag " + tag + "\n")
+	}
 	for name, content := range sumsFor {
+		if name == "# tag" {
+			continue
+		}
 		h := sha256.Sum256([]byte(content))
 		sums.WriteString(hex.EncodeToString(h[:]) + "  " + name + "\n")
 	}
@@ -83,6 +95,9 @@ func TestDownloadInstaller(t *testing.T) {
 		{"foreign key", map[string]string{"install.sh": script}, map[string]string{"install.sh": script}, false, "another key"},
 		{"tampered", map[string]string{"install.sh": script + "rm -rf /\n"}, map[string]string{"install.sh": script}, true, "does not match"},
 		{"not listed", map[string]string{"install.sh": script}, map[string]string{"shunt.tar.gz": "x"}, true, "has no install.sh"},
+		{"other release", map[string]string{"install.sh": script}, map[string]string{"install.sh": script, "# tag": "v1.0.0"}, true, "belong to release v1.0.0, not v1.2.3"},
+		{"release not named", map[string]string{"install.sh": script}, map[string]string{"install.sh": script, "# tag": ""}, true, "do not name release v1.2.3"},
+		{"named twice", map[string]string{"install.sh": script}, map[string]string{"install.sh": script, "# tag": "v1.2.3\n# tag v1.2.3"}, true, "do not name release"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			release(t, c.files, c.sums, c.sign)
