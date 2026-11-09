@@ -51,7 +51,8 @@ func (b *buf) Write(p []byte) (int, error) { b.b = append(b.b, p...); return len
 
 // Download fetches the release asset name into a new private directory and
 // returns its path, but only if the release's SHA256SUMS carries the release
-// key's signature and lists the exact hash of the downloaded file.
+// key's signature, names this release (CheckSumsTag) and lists the exact
+// hash of the downloaded file.
 func Download(ctx context.Context, tag, name string) (string, error) {
 	path, _, err := download(ctx, tag, name)
 	return path, err
@@ -70,6 +71,9 @@ func download(ctx context.Context, tag, name string) (path, want string, err err
 		return "", "", err
 	}
 	if err := VerifySums(sums.b, sig.b); err != nil {
+		return "", "", fmt.Errorf("release %s: %w - nothing was installed", tag, err)
+	}
+	if err := CheckSumsTag(sums.b, tag); err != nil {
 		return "", "", fmt.Errorf("release %s: %w - nothing was installed", tag, err)
 	}
 	want, ok := SumFor(sums.b, name)

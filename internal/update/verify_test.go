@@ -44,3 +44,33 @@ func TestVerifySSHSig(t *testing.T) {
 		t.Fatal("SumFor")
 	}
 }
+
+// The "# tag" line names the release; checksums ignore it.
+func TestSumsTag(t *testing.T) {
+	sums := []byte("# tag v0.7.1-rc24\r\nabc  install.sh\n")
+	if got := SumsTag(sums); got != "v0.7.1-rc24" {
+		t.Fatalf("SumsTag %q", got)
+	}
+	if h, ok := SumFor(sums, "install.sh"); !ok || h != "abc" {
+		t.Fatal("SumFor with a tag line")
+	}
+	if _, ok := SumFor(sums, "tag"); ok {
+		t.Fatal("tag line taken for a file")
+	}
+	for _, c := range []struct {
+		sums, tag string
+		ok        bool
+	}{
+		{"# tag v1.2.3\nabc  x\n", "v1.2.3", true},
+		{"# tag v1.2.2\nabc  x\n", "v1.2.3", false},
+		{"abc  x\n", "v1.2.3", false},
+		{"# tag v1.2.3\n# tag v1.2.4\n", "v1.2.3", false},
+		{"# tag v1.2.3\n# tag v1.2.3\n", "v1.2.3", false},
+		{"#tag v1.2.3\n", "v1.2.3", false},
+		{"# tag v1.2.3-rc1\n", "v1.2.3", false},
+	} {
+		if err := CheckSumsTag([]byte(c.sums), c.tag); (err == nil) != c.ok {
+			t.Errorf("%q for %s: err %v", c.sums, c.tag, err)
+		}
+	}
+}

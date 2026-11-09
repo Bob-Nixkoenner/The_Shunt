@@ -71,6 +71,8 @@ func TestApplyFlow(t *testing.T) {
 		{name: "install.sh not listed", served: "good", sums: map[string]string{"shunt_linux_amd64.tar.gz": "x"}, sign: true, want: "has no install.sh"},
 		{name: "signed by another key", served: "good", sums: map[string]string{"install.sh": "good"}, sign: false, want: "another key"},
 		{name: "signature missing", served: "good", sums: map[string]string{"install.sh": "good"}, sign: true, sig: ptr(""), want: "404"},
+		{name: "old release under a new tag", served: "good", sums: map[string]string{"install.sh": "good", "# tag": "v1.2.2"}, sign: true, want: "belong to release v1.2.2"},
+		{name: "release not named", served: "good", sums: map[string]string{"install.sh": "good", "# tag": ""}, sign: true, want: "do not name release v1.2.3"},
 		{name: "signature garbage", served: "good", sums: map[string]string{"install.sh": "good"}, sign: true, sig: ptr("-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----\n"), want: "not an SSH signature"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
