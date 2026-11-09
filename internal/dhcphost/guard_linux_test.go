@@ -57,3 +57,27 @@ func TestGuardOnce(t *testing.T) {
 		t.Error("must pass again after guardAgain")
 	}
 }
+
+func TestDropUntyped(t *testing.T) {
+	v := dbus.MakeVariant
+	// an empty a(ayuay) as godbus reads it: untyped, Update2 refuses "aav"
+	s := map[string]map[string]dbus.Variant{
+		"ipv6": {"addresses": v([]interface{}{}), "routes": v([][]interface{}{}), "method": v("auto"), "address-data": v([]map[string]dbus.Variant{}), "dns": v([][]byte{})},
+		"ipv4": {"addresses": v([][]uint32{})},
+	}
+	dropUntyped(s)
+	if _, ok := s["ipv6"]["addresses"]; ok {
+		t.Error("ipv6 addresses kept")
+	}
+	if _, ok := s["ipv6"]["routes"]; ok {
+		t.Error("ipv6 routes kept")
+	}
+	for _, k := range []string{"method", "address-data", "dns"} {
+		if _, ok := s["ipv6"][k]; !ok {
+			t.Errorf("ipv6 %s dropped", k)
+		}
+	}
+	if _, ok := s["ipv4"]["addresses"]; !ok {
+		t.Error("typed ipv4 addresses dropped")
+	}
+}
