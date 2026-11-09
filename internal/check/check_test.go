@@ -13,7 +13,7 @@ import (
 
 // allIDs is every finding the package can make; worstCase must trigger each.
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
-	"network.ssid_only", "stealth.unset", "stealth.winname", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
+	"network.ssid_only", "stealth.unset", "stealth.home", "stealth.winname", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype",
 	"rule.direct", "captive.on"}
 
@@ -304,5 +304,25 @@ func TestTorViaWindows(t *testing.T) {
 	}
 	if !has(Config(c, Env{Windows: true})) || has(Config(c, Env{})) {
 		t.Error("tor.via.windows only on Windows")
+	}
+}
+
+func TestStealthHome(t *testing.T) {
+	has := func(c *config.Config) bool {
+		for _, f := range Config(c, Env{}) {
+			if f.ID == "stealth.home" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(parse(t, "[daemon]\nmac = \"random\"\n")) {
+		t.Error("random MAC without a trusted network: hint expected")
+	}
+	if has(parse(t, "[daemon]\nmac = \"random\"\n[[network]]\nname = \"home\"\nssid = [\"h\"]\ndefault_route = \"direct\"\nmac = \"permanent\"\n")) {
+		t.Error("a trusted network profile: no hint")
+	}
+	if has(parse(t, "[daemon]\nmac = \"\"\n")) {
+		t.Error("disguise off: no hint")
 	}
 }
