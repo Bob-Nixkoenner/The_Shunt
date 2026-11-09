@@ -65,9 +65,9 @@ jobs:
           android/build-core.sh
           # github: the APK (updates itself); play: the bundle for Google Play (no install permission),
           # signed with the same key as upload key (Play re-signs the apps it hands out)
-          (cd android && ./gradlew --no-daemon assembleGithubDebug bundlePlayRelease)
+          (cd android && ./gradlew --no-daemon assembleGithubRelease bundlePlayRelease)
           mkdir dist
-          cp android/app/build/outputs/apk/github/debug/app-github-debug.apk \
+          cp android/app/build/outputs/apk/github/release/app-github-release.apk \
             "dist/shunt-${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}-android.apk"
           cp android/app/build/outputs/bundle/playRelease/app-play-release.aab \
             "dist/shunt-${{ github.event.release.tag_name || (github.event_name == 'pull_request' && 'v0.0.0-ci') || github.ref_name }}-play.aab"
@@ -232,9 +232,9 @@ jobs:
           # no fetch-tor.sh and no build-lyrebird.sh: the F-Droid build has no prebuilt Tor
           android/build-openvpn.sh
           android/build-core.sh
-          (cd android && ./gradlew --no-daemon assembleFdroidDebug)
+          (cd android && ./gradlew --no-daemon assembleFdroidRelease)
           mkdir dist
-          cp android/app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk "dist/shunt-$TAG-fdroid.apk"
+          cp android/app/build/outputs/apk/fdroid/release/app-fdroid-release.apk "dist/shunt-$TAG-fdroid.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: fdroid
