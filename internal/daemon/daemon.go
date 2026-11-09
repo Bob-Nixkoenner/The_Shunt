@@ -652,6 +652,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.endPassIfDue(self)
 			d.refreshEmergency(self)
 			d.checkNetwork()
+			d.checkTunnelSources()
 			d.mu.Lock()
 			if (d.routeSoft != "" || d.plan.Gateway != nil) && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
@@ -1056,6 +1057,23 @@ func (d *Daemon) checkNetwork() {
 		d.mu.Lock()
 		d.netRetry = true
 		d.mu.Unlock()
+	}
+}
+
+// checkTunnelSources lets tunnels that depend on the machine's source
+// address (OpenVPN over TCP) react to a network change; see
+// tunnel.NetChecker. Runs outside d.mu: it reads /proc and netlink.
+func (d *Daemon) checkTunnelSources() {
+	d.mu.Lock()
+	var cs []tunnel.NetChecker
+	for _, t := range d.tunnels {
+		if c, ok := t.(tunnel.NetChecker); ok {
+			cs = append(cs, c)
+		}
+	}
+	d.mu.Unlock()
+	for _, c := range cs {
+		c.CheckNetwork()
 	}
 }
 
