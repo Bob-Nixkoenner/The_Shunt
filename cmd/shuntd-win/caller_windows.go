@@ -215,6 +215,11 @@ func allowUser(group, user string) error {
 	info := struct{ name, comment *uint16 }{gname, comment}
 	r, _, _ := procNetLocalGroupAdd.Call(0, 1, uintptr(unsafe.Pointer(&info)), 0)
 	const nerrGroupExists, errorAliasExists = 2223, 1379
+	const errorUserExists, nerrUserExists = 1316, 2224
+	if r == errorUserExists || r == nerrUserExists {
+		// a group cannot share its name with a user account
+		return fmt.Errorf("creating local group %q: a user account has that name; set another group with socket_group under [daemon] in shunt.toml, or rename the account", group)
+	}
 	if r != 0 && r != nerrGroupExists && r != errorAliasExists {
 		return fmt.Errorf("creating local group %q: %w", group, syscall.Errno(r))
 	}

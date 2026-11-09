@@ -23,8 +23,14 @@ foreach ($ps in 'uninstall.ps1') { if (Test-Path "$here\$ps") { Copy-Item "$here
 if (-not $svc) { & "$Dir\shuntd-win.exe" install; if ($LASTEXITCODE) { throw 'service install failed' } }
 else { sc.exe config Shunt binPath= "`"$Dir\shuntd-win.exe`"" | Out-Null }
 # who may change settings: local group "shunt" (created if missing), with this user
-& "$Dir\shuntd-win.exe" allow-user $env:USERNAME
-if ($LASTEXITCODE) { Write-Warning 'could not add you to the local group "shunt": settings need "Run as administrator"' }
+# not under 'Stop': PowerShell 5.1 turns a native command's stderr into a
+# terminating error when the output is redirected (setup, remote shells),
+# and the service would stay stopped
+$ErrorActionPreference = 'Continue'
+& "$Dir\shuntd-win.exe" allow-user $env:USERNAME 2>&1 | ForEach-Object { Write-Host "$_" }
+$code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($code) { Write-Warning 'could not add you to the local group "shunt": settings need "Run as administrator"' }
 Start-Service Shunt
 
 $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:ProgramData\Microsoft\Windows\Start Menu\Programs\The Shunt.lnk")

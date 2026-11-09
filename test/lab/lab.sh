@@ -35,7 +35,7 @@ if [[ ${CLIENT_OS:-linux} == windows ]]; then
 	TUNNEL_IP=${TUNNEL_IP:-10.66.0.15}
 	CLIENT_IF=${CLIENT_IF:-Ethernet}
 	CLIENT_PING='exit 0'
-	CLIENT_BOOT=600
+	CLIENT_BOOT=${CLIENT_BOOT:-900} # guest control can take >10 min after a restore
 	TESTS_DIR=${TESTS_DIR:-$(cd "$(dirname "$0")" && pwd)/tests-win}
 	TEST_EXT=sh
 	export TUNNEL_IP CLIENT_IF TESTS_DIR TEST_EXT
