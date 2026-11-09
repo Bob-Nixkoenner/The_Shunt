@@ -50,10 +50,11 @@ func TestValueSizes(t *testing.T) {
 func TestInstructionsAssemble(t *testing.T) {
 	fd := fds{3, 4, 5, 6}
 	for name, insns := range map[string]asm.Instructions{
-		"sock": sockInsns(fd, 2, 12345, uint64(HoldMax)),
-		"exec": execInsns(fd),
-		"fork": forkInsns(fd, defaultForkChildOff),
-		"exit": exitInsns(fd),
+		"sock":     sockInsns(fd, 2, 12345, uint64(HoldMax)),
+		"exec":     execInsns(fd),
+		"fork":     forkInsns(fd, defaultForkChildOff),
+		"fork-raw": forkRawInsns(fd, 2400),
+		"exit":     exitInsns(fd),
 	} {
 		if err := insns.Marshal(nopWriter{}, binary.LittleEndian); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -97,6 +98,18 @@ format:
 	}
 }
 
+var rawLimited string
+
+// TestStartRaw: the same with raw tracepoints (Debian: no perf events
+// without CAP_SYS_ADMIN).
+func TestStartRaw(t *testing.T) {
+	forceRaw = true
+	defer func() { forceRaw = false }()
+	TestStart(t)
+	// children: only when the kernel lets a non-GPL program read the child's pid
+	t.Log("raw tracepoints loaded; fork program GPL-restricted:", rawLimited)
+}
+
 // TestStart loads and attaches the programs for real (root only).
 func TestStart(t *testing.T) {
 	if os.Geteuid() != 0 {
@@ -119,6 +132,7 @@ func TestStart(t *testing.T) {
 	if g.Partial != nil {
 		t.Fatalf("tracepoints: %v", g.Partial)
 	}
+	rawLimited = g.Limited
 	comm, _ := os.ReadFile("/proc/self/comm")
 	name := string(comm[:len(comm)-1])
 

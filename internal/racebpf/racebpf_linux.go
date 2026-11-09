@@ -46,6 +46,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
+	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
 	"golang.org/x/sys/unix"
 )
@@ -122,6 +123,10 @@ type Guard struct {
 	// perf_event_open filtered …): only the name table at socket creation
 	// works, without threads, children and holds.
 	Partial error
+	// Raw: the tracepoints are raw ones (no perf events allowed).
+	Raw bool
+	// Limited: loaded, but without part of the coverage (why).
+	Limited string
 }
 
 // attachTracepoints loads and attaches exec/fork/exit; on error none stays.
@@ -143,6 +148,9 @@ func (g *Guard) attachTracepoints(fd fds) (err error) {
 		g.progs = append(g.progs, p)
 		return p, nil
 	}
+	if forceRaw {
+		return g.attachRawTracepoints(fd)
+	}
 	exec, err := load("shunt_exec", execInsns(fd))
 	if err != nil {
 		return err
@@ -163,11 +171,92 @@ func (g *Guard) attachTracepoints(fd fds) (err error) {
 	}{{"sched_process_exit", exit}, {"sched_process_fork", fork}, {"sched_process_exec", exec}} {
 		l, err := link.Tracepoint("sched", tp.name, tp.p, nil)
 		if err != nil {
-			return fmt.Errorf("attach %s: %w", tp.name, err)
+			// Debian kernels (perf_event_paranoid=3) refuse perf_event_open
+			// without CAP_SYS_ADMIN, CAP_PERFMON is not enough: raw
+			// tracepoints need no perf event
+			for _, l := range g.links[nl:] {
+				l.Close()
+			}
+			g.links = g.links[:nl]
+			if rerr := g.attachRawTracepoints(fd); rerr != nil {
+				return fmt.Errorf("attach %s: %w (raw tracepoints: %v)", tp.name, err, rerr)
+			}
+			return nil
 		}
 		g.links = append(g.links, l)
 	}
 	return nil
+}
+
+// attachRawTracepoints is attachTracepoints without perf events
+// (BPF_RAW_TRACEPOINT_OPEN). exec and exit only ask about the current task;
+// fork reads the child's pid from its task_struct (args[1]), offset from the
+// kernel's BTF.
+func (g *Guard) attachRawTracepoints(fd fds) error {
+	off, err := taskPidOffset()
+	if err != nil {
+		return err
+	}
+	nl := len(g.links)
+	ok := false
+	defer func() {
+		if !ok {
+			for _, l := range g.links[nl:] {
+				l.Close()
+			}
+			g.links = g.links[:nl]
+		}
+	}()
+	for _, tp := range []struct {
+		name, prog string
+		insns      asm.Instructions
+	}{
+		{"sched_process_exit", "shunt_exit_raw", exitInsns(fd)},
+		{"sched_process_fork", "shunt_fork_raw", forkRawInsns(fd, off)},
+		{"sched_process_exec", "shunt_exec_raw", execInsns(fd)},
+	} {
+		p, err := ebpf.NewProgram(&ebpf.ProgramSpec{Name: tp.prog, Type: ebpf.RawTracepoint, License: "Apache-2.0", Instructions: tp.insns})
+		if err != nil && tp.name == "sched_process_fork" {
+			// bpf_probe_read_kernel is GPL-only: without it children
+			// inherit nothing (threads still count: sockets are matched by
+			// tgid; children that exec a program of a rule get its entry)
+			g.Limited = fmt.Sprintf("raw tracepoints, children not inherited: %v", err)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("program %s: %w", tp.prog, err)
+		}
+		g.progs = append(g.progs, p)
+		l, err := link.AttachRawTracepoint(link.RawTracepointOptions{Name: tp.name, Program: p})
+		if err != nil {
+			return fmt.Errorf("attach %s: %w", tp.name, err)
+		}
+		g.links = append(g.links, l)
+	}
+	ok = true
+	g.Raw = true
+	return nil
+}
+
+// forceRaw: tests take the raw tracepoint path.
+var forceRaw bool
+
+// taskPidOffset: byte offset of pid (the thread id) in struct task_struct.
+func taskPidOffset() (int32, error) {
+	spec, err := btf.LoadKernelSpec()
+	if err != nil {
+		return 0, fmt.Errorf("kernel BTF: %w", err)
+	}
+	var ts *btf.Struct
+	if err := spec.TypeByName("task_struct", &ts); err != nil {
+		return 0, fmt.Errorf("kernel BTF: %w", err)
+	}
+	for _, m := range ts.Members {
+		if m.Name == "pid" && m.BitfieldSize == 0 && m.Offset%32 == 0 {
+			return int32(m.Offset.Bytes()), nil
+		}
+	}
+	return 0, errors.New("kernel BTF: no task_struct.pid")
 }
 
 // Start loads the programs and attaches them. root is shuntd's cgroup
@@ -364,6 +453,43 @@ func forkInsns(fd fds, childOff int16) asm.Instructions {
 		asm.StoreMem(asm.RFP, fpProc+8, asm.R1, asm.DWord),
 		asm.LoadMem(asm.R1, asm.R6, childOff, asm.Word),
 		asm.StoreMem(asm.RFP, fpKey2, asm.R1, asm.Word),
+		asm.LoadMapPtr(asm.R1, fd.procs),
+		asm.Mov.Reg(asm.R2, asm.RFP),
+		asm.Add.Imm(asm.R2, fpKey2),
+		asm.Mov.Reg(asm.R3, asm.RFP),
+		asm.Add.Imm(asm.R3, fpProc),
+		asm.Mov.Imm(asm.R4, 0),
+		asm.FnMapUpdateElem.Call(),
+		asm.Mov.Imm(asm.R0, 0).WithSymbol("out"),
+		asm.Return(),
+	}
+}
+
+// forkRawInsns is forkInsns for a raw tracepoint: ctx is u64 args[]
+// (parent, child task_struct pointers), the child's pid is read with
+// bpf_probe_read_kernel.
+func forkRawInsns(fd fds, pidOff int32) asm.Instructions {
+	return asm.Instructions{
+		asm.LoadMem(asm.R6, asm.R1, 8, asm.DWord), // args[1]: child
+		asm.FnGetCurrentPidTgid.Call(),
+		asm.RSh.Imm(asm.R0, 32),
+		asm.StoreMem(asm.RFP, fpKey, asm.R0, asm.Word),
+		asm.LoadMapPtr(asm.R1, fd.procs),
+		asm.Mov.Reg(asm.R2, asm.RFP),
+		asm.Add.Imm(asm.R2, fpKey),
+		asm.FnMapLookupElem.Call(),
+		asm.JEq.Imm(asm.R0, 0, "out"),
+		asm.LoadMem(asm.R1, asm.R0, 0, asm.DWord),
+		asm.StoreMem(asm.RFP, fpProc, asm.R1, asm.DWord),
+		asm.LoadMem(asm.R1, asm.R0, 8, asm.DWord),
+		asm.StoreMem(asm.RFP, fpProc+8, asm.R1, asm.DWord),
+		asm.Mov.Reg(asm.R1, asm.RFP),
+		asm.Add.Imm(asm.R1, fpKey2),
+		asm.Mov.Imm(asm.R2, 4),
+		asm.Mov.Reg(asm.R3, asm.R6),
+		asm.Add.Imm(asm.R3, pidOff),
+		asm.FnProbeReadKernel.Call(),
+		asm.JNE.Imm(asm.R0, 0, "out"),
 		asm.LoadMapPtr(asm.R1, fd.procs),
 		asm.Mov.Reg(asm.R2, asm.RFP),
 		asm.Add.Imm(asm.R2, fpKey2),

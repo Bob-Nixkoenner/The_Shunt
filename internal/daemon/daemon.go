@@ -879,7 +879,9 @@ func (d *Daemon) reload(selfCgroup string) error {
 		}
 	} else if !d.startLogged && d.Backend.StartGuardStats() != nil {
 		d.startLogged = true
-		d.Log.Info("eBPF start guard loaded", "programs", len(p.Plan.StartGuard()))
+		st := d.Backend.StartGuardStats()
+		d.Log.Info("eBPF start guard loaded", "programs", len(p.Plan.StartGuard()),
+			"raw_tracepoints", st["raw_tracepoints"] == 1, "children_followed", st["no_child_inherit"] == 0)
 	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
