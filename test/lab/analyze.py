@@ -442,6 +442,12 @@ if strict_fp:
     for v in sorted(fp.get("MAC", ())):
         if "Hersteller" in v:
             find("leak", "Fingerabdruck", f"echte MAC sichtbar: {v}")
+# discovery: any broadcast/multicast discovery of this device (LLMNR, NetBIOS, mDNS, SSDP, WSD, KDE Connect,
+# Syncthing) counts, without the DHCP names the fingerprint check also wants (quiet mode, D05)
+if "discovery" in meta.get("checks", []):
+    names_seen = sorted(fp.get("Rundrufe", ()))
+    for n in names_seen:
+        find("leak", "Rundruf im fremden Netz", f"{n}: Gerät sendet Discovery (Ruhemodus soll das verhindern)")
 # per-network: the client joined two networks (F05); one value for both = recognisable across networks
 if "per-network" in meta.get("checks", []):
     # a value counts as "in both" only when it came with two MACs (each

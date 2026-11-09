@@ -1,6 +1,7 @@
 ID=D05
 TITLE="Neustart: was geht raus, bevor der Dienst steht?"
 EXPECT_CANARY=any
+CHECKS=(discovery)
 SETTLE=1
 NOTE="Windows startet neu; das Gateway schneidet von vor dem Herunterfahren bis 60 s nach dem Start mit."
 during() {
