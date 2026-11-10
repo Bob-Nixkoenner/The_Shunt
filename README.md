@@ -203,10 +203,21 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   filters (also in the minutes between boot and the start of the service; a system shutdown
   puts them back, a trusted network or `quiet = false` lifts them, `shuntd-win killswitch-off`
   removes them). Local names (LLMNR/NetBIOS/mDNS) do not resolve on untrusted networks then.
-- **Windows disguise limits**: `daemon.mac = "random"` (default) switches on Windows' own random
-  Wi-Fi hardware addresses (per interface, from the next connection; the driver must support it,
-  cable adapters keep their real MAC). Windows always sends the computer name in DHCP/DHCPv6
-  and cannot be told not to: rename the computer to something neutral (the check says so).
+- **Windows disguise** (like Linux: `daemon.mac`, `daemon.dhcp_hostname`, per `[[network]]`; measured in the
+  lab, see `docs`): the DHCP FQDN options (v4 option 81, DHCPv6 FQDN) are dropped at once on foreign
+  networks (per adapter `RegistrationEnabled = 0`). Cable adapters on the PCI/USB bus get a locally
+  administered MAC: `random` = new at every start of the computer (chosen at shutdown, so no
+  reconnect at boot), `stable` = one fixed address per adapter derived from a machine secret;
+  `permanent`/`""` or a trusted profile puts the real one back (adapter restart). Wi-Fi uses Windows'
+  own random addresses (`netsh wlan`, the driver must support them). **Limits Windows sets:** the
+  DHCP client reads the computer name (option 12) and its DHCPv6 DUID (which carries the real MAC)
+  only when it starts and cannot be restarted. So at shutdown Shunt writes a neutral name
+  (`DESKTOP-XXXXXXX`) and DUID, the next boot's client sends those, and Shunt puts the real values
+  back once it runs. The very first start after installing, a power cut or crash, and a trusted
+  network until the next restart (it sees the neutral name) are not covered. The real computer name
+  (NetBIOS, domain) is never changed. Every changed value is saved in `state\tarnung.json` and put
+  back on stop, after a crash and on uninstall. A MAC filter at home needs a profile with `mac =
+  "permanent"`; adapters on the ROOT bus (VPN, Hyper-V switches) are left alone.
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;
