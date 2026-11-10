@@ -56,6 +56,13 @@ The client needs the VirtualBox Guest Additions, passwordless sudo and the
 WireGuard config of the internal test server (`TUNNEL_CONF`, test keys, not in
 git). The rogue DHCP/RA modes only ever run on the internal network `shuntlab`.
 
+## Machine-specific files (not in git)
+
+`local.env` holds the account (`USER_VM`), the test server (`CT130=user@address`) and `LAB_VPN_DIR`: the folder with the
+VPN client configs of the test server (`wg-intern-linux-test.conf`, `ovpn-intern-linux-test.ovpn`, `wg-hop-*.conf`, test
+keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). The tests take the server's address from
+`CT130` (`$CT130_IP`), none carries an address of its own.
+
 ## Running
 
 ```sh
