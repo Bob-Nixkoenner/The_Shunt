@@ -1,0 +1,5 @@
+# baseline: wireguard-windows
+# Not a Shunt config: apply_config stops the Shunt service, lifts its firewall rules and starts the lab's WireGuard
+# tunnel with the official WireGuard for Windows client (tunnel service "labplain"), see win_plain_up in
+# winclient.sh. Run: CONFIG_FORCE=wgplain CLIENT_OS=windows ./lab.sh run B01 B02 C01 ...
+# The comparison shows what a plain WireGuard client gives away in the café network.
