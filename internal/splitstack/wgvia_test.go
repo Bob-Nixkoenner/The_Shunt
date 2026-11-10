@@ -92,4 +92,20 @@ func TestWireGuardVia(t *testing.T) {
 	if st := inner.status(); st.Via != "outer" {
 		t.Errorf("status via %q", st.Via)
 	}
+
+	// reconnect ("no answers") of the inner tunnel with a BindUp like
+	// Windows', which refuses binds it cannot pin: the inner Bind lives in
+	// the carrier's netstack, there is nothing to pin, so no error
+	e.o.BindUp = func(b conn.Bind) error {
+		if _, ok := b.(*tunnelBind); ok {
+			return fmt.Errorf("BindUp called with the carrier's netstack bind")
+		}
+		return nil
+	}
+	if err := e.reconnect(inner); err != nil {
+		t.Fatalf("reconnect inner: %v", err)
+	}
+	if got := get(t, inner.net); got != "tunnel=inner" {
+		t.Fatalf("inner after reconnect: %s", got)
+	}
 }

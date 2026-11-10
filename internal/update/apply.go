@@ -17,9 +17,12 @@ import (
 // ErrNotSupported: this platform updates by hand (see Info.Command).
 var ErrNotSupported = errors.New("installing updates from the app is not supported here - use the command")
 
+// releaseBase is where release assets are downloaded from (tests change it).
+var releaseBase = "https://github.com/" + Repo + "/releases/download/"
+
 // releaseURL is the download address of a release asset.
 func releaseURL(tag, name string) string {
-	return "https://github.com/" + Repo + "/releases/download/" + tag + "/" + name
+	return releaseBase + tag + "/" + name
 }
 
 func get(ctx context.Context, url string, limit int64, to io.Writer) error {
@@ -48,33 +51,43 @@ func (b *buf) Write(p []byte) (int, error) { b.b = append(b.b, p...); return len
 
 // Download fetches the release asset name into a new private directory and
 // returns its path, but only if the release's SHA256SUMS carries the release
-// key's signature and lists the exact hash of the downloaded file.
+// key's signature, names this release (CheckSumsTag) and lists the exact
+// hash of the downloaded file.
 func Download(ctx context.Context, tag, name string) (string, error) {
+	path, _, err := download(ctx, tag, name)
+	return path, err
+}
+
+// download is Download that also returns the signed SHA-256 (hex).
+func download(ctx context.Context, tag, name string) (path, want string, err error) {
 	if !verRe.MatchString(tag) {
-		return "", fmt.Errorf("%q is not a release tag", tag)
+		return "", "", fmt.Errorf("%q is not a release tag", tag)
 	}
 	var sums, sig buf
 	if err := get(ctx, releaseURL(tag, "SHA256SUMS"), 1<<20, &sums); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := get(ctx, releaseURL(tag, "SHA256SUMS.sig"), 1<<16, &sig); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if err := VerifySums(sums.b, sig.b); err != nil {
-		return "", fmt.Errorf("release %s: %w - nothing was installed", tag, err)
+		return "", "", fmt.Errorf("release %s: %w - nothing was installed", tag, err)
+	}
+	if err := CheckSumsTag(sums.b, tag); err != nil {
+		return "", "", fmt.Errorf("release %s: %w - nothing was installed", tag, err)
 	}
 	want, ok := SumFor(sums.b, name)
 	if !ok {
-		return "", fmt.Errorf("the signed list of %s has no %s", tag, name)
+		return "", "", fmt.Errorf("the signed list of %s has no %s", tag, name)
 	}
 	dir, err := os.MkdirTemp("", "shunt-update-")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	path := filepath.Join(dir, name)
+	path = filepath.Join(dir, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o700)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	h := sha256.New()
 	err = get(ctx, releaseURL(tag, name), 300<<20, io.MultiWriter(f, h))
@@ -86,7 +99,7 @@ func Download(ctx context.Context, tag, name string) (string, error) {
 	}
 	if err != nil {
 		os.RemoveAll(dir)
-		return "", err
+		return "", "", err
 	}
-	return path, nil
+	return path, want, nil
 }

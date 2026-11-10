@@ -33,6 +33,8 @@ var nmcli = func(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
+var lookPath = exec.LookPath
+
 var mu sync.Mutex // one pass at a time (start, network change, new profile)
 
 // randomUUIDs: profiles with a new MAC on every connection, as of the last
@@ -70,13 +72,44 @@ func forgetLease(uuid string) (removed int) {
 	return removed
 }
 
+// relabelDir: the only directory relabel touches (a test points defaultsFile
+// elsewhere and must not relabel a real path).
+var relabelDir = "/run/NetworkManager"
+
+// relabel gives /run/NetworkManager the SELinux label NetworkManager expects
+// and reports whether it changed anything. shuntd may create the directory
+// before NetworkManager does (both start together): it then carries the
+// generic var_run_t, NetworkManager is denied reading conf.d/ files there, and
+// "nmcli general reload conf" still answers success while the defaults are
+// never read (lab F05 on Fedora: the first DHCP round of a new profile went
+// out with the hardware MAC). Without restorecon (no SELinux) nothing happens.
+func relabel(ctx context.Context) bool {
+	dir := filepath.Dir(filepath.Dir(defaultsFile))
+	if dir != relabelDir {
+		return false
+	}
+	bin, err := lookPath("restorecon")
+	if err != nil {
+		return false
+	}
+	out, err := exec.CommandContext(ctx, bin, "-Rv", dir).Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
 // writeDefaults puts Defaults in place (or removes them) and has
 // NetworkManager read its configuration again if that changed anything.
 func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 	want := Defaults(c)
 	have, _ := os.ReadFile(defaultsFile)
 	if string(have) == want {
-		return // read already (or retryReload still at it)
+		// read already (or retryReload still at it); unless the file kept a
+		// label NetworkManager may not read (SELinux), then it needs a reload
+		if want == "" || !relabel(ctx) {
+			return
+		}
+		_, err := nmcli(ctx, "general", "reload", "conf")
+		defaultsLive.Store(err == nil)
+		return
 	}
 	defaultsLive.Store(false)
 	var err error
@@ -86,8 +119,12 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		err = os.WriteFile(defaultsFile, []byte(want), 0o644)
 	}
 	if err != nil && !os.IsNotExist(err) {
-		log.Warn("network privacy: cannot write NetworkManager defaults", "err", err)
+		log.Warn("network privacy: cannot write NetworkManager defaults, trying again", "err", err)
+		retryWrite(ctx, c, log)
 		return
+	}
+	if want != "" {
+		relabel(ctx)
 	}
 	_, err = nmcli(ctx, "general", "reload", "conf")
 	defaultsLive.Store(err == nil && want != "")
@@ -98,6 +135,62 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		log.Warn("network privacy: NetworkManager did not reload its configuration, trying again", "err", err)
 		go retryReload(log)
 	}
+}
+
+// writeRetrying: one retryWrite at a time.
+var writeRetrying atomic.Bool
+
+// retryWrite tries writeDefaults again every few seconds until the file is
+// in place (and NetworkManager reloaded): the directory may not exist yet at
+// boot, because shuntd starts before NetworkManager.
+func retryWrite(ctx context.Context, c *config.Config, log *slog.Logger) {
+	if !writeRetrying.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer writeRetrying.Store(false)
+		for i := 0; i < reloadRetries; i++ {
+			time.Sleep(reloadEvery)
+			if ctx.Err() != nil {
+				return
+			}
+			mu.Lock()
+			want := Defaults(c)
+			err := tryWrite(want)
+			if err == nil {
+				// reload NetworkManager so connections already up get the defaults
+				if want != "" {
+					relabel(ctx)
+				}
+				_, err = nmcli(ctx, "general", "reload", "conf")
+				defaultsLive.Store(err == nil && want != "")
+				if err != nil {
+					log.Warn("network privacy: NetworkManager did not reload its configuration, trying again", "err", err)
+					go retryReload(log)
+				} else {
+					log.Info("network privacy: NetworkManager defaults written")
+				}
+				mu.Unlock()
+				return
+			}
+			mu.Unlock()
+		}
+		log.Warn("network privacy: NetworkManager defaults could not be written; restart shuntd once NetworkManager runs")
+	}()
+}
+
+// tryWrite puts want in defaultsFile (removes it when empty).
+func tryWrite(want string) error {
+	var err error
+	if want == "" {
+		err = os.Remove(defaultsFile)
+	} else if err = os.MkdirAll(filepath.Dir(defaultsFile), 0o755); err == nil {
+		err = os.WriteFile(defaultsFile, []byte(want), 0o644)
+	}
+	if os.IsNotExist(err) && want == "" {
+		return nil
+	}
+	return err
 }
 
 // reloadRetries, reloadEvery: how long retryReload keeps trying.
@@ -118,13 +211,27 @@ func retryReload(log *slog.Logger) {
 	log.Warn("network privacy: NetworkManager never read the defaults; new networks get them only after the next change")
 }
 
+// modify changes single properties of a profile. A profile that lives
+// only in /run (netplan) or a file that cannot be written takes the change
+// for the running NetworkManager only.
+func modify(ctx context.Context, uuid string, props []string) error {
+	_, err := nmcli(ctx, append([]string{"connection", "modify", uuid}, props...)...)
+	if err != nil {
+		_, err2 := nmcli(ctx, append([]string{"connection", "modify", "--temporary", uuid}, props...)...)
+		if err2 == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 // Apply writes the defaults for new profiles and sets every Wi-Fi and
 // cable profile as pol wants it. A profile in
 // use gets the change at once (reapply: the address is renewed), except a
 // new MAC: that one waits for the next connection rather than cut the
 // current one.
 func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
-	if _, err := exec.LookPath("nmcli"); err != nil {
+	if _, err := lookPath("nmcli"); err != nil {
 		return // no NetworkManager
 	}
 	mu.Lock()
@@ -163,7 +270,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 		// reapply before the MAC is in the profile: a changed MAC cannot
 		// be reapplied and would fail the whole reapply
 		if len(now) > 0 {
-			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, now...)...); err != nil {
+			if err := modify(ctx, p.UUID, now); err != nil {
 				log.Warn("network privacy: cannot change profile", "uuid", p.UUID, "err", err)
 				continue
 			}
@@ -175,7 +282,7 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 			}
 		}
 		if len(next) > 0 {
-			if _, err := nmcli(ctx, append([]string{"connection", "modify", p.UUID}, next...)...); err != nil {
+			if err := modify(ctx, p.UUID, next); err != nil {
 				log.Warn("network privacy: cannot change the MAC", "uuid", p.UUID, "err", err)
 				continue
 			}
@@ -278,7 +385,13 @@ var newProfileWait = 2 * time.Second
 // it is connecting already, reapplied. When a device disconnects or fails
 // to connect, the leases of the profiles with mac = "random" are forgotten
 // at once, before the next connection could ask for the old address.
-func WatchNew(ctx context.Context, f func()) error {
+//
+// pol (may be nil) gives the current policy for the start guard: a
+// connection that starts with a profile that would send the host name
+// against the policy is stopped before its DHCP, set, and started again
+// (guardDevice). A new profile is set over D-Bus the moment it is announced
+// (quickSet), before an activation right after can copy it.
+func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slog.Logger) error {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return err
@@ -296,7 +409,7 @@ func WatchNew(ctx context.Context, f func()) error {
 	); err != nil {
 		return err
 	}
-	ch := make(chan *dbus.Signal, 8)
+	ch := make(chan *dbus.Signal, 64)
 	conn.Signal(ch)
 	for {
 		select {
@@ -306,24 +419,64 @@ func WatchNew(ctx context.Context, f func()) error {
 			if !ok {
 				return errors.New("system bus closed")
 			}
-			if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
-				// a profile added and connected at once (nmcli connection
-				// add + up, joining a Wi-Fi): let it start connecting
-				// first, so the pass leaves it alone
-				time.AfterFunc(newProfileWait, f)
-				continue
-			}
-			// NM_DEVICE_STATE_DISCONNECTED = 30, _FAILED = 120
-			if len(s.Body) == 0 {
-				continue
-			}
-			if st, ok := s.Body[0].(uint32); ok && (st == 30 || st == 120) {
-				randomMu.Lock()
-				for _, u := range randomUUIDs {
-					forgetLease(u)
+			// first, before anything slower: the window before DHCP is short
+			if pol != nil && s.Name == nmSettings+".NewConnection" && len(s.Body) > 0 {
+				if p, ok := s.Body[0].(dbus.ObjectPath); ok {
+					quickSet(ctx, conn, p, pol, log)
 				}
-				randomMu.Unlock()
 			}
+			if pol != nil && s.Name == nmDevice+".StateChanged" && len(s.Body) > 0 {
+				if st, ok := s.Body[0].(uint32); ok && guardState(st) {
+					guardDevice(ctx, conn, s.Path, pol, log)
+				}
+			}
+			handleSignal(s, f)
 		}
+	}
+}
+
+// activatedWait: how long after a device is up before the profiles are
+// looked at again (one pass for several signals).
+var activatedWait = 3 * time.Second
+
+var activatedTimer struct {
+	sync.Mutex
+	t *time.Timer
+}
+
+// handleSignal reacts to one NetworkManager signal.
+func handleSignal(s *dbus.Signal, f func()) {
+	if s.Name != "org.freedesktop.NetworkManager.Device.StateChanged" {
+		// a profile added: set it at once, before it connects (a profile
+		// that connects first would send the host name in its first DHCP
+		// request; NetworkManager 1.46 has no default for that). Again
+		// after a moment: a profile added and connected at once (nmcli
+		// connection add + up, joining a Wi-Fi) is left alone by the first
+		// pass while it connects.
+		f()
+		time.AfterFunc(newProfileWait, f)
+		return
+	}
+	if len(s.Body) == 0 {
+		return
+	}
+	st, ok := s.Body[0].(uint32)
+	if !ok {
+		return
+	}
+	switch st {
+	case 30, 120: // NM_DEVICE_STATE_DISCONNECTED, _FAILED
+		randomMu.Lock()
+		for _, u := range randomUUIDs {
+			forgetLease(u)
+		}
+		randomMu.Unlock()
+	case 100: // NM_DEVICE_STATE_ACTIVATED: a profile skipped while it connected
+		activatedTimer.Lock()
+		if activatedTimer.t != nil {
+			activatedTimer.t.Stop()
+		}
+		activatedTimer.t = time.AfterFunc(activatedWait, f)
+		activatedTimer.Unlock()
 	}
 }

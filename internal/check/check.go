@@ -46,6 +46,7 @@ type Finding struct {
 
 // helps: the plain-words explanation of findings that need one.
 var helps = map[string]string{
+	"captive.on":  "The network you are in (and GNOME's server) sees that this computer is online and when it joined. Without the check The Shunt does not notice Wi-Fi login pages (hotel, train): open the login browser yourself (`shunt captive` or the tray: Wi-Fi login page).",
 	"ovpn.nowrap": "tls-crypt (or tls-auth) is a shared secret key in the OpenVPN file: with it the server ignores everyone who does not know the key, so strangers cannot probe it or attack it. What to do: ask your provider for a file with tls-crypt. If the provider does not offer one, you can ignore this note: the tunnel still works and is encrypted.",
 }
 
@@ -144,7 +145,42 @@ func Config(c *config.Config, env Env) []Finding {
 		}
 	}
 	if env.linux() && (c.Daemon.MAC == "" || c.Daemon.DHCPHostname == "") {
-		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac and daemon.dhcp_hostname are not set).", "daemon.mac")
+		add(Info, "stealth.unset", "In foreign networks your real MAC address and device name are visible (daemon.mac or daemon.dhcp_hostname is switched off with an empty value).", "daemon.mac")
+	}
+	if env.linux() && c.Daemon.MAC == config.MACRandom {
+		trusted := false
+		for _, n := range c.Networks {
+			if n.Trusted() {
+				trusted = true
+			}
+		}
+		if !trusted {
+			add(Info, "stealth.home", "The disguise also applies at home: this computer gets a new MAC address on every connection, and a router with an address reservation or MAC filter will not recognise it. Add your home network as a profile with the real MAC address (mac = \"permanent\").", "network")
+		}
+	}
+	if env.Windows {
+		if c.Daemon.MAC == "" || c.Daemon.MAC == config.MACPermanent {
+			add(Info, "stealth.unset", "In foreign networks your real MAC address is visible (daemon.mac is empty or permanent; no random addresses are set).", "daemon.mac")
+		} else if c.Daemon.DHCPHostname == "" {
+			add(Info, "stealth.unset", "In foreign networks your computer name is visible (daemon.dhcp_hostname is switched off with an empty value).", "daemon.dhcp_hostname")
+		}
+		if c.Daemon.DHCPHostname == config.HostnameNone || c.Daemon.MAC == config.MACRandom || c.Daemon.MAC == config.MACStable {
+			add(Info, "stealth.winname", "Windows reads its DHCP computer name, its DHCPv6 ID and a changed cable MAC only when the computer or the adapter starts: The Shunt writes neutral values at shutdown and puts the real ones back once it runs, so the very first start after installing, a power cut and a trusted network until the next restart still show the real or the neutral name. The DHCP FQDN options are dropped at once. Cable adapters on the PCI/USB bus get a new MAC address at every start of the computer (random) or one fixed address (stable); Wi-Fi uses Windows' own random addresses (the driver must support them).", "")
+		}
+		if c.Daemon.MAC == config.MACRandom {
+			trusted := false
+			for _, n := range c.Networks {
+				if n.Trusted() {
+					trusted = true
+				}
+			}
+			if !trusted {
+				add(Info, "stealth.home", "The disguise also applies at home: this computer gets a new MAC address at every start, and a router with an address reservation or MAC filter will not recognise it. Add your home network as a profile with the real MAC address (mac = \"permanent\").", "network")
+			}
+		}
+	}
+	if (env.linux() || env.Windows) && c.Daemon.Quiet != nil && !*c.Daemon.Quiet {
+		add(Info, "quiet.off", "The quiet mode is off: on networks you have not trusted, this computer still announces itself (multicast, broadcast, KDE Connect, Syncthing, mDNS and the like).", "daemon.quiet")
 	}
 	if env.linux() && c.Inbound == nil {
 		add(Info, "inbound.off", "Incoming connections are not filtered (inbound protection is off): services on this computer are reachable from every network.", "inbound")
@@ -171,6 +207,11 @@ func Config(c *config.Config, env Env) []Finding {
 	}
 	slices.Sort(names)
 	for _, name := range names {
+		if t := c.Tunnels[name]; env.Windows && t.IsTor() && !t.Disabled && t.Via != "" {
+			add(Warn, "tor.via.windows", "Tor tunnel “{name}” runs through another tunnel (via), which Windows does not support yet: the tunnel stays down instead of going out directly. Remove via or use Tor on Linux.", "tunnel.via", "name", name)
+		}
+	}
+	for _, name := range names {
 		if env.OVPN == nil || !c.Tunnels[name].IsOpenVPN() {
 			continue
 		}
@@ -191,6 +232,13 @@ func Config(c *config.Config, env Env) []Finding {
 			add(Info, "rule.direct", "Rule “{rule}” sends traffic direct, past every tunnel.", "rule", "rule", name)
 		}
 		out = strict(out)
+		// an explicit captive_check = true: the user's choice, so only a
+		// note (not raised like the rest)
+		if env.linux() && c.Daemon.CaptiveCheckOn() {
+			out = append(out, Finding{ID: "captive.on", Level: Info, Fix: "daemon.captive_check", Strict: true,
+				Msg:  "The check for Wi-Fi login pages is on: after every network change The Shunt asks nmcheck.gnome.org over plain HTTP, directly, past the tunnels (captive_check = false switches it off).",
+				Help: helps["captive.on"]})
+		}
 	}
 
 	slices.SortStableFunc(out, func(a, b Finding) int { return cmp.Compare(rank(a.Level), rank(b.Level)) })

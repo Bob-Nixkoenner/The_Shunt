@@ -56,6 +56,13 @@ The client needs the VirtualBox Guest Additions, passwordless sudo and the
 WireGuard config of the internal test server (`TUNNEL_CONF`, test keys, not in
 git). The rogue DHCP/RA modes only ever run on the internal network `shuntlab`.
 
+## Machine-specific files (not in git)
+
+`local.env` holds the account (`USER_VM`), the test server (`CT130=user@address`) and `LAB_VPN_DIR`: the folder with the
+VPN client configs of the test server (`wg-intern-linux-test.conf`, `ovpn-intern-linux-test.ovpn`, `wg-hop-*.conf`, test
+keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). The tests take the server's address from
+`CT130` (`$CT130_IP`), none carries an address of its own.
+
 ## Running
 
 ```sh
@@ -67,3 +74,47 @@ lab.sh detach            # client back to plain NAT (ssh :2224)
 Results land in `~/projects/shunt-lab-results/<date>/<id>-<time>/` (pcaps,
 logs, `report.md`). Keep pcaps out of git and shared folders: they may contain
 clear text.
+
+## Restore, promisc, CPU cap, multi-hop
+
+- `lab.sh up <snapshot>` sets promisc on the physical NICs right after boot (old snapshots have no udev rule yet);
+  `client-prep` does it before the first package download. A snapshot restore also resets the VirtualBox CPU cap:
+  set `CLIENT_CAP` / `GW_CAP` (percent, e.g. 80) in `local.env` or the environment and `up` applies them again.
+- `run-mh.sh`: the hop address (`HOPIP`) comes from the `Address` line of `HOP_CONF`
+  (or `HOP_VM=<name>` -> `wg-hop-lab-<name>.conf`), not from the tunnel address.
+- Analyzer: `LABMARK tor_end <epoch>` in the client output marks an intended end of tor; contentless TCP to port 9001
+  within 15 s afterwards is reported as info. GitHub list downloads with a `direct` default route are info (#8).
+
+## Windows client (CLIENT_OS=windows)
+
+`CLIENT_OS=windows lab.sh run …` drives the Windows VM with PowerShell (`winclient.sh`, tests in `tests-win/`,
+configs `configs/win-<CONFIG>.toml`). No process trace: findings come from the gateway/CT130 captures and the
+`FAIL …` lines of the test scripts. Test IDs mirror the Linux ones where the test is the same idea.
+The API is used through `curl.exe --unix-socket C:\ProgramData\Shunt\shuntd.sock` (status, reload).
+
+Ported on 2026-11-08 (branch `lab-parity`, not run yet):
+
+| Tests | What | Config |
+|---|---|---|
+| M01, M02 | ARP / CVE-2019-14899 against the tunnel address and the Shunt adapter address 10.111.0.2 | `win-base` |
+| M03 | reload (API) and `Restart-Service` while apps send | `win-base` |
+| M04 | rule on a tunnel with dead endpoint / wrong key (PREP writes `dead.conf`, `badkey.conf`, `labtog.exe`) | `win-m-broken` |
+| M05 | rule switched live tunnel → direct → tunnel; "direct" is told by the exit IP (LAN targets always go direct on Windows) | `win-m-toggle` |
+| FL01–FL03, FL07, FL08 | DNS filter with a local list (`C:\ProgramData\Shunt\lab-filter.txt`, PREP); only the `default` level exists on Windows, so no FL04 | `win-filter-lab`, `win-filter-lab-allow` |
+| H04, H05, H06, H08 | Tor as app route: tor.exe suspended/killed, isolation, obfs4 bridges, `.onion` names. tor.exe's relay connections are allowed through the client's consensus (`LABALLOW`) | `win-tor-app`, `win-tor-bridge` |
+| MH01–MH03, MH08 | WireGuard in WireGuard (`via`); the hop file is `WIN_HOP_CONF` (default `wg-hop-lab-win.conf`), installed by `winclient.sh`, `HOP_BADKEY=1` for MH03 | `win-hop` |
+
+Multi-hop capture on CT130 (like `run-mh.sh`):
+
+```sh
+HOPIP=$(sed -n 's|^Address *= *\([0-9.]*\)/.*|\1|p' "$WIN_HOP_CONF" | head -n1)
+CLIENT_OS=windows CT130_IF=wgt1 TUNNEL_IP=$HOPIP ./lab.sh run MH01 MH02 MH08
+CLIENT_OS=windows CT130_IF=wgt0 ./lab.sh run MH03
+```
+
+Not ported because Windows lacks the feature: tor-all (H01–H03, H09–H11), Tor `via` (H07), OpenVPN (O*, MH04, MH05),
+`dns_filter` per rule (FL04), `panic_kill` (P03), forwarded traffic (M06, M09).
+
+## Reihenfolge im Gesamtlauf (Linux)
+- **P01 immer als Letztes** (nach allen anderen Tests): P01 stellt die Uhr +10 min und zurueck, danach antwortet der VirtualBox-Gastdienst nicht mehr, alle folgenden Tests melden "Client nicht erreichbar".
+- **M07** installiert das neueste Paket aus `$LAB_OUT/debs/`: dort muss das zu testende Paket (z. B. rk3j) das neueste sein, sonst laeuft der Rest des Laufs mit einer alten Version (Kopf von `report.md` pruefen: "Shunt: ...").

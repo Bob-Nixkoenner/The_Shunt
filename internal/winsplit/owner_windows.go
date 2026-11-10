@@ -80,8 +80,9 @@ type Owners struct {
 }
 
 type cached struct {
-	path string
-	at   time.Time
+	path    string
+	created windows.Filetime // start of the process: a reused PID has another
+	at      time.Time
 }
 
 func NewOwners(jobs *Jobs) *Owners { return &Owners{Jobs: jobs, paths: map[uint32]cached{}} }
@@ -100,22 +101,42 @@ func (o *Owners) Owner(proto int, src, _ netip.AddrPort) string {
 	return o.path(pid)
 }
 
+// App returns the app ID of a process (as Owner does for its connections),
+// "" if it cannot be read.
+func (o *Owners) App(pid uint32) string { return o.path(pid) }
+
+// path returns the app ID of a running process. Windows hands a freed PID to
+// the next process at once (the lab saw a new labtun.exe get the PID of a
+// curl.exe that had just ended), so a cached ID only counts for the process
+// it was read from: same PID and same start time.
 func (o *Owners) path(pid uint32) string {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return "" // ended, or not ours to look at
+	}
+	defer windows.CloseHandle(h)
+	var created, exited, kernel, user windows.Filetime
+	if windows.GetProcessTimes(h, &created, &exited, &kernel, &user) != nil {
+		created = windows.Filetime{}
+	}
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	if c, ok := o.paths[pid]; ok && time.Since(c.at) < time.Minute { // PIDs get reused
+	c, ok := o.paths[pid]
+	o.mu.Unlock()
+	if ok && c.created == created && created != (windows.Filetime{}) && time.Since(c.at) < time.Minute {
 		return c.path
 	}
-	p := exePath(pid)
+	p := imagePath(h)
 	if o.Jobs != nil {
 		if r := o.Jobs.Route(pid); r != "" {
 			p = splitstack.Pinned(r, p)
 		}
 	}
+	o.mu.Lock()
 	if len(o.paths) > 4096 {
 		clear(o.paths)
 	}
-	o.paths[pid] = cached{p, time.Now()}
+	o.paths[pid] = cached{p, created, time.Now()}
+	o.mu.Unlock()
 	return p
 }
 
@@ -125,6 +146,11 @@ func exePath(pid uint32) string {
 		return ""
 	}
 	defer windows.CloseHandle(h)
+	return imagePath(h)
+}
+
+// imagePath is the lower-case exe path of an open process, "" if unknown.
+func imagePath(h windows.Handle) string {
 	buf := make([]uint16, windows.MAX_LONG_PATH)
 	n := uint32(len(buf))
 	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {

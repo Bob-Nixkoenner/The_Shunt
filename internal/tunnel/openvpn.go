@@ -12,6 +12,13 @@ type OpenVPNSpec struct {
 	PIDDir   string // where the pid file of the running openvpn goes
 }
 
+// NetChecker is a tunnel that wants to look at the machine's addresses on
+// every network tick (OpenVPN over TCP: a connection tied to a source
+// address that is gone after a network change is restarted at once).
+type NetChecker interface {
+	CheckNetwork()
+}
+
 // Pusher is a tunnel whose server tells the DNS servers at run time
 // (OpenVPN). The daemon routes the tunnel's DNS there.
 type Pusher interface {

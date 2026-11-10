@@ -411,10 +411,17 @@ type tsStatus struct {
 	}
 }
 
-func (t *Tailscale) upArgs() []string {
+// upArgs are the arguments of "tailscale up". The auth key is passed as
+// file:keyFile (a 0600 file in the state directory), never as an argument:
+// command lines are readable for every local user (/proc/*/cmdline).
+func (t *Tailscale) upArgs(keyFile string) []string {
 	c := t.spec.Conf
+	key := "--auth-key="
+	if c.AuthKey != "" {
+		key += "file:" + keyFile
+	}
 	a := []string{"up", "--reset", "--timeout=60s", "--netfilter-mode=off", "--accept-dns=false",
-		"--accept-routes=false", "--shields-up", "--auth-key=" + c.AuthKey}
+		"--accept-routes=false", "--shields-up", key}
 	if c.LoginServer != "" {
 		a = append(a, "--login-server="+c.LoginServer)
 	}
@@ -437,9 +444,18 @@ func (t *Tailscale) follow(ctx context.Context, cli string) {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+	keyFile := filepath.Join(t.spec.StateDir, "authkey")
+	_ = os.Remove(keyFile) // WriteFile keeps the mode of an existing file
+	if t.spec.Conf.AuthKey != "" {
+		if err := os.WriteFile(keyFile, []byte(t.spec.Conf.AuthKey), 0o600); err != nil {
+			t.setLastErr("login failed: " + err.Error())
+			return
+		}
+	}
 	upCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
-	_, err := t.cli(upCtx, cli, t.upArgs()...)
+	_, err := t.cli(upCtx, cli, t.upArgs(keyFile)...)
 	cancel()
+	_ = os.Remove(keyFile)
 	if err != nil {
 		if ctx.Err() == nil {
 			t.setLastErr("login failed: " + strings.ReplaceAll(err.Error(), t.spec.Conf.AuthKey, "…"))

@@ -3,7 +3,7 @@ TITLE="tor-all: nur tor erreicht Relays, alle anderen Apps nur durch Tor, Tor-Au
 CONFIG=tor-all
 EXPECT_CANARY=any
 ALLOW=(comm:tor)
-NOTE="Gateway darf nur Pakete des Prozesses tor sehen. Vor tor-all laeuft tor einmal an (Konsens). Dann: Web ueber Tor (IsTor), direktes UDP/ICMP/anderes Ziel scheitert, tor wird beendet (kein Rueckfall), shuntd wird gestoppt (Tabelle bleibt)."
+NOTE="Gateway darf nur Pakete des Prozesses tor sehen. Vor tor-all laeuft tor einmal an (Konsens). Dann: Web ueber Tor (IsTor), direktes UDP/ICMP/anderes Ziel scheitert, tor wird beendet (kein Rueckfall; ein TCP-Paket ohne Inhalt an Relay-Port 9001, Rest des Verbindungsabbaus, ist erlaubt), shuntd wird gestoppt (Tabelle bleibt)."
 CLIENT='
 tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -Ec "connected|verbunden")" -ge 1 ] && return 0; sleep 2; done; return 1; }
 istor() { for i in 1 2 3; do labfree -s -m20 https://check.torproject.org/api/ip 2>/dev/null | grep -q "\"IsTor\":true" && return 0; sleep 5; done; return 1; } # a fresh circuit after a restart can take a try or two
@@ -17,6 +17,7 @@ istor || echo "FAIL Web geht nicht durch Tor"
 ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && echo "FAIL ICMP raus"
 # 1.1.1.1 per TCP geht legitim durch Tor; direkt ist es erst nach Tor-Ausfall
 # tor stirbt: nichts faellt auf direkt
+echo "LABMARK tor_end $(date +%s.%N)"
 sudo -n pkill -x tor; sleep 1
 labfree -s -m4 -o /dev/null http://1.1.1.1/ && echo "FAIL direkt nach Tor-Ausfall (1.1.1.1)"
 labfree -s -m4 -o /dev/null "http://$1/" && echo "FAIL Canary nach Tor-Ausfall erreichbar"

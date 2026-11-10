@@ -1,0 +1,3 @@
+# baseline: wg-quick
+# Not a Shunt config: apply_config stops shuntd and starts the lab's WireGuard tunnel with plain
+# wg-quick (see plain_wg_up in run-test.sh). Run: CONFIG_FORCE=wgplain ./lab.sh run B01 B02 C01 …

@@ -1,0 +1,24 @@
+# A11: as race-hold.toml, but the default level: the start guard marks these
+# programs with the first rule naming them instead of holding them.
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: domain first"
+domain = ["example.invalid"]
+route = "block"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: args"
+app = ["labfree"]
+args = ["--via-tunnel"]
+route = "tunnel:intern"

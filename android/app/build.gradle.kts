@@ -63,8 +63,11 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // the bundle for Play is signed with the same key (as upload key)
-            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("shunt")
+            // the release APKs (GitHub, F-Droid repo) and the Play bundle are release builds:
+            // not debuggable (a debuggable app lets "adb shell run-as" read its files, the tunnel
+            // keys included). Signed with the release key; without it (local or CI without the
+            // secret) with the debug key, so the APK still installs
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "shunt" else "debug")
         }
     }
     compileOptions {

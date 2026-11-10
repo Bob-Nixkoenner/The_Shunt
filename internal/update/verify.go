@@ -23,8 +23,11 @@ const ReleaseNamespace = "shunt-release"
 // sums against the release key, so a downloaded update can be trusted
 // without ssh-keygen (Windows, Android).
 func VerifySums(sums, sig []byte) error {
-	return verifySSHSig(sums, sig, ReleaseSigner, ReleaseNamespace)
+	return verifySSHSig(sums, sig, releaseSigner, ReleaseNamespace)
 }
+
+// releaseSigner is ReleaseSigner (tests change it).
+var releaseSigner = ReleaseSigner
 
 func verifySSHSig(msg, armored []byte, signerB64, ns string) error {
 	var b64 strings.Builder
@@ -104,6 +107,39 @@ func SumFor(sums []byte, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// SumsTag returns the release that a SHA256SUMS file names in its line
+// "# tag <tag>" (written by the release workflow from v0.7.1-rc24 on), ""
+// if it names none. More than one such line counts as none.
+func SumsTag(sums []byte) string {
+	tag := ""
+	for _, l := range strings.Split(string(sums), "\n") {
+		t, ok := strings.CutPrefix(strings.TrimRight(l, "\r"), "# tag ")
+		if !ok {
+			continue
+		}
+		if tag != "" {
+			return ""
+		}
+		tag = strings.TrimSpace(t)
+	}
+	return tag
+}
+
+// CheckSumsTag makes sure the signed SHA256SUMS belongs to release tag, so an
+// old signed release published again under a newer tag is not taken for an
+// update. The line is required: the app only updates to releases newer than
+// itself, and every release from the first one with this check on carries it.
+func CheckSumsTag(sums []byte, tag string) error {
+	switch got := SumsTag(sums); got {
+	case tag:
+		return nil
+	case "":
+		return fmt.Errorf("the signed checksums do not name release %s (an old release under a new name?)", tag)
+	default:
+		return fmt.Errorf("the signed checksums belong to release %s, not %s (an old release under a new name?)", got, tag)
+	}
 }
 
 type wireReader struct {

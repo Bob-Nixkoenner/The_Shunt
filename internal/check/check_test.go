@@ -13,9 +13,9 @@ import (
 
 // allIDs is every finding the package can make; worstCase must trigger each.
 var allIDs = []string{"dns.off", "dns.doh", "killswitch.off", "bootlock.off", "default.direct",
-	"network.ssid_only", "stealth.unset", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
+	"network.ssid_only", "stealth.unset", "stealth.home", "stealth.winname", "quiet.off", "inbound.off", "gateway.direct", "gateway.noroute", "gateway.bootlock",
 	"ovpn.cipher", "ovpn.cbc", "ovpn.auth", "ovpn.compress", "ovpn.nowrap", "ovpn.tls", "ovpn.nocerttype",
-	"rule.direct"}
+	"rule.direct", "captive.on"}
 
 func parse(t *testing.T, s string) *config.Config {
 	t.Helper()
@@ -61,7 +61,7 @@ default_route = "direct"
 		}
 	}
 	// default_route direct hides bootlock.off: use a tunnel default for it
-	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n")
+	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nboot_lockdown = \"off\"\nmac = \"\"\nquiet = false\n[tunnel.a]\nconfig = \"a.conf\"\n[gateway]\nenabled = true\n[[gateway.group]]\nname = \"x\"\ninterfaces = [\"br1\"]\n[[gateway.group]]\nname = \"y\"\ninterfaces = [\"br2\"]\nroute = \"direct\"\n")
 	for _, f := range Config(c2, Env{}) {
 		seen[f.ID] = true
 	}
@@ -69,6 +69,9 @@ default_route = "direct"
 		seen[f.ID] = true
 	}
 	for _, f := range Config(parse(t, strictCfg), Env{}) {
+		seen[f.ID] = true
+	}
+	for _, f := range Config(parse(t, captiveOnCfg), Env{}) {
 		seen[f.ID] = true
 	}
 	for _, id := range allIDs {
@@ -234,7 +237,7 @@ func TestCheckStrictMode(t *testing.T) {
 		}
 	}
 	// other findings go one level up: info → warn, warn → bad
-	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nconfig_check = \"strict\"\n[tunnel.a]\nconfig = \"a.ovpn\"\ndriver = \"openvpn\"\n")
+	c2 := parse(t, "[daemon]\ndefault_route = \"tunnel:a\"\nconfig_check = \"strict\"\nmac = \"\"\n[tunnel.a]\nconfig = \"a.ovpn\"\ndriver = \"openvpn\"\n")
 	cbc := &ovpnconf.Config{Ciphers: []string{"AES-256-CBC"}, TLSWrap: true, RemoteCertTLS: true}
 	got = levels(Config(c2, Env{OVPN: func(string) *ovpnconf.Config { return cbc }}))
 	want = map[string]string{"ovpn.cbc": Bad, "stealth.unset": Warn, "inbound.off": Warn}
@@ -247,5 +250,101 @@ func TestCheckStrictMode(t *testing.T) {
 		if f.ID == "rule.direct" && f.Vals["rule"] != "#1" {
 			t.Errorf("unnamed rule: %v", f.Vals)
 		}
+	}
+}
+
+var captiveOnCfg = strings.Replace(strictCfg, `config_check = "strict"`, "config_check = \"strict\"\ncaptive_check = true", 1)
+
+// Strict mode leaves the portal check out by default; switched on
+// explicitly it is a note on Linux (not raised), and nothing elsewhere.
+func TestCheckStrictCaptive(t *testing.T) {
+	ovpn := func(string) *ovpnconf.Config {
+		return &ovpnconf.Config{Ciphers: []string{"AES-256-GCM"}, RemoteCertTLS: true}
+	}
+	if l, ok := levels(Config(parse(t, strictCfg), Env{OVPN: ovpn}))["captive.on"]; ok {
+		t.Errorf("strict without captive_check: captive.on %s", l)
+	}
+	fs := Config(parse(t, captiveOnCfg), Env{OVPN: ovpn})
+	found := false
+	for _, f := range fs {
+		if f.ID == "captive.on" {
+			found = true
+			if f.Level != Info || !f.Strict || f.Help == "" || f.Fix != "daemon.captive_check" {
+				t.Errorf("captive.on: %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("strict + captive_check = true: no captive.on in %v", ids(fs))
+	}
+	for _, env := range []Env{{Windows: true}, {Android: true}} {
+		if _, ok := levels(Config(parse(t, captiveOnCfg), env))["captive.on"]; ok {
+			t.Errorf("captive.on outside Linux: %+v", env)
+		}
+	}
+	normal := strings.Replace(captiveOnCfg, `config_check = "strict"`, `config_check = "normal"`, 1)
+	if _, ok := levels(Config(parse(t, normal), Env{OVPN: ovpn}))["captive.on"]; ok {
+		t.Error("captive.on in normal mode")
+	}
+}
+
+// Tor over via does not work on Windows: the check says so there, not on Linux.
+func TestTorViaWindows(t *testing.T) {
+	c, err := config.Parse("[daemon]\ndefault_route = \"tunnel:t\"\n[tunnel.wg]\nconfig = \"wg.conf\"\n[tunnel.t]\ndriver = \"tor\"\nvia = \"wg\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(fs []Finding) bool {
+		for _, f := range fs {
+			if f.ID == "tor.via.windows" && f.Vals["name"] == "t" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(Config(c, Env{Windows: true})) || has(Config(c, Env{})) {
+		t.Error("tor.via.windows only on Windows")
+	}
+}
+
+func TestStealthHome(t *testing.T) {
+	has := func(c *config.Config) bool {
+		for _, f := range Config(c, Env{}) {
+			if f.ID == "stealth.home" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(parse(t, "[daemon]\nmac = \"random\"\n")) {
+		t.Error("random MAC without a trusted network: hint expected")
+	}
+	if has(parse(t, "[daemon]\nmac = \"random\"\n[[network]]\nname = \"home\"\nssid = [\"h\"]\ndefault_route = \"direct\"\nmac = \"permanent\"\n")) {
+		t.Error("a trusted network profile: no hint")
+	}
+	if has(parse(t, "[daemon]\nmac = \"\"\n")) {
+		t.Error("disguise off: no hint")
+	}
+}
+
+func TestStealthWindows(t *testing.T) {
+	ids := func(c *config.Config) map[string]bool {
+		m := map[string]bool{}
+		for _, f := range Config(c, Env{Windows: true}) {
+			m[f.ID] = true
+		}
+		return m
+	}
+	m := ids(parse(t, "[daemon]\nmac = \"random\"\ndhcp_hostname = \"none\"\n"))
+	if !m["stealth.winname"] || !m["stealth.home"] || m["stealth.unset"] {
+		t.Errorf("default disguise: %v", m)
+	}
+	m = ids(parse(t, "[daemon]\nmac = \"\"\ndhcp_hostname = \"\"\n"))
+	if !m["stealth.unset"] || m["stealth.winname"] || m["stealth.home"] {
+		t.Errorf("disguise off: %v", m)
+	}
+	m = ids(parse(t, "[daemon]\nmac = \"random\"\ndhcp_hostname = \"none\"\n[[network]]\nname = \"h\"\nmac = \"permanent\"\ndefault_route = \"direct\"\nssid = [\"h\"]\n"))
+	if m["stealth.home"] {
+		t.Errorf("trusted profile present: %v", m)
 	}
 }

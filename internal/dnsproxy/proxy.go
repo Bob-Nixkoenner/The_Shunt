@@ -345,7 +345,7 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
-// who names the sender (nil = unknown); called only when the filter blocks.
+// who names the sender (nil = unknown); called when the filter blocks and for the debug log.
 func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dns.Msg {
 	if len(r.Question) != 1 {
 		return fail(r, dns.RcodeFormatError)
@@ -366,10 +366,25 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 			if mark == engine.MarkBlock {
 				return fail(r, dns.RcodeNameError)
 			}
+			if mark&engine.MarkMask == engine.MarkBase {
+				// a Shunt mark of no route we know (stale plan, bypass):
+				// not the listener's route by default
+				p.Log.Debug("dns query with an unknown route mark, refused", "mark", fmt.Sprintf("%#x", mark), "listener", src.String(), "name", name)
+				return fail(r, dns.RcodeServerFailure)
+			}
 		} else if own.Mark != src.Mark {
 			p.Log.Debug("dns query came to the wrong listener, answering for its own route", "listener", src.String(), "route", own.String())
 			src = own
 		}
+	}
+	if p.Log.Enabled(context.Background(), slog.LevelDebug) {
+		// M04 trace: which route answers whom (name, mark the packet carried, listener, chosen route, sender if known)
+		sender := ""
+		if who != nil {
+			sender = who()
+		}
+		p.Log.Debug("dns query", "name", name, "type", dns.TypeToString[q.Qtype], "mark", fmt.Sprintf("%#x", mark),
+			"listener", p.byPortName(port), "route", src.String(), "sender", sender)
 	}
 	if doh.Unwanted(name, plan.BlockDoH) {
 		return fail(r, dns.RcodeNameError)
@@ -547,3 +562,12 @@ func stripECS(m *dns.Msg) {
 }
 
 func isOnion(name string) bool { return name == "onion" || strings.HasSuffix(name, ".onion") }
+
+func (p *Proxy) byPortName(port int) string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if r := p.byPort[port]; r != nil {
+		return r.String()
+	}
+	return ""
+}

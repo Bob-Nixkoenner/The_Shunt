@@ -52,6 +52,16 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   client and NetBIOS name queries of the kernel (UDP 5355/5353/137), which broadcast names to the
   local network. The direct route uses the network's
   DHCP DNS server unless `dns.direct` is set.
+- Host name lookups are made by Windows' DNS client service (svchost.exe) for every program, so the
+  TUN shows svchost as the asker. The service reads which program asked from the DNS client's events
+  (ETW, provider Microsoft-Windows-DNS-Client, event 3006, written in the asking process) and sends the
+  query over that program's route: a Tor app's names through Tor, an app on another tunnel through it,
+  an app whose tunnel is down into that tunnel (no answer, SERVFAIL), a blocked app nowhere (REFUSED).
+  A program set to `direct` sends its own traffic past the tunnel, but its names still go the default
+  route (through the tunnel when that is one), so they are never asked in the clear because of the
+  split; use a domain rule (or `dns.direct` with a rule for the name) when a name must be asked
+  directly. If the events cannot be read (log: "DNS askers: ..."), every name goes the default route.
+  Names Windows still has in its cache are answered from there, whoever asked first.
 - Kill switch (`[daemon] kill_switch`, **on by default** since 0.7.1; `false` turns it off):
   Windows Firewall blocks all outgoing traffic except the service, the adapter's address
   (= apps whose packets entered the split), the local network (without its DNS, ports 53/853)
@@ -69,6 +79,8 @@ checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows
 ## Tor and SOCKS
 
 `driver = "tor"` (Configure: Add a tunnel, Tor) runs `tor\tor.exe` from the install folder as a child of the service; bridges `snowflake`, `obfs4`, `meek` use `tor\pt\lyrebird.exe`. tor.exe and the transports always go out direct (the service adds those app rules) and the kill switch lets them send. Apps on the Tor route: TCP only, names through Tor, `.onion` works, an own circuit per app (`isolate`). `socks = "127.0.0.1:1080"` on any tunnel opens a SOCKS5 proxy whose connections leave through that tunnel (TCP; no UDP ASSOCIATE yet).
+
+`via` on a Tor tunnel (Tor behind WireGuard) does **not** work on Windows yet: tor.exe cannot be put behind another tunnel there, and going out direct would show the foreign network Tor instead of the tunnel. Such a Tor tunnel is not started and stays down (log, warnings and `shunt check`: "via not supported on Windows"); apps on its route are blocked. Remove `via` or use Linux, where tor runs in the cgroup of the `via` route.
 
 ## Inbound protection and clock check
 

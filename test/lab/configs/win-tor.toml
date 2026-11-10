@@ -1,5 +1,8 @@
 # Windows lab: one Tor tunnel (tor.exe runs as a child process of the service).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:tor"
 
 [tunnel.tor]

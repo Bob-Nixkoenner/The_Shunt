@@ -201,9 +201,18 @@ type Plan struct {
 	FilterRoutes []*Route
 	// Inbound: incoming connections (nil = not filtered).
 	Inbound *Inbound
+	// Quiet: nothing that announces this machine leaves the uplinks (nil =
+	// off).
+	Quiet *Quiet
 	// Gateway: groups of client interfaces routed through The Shunt
 	// (nil = off).
 	Gateway *Gateway
+}
+
+// Quiet is the quiet mode in effect: what leaves these interfaces is
+// stripped of multicast, broadcast and discovery traffic.
+type Quiet struct {
+	Uplinks []string
 }
 
 // Uplinks returns the interfaces tunnel traffic of Forward routes may arrive
@@ -239,37 +248,96 @@ func (p *Plan) AppRules() []*Rule {
 	return out
 }
 
-// StartMarks returns, per process name (comm, at most 15 bytes), the route
-// mark a program gets for its sockets until the app watcher has moved it
-// into its rule's group (the start race, see package racebpf). Only rules
-// that take a program as a whole qualify: app names, no arguments, no
-// destination or port selectors. Rules that apply to every program
-// (destination or port rules without a group) end the list, because a
-// program not yet in its group could match them first.
-func (p *Plan) StartMarks() map[string]uint32 {
-	out := map[string]uint32{}
+// StartEntry is what the eBPF start guard (package racebpf) does with a
+// program whose name (comm) it knows, from its exec until the app watcher
+// has moved it into its rule's group.
+type StartEntry struct {
+	// Mark: the route mark its sockets get (Hold false).
+	Mark uint32
+	// Hold: its sockets are refused (EPERM) until the watcher has decided:
+	// moved into a group, or no rule matches after all. A socket made in
+	// that window would keep the default route for good (nftables matches
+	// the cgroup a socket was created in).
+	Hold bool
+}
+
+// StartGuard returns, per process name (comm, at most 15 bytes), what the
+// start guard does with a program until the app watcher has placed it.
+//
+// A mark is only exact for rules that take a program as a whole: app names,
+// a route, no arguments, no destination or port selectors, no DNS filter
+// level of their own. Every other app rule holds its candidates: executable
+// paths (by base name), arguments, ports, own filter levels, and all names
+// after a rule that applies to every program (destination or port rules
+// without a group: a program not yet in its group could match them first)
+// or after a Flatpak selector (its programs can have any name). The first
+// rule naming a program decides, as in the watcher and in nftables.
+//
+// hold false (the default levels, decided 09.11.2026): such programs get
+// the mark of the first rule naming them instead of being held, when that
+// rule takes the program as a whole (after a rule for every program, an
+// exe path, an own filter level); rules for arguments, ports or one address
+// family are left to the watcher. Holding
+// makes every program that does not retry (curl, git, scripts) fail its
+// first connection; marking can, rarely, give a first packet the route of
+// a rule further down. hold true is the opsec level: rather a failed start
+// than a wrong route.
+func (p *Plan) StartGuard(hold bool) map[string]StartEntry {
+	out := map[string]StartEntry{}
+	left := map[string]bool{} // named first by a rule left to the watcher
+	holdRest := false
 	for _, r := range p.Rules {
 		if len(r.Groups) == 0 {
 			if r.Route != nil {
-				break
+				holdRest = true
 			}
-			continue // only a DNS filter level
+			continue // a rule for every program, or only a DNS filter level
 		}
-		if len(r.Apps) == 0 || r.Route == nil || len(r.Args) > 0 || !r.AnyFamily || len(r.Ports) > 0 {
-			continue
+		if len(r.Apps) == 0 {
+			continue // a group of `shunt run`, nothing to watch
 		}
+		whole := r.Route != nil && len(r.Args) == 0 && r.AnyFamily && len(r.Ports) == 0 && len(r.FilterRoutes) == 0
+		flatpak := false
 		for _, a := range r.Apps {
-			if a.Kind != "name" {
+			var n string
+			must := holdRest || !whole // a mark would not be exact
+			switch a.Kind {
+			case "name":
+				n = a.Value
+			case "exe":
+				n, must = path.Base(a.Value), true
+			default: // flatpak: the same rule's names still decide alone
+				flatpak = true
 				continue
 			}
-			n := a.Value
 			if len(n) > 15 {
 				n = n[:15]
 			}
-			if _, seen := out[n]; !seen {
-				out[n] = r.Route.Mark
+			if n == "" || n == "/" || n == "." {
+				continue
 			}
+			if _, seen := out[n]; seen || left[n] {
+				continue
+			}
+			if must && !hold {
+				if r.Route == nil || len(r.Args) > 0 || len(r.Ports) > 0 || !r.AnyFamily {
+					// no route of its own (a filter level only), or the rule
+					// takes only part of the program (arguments, ports, one
+					// address family): its mark would be wrong for every
+					// other start; the watcher decides alone, as before
+					// (and no later rule may claim the name)
+					left[n] = true
+					continue
+				}
+				must = false
+			}
+			e := StartEntry{Hold: must}
+			if !must {
+				e.Mark = r.Route.Mark
+			}
+			out[n] = e
 		}
+		holdRest = holdRest || flatpak
 	}
 	return out
 }
@@ -552,6 +620,11 @@ func CompileOn(c *config.Config, cgroupRoot string, tunnels map[string]TunnelInf
 			}
 		}
 		p.Inbound = in
+	}
+	if c.QuietFor(network) {
+		q := &Quiet{Uplinks: slices.Clone(p.LinkIfaces)}
+		sort.Strings(q.Uplinks)
+		p.Quiet = q
 	}
 	p.Gateway = compileGateway(c, p)
 	return p, nil

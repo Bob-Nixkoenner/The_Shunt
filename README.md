@@ -107,7 +107,10 @@ verified release, imports your WireGuard config, writes
 `sudo bash install.sh --dry-run` only shows what it would do. It takes the newest release
 (pre-releases included) whose `SHA256SUMS` carry the release signature (`ssh-keygen -Y
 verify`, key in `install.sh`) and hands over to the installer of that release, so code
-merged after a release is not installed until it is released. Without a signed release it
+merged after a release is not installed until it is released. The signed list names its
+release (`# tag …`, from v0.7.1-rc24 on) and also covers the systemd units, desktop entry
+and polkit policy (`shunt_linux_extras.tar.gz`); nothing the installer puts in place as root
+is downloaded unsigned. Without a signed release it
 builds from source. Everything is logged to
 `/var/log/shunt-install.log`.
 Uninstall: `sudo bash install.sh --uninstall` (`--purge` also deletes `/etc/shunt`).
@@ -155,14 +158,16 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   pushed DNS servers are used for that route)
 - **Tailscale / Headscale tunnels**: a `NAME.ts` file (`login_server`, `auth_key`, optional
   `exit_node`) – on Linux Shunt runs its own `tailscaled` in a private network namespace
-  (needs `tailscaled`/`tailscale` installed), on Windows it uses Tailscale's userspace client
+  (needs `tailscaled`/`tailscale` installed, and once `sudo shuntd setup-tailscale`: the
+  service is not allowed network namespaces by default), on Windows it uses Tailscale's userspace client
   inside the service. With an exit node everything routed into the tunnel leaves through it
   (IPv4 only); without one only the tailnet is reachable. Not on Android yet
 - **Multi-hop**: `via = "tunnel:home"` sends a tunnel's encrypted packets through
   another tunnel – WireGuard in WireGuard, OpenVPN in WireGuard, or the other way
   round. The first hop sees only the second hop's server, the second hop's server
   only the first hop's exit. First hop down → second hop blocked, nothing goes
-  direct. The inner MTU is lowered automatically
+  direct. The inner MTU is lowered automatically (Tor behind a tunnel: Linux only; on Windows such a Tor tunnel stays down, see
+  [docs/WINDOWS.md](docs/WINDOWS.md)).
 - **Wi-Fi vs. cable**: routes `link:wifi`, `link:ethernet`, `link:mobile` send a program
   out over that connection only, with Wi-Fi and cable plugged in at the same time
   (e.g. a download over cable, the browser over Wi-Fi). Not connected → blocked, never
@@ -180,9 +185,39 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
   (`dns_direct = "pihole"` at home, `"system"` = whatever the network hands out)
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
   asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
-  or the tray)
-- Installer option: own MAC address per Wi-Fi, no host name in DHCP, IPv6 privacy
-  addresses (NetworkManager)
+  or the tray). The check is a plain-HTTP request to nmcheck.gnome.org past the tunnels: on
+  by default, off with `daemon.config_check = "strict"` (opsec level); an explicit
+  `daemon.captive_check = true|false` always wins. Without it, open the login browser yourself
+- Disguise in foreign networks (Linux, NetworkManager), **on by default**: a new MAC address
+  on every connection (Wi-Fi and cable), no host name in DHCP, device IDs (DHCPv6 DUID,
+  client ID) and IPv6 addresses not derived from the device. Trusted networks say otherwise
+  per `[[network]]` (`mac = "permanent"`, `dhcp_hostname = "send"`); `mac = ""` /
+  `dhcp_hostname = ""` in `[daemon]` switch it off. At home use "the real one" in the profile
+  if your router has a reservation or MAC filter.
+- **Quiet mode** (Linux, **on by default**): on networks you have not trusted, nothing that
+  announces the computer leaves Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing,
+  mDNS, LLMNR, NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery keep working).
+  A profile with incoming = LAN, the real MAC or the host name sent counts as trusted and is
+  not quiet, so local names and devices work at home. `daemon.quiet = false` or per
+  `[[network]]` `quiet = true|false`. On Windows the same set is dropped by persistent WFP
+  filters (also in the minutes between boot and the start of the service; a system shutdown
+  puts them back, a trusted network or `quiet = false` lifts them, `shuntd-win killswitch-off`
+  removes them). Local names (LLMNR/NetBIOS/mDNS) do not resolve on untrusted networks then.
+- **Windows disguise** (like Linux: `daemon.mac`, `daemon.dhcp_hostname`, per `[[network]]`; measured in the
+  lab, see `docs`): the DHCP FQDN options (v4 option 81, DHCPv6 FQDN) are dropped at once on foreign
+  networks (per adapter `RegistrationEnabled = 0`). Cable adapters on the PCI/USB bus get a locally
+  administered MAC: `random` = new at every start of the computer (chosen at shutdown, so no
+  reconnect at boot), `stable` = one fixed address per adapter derived from a machine secret;
+  `permanent`/`""` or a trusted profile puts the real one back (adapter restart). Wi-Fi uses Windows'
+  own random addresses (`netsh wlan`, the driver must support them). **Limits Windows sets:** the
+  DHCP client reads the computer name (option 12) and its DHCPv6 DUID (which carries the real MAC)
+  only when it starts and cannot be restarted. So at shutdown Shunt writes a neutral name
+  (`DESKTOP-XXXXXXX`) and DUID, the next boot's client sends those, and Shunt puts the real values
+  back once it runs. The very first start after installing, a power cut or crash, and a trusted
+  network until the next restart (it sees the neutral name) are not covered. The real computer name
+  (NetBIOS, domain) is never changed. Every changed value is saved in `state\tarnung.json` and put
+  back on stop, after a crash and on uninstall. A MAC filter at home needs a profile with `mac =
+  "permanent"`; adapters on the ROOT bus (VPN, Hyper-V switches) are left alone.
 - Rules by **process group**, **CIDR**, **port** and **domain**, first match wins
 - **DNS per route**: each route has its own upstream (Pi-hole, Unbound, AdGuard Home,
   plain/DoT/DoH). Whatever goes through a tunnel is resolved through that tunnel;

@@ -3,6 +3,7 @@ package winsvc
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,8 @@ func TestAPIOverSocket(t *testing.T) {
 	core := &fakeCore{}
 	reloaded := 0
 	s := &Server{Core: core, Version: "t1",
-		Reload: func() error { reloaded++; return nil },
+		Identify: func(net.Conn) *Caller { return &Caller{PID: 1, Manage: true} },
+		Reload:   func() error { reloaded++; return nil },
 		Config: func() (string, map[string]string) {
 			return "tunnel:home", map[string]string{`c:\a\b.exe`: "direct", `c:\a\a.exe`: "block"}
 		}}

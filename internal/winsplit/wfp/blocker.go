@@ -41,10 +41,24 @@ var (
 	filterBase  = windows.GUID{Data1: 0x5e4a7d00, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x03}}
 )
 
+// Boot-time copies (FWPM_FILTER_FLAG_BOOTTIME): the TCP/IP stack enforces
+// them from its start until BFE runs and loads the persistent filters above.
+// Without them the first seconds of a boot are open (Windows' NCSI check went
+// out in plain text before BFE had loaded the kill switch). They take no
+// provider and sit in the default sublayer, so they do not depend on objects
+// BFE only loads later.
+var bootFilterBase = windows.GUID{Data1: 0x5e4a8000, Data2: 0x5f3b, Data3: 0x4c2e, Data4: [8]byte{0x9a, 0x61, 0x53, 0x48, 0x55, 0x4e, 0x54, 0x04}}
+
 // maxFilters bounds the keys Disable tries (Enable installs about 40).
 const maxFilters = 128
 
-var nextFilter uint32
+// maxBootFilters bounds the boot-time keys (the same set as the persistent one).
+const maxBootFilters = maxFilters
+
+var nextFilter, nextBootFilter uint32
+
+// bootMode: addFilter adds boot-time filters instead of persistent ones.
+var bootMode bool
 
 func filterKey(i uint32) windows.GUID {
 	k := filterBase
@@ -52,8 +66,27 @@ func filterKey(i uint32) windows.GUID {
 	return k
 }
 
-// addFilter adds a persistent filter under the next fixed key.
+func bootFilterKey(i uint32) windows.GUID {
+	k := bootFilterBase
+	k.Data1 += i
+	return k
+}
+
+// addFilter adds a persistent filter under the next fixed key (in bootMode a
+// boot-time filter without provider, in the default sublayer).
 func addFilter(session uintptr, filter *wtFwpmFilter0, id *uint64) error {
+	if bootMode {
+		if nextBootFilter >= maxBootFilters {
+			return errors.New("too many kill switch boot-time filters")
+		}
+		f := *filter
+		f.filterKey = bootFilterKey(nextBootFilter)
+		nextBootFilter++
+		f.flags = f.flags&^cFWPM_FILTER_FLAG_PERSISTENT | cFWPM_FILTER_FLAG_BOOTTIME
+		f.providerKey = nil
+		f.subLayerKey = windows.GUID{} // FWPM_SUBLAYER_UNIVERSAL
+		return fwpmFilterAdd0(session, &f, 0, id)
+	}
 	if nextFilter >= maxFilters {
 		return errors.New("too many kill switch filters")
 	}
@@ -116,6 +149,10 @@ func remove(session uintptr) {
 		k := filterKey(i)
 		_ = fwpmFilterDeleteByKey0(session, &k)
 	}
+	for i := uint32(0); i < maxBootFilters; i++ {
+		k := bootFilterKey(i)
+		_ = fwpmFilterDeleteByKey0(session, &k)
+	}
 	_ = fwpmSubLayerDeleteByKey0(session, &sublayerKey)
 	_ = fwpmProviderDeleteByKey0(session, &providerKey)
 }
@@ -130,7 +167,8 @@ func Enable(tunLUID uint64, dns netip.Addr, apps ...string) error {
 		return err
 	}
 	defer fwpmEngineClose0(session)
-	nextFilter = 0
+	nextFilter, nextBootFilter, bootMode = 0, 0, false
+	defer func() { bootMode = false }()
 	return runTransaction(session, func(session uintptr) error {
 		remove(session)
 		bo, err := registerBaseObjects(session)
@@ -159,6 +197,16 @@ func Enable(tunLUID uint64, dns netip.Addr, apps ...string) error {
 				return err
 			}
 		}
+		// the same set again as boot-time filters, for the seconds before BFE
+		// loads the persistent ones (should Windows also enforce them while
+		// BFE runs, they only repeat the persistent set one sublayer lower)
+		bootMode = true
+		for _, s := range steps {
+			if err := s(); err != nil {
+				return err
+			}
+		}
+		bootMode = false
 		return nil
 	})
 }
