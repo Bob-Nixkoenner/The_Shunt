@@ -326,3 +326,25 @@ func TestStealthHome(t *testing.T) {
 		t.Error("disguise off: no hint")
 	}
 }
+
+func TestStealthWindows(t *testing.T) {
+	ids := func(c *config.Config) map[string]bool {
+		m := map[string]bool{}
+		for _, f := range Config(c, Env{Windows: true}) {
+			m[f.ID] = true
+		}
+		return m
+	}
+	m := ids(parse(t, "[daemon]\nmac = \"random\"\ndhcp_hostname = \"none\"\n"))
+	if !m["stealth.winname"] || !m["stealth.home"] || m["stealth.unset"] {
+		t.Errorf("default disguise: %v", m)
+	}
+	m = ids(parse(t, "[daemon]\nmac = \"\"\ndhcp_hostname = \"\"\n"))
+	if !m["stealth.unset"] || m["stealth.winname"] || m["stealth.home"] {
+		t.Errorf("disguise off: %v", m)
+	}
+	m = ids(parse(t, "[daemon]\nmac = \"random\"\ndhcp_hostname = \"none\"\n[[network]]\nname = \"h\"\nmac = \"permanent\"\ndefault_route = \"direct\"\nssid = [\"h\"]\n"))
+	if m["stealth.home"] {
+		t.Errorf("trusted profile present: %v", m)
+	}
+}
