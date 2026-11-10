@@ -14,7 +14,9 @@ LOG=/tmp/shunt-installer-packages.log LOG_ON=1
 : >"$LOG"
 [[ -n $PM ]] || die "no package manager found"
 echo "package manager: $PM"
-if [[ $PM == pacman ]]; then pacman -Sy --noconfirm >/dev/null; fi # fresh container: empty database
+# fresh container: empty database. A full upgrade, not -Sy: the image lags behind the repositories, and -Sy alone leaves a
+# partial upgrade ("installing openssl breaks dependency libcrypto.so=3-64"), which pacman refuses (and install.sh reports)
+if [[ $PM == pacman ]]; then pacman -Syu --noconfirm >/dev/null; fi
 if [[ $PM == apt ]]; then step "updating package lists (apt)" apt-get -y -q update; fi
 for g in base polkit openvpn tor ssh go desktop desktop-build; do
 	pkg_install "$g" "$g"
