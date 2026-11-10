@@ -22,6 +22,9 @@ if [[ $1 == tarball ]]; then
 	else pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump; fi
 	systemctl stop shuntd 2>/dev/null || true
 	tar -C / -xf "$2"
+	# what the .deb's postinst does besides unpacking: the group of the control socket and the config directories
+	getent group shunt >/dev/null || groupadd --system shunt
+	install -d -m755 /etc/shunt; install -d -m700 /etc/shunt/tunnels
 	for b in shunt shuntd; do [[ -e /usr/local/bin/$b ]] && ln -sf /usr/bin/$b /usr/local/bin/$b; done
 	sed -i 's|/usr/local/bin/shuntd|/usr/bin/shuntd|g' /usr/lib/systemd/system/shuntd.service 2>/dev/null || true
 	rm -f /etc/systemd/system/shuntd.service /usr/local/lib/systemd/system/shuntd.service
