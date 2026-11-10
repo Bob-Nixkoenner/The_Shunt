@@ -107,3 +107,7 @@ CLIENT_OS=windows CT130_IF=wgt0 ./lab.sh run MH03
 
 Not ported because Windows lacks the feature: tor-all (H01–H03, H09–H11), Tor `via` (H07), OpenVPN (O*, MH04, MH05),
 `dns_filter` per rule (FL04), `panic_kill` (P03), forwarded traffic (M06, M09).
+
+## Reihenfolge im Gesamtlauf (Linux)
+- **P01 immer als Letztes** (nach allen anderen Tests): P01 stellt die Uhr +10 min und zurueck, danach antwortet der VirtualBox-Gastdienst nicht mehr, alle folgenden Tests melden "Client nicht erreichbar".
+- **M07** installiert das neueste Paket aus `$LAB_OUT/debs/`: dort muss das zu testende Paket (z. B. rk3j) das neueste sein, sonst laeuft der Rest des Laufs mit einer alten Version (Kopf von `report.md` pruefen: "Shunt: ...").
