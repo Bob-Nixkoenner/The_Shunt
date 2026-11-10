@@ -54,6 +54,9 @@ var version = "dev"
 
 var dataDir = filepath.Join(os.Getenv("ProgramData"), "Shunt")
 
+// tarnCfg is the latest config (for the shutdown, which has no other access).
+var tarnCfg atomic.Pointer[config.Config]
+
 func sockPath() string { return filepath.Join(dataDir, "shuntd.sock") }
 
 func main() {
@@ -182,6 +185,16 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 				st <- svc.Status{State: svc.StopPending}
 				cancel()
 				<-done
+				if t := winsplit.RealTarn(); t != nil {
+					if c.Cmd == svc.Shutdown {
+						// the next boot's DHCP client reads the host name, DUID and MAC at start
+						if err := t.PrepareShutdown(winsplit.BootWant(tarnCfg.Load())); err != nil {
+							log.Printf("disguise for the next boot: %v", err)
+						}
+					} else if err := t.RestoreAll(); err != nil { // stopped by hand: everything back
+						log.Printf("disguise: restoring: %v", err)
+					}
+				}
 				if c.Cmd == svc.Shutdown && quietBoot.Load() {
 					// the next boot starts before this service: cover it
 					if err := winsplit.EnableQuietBoot(); err != nil {
@@ -373,18 +386,39 @@ func runCore(ctx context.Context, ready func()) error {
 		quState = state
 		log.Print("quiet mode on")
 	}
-	// Windows' own random Wi-Fi hardware address follows daemon.mac (random
-	// or stable = on, "" or permanent = off); applies from the next connection.
-	// Cable adapters and the computer name in DHCP stay as they are.
+	// Disguise towards the network (daemon.mac, daemon.dhcp_hostname, per
+	// network profile): Windows' own random Wi-Fi hardware address (from the
+	// next connection), the cable adapters' MAC and the DHCP FQDN options (see
+	// winsplit.Tarn). The host name in option 12 and the DUID are only read by
+	// Windows' DHCP client at boot: shutdown prepares them for the next boot.
 	var macMu sync.Mutex
-	macState := ""
+	var netKnown atomic.Bool
+	macState, tarnState := "", ""
 	applyMAC := func() {
 		macMu.Lock()
 		defer macMu.Unlock()
 		socksMu.Lock()
 		c := socksCfg
 		socksMu.Unlock()
-		if c == nil || c.Daemon.MAC == macState {
+		if c == nil {
+			return
+		}
+		nw := inNetwork.Load().(string)
+		w := winsplit.WantFor(c, nw)
+		// only once the network is known: restarting the cable adapter before
+		// the router's MAC was looked up leaves that lookup empty (the profile
+		// would not be recognised)
+		if key := fmt.Sprintf("%+v", w); netKnown.Load() && key != tarnState {
+			tarnState = key
+			if t := winsplit.RealTarn(); t != nil {
+				rs, err := t.Apply(w)
+				log.Printf("disguise (network %q): hide name %v, cable MAC %q, adapters restarted %v", nw, w.HideName, w.MAC, rs)
+				if err != nil {
+					log.Printf("disguise: %v", err)
+				}
+			}
+		}
+		if c.Daemon.MAC == macState {
 			return
 		}
 		macState = c.Daemon.MAC
@@ -427,6 +461,7 @@ func runCore(ctx context.Context, ready func()) error {
 			socksMu.Lock()
 			socksCfg = c
 			socksMu.Unlock()
+			tarnCfg.Store(c)
 			applySocks()
 			go applyInbound()
 			go applyQuiet()
@@ -471,6 +506,12 @@ func runCore(ctx context.Context, ready func()) error {
 	up, err := waitUplink(ctx, 2*time.Minute)
 	if err != nil {
 		return err
+	}
+	// the DHCP client has read the neutral host name and DUID by now
+	if t := winsplit.RealTarn(); t != nil {
+		if err := t.RestoreBoot(); err != nil {
+			log.Printf("disguise: restoring the boot values: %v", err)
+		}
 	}
 	var phys atomic.Uint32
 	phys.Store(up.Index)
@@ -541,7 +582,7 @@ func runCore(ctx context.Context, ready func()) error {
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); applyInbound(); applyQuiet() })
+	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); netKnown.Store(true); applyInbound(); applyQuiet(); go applyMAC() })
 	go func() {
 		for {
 			select {
@@ -845,6 +886,9 @@ func uninstall() error {
 		return s.Delete()
 	})
 	winsplit.StopDNSWatchSession() // left over if the service ever crashed
+	if t := winsplit.RealTarn(); t != nil {
+		_ = t.RestoreAll() // host name, DUID, MAC, DNS registration as they were
+	}
 	return err
 }
 
