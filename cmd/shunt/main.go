@@ -752,7 +752,10 @@ func status(c *api.Client, args []string) error {
 			if t.Driver == "openvpn" && !hasHandshake(t.Peers) {
 				state = "connecting/openvpn"
 			}
-			if h := t.Health; h != nil && h.State != "unknown" {
+			if noHandshake(t.Driver, t.Peers) {
+				// never a handshake (wrong key, peer unreachable): no "ok", whatever the probe said
+				state += " no-handshake"
+			} else if h := t.Health; h != nil && h.State != "unknown" {
 				state += " " + h.State
 				if h.LatencyMs > 0 {
 					state += fmt.Sprintf(" %dms", h.LatencyMs)
@@ -848,7 +851,9 @@ func runUI(c *api.Client, sock string, args []string) error {
 	if err := c.Do("GET", "/v1/status", nil, nil); err != nil {
 		return fmt.Errorf("%w\n%s", err, i18n.T("(is shuntd running, and are you in group 'shunt'?)"))
 	}
-	srv := &ui.Server{Socket: sock, Self: self(), Client: c}
+	// the printed address works once; a session ends after 12 h without
+	// requests (an open page polls, so only closed tabs expire)
+	srv := &ui.Server{Socket: sock, Self: self(), Client: c, SessionIdle: 12 * time.Hour}
 	if !*noUpdate {
 		srv.Update = &update.Checker{Current: version, Installed: func() string {
 			var st api.Status
@@ -1271,6 +1276,17 @@ func probeNote(n string) string {
 		return i18n.T("probe failed: {detail}", "detail", d)
 	}
 	return i18n.T(n)
+}
+
+// noHandshake is true for a WireGuard tunnel that never completed a
+// handshake: its health may not say "ok" then (wrong key, unreachable peer).
+// OpenVPN, Tailscale and Tor have their own notion of "connected".
+func noHandshake(driver string, peers []tunnel.PeerStatus) bool {
+	switch driver {
+	case "openvpn", "tailscale", "tor":
+		return false
+	}
+	return !hasHandshake(peers)
 }
 
 // hasHandshake reports whether any peer ever completed a handshake (for OpenVPN: is connected).

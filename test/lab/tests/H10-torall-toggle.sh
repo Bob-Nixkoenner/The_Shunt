@@ -2,7 +2,7 @@ ID=H10
 TITLE="tor-all: mehrfach an/aus, direkt nach 'on' ist kein Weg am Tor vorbei offen"
 CONFIG=tor-all
 EXPECT_CANARY=any
-ALLOW=(comm:tor)
+ALLOW=(comm:tor host:.archlinux.org:80/tcp)
 NOTE="Fuenfmal on/off. Gleich nach jedem 'on' (ohne Wartezeit) darf der Canary (nur ueber das Gateway erreichbar) und ein UDP-Ziel nicht durchkommen; Tabelle shunt_emerg ist da. Nach 'off' ist sie weg."
 CLIENT='
 tor_ready() { for i in $(seq 90); do [ "$(LANG=C LC_ALL=C sudo -n shunt tor status 2>/dev/null | grep -Ec "connected|verbunden")" -ge 1 ] && return 0; sleep 2; done; return 1; }

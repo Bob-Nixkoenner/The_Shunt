@@ -64,6 +64,17 @@ type Server struct {
 	Procs func(name string) ([]api.ProcRoute, error)
 	// Warnings adds service warnings to the status (clock check); may be nil.
 	Warnings func() []string
+	// Identify tells who is on the other end of a new connection (see
+	// auth.go); nil or a nil result: the caller may only read.
+	Identify func(c net.Conn) *Caller
+	// ManageGroup names the local group whose members may manage, for
+	// error messages ("" = DefaultManageGroup).
+	ManageGroup string
+	// ProcInfo returns parent and creation time of a process, RouteOf the
+	// route a process was started in ("" = none); both for the /v1/run
+	// check of callers without manage permission (nil: they may not run).
+	ProcInfo func(pid int) (ProcInfo, error)
+	RouteOf  func(pid int) string
 }
 
 // engineStatus is the part of splitstack's Status JSON we map.
@@ -240,6 +251,10 @@ func (s *Server) Handler() http.Handler {
 		if !decode(w, r, &req) {
 			return
 		}
+		// panic on never waits; lifting it loosens protection
+		if !req.On && !s.may(w, r, "lifting panic") {
+			return
+		}
 		s.Core.SetPanic(req.On)
 		ok(w, map[string]bool{"panic": req.On})
 	})
@@ -250,6 +265,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		if req.Minutes < 0 || req.Minutes > 60 {
 			fail(w, http.StatusBadRequest, errors.New("minutes must be 0..60"))
+			return
+		}
+		// letting everything through loosens protection; ending a pass not
+		if req.Minutes > 0 && !s.may(w, r, "pass") {
 			return
 		}
 		until := s.Core.Pass(time.Duration(req.Minutes) * time.Minute)
@@ -271,6 +290,9 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write(out)
 	})
 	mux.HandleFunc("POST /v1/reload", func(w http.ResponseWriter, r *http.Request) {
+		if !s.may(w, r, "reload") {
+			return
+		}
 		if s.Reload == nil {
 			fail(w, http.StatusNotImplemented, errors.New("reload not supported"))
 			return
@@ -282,6 +304,9 @@ func (s *Server) Handler() http.Handler {
 		ok(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("POST /v1/restart", func(w http.ResponseWriter, r *http.Request) {
+		if !s.may(w, r, "restart") {
+			return
+		}
 		if s.Restart == nil {
 			fail(w, http.StatusNotImplemented, errors.New("restart not supported"))
 			return
@@ -317,6 +342,10 @@ func (s *Server) Handler() http.Handler {
 		route, err := s.Cfg.CheckRoute(req.Route)
 		if err != nil || req.PID <= 0 {
 			fail(w, http.StatusBadRequest, fmt.Errorf("run: %v (pid %d)", err, req.PID))
+			return
+		}
+		if err := s.authorizeRun(r, req.PID, route); err != nil {
+			fail(w, http.StatusForbidden, err)
 			return
 		}
 		if err := s.Pin(req.PID, route); err != nil {
@@ -358,6 +387,9 @@ func (s *Server) configRoutes(mux *http.ServeMux) {
 		ok(w, api.CheckResult{OK: true, Warnings: warn})
 	})
 	mux.HandleFunc("PUT /v1/config", func(w http.ResponseWriter, r *http.Request) {
+		if !s.may(w, r, "changing the config") {
+			return
+		}
 		var req api.ConfigSave
 		if !decode(w, r, &req) {
 			return
@@ -378,6 +410,9 @@ func (s *Server) configRoutes(mux *http.ServeMux) {
 		}
 	})
 	mux.HandleFunc("POST /v1/tunnels", func(w http.ResponseWriter, r *http.Request) {
+		if !s.may(w, r, "importing a tunnel") {
+			return
+		}
 		var req api.TunnelImport
 		if !decode(w, r, &req) {
 			return
@@ -390,6 +425,9 @@ func (s *Server) configRoutes(mux *http.ServeMux) {
 		ok(w, api.CheckResult{OK: true, Warnings: warn})
 	})
 	mux.HandleFunc("DELETE /v1/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if !s.may(w, r, "deleting a tunnel") {
+			return
+		}
 		if err := m.DeleteTunnel(r.PathValue("name")); err != nil {
 			fail(w, http.StatusUnprocessableEntity, err)
 			return
@@ -398,8 +436,9 @@ func (s *Server) configRoutes(mux *http.ServeMux) {
 	})
 }
 
-// Listen opens the API socket at path (a Unix socket: Windows 10+ has them;
-// access is decided by the file's ACL, set by the installer).
+// Listen opens the API socket at path (a Unix socket: Windows 10+ has them).
+// Every local user may connect (the service sets the file's ACL); what a
+// caller may do is decided per request (auth.go).
 func Listen(path string) (net.Listener, error) {
 	_ = os.Remove(path) // left over from a crash
 	return net.Listen("unix", path)
@@ -407,7 +446,16 @@ func Listen(path string) (net.Listener, error) {
 
 // Serve answers on l until it is closed.
 func (s *Server) Serve(l net.Listener) error {
-	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if s.Identify == nil {
+				return ctx
+			}
+			if who := s.Identify(c); who != nil {
+				return WithCaller(ctx, who)
+			}
+			return ctx
+		}}
 	err := srv.Serve(l)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil

@@ -68,6 +68,7 @@ type Daemon struct {
 	tunnels   map[string]tunnel.Device
 	specHash  map[string]string
 	tunErrors map[string]string
+	tsSetup   []string // Tailscale tunnels blocked only for want of the systemd drop-in
 	panic     bool
 	proxy     *dnsproxy.Proxy
 	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
@@ -77,6 +78,8 @@ type Daemon struct {
 	filter      *blocklist.Manager
 	watcher     AppWatcher
 	startWarned bool       // the eBPF start guard failed (logged once)
+	startLogged bool       // the eBPF start guard loaded (logged once)
+	startErr    error      // why the eBPF start guard is not loaded (status note)
 	saveMu      sync.Mutex // serializes config writes
 	dnsUps      dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
@@ -110,6 +113,7 @@ type Daemon struct {
 	torAll   string         // tunnel the tor-all switch sends everything through
 	torLoad  bool           // torAll was read from its file
 	emergAt  time.Time      // last look at the relay list (tor-all)
+	emergOn  bool           // the strict tor-all table is in place
 	emergKey string         // relay list of the rules in place
 	passing  bool           // the plan in place was built for a pass
 
@@ -137,6 +141,8 @@ type Prepared struct {
 	EmergKey string
 	// EmergOn: the ruleset carries the strict tor-all table (checkRules watches it).
 	EmergOn bool
+	// EmergDst: where the tor process may connect in the strict table.
+	EmergDst []netip.Prefix
 	// DNS upstreams per route name, and problems worth telling the user.
 	DNSUpstreams map[string][]config.UpstreamSpec
 	// DirectSystem: the direct route uses the system resolvers, re-read
@@ -568,7 +574,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
 	go func() {
-		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }); err != nil {
+		if err := dhcphost.WatchNew(ctx, func() { go d.applyNetPrivacy() }, d.netPolicy, d.Log); err != nil {
 			d.Log.Debug("dhcp host name: no NetworkManager signals", "err", err)
 		}
 	}()
@@ -646,6 +652,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.endPassIfDue(self)
 			d.refreshEmergency(self)
 			d.checkNetwork()
+			d.checkTunnelSources()
 			d.mu.Lock()
 			if (d.routeSoft != "" || d.plan.Gateway != nil) && d.prep != nil {
 				if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
@@ -800,6 +807,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 		return err
 	}
 	d.emergKey, d.emergAt = p.EmergKey, time.Now()
+	if p.EmergOn && !d.emergOn {
+		// switched to tor-all: flows begun before it must not carry on
+		// outside Tor (stale NAT state, SYN retransmits)
+		if f, ok := d.Backend.(EmergencyForgetter); ok {
+			n, err := f.ForgetStray(p.EmergDst)
+			d.Log.Info("tor-all: earlier connections forgotten", "count", n, "err", err)
+		}
+	}
+	d.emergOn = p.EmergOn
 	if d.proxy == nil {
 		d.proxy = dnsproxy.New(d.Log, d.Backend.DomainSets())
 		d.proxy.Owner = func(proto string, from netip.AddrPort) string {
@@ -857,9 +873,18 @@ func (d *Daemon) reload(selfCgroup string) error {
 		targets = append(targets, appwatch.Target{Name: r.Name, Sels: r.Apps, Args: r.Args, Path: r.Groups[0].Path})
 	}
 	d.watcher.SetTargets(targets, p.Plan.CgroupRoot)
-	if err := d.Backend.StartMarks(p.Plan.CgroupRoot, p.Plan.StartMarks()); err != nil && !d.startWarned {
-		d.startWarned = true
-		d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+	guard := p.Plan.StartGuard(p.Config.Daemon.ConfigCheck == config.CheckStrict)
+	d.startErr = d.Backend.StartGuard(p.Plan.CgroupRoot, guard)
+	if err := d.startErr; err != nil {
+		if !d.startWarned {
+			d.startWarned = true
+			d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+		}
+	} else if !d.startLogged && d.Backend.StartGuardStats() != nil {
+		d.startLogged = true
+		st := d.Backend.StartGuardStats()
+		d.Log.Info("eBPF start guard loaded", "programs", len(guard),
+			"raw_tracepoints", st["raw_tracepoints"] == 1, "children_followed", st["no_child_inherit"] == 0)
 	}
 	// After a restart the processes are still in their groups but the new
 	// watcher does not know them: adopt them, so sticky routes keep working.
@@ -898,6 +923,7 @@ func (d *Daemon) syncTunnels() error {
 		return err
 	}
 	d.tunErrors = map[string]string{}
+	d.tsSetup = nil
 	for name, tc := range p.Config.Tunnels {
 		if _, ok := d.tunnels[name]; ok || tc.Disabled {
 			continue
@@ -932,6 +958,10 @@ func (d *Daemon) syncTunnels() error {
 		if err != nil {
 			d.Log.Error("tunnel up failed, its traffic stays blocked", "tunnel", name, "err", err)
 			d.tunErrors[name] = err.Error()
+			if tc.IsTailscale() && tailscaleNeedsSetup(err) {
+				d.tsSetup = append(d.tsSetup, name)
+				d.tunErrors[name] += " (run: sudo shuntd setup-tailscale)"
+			}
 			continue
 		}
 		d.tunnels[name] = t
@@ -960,17 +990,25 @@ func firewallSettings(p *Prepared) firewall.Settings {
 // applyNetPrivacy sets the NetworkManager profiles for daemon.dhcp_hostname
 // and daemon.mac; the network we are on decides for the profile in use.
 func (d *Daemon) applyNetPrivacy() {
+	if pol, ok := d.netPolicy(); ok {
+		dhcphost.Apply(context.Background(), pol, d.Log)
+	}
+}
+
+// netPolicy is the policy for the NetworkManager profiles (false = no
+// config yet).
+func (d *Daemon) netPolicy() (dhcphost.Policy, bool) {
 	d.mu.Lock()
 	c, info := d.cfg, d.netInfo
 	d.mu.Unlock()
 	if c == nil {
-		return
+		return dhcphost.Policy{}, false
 	}
 	pol := dhcphost.Policy{Config: c}
 	if n := c.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
 		pol.Current = n.Name
 	}
-	dhcphost.Apply(context.Background(), pol, d.Log)
+	return pol, true
 }
 
 // checkNetwork follows network changes (Wi-Fi roaming, cable plugged in)
@@ -1027,6 +1065,23 @@ func (d *Daemon) checkNetwork() {
 		d.mu.Lock()
 		d.netRetry = true
 		d.mu.Unlock()
+	}
+}
+
+// checkTunnelSources lets tunnels that depend on the machine's source
+// address (OpenVPN over TCP) react to a network change; see
+// tunnel.NetChecker. Runs outside d.mu: it reads /proc and netlink.
+func (d *Daemon) checkTunnelSources() {
+	d.mu.Lock()
+	var cs []tunnel.NetChecker
+	for _, t := range d.tunnels {
+		if c, ok := t.(tunnel.NetChecker); ok {
+			cs = append(cs, c)
+		}
+	}
+	d.mu.Unlock()
+	for _, c := range cs {
+		c.CheckNetwork()
 	}
 }
 
@@ -1131,7 +1186,12 @@ func quoteSSID(s string) string {
 // probeCaptive looks for a Wi-Fi login page (see package captive).
 func (d *Daemon) probeCaptive() {
 	d.mu.Lock()
-	if d.probing || (d.cfg != nil && d.cfg.Daemon.CaptiveCheck != nil && !*d.cfg.Daemon.CaptiveCheck) {
+	if d.cfg != nil && !d.cfg.Daemon.CaptiveCheckOn() {
+		d.captive, d.captiveURL = "", "" // switched off: no stale login page
+		d.mu.Unlock()
+		return
+	}
+	if d.probing {
 		d.mu.Unlock()
 		return
 	}
@@ -1834,6 +1894,17 @@ func (d *Daemon) status() api.Status {
 	}
 	notes := append([]check.Finding(nil), d.prep.Notes...)
 	st.Findings = d.prep.Findings
+	st.StartGuard = d.Backend.StartGuardStats()
+	if d.startErr != nil && len(d.plan.AppRules()) > 0 {
+		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a newer kernel (6.1 or later).", "err", d.startErr.Error())
+		notes = append(notes, f)
+		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
+	}
+	if len(d.tsSetup) > 0 {
+		f := check.Note("tailscale-setup", "Tailscale tunnel {names} stays blocked: the service may not create the network namespace it needs. Allow it once with: sudo shuntd setup-tailscale", "names", strings.Join(d.tsSetup, ", "))
+		notes = append(notes, f)
+		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
+	}
 	if d.clockSet && clockcheck.Skewed(d.clockOff, clockLimit) {
 		notes = append(notes, check.Note("clock", "The system clock differs by {offset} from the time seen through the tunnel (negative: the clock is ahead): handshakes and certificate checks may fail (fix it with timedatectl set-ntp true).", "offset", d.clockOff.Round(time.Second).String()))
 	}

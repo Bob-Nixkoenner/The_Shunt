@@ -1,6 +1,9 @@
 # Lab client base config: one tunnel to the internal test server (CT130),
 # the lab apps pinned to it / to direct, everything else through the tunnel.
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 kill_switch = true
 

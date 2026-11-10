@@ -3,12 +3,15 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/appwatch"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
@@ -29,6 +32,7 @@ func DefaultBackend() Backend { return &linuxBackend{} }
 // tables (see packages cgroup, nft, routing, appwatch, racebpf).
 type linuxBackend struct {
 	cg    cgroup.Manager
+	mu    sync.Mutex // start (the watcher's goroutines read it)
 	start *racebpf.Guard
 	// startErr: loading the eBPF program failed once; not retried
 	startErr error
@@ -110,6 +114,58 @@ func (b *linuxBackend) ForgetTCP(mark uint32) (int, error) {
 	return n, errors.Join(errs...)
 }
 
+// strayFlow matches flows started by this machine (source is a local
+// address) whose destination is neither loopback nor in keep.
+type strayFlow struct {
+	local map[netip.Addr]bool
+	keep  []netip.Prefix
+}
+
+func (m strayFlow) MatchConntrackFlow(f *netlink.ConntrackFlow) bool {
+	if f.Forward.Protocol != unix.IPPROTO_TCP && f.Forward.Protocol != unix.IPPROTO_UDP {
+		return false
+	}
+	src, ok1 := netip.AddrFromSlice(f.Forward.SrcIP)
+	dst, ok2 := netip.AddrFromSlice(f.Forward.DstIP)
+	if !ok1 || !ok2 {
+		return false
+	}
+	src, dst = src.Unmap(), dst.Unmap()
+	if !m.local[src] || dst.IsLoopback() {
+		return false
+	}
+	for _, p := range m.keep {
+		if p.Contains(dst) {
+			return false
+		}
+	}
+	return true
+}
+
+// ForgetStray: see EmergencyForgetter.
+func (b *linuxBackend) ForgetStray(keep []netip.Prefix) (int, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return 0, err
+	}
+	m := strayFlow{local: map[netip.Addr]bool{}, keep: keep}
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok {
+			if ad, ok := netip.AddrFromSlice(ipn.IP); ok {
+				m.local[ad.Unmap()] = true
+			}
+		}
+	}
+	n := 0
+	var errs []error
+	for _, fam := range []netlink.InetFamily{unix.AF_INET, unix.AF_INET6} {
+		k, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, fam, m)
+		n += int(k)
+		errs = append(errs, err)
+	}
+	return n, errors.Join(errs...)
+}
+
 func (b *linuxBackend) Stopped(p *engine.Plan) error {
 	s, err := nft.StoppedDNS(p)
 	if err != nil || s == "" {
@@ -145,7 +201,7 @@ func (b *linuxBackend) Cleanup() error {
 func (b *linuxBackend) DomainSets() dnsproxy.SetWriter { return dnsproxy.NftSets{Table: nft.Table} }
 
 func (b *linuxBackend) Watcher(log *slog.Logger, unknown func(int, appwatch.Proc)) AppWatcher {
-	return &appwatch.Watcher{Log: log, Mover: b.cg, Unknown: unknown}
+	return &appwatch.Watcher{Log: log, Mover: b.cg, Unknown: unknown, Decided: b.release, Now: racebpf.Now}
 }
 
 func (b *linuxBackend) CgroupOf(pid int) (string, bool) {
@@ -180,17 +236,61 @@ func (b *linuxBackend) Pids() []int {
 	return out
 }
 
-func (b *linuxBackend) StartMarks(root string, marks map[string]uint32) error {
+func (b *linuxBackend) StartGuard(root string, entries map[string]engine.StartEntry) error {
 	if b.startErr != nil {
 		return b.startErr
 	}
 	if b.start == nil {
-		if len(marks) == 0 {
+		if len(entries) == 0 {
 			return nil // load it only once an app rule needs it
 		}
-		if b.start, b.startErr = racebpf.Start(b.cg.Mount, root); b.startErr != nil {
-			return b.startErr
+		g, err := racebpf.Start(b.cg.Mount, root)
+		if err != nil {
+			b.startErr = err
+			return err
 		}
+		b.mu.Lock()
+		b.start = g
+		b.mu.Unlock()
 	}
-	return b.start.SetMarks(marks)
+	m := make(map[string]racebpf.Entry, len(entries))
+	for n, e := range entries {
+		m[n] = racebpf.Entry{Mark: e.Mark, Hold: e.Hold}
+	}
+	if err := b.start.SetEntries(m); err != nil {
+		return err
+	}
+	if b.start.Partial != nil {
+		return fmt.Errorf("only by program name, no threads, children or holds: %w", b.start.Partial)
+	}
+	return nil
+}
+
+func (b *linuxBackend) StartGuardStats() map[string]uint64 {
+	b.mu.Lock()
+	g := b.start
+	b.mu.Unlock()
+	if g == nil {
+		return nil
+	}
+	s := g.Stats()
+	m := map[string]uint64{"marked": s[racebpf.StatMarked], "held": s[racebpf.StatHeld],
+		"expired": s[racebpf.StatExpired], "marked_by_name": s[racebpf.StatComm]}
+	if g.Raw {
+		m["raw_tracepoints"] = 1 // kernel refused perf events (Debian: perf_event_paranoid=3)
+	}
+	if g.Limited != "" {
+		m["no_child_inherit"] = 1 // children of a rule's program are not followed
+	}
+	return m
+}
+
+// release ends a held program's wait once the watcher decided on it.
+func (b *linuxBackend) release(pid int, since int64) {
+	b.mu.Lock()
+	g := b.start
+	b.mu.Unlock()
+	if g != nil {
+		g.Release(pid, since)
+	}
 }

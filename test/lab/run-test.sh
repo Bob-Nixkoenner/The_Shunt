@@ -7,11 +7,14 @@
 #   EXPECT_CANARY [tunnel]    where the canary name may show up: tunnel|gw|none|any
 #   ALLOW=()                  extra things the café network may see:
 #                             comm:<name> (packets of that process), dst:ip:port/proto,
-#                             net:<cidr>:port/proto (rotating addresses), dns
+#                             net:<cidr>:port/proto (rotating addresses), dns,
+#                             host:<name or .suffix>:port/proto (CDN hosts, via DNS answers)
 #   CHECKS=()                 fingerprint = DHCP name, EUI-64, real MAC … count as findings
 #   RENEW [0]                 1 = reconnect the client's network while capturing
 #   SCAN [0]                  1 = nmap the client from the gateway while it runs
 #   EXPECT_OPEN=()            ports that may be open in the scan ("22/tcp")
+#   ENDPOINTS=()              tunnel endpoints (ip:port/proto) beyond LAB_ENDPOINTS,
+#                             e.g. a TCP server only this test uses
 #   NETEM                     tc netem args on the lab LAN during the test
 #   SETTLE [3]                seconds to wait after setup before the client script
 #   PREP                      bash run in the client before the config is applied (extra files)
@@ -48,7 +51,9 @@ resolve_test() {
 
 # OpenVPN variant of the tunnel "intern" (configs/ovpn-*.toml): the client needs the
 # openvpn program and the .ovpn of the internal test server (test keys, not in git)
-OVPN_CONF=${OVPN_CONF:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern/ovpn-intern-linux-test.ovpn}
+OVPN_CONF=${OVPN_CONF:-${LAB_VPN_DIR:-$HERE/vpn}/ovpn-intern-linux-test.ovpn}
+# address of the test server, taken from CT130 (user@address) in local.env: tests must not carry it
+CT130_IP=${CT130_IP:-${CT130#*@}}
 ensure_ovpn() {
 	client "command -v openvpn >/dev/null" || { echo "client has no openvpn: install it (pacman -S openvpn / apt install openvpn), then retake the snapshot" >&2; return 1; }
 	local want f name
@@ -64,14 +69,73 @@ ensure_ovpn() {
 	done
 }
 
+# Multi-hop (configs/hop*.toml): the inner tunnel of a hop needs its own config file in the client.
+#   hop.conf    WireGuard hop on CT130 wgt1 (10.66.0.1:51831, reachable only through wgt0): HOP_CONF
+#   hop.ovpn    OpenVPN hop inside WireGuard (remote 10.66.0.1 1194): OVPN_HOP_CONF
+#   hopwg.conf  WireGuard inside OpenVPN: the VM's normal WireGuard config ($TUNNEL_CONF) with the
+#               endpoint 10.67.0.1:51830 (wgt0 as seen through the OpenVPN tunnel)
+# HOP_BADKEY=1 (set by a test file) writes hop.conf with a wrong server key (inner hop never comes up).
+HOP_DIR=${HOP_DIR:-${LAB_VPN_DIR:-$HERE/vpn}}
+HOP_CONF=${HOP_CONF:-$HOP_DIR/wg-hop-linux-test.conf}
+OVPN_HOP_CONF=${OVPN_HOP_CONF:-$HOP_DIR/ovpn-hop-linux-test.ovpn}
+ensure_hop() { # $1 = config name
+	local cfg="$HERE/configs/$1.toml" src tmp
+	tmp=$(mktemp)
+	if grep -q 'tunnels/hop\.conf' "$cfg"; then
+		cp "$HOP_CONF" "$tmp"
+		[[ ${HOP_BADKEY:-0} == 1 ]] && sed -i "s|^PublicKey *=.*|PublicKey = $(head -c32 /dev/urandom | base64)|" "$tmp"
+		install_tunnel_file "$tmp" hop.conf
+	fi
+	if grep -q 'tunnels/hop\.ovpn' "$cfg"; then install_tunnel_file "$OVPN_HOP_CONF" hop.ovpn; fi
+	if grep -q 'tunnels/hopwg\.conf' "$cfg"; then
+		sed "s|^Endpoint *=.*|Endpoint = 10.67.0.1:51830|" "$TUNNEL_CONF" >"$tmp"
+		install_tunnel_file "$tmp" hopwg.conf
+	fi
+	rm -f "$tmp"
+}
+install_tunnel_file() { # $1 = local file, $2 = name in /etc/shunt/tunnels (copied only when it changed)
+	local want
+	want=$(sha256sum <"$1" | cut -c1-16)
+	if [[ $(client "sudo -n sha256sum /etc/shunt/tunnels/$2 2>/dev/null | cut -c1-16") != "$want" ]]; then
+		VBoxManage "${GC[@]}" copyto "$1" "/tmp/$2"
+		client "sudo -n install -m600 /tmp/$2 /etc/shunt/tunnels/$2"
+		TUNNEL_FILE_CHANGED=1 # shuntd reads tunnel files at start: restart even if shunt.toml is unchanged
+	fi
+}
+
+
+# Baseline for comparison: the same tunnel started with plain wg-quick, shuntd stopped (configs/wgplain.toml
+# only marks the mode, its first line is "# baseline: wg-quick"). The tests then show what a plain
+# WireGuard client gives away in the café network. Config as most people write it: AllowedIPs 0.0.0.0/0,
+# DNS = 1.1.1.1 (shuntd cleanup removes the nft kill-switch tables that stay behind after stop; without it the
+# baseline measures Shunt's fail-closed firewall, not wg-quick) (tunnels/intern.conf of the client = the lab's WireGuard test server).
+plain_wg_up() {
+	client "sudo -n systemctl stop shuntd; sudo -n shuntd cleanup >/dev/null 2>&1; sudo -n wg-quick down labplain 2>/dev/null; sudo -n install -m600 /etc/shunt/tunnels/intern.conf /etc/wireguard/labplain.conf && sudo -n wg-quick up labplain >/dev/null 2>&1 && sleep 4; ip -br a | grep -c labplain"
+}
+plain_wg_down() {
+	client "sudo -n wg-quick down labplain >/dev/null 2>&1; sudo -n rm -f /etc/wireguard/labplain.conf; true"
+}
 apply_config() { # $1 = config name; restarts shuntd only when it changed
 	local want
+	if [[ $(head -1 "$HERE/configs/$1.toml" 2>/dev/null) == "# baseline: wg-quick"* ]]; then
+		[[ $(plain_wg_up | tail -1) == 1 ]] || { echo "wg-quick did not come up in the client" >&2; return 1; }
+		return 0
+	fi
+	# coming back from the baseline: wg-quick off, shuntd on (the restart below needs a changed config, so force it)
+	if [[ $(client "ip -br a | grep -c labplain; systemctl is-active shuntd" | tr '\n' ' ') != "0 active " ]]; then
+		plain_wg_down; client "sudo -n systemctl restart shuntd; sleep 4"
+	fi
 	if grep -q '^driver *= *"openvpn"' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_ovpn || return 1; fi
+	if grep -q 'tunnels/hop' "$HERE/configs/$1.toml" 2>/dev/null; then ensure_hop "$1" || return 1; fi
 	want=$(sha256sum <"$HERE/configs/$1.toml" | cut -c1-16)
 	if [[ $(client "sudo -n sha256sum /etc/shunt/shunt.toml | cut -c1-16") != "$want" ]]; then
+		TUNNEL_FILE_CHANGED=1
+	fi
+	if [[ ${TUNNEL_FILE_CHANGED:-0} == 1 ]]; then
 		VBoxManage "${GC[@]}" copyto "$HERE/configs/$1.toml" /tmp/shunt.toml
 		client "sudo -n install -m644 /tmp/shunt.toml /etc/shunt/shunt.toml && sudo -n systemctl restart shuntd && sleep 4"
 	fi
+	TUNNEL_FILE_CHANGED=0
 }
 
 renew_client() {
@@ -94,13 +158,16 @@ run_test() {
 	file=$(resolve_test "$1")
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
-	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
-	ALLOW=() CHECKS=() EXPECT_OPEN=() PREP=''
+	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel HOP_BADKEY=0 RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
+	ALLOW=() CHECKS=() EXPECT_OPEN=() ENDPOINTS=() PREP='' EXIT_IF='' EXIT_NET=''
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
 	# CONFIG_FORCE: run a test with another config (e.g. ks = Windows kill switch on)
 	[[ -z ${CONFIG_FORCE:-} ]] || CONFIG=$CONFIG_FORCE
+	# EXIT_IF/EXIT_NET (test file): capture interface and address (prefix ends in ".") at the
+	# tunnel exit; OpenVPN hands out its own pool, not the per-VM WireGuard address of TUNNEL_IP
+	local ct_if=${EXIT_IF:-$CT130_IF} tun_ip=${EXIT_NET:-$TUNNEL_IP}
 
 	local stamp run out canary cur
 	stamp=$(date +%Y%m%d-%H%M%S)
@@ -141,7 +208,7 @@ run_test() {
 	gw labctl cap start "$run" >/dev/null
 	local ct_pid=''
 	if ct130 true 2>/dev/null; then
-		ct_pid=$(ct130 "nohup timeout 900 tcpdump -i $CT130_IF -U -s 0 -w /tmp/shuntlab-$run.pcap </dev/null >/dev/null 2>&1 & echo \$!")
+		ct_pid=$(ct130 "nohup timeout 900 tcpdump -i $ct_if -U -s 0 -w /tmp/shuntlab-$run.pcap </dev/null >/dev/null 2>&1 & echo \$!")
 	else
 		echo "   (CT130 not reachable: no capture at the tunnel exit)"
 	fi
@@ -197,11 +264,14 @@ json.dump({
              if __import__("os").path.exists(f)), 8),
  "checks": [$(jarr "${CHECKS[@]}")],
  "expect_open": [$(jarr "${EXPECT_OPEN[@]}")],
- "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))'),
- "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$TUNNEL_IP",
+ "endpoints": $(gw cat /etc/shuntlab/endpoints | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().split()))') + [$(jarr "${ENDPOINTS[@]}")],
+ "client_mac": "${mac:-}", "client_ips": ["${ip4:-}"], "tunnel_ip": "$tun_ip",
  "shunt_version": "$ver", "started": "$stamp", "note": """$NOTE""",
  # LABMARK strict_from/strict_until <epoch> lines in the client output: the strict
  # parts of a test (e.g. tor-all on .. off); outside them nothing is judged at the gateway
+ "tor_end": (lambda m: float(m[0]) if m else None)(__import__("re").findall(r"^LABMARK tor_end ([0-9.]+)$",
+     "".join(open(f, errors="replace").read() + "\n" for f in ("$out/client.out", "$out/during.log")
+             if __import__("os").path.exists(f)), 8)),
  "strict": [[float(a), float(b) if b else None] for a, b in __import__("re").findall(
      r"^LABMARK strict_from ([0-9.]+)\n(?:(?!LABMARK strict_from).*\n)*?(?:LABMARK strict_until ([0-9.]+)$|\Z)",
      "".join(open(f, errors="replace").read() + "\n" for f in ("$out/client.out", "$out/during.log")

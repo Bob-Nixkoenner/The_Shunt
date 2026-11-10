@@ -222,6 +222,19 @@ func Render(p *engine.Plan) (string, error) {
 		w("\t}")
 	}
 
+	if p.Quiet != nil {
+		lines, err := quietLines(p.Quiet)
+		if err != nil {
+			return "", err
+		}
+		w("\tchain quiet_out {")
+		w("\t\ttype filter hook output priority filter; policy accept;")
+		for _, l := range lines {
+			w("\t\t%s", l)
+		}
+		w("\t}")
+	}
+
 	// --- enforcement: the block route.
 	// ask_out holds the app firewall's waiting programs (filled at run time
 	// by the daemon, see AskRules); loopback stays open (DNS to the proxy).
@@ -744,6 +757,44 @@ func inboundLines(in *engine.Inbound) ([]string, error) {
 		out = append(out, modeLines(m, t.Mode, t.Allow)...)
 	}
 	return append(out, modeLines("", in.Mode, in.Allow)...), nil
+}
+
+// Discovery ports a quiet machine does not use outside: KDE Connect,
+// Syncthing, mDNS, LLMNR, NetBIOS name/datagram, SSDP.
+const (
+	quietUDPPorts = "137, 138, 1716, 1900, 3702, 5353, 5355, 21027"
+	quietTCPPorts = "1716"
+)
+
+// quietLinkNames are the usual names of physical links (udev: wlan/wlp,
+// enp/eno/ens, eth, wwan). They are quiet too, so the chain also covers a
+// link that came up after the plan was made (the daemon notices links every
+// 5 s) and the time before any link was detected (boot, shuntd starts before
+// NetworkManager).
+var quietLinkNames = []string{"wl*", "en*", "eth*", "ww*"}
+
+// quietLines strips what announces this machine from the uplinks: the
+// discovery ports, multicast and broadcast. DHCP, DHCPv6 and IPv6 neighbour
+// and router discovery (to multicast addresses) are let through first.
+// Only the output hook: forwarded traffic (gateway mode) and the tunnels'
+// own interfaces are not touched.
+func quietLines(q *engine.Quiet) ([]string, error) {
+	for _, i := range q.Uplinks {
+		if err := checkIdent(i); err != nil {
+			return nil, err
+		}
+	}
+	return []string{
+		fmt.Sprintf("oifname != { %s } return", quoteList(append(slices.Clone(q.Uplinks), quietLinkNames...))),
+		"meta nfproto ipv4 udp sport 68 udp dport 67 accept",
+		"meta nfproto ipv6 udp sport 546 udp dport 547 accept",
+		"meta l4proto ipv6-icmp icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept",
+		fmt.Sprintf("meta l4proto udp udp dport { %s } counter drop", quietUDPPorts),
+		fmt.Sprintf("meta l4proto tcp tcp dport { %s } counter drop", quietTCPPorts),
+		"ip daddr { 224.0.0.0/4, 255.255.255.255 } counter drop",
+		"fib daddr type broadcast counter drop",
+		"ip6 daddr ff00::/8 counter drop",
+	}, nil
 }
 
 // modeLines lets in what mode allows (lan: ping and the ports in allow

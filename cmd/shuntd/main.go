@@ -42,6 +42,8 @@ commands:
   cleanup    remove all Shunt rules, routes and tables (lifts kill switches!)
   fix-nsswitch      stop glibc from bypassing DNS routing via systemd-resolved
   restore-nsswitch  undo fix-nsswitch
+  setup-tailscale [--off]  allow (or no longer allow) Tailscale tunnels: systemd
+             drop-in for network namespaces, then restarts shuntd
   version    print the version
 `
 
@@ -128,6 +130,21 @@ func main() {
 		}
 	case "restore-nsswitch":
 		err = daemon.RestoreNsswitch()
+	case "setup-tailscale":
+		off := len(flag.Args()) > 1 && flag.Args()[1] == "--off"
+		var changed bool
+		changed, err = daemon.SetupTailscale(off)
+		switch {
+		case err != nil:
+		case !changed && off:
+			fmt.Println("Tailscale tunnels were not allowed: nothing to do")
+		case !changed:
+			fmt.Println("Tailscale tunnels are already allowed (" + daemon.TailscaleDropInPath + ")")
+		case off:
+			fmt.Println("Tailscale tunnels no longer allowed: drop-in removed, shuntd restarted")
+		default:
+			fmt.Println("Tailscale tunnels allowed: " + daemon.TailscaleDropInPath + " written, shuntd restarted")
+		}
 	default:
 		flag.Usage()
 		os.Exit(2)

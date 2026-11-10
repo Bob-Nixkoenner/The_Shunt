@@ -2,7 +2,7 @@ ID=F04
 TITLE="Tarnung: Discovery-Rundrufe (KDE Connect, Syncthing, mDNS, LLMNR) im fremden Netz"
 CHECKS=(fingerprint)
 EXPECT_CANARY=any
-NOTE="Typische Rundrufe von Apps, die andere Geräte suchen. Im fremden Netz verraten sie Gerätename und IDs (Syncthing-ID ist weltweit eindeutig). Getunnelte Apps lehnt Shunt ab; Apps auf „direkt“ rufen heute ins fremde Netz (Ruhemodus fehlt, tarnung-fremde-netze.md T1): erwartet Fund."
+NOTE="Typische Rundrufe von Apps, die andere Geräte suchen. Im fremden Netz verraten sie Gerätename und IDs (Syncthing-ID ist weltweit eindeutig). Erwartet OK ab rk1: Getunnelte Apps lehnt Shunt ab (EPERM, Meldung „abgelehnt“ im Client); bei Apps auf „direkt“ verwirft der Ruhemodus (nft-Chain quiet_out) die Rundrufe am Uplink (im Client kein Fehler, am Gateway nichts). Fund = Ruhemodus wirkt nicht, oder das Lab-Profil gilt als vertraut (inbound lan/open, dhcp_hostname send, mac permanent): dort sind Rundrufe gewollt sichtbar."
 CLIENT='
 cat >/tmp/f04.py <<PY
 import socket, json, sys, time

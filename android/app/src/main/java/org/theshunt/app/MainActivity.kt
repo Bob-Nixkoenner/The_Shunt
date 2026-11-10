@@ -214,6 +214,9 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
     val error by VpnState.error.collectAsStateWithLifecycle()
     val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
     val privateDns by VpnState.privateDns.collectAsStateWithLifecycle()
+    val dnsMode by VpnState.privateDnsMode.collectAsStateWithLifecycle()
+    // read while this screen is visible, with the VPN on or off: the user may turn it off in the settings and come back
+    LaunchedEffect(Unit) { while (true) { VpnState.refreshPrivateDnsMode(ctx); delay(2000) } }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmPass by remember { mutableStateOf(false) }
     var leak by remember { mutableStateOf<JSONArray?>(null) }
@@ -265,6 +268,13 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
             Banner(
                 "Private DNS is on",
                 "Android sends DNS for all apps to its \"Private DNS\" server, past the tunnels and the DNS filter. Set Private DNS to \"Off\" so every app resolves through its route.",
+            ) { ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) }
+        } else if (dnsMode == "opportunistic" || dnsMode == "hostname") {
+            // not "active" yet (or never, with "Automatic" and a DNS server without DoT), but Android still probes port 853 on the
+            // real network when the VPN switches on, and a provider name gets the DNS of every app
+            Banner(
+                "Private DNS is not off",
+                "Android's Private DNS is on \"Automatic\" or set to a provider. When the VPN switches on, Android first tries encrypted DNS (port 853) on the real network, and a provider gets the DNS of all apps past the tunnels. We recommend setting Private DNS to \"Off\".",
             ) { ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) }
         }
         if (settings.strictCheck) StrictBanners(settings)
@@ -1122,6 +1132,8 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
     val running by VpnState.running.collectAsStateWithLifecycle()
     val lockdown by VpnState.lockdown.collectAsStateWithLifecycle()
     val privateDns by VpnState.privateDns.collectAsStateWithLifecycle()
+    val dnsMode by VpnState.privateDnsMode.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { VpnState.refreshPrivateDnsMode(ctx) }
     // switches of this app: on by default, except what is set already
     val ticked = remember { mutableStateMapOf<String, Boolean>().apply { for (it in Opsec.ITEMS) if (it.kind == OpsecItem.Kind.SET) put(it.id, true) } }
     AlertDialog(
@@ -1135,7 +1147,7 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                     // state of Android's own settings, when the app can see it
                     val sys: Boolean? = when (it.id) {
                         "killswitch" -> if (running) lockdown else null
-                        "privatedns" -> if (running) !privateDns else null
+                        "privatedns" -> if (dnsMode.isNotEmpty()) dnsMode == "off" else if (running) !privateDns else null
                         else -> null
                     }
                     val note = when (it.kind) {

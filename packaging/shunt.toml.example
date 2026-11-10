@@ -7,20 +7,44 @@ default_route = "direct"    # direct | block | tunnel:<name>
 #                            # network cannot read the uptime from direct connections)
 # boot_lockdown = "auto"     # block the network at boot until shuntd runs:
 #                            # auto (when a default route is not direct) | on | off
-# dhcp_hostname = "none"     # NetworkManager profiles: none | send (a [[network]] may override)
-# mac = "random"             # MAC on Wi-Fi and cable: random (new each connection) | stable
+# dhcp_hostname = "none"     # NetworkManager profiles: none (default) | send; "" = leave the profiles alone.
+#                            # A [[network]] may override (dhcp_hostname = "send")
+# mac = "random"             # MAC on Wi-Fi and cable: random (default, new each connection) | stable
 #                            # (own per network) | permanent; random/stable also derive the
 #                            # DHCPv6 DUID, DHCP client ID and IPv6 addresses from it, not
-#                            # from the device. A [[network]] may override (mac = "permanent").
+#                            # from the device. "" = leave the profiles alone.
+#                            # A [[network]] may override (mac = "permanent", e.g. at home).
+# quiet = true               # Linux, default on: on networks you have not trusted, no discovery out of
+#                            # Wi-Fi/cable: multicast, broadcast, KDE Connect, Syncthing, mDNS, LLMNR,
+#                            # NetBIOS, SSDP (DHCP, DHCPv6 and IPv6 neighbour discovery stay).
+#                            # A [[network]] may override (quiet = true|false); a profile with
+#                            # inbound = "lan"/"open", dhcp_hostname = "send" or mac = "permanent"
+#                            # counts as trusted and is not quiet unless it says quiet = true.
 # config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
 #                            # opsec level sets it) raises every finding one level; no tls-crypt
 #                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"
-#                            # become "bad", rules with route = "direct" become warnings
+#                            # become "bad", rules with route = "direct" become warnings.
+#                            # Linux, strict only: a starting program whose rule cannot be told
+#                            # apart at once (arguments, ports, after a domain/port rule) gets its
+#                            # first connections refused for up to 2 s instead of maybe taking
+#                            # the wrong route; programs that do not retry (curl, git) then fail
+#                            # that start
+# captive_check = true       # Linux: look for Wi-Fi login pages after every network change (plain
+#                            # HTTP to nmcheck.gnome.org, directly, past the tunnels). Default on,
+#                            # off with config_check = "strict"; true/false here always wins.
+#                            # Without it, open the login browser yourself (`shunt captive`, tray)
 
 # wg-quick style file, mode 0600. PostUp/PreUp/Table/FwMark are ignored.
 [tunnel.vps]
 config = "/etc/shunt/tunnels/vps.conf"
 # driver = "auto"           # auto | kernel | userspace
+
+# Tailscale/Headscale: a NAME.ts file (login_server, auth_key, optional exit_node), Shunt runs
+# its own tailscaled in a network namespace. The service may not create namespaces by
+# default: allow it once with `sudo shuntd setup-tailscale` (undo: --off).
+# [tunnel.tail]
+# config = "/etc/shunt/tunnels/tail.ts"
+# driver = "tailscale"       # set by `shunt import` / the window for a .ts file
 
 # DNS filter: blocklists inside Shunt (lists: github.com/RPiList/specials – thanks!).
 # Without this section the built-in lists apply, see docs/DNS-LISTS.md. Levels can also

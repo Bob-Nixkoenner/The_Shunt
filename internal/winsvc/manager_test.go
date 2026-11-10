@@ -310,3 +310,39 @@ func TestTranslateGatewayMAC(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// A Tor tunnel with via: Windows cannot put tor.exe behind the first hop, so
+// the tunnel stays down (never started, nothing listens) instead of going out
+// direct, and tor.exe gets no direct exception.
+func TestTranslateTorViaStaysDown(t *testing.T) {
+	const cfg = "[daemon]\ndefault_route = \"tunnel:t\"\n[tunnel.wg]\nconfig = \"wg.conf\"\n[tunnel.t]\ndriver = \"tor\"\nvia = \"wg\"\n"
+	c, err := config.Parse(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	js, warn, err := translate(c, func(string) ([]byte, error) { return []byte("[Interface]\n"), nil },
+		func(string, config.Tunnel) string { asked = true; return "127.0.0.1:9150" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asked || !strings.Contains(js, "socks = "+torDown) || strings.Contains(js, "9150") {
+		t.Errorf("tor via: tunnel must be down: %s", js)
+	}
+	if strings.Contains(js, `"tor.exe"`) {
+		t.Errorf("tor via: tor.exe must not go direct: %s", js)
+	}
+	if !strings.Contains(strings.Join(warn, " "), "via not supported on Windows") {
+		t.Errorf("tor via: no warning: %q", warn)
+	}
+	if err := splitstack.CheckConfig(js); err != nil {
+		t.Error(err)
+	}
+	// and the service does not start tor.exe for it
+	m, _ := newMgr(t)
+	started := false
+	m.StartTor = func(string, config.Tunnel) (string, error) { started = true; return "127.0.0.1:9150", nil }
+	if w := m.startTors(c); started || len(w) != 0 {
+		t.Errorf("tor via: tor.exe started (%v) %q", started, w)
+	}
+}

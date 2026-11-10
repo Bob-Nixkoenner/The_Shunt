@@ -7,7 +7,8 @@
 #
 #   lab.sh gw-create            clone shunt-lab-gw from the client's "sauber" snapshot
 #   lab.sh gw-setup             (re)install gw/ on the gateway
-#   lab.sh up [snapshot]        start both VMs, client on the lab LAN (restores snapshot)
+#   lab.sh up [snapshot]        start both VMs, client on the lab LAN (restores snapshot; sets promisc again;
+#                               CLIENT_CAP/GW_CAP=<percent> set the VirtualBox CPU cap again: a restore resets it)
 #   lab.sh down                 power both off
 #   lab.sh detach               client back to plain VirtualBox NAT (ssh :2224)
 #   lab.sh client-prep <deb>    install Shunt + lab tools in the client, snapshot "lab-basis"
@@ -30,11 +31,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 GW_VM=${GW_VM:-shunt-lab-gw}
 # CLIENT_OS=windows: client is the Windows VM, driven by PowerShell (winclient.sh, tests-win/)
 if [[ ${CLIENT_OS:-linux} == windows ]]; then
-	CLIENT_VM=${CLIENT_VM:-shunt-win11-lab}
+	CLIENT_VM=${CLIENT_VM:-shunt-win11}
 	TUNNEL_IP=${TUNNEL_IP:-10.66.0.15}
 	CLIENT_IF=${CLIENT_IF:-Ethernet}
 	CLIENT_PING='exit 0'
-	CLIENT_BOOT=600
+	CLIENT_BOOT=${CLIENT_BOOT:-900} # max wait for guest control after a restore (it answers within a few minutes)
 	TESTS_DIR=${TESTS_DIR:-$(cd "$(dirname "$0")" && pwd)/tests-win}
 	TEST_EXT=sh
 	export TUNNEL_IP CLIENT_IF TESTS_DIR TEST_EXT
@@ -49,7 +50,7 @@ CT130=${CT130:?set CT130 in local.env (ssh target of the tunnel test server)}
 CT130_IF=${CT130_IF:-wgt0}
 LAB_OUT=${LAB_OUT:-$HOME/projects/shunt-lab-results}
 # WireGuard config of the client's tunnel "intern" (test keys, not in git)
-TUNNEL_CONF=${TUNNEL_CONF:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern/wg-intern-linux-test.conf}
+TUNNEL_CONF=${TUNNEL_CONF:-${LAB_VPN_DIR:-$HERE/vpn}/wg-intern-linux-test.conf}
 SSHO=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes
 	-o LogLevel=ERROR -o ConnectTimeout=8 -o ServerAliveInterval=10)
 
@@ -78,6 +79,10 @@ client_cp_to() { # files… dir
 	VBoxManage "${GC[@]}" copyto --target-directory "${dir%/}/" "${@:1:$#-1}"  # trailing slash: VirtualBox 7.2 refuses several sources otherwise
 }
 client_cp_from() { VBoxManage "${GC[@]}" copyfrom "$1" "$2"; }
+# Windows: PowerShell over guest control (winclient.sh) for up/ssh too; with the
+# bash client above, "up" waited CLIENT_BOOT seconds for a Windows guest in vain
+# shellcheck source=winclient.sh
+if [[ ${CLIENT_OS:-linux} == windows ]]; then source "$HERE/winclient.sh"; fi
 # CT130_KEY: a key that CT130 only lets run the capture commands (gw/ct130-capture)
 ct130() { ssh ${CT130_KEY:+-i "$CT130_KEY" -o IdentitiesOnly=yes} -o BatchMode=yes -o ConnectTimeout=8 -o LogLevel=ERROR "$CT130" "$@"; }
 vm_state() { VBoxManage showvminfo "$1" --machinereadable | sed -n 's/^VMState="\(.*\)"/\1/p'; }
@@ -95,11 +100,16 @@ wait_for() { # $1 = what, $2 = seconds, rest = command
 }
 
 gw_up() {
-	[[ $(vm_state "$GW_VM") == running ]] || VBoxManage startvm "$GW_VM" --type headless >/dev/null
+	if [[ $(vm_state "$GW_VM") != running ]]; then
+		[[ -z ${GW_CAP:-} ]] || VBoxManage modifyvm "$GW_VM" --cpuexecutioncap "$GW_CAP"
+		VBoxManage startvm "$GW_VM" --type headless >/dev/null
+	fi
 	wait_for gateway 180 gw true
 }
 
 client_to_lab() {
+	# restoring a snapshot brings back its CPU cap (usually none): set it again (CLIENT_CAP, percent, e.g. 80)
+	[[ -z ${CLIENT_CAP:-} ]] || VBoxManage modifyvm "$CLIENT_VM" --cpuexecutioncap "$CLIENT_CAP"
 	VBoxManage modifyvm "$CLIENT_VM" --nic1 intnet --intnet1 shuntlab --nicpromisc1 allow-all ${CLIENT_NIC:+--nictype1 $CLIENT_NIC} --memory "${CLIENT_MEM:-3072}"
 }
 
@@ -112,6 +122,8 @@ cmd_up() { # [snapshot]
 	client_to_lab
 	VBoxManage startvm "$CLIENT_VM" --type headless >/dev/null
 	wait_for "client guest control" "${CLIENT_BOOT:-300}" client "${CLIENT_PING:-true}"
+	# a restored snapshot without the udev rule (older than prep.sh's rule) comes up without promisc
+	[[ ${CLIENT_OS:-linux} == windows ]] || client 'for d in /sys/class/net/*/device; do [ -e "$d" ] || continue; i=${d%/device}; i=${i##*/}; sudo -n ip link set "$i" promisc on; done' || true
 	wait_for "client lease" 120 gw labctl client
 	echo "client $(gw labctl client)"
 }
@@ -146,10 +158,11 @@ client-prep)
 	deb=${2:?the-shunt_*.deb}
 	client_cp_to "$deb" "$HERE/client/"* "$HERE/configs/base.toml" /tmp/shuntlab
 	VBoxManage "${GC[@]}" copyto "$TUNNEL_CONF" /tmp/shuntlab/intern.conf
-	client "sudo -n bash /tmp/shuntlab/prep.sh /tmp/shuntlab/$(basename "$deb")"
+	if [[ $deb == *.tar ]]; then client "sudo -n bash /tmp/shuntlab/prep.sh tarball /tmp/shuntlab/$(basename "$deb")"
+	else client "sudo -n bash /tmp/shuntlab/prep.sh /tmp/shuntlab/$(basename "$deb")"; fi
 	client 'sudo -n poweroff' || true
 	wait_for "client poweroff" 120 bash -c "[[ \$(VBoxManage showvminfo $CLIENT_VM --machinereadable | grep ^VMState=) == *poweroff* ]]"
-	VBoxManage snapshot "$CLIENT_VM" take lab-basis --description "lab client: Shunt $(basename "$deb"), bpftrace, lab apps" >/dev/null
+	VBoxManage snapshot "$CLIENT_VM" take "${SNAPNAME:-lab-basis}" --description "lab client: Shunt $(basename "$deb"), bpftrace, lab apps" >/dev/null
 	echo "snapshot lab-basis taken" ;;
 mode | netem | status) gw labctl "$@" ;;
 ssh) shift; client "${*:-bash -l}" ;;

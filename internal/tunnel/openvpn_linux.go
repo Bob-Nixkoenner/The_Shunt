@@ -39,6 +39,11 @@ type OpenVPN struct {
 	pending   []netip.Addr // from the last PUSH_REPLY, applied on connect
 	lastErr   string
 	proc      *os.Process
+	gen       int       // counts connections, for watchStall
+	watch     int       // counts watchStall runs: only the newest one acts
+	hostKey   string    // the machine's addresses at the last CheckNetwork
+	staleSeen bool      // CheckNetwork saw a gone source address once
+	netKick   time.Time // CheckNetwork's last restart
 
 	stop chan struct{}
 	done chan struct{}
@@ -206,6 +211,8 @@ func (o *OpenVPN) handleLine(l string) {
 		o.dns = o.pending
 		notify = true
 		o.log.Info("openvpn connected", "tunnel", o.spec.Name, "endpoint", o.endpoint, "dns", o.dns)
+		o.gen++
+		o.armStall()
 	case strings.Contains(l, "PUSH: Received control message:"):
 		o.pending = pushedDNS(l)
 	case strings.Contains(l, "Peer Connection Initiated with"):
@@ -233,6 +240,81 @@ func (o *OpenVPN) handleLine(l string) {
 	if notify && o.changed != nil {
 		o.changed()
 	}
+}
+
+// Timing of watchStall: how often the tunnel's counters are read, how long
+// traffic may go in without anything coming back, and when to give up
+// watching (a tunnel nobody sends into is not stalled).
+var (
+	stallPoll  = 2 * time.Second
+	stallAfter = 10 * time.Second
+	stallLimit = 3 * time.Minute
+	stallBytes = uint64(600)
+)
+
+// armStall starts a new watchStall for the current connection; an older
+// one still running stops. Caller holds o.mu.
+func (o *OpenVPN) armStall() {
+	o.watch++
+	go o.watchStall(o.gen, o.watch)
+}
+
+// watchStall restarts a connection that reports "connected" but carries
+// nothing: openvpn would notice only at its ping-restart (60 s with the usual
+// keepalive 10 60), and meanwhile every first DNS query and connection of the
+// tunnel's apps fails. The signal is on the TUN interface: packets went in
+// (tx) but not one came back (rx) since the connection was made. The first
+// answer, even from the health probe, ends the watch. SIGUSR1 restarts
+// openvpn inside its process (persist-tun keeps the interface).
+// CheckNetwork arms it again after the machine's addresses changed.
+func (o *OpenVPN) watchStall(gen, watch int) {
+	rx0, tx0, ok := o.tunBytes()
+	if !ok {
+		return
+	}
+	var txAt time.Time
+	end := time.Now().Add(stallLimit)
+	for time.Now().Before(end) {
+		select {
+		case <-o.stop:
+			return
+		case <-time.After(stallPoll):
+		}
+		o.mu.Lock()
+		cur, p := o.connected && o.gen == gen && o.watch == watch, o.proc
+		o.mu.Unlock()
+		if !cur || p == nil {
+			return
+		}
+		rx, tx, ok := o.tunBytes()
+		if !ok || rx != rx0 {
+			return // something came back (or the interface is gone)
+		}
+		if tx-tx0 < stallBytes { // the kernel's own IPv6 chatter is not traffic
+			continue
+		}
+		if txAt.IsZero() {
+			txAt = time.Now()
+		}
+		if time.Since(txAt) >= stallAfter {
+			o.log.Warn("openvpn: connected, but nothing comes back through the tunnel, restarting the connection", "tunnel", o.spec.Name)
+			_ = p.Signal(syscall.SIGUSR1)
+			return
+		}
+	}
+}
+
+// tunBytes returns the TUN interface's received and sent bytes.
+func (o *OpenVPN) tunBytes() (rx, tx uint64, ok bool) {
+	l, err := netlink.LinkByName(o.spec.Iface)
+	if err != nil {
+		return 0, 0, false
+	}
+	st := l.Attrs().Statistics
+	if st == nil {
+		return 0, 0, false
+	}
+	return st.RxBytes, st.TxBytes, true
 }
 
 // pushedDNS extracts DNS servers from a PUSH_REPLY log line: classic

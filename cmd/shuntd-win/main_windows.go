@@ -54,6 +54,9 @@ var version = "dev"
 
 var dataDir = filepath.Join(os.Getenv("ProgramData"), "Shunt")
 
+// tarnCfg is the latest config (for the shutdown, which has no other access).
+var tarnCfg atomic.Pointer[config.Config]
+
 func sockPath() string { return filepath.Join(dataDir, "shuntd.sock") }
 
 func main() {
@@ -64,6 +67,7 @@ func main() {
 	if isSvc, _ := svc.IsWindowsService(); isSvc {
 		cmd = "service"
 	}
+	winsplit.SetStateDir(filepath.Join(dataDir, "state"))
 	var err error
 	switch cmd {
 	case "service":
@@ -73,11 +77,23 @@ func main() {
 		setupLog()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		err = runCore(ctx, nil)
+		for {
+			// nil without ctx ending = restart requested: again
+			if err = runCore(ctx, nil); err != nil || ctx.Err() != nil {
+				break
+			}
+			log.Print("restarting")
+		}
 	case "install":
 		err = install()
 	case "uninstall":
 		err = uninstall()
+	case "allow-user": // installer: create the manage group, add the user
+		user := ""
+		if len(os.Args) > 2 {
+			user = os.Args[2]
+		}
+		err = allowUser(manageGroupFromFile(), user)
 	case "start":
 		err = control(func(s *mgr.Service) error { return s.Start() })
 	case "stop":
@@ -85,12 +101,16 @@ func main() {
 	case "killswitch-off": // emergency: lift the firewall rules and policy
 		winsplit.DisableKillSwitch()
 		winsplit.DisableDNSGuard()
-		fmt.Println("kill switch and DNS guard lifted")
+		winsplit.DisableQuiet()
+		fmt.Println("kill switch, DNS guard and quiet mode lifted")
 	case "version":
 		fmt.Println(version)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|start|stop|run|killswitch-off|version")
+		fmt.Fprintln(os.Stderr, "usage: shuntd-win install|uninstall|allow-user [USER]|start|stop|run|killswitch-off|version")
 		os.Exit(2)
+	}
+	if dnsWatchRun != nil { // the ETW session would outlive the process
+		dnsWatchRun.Close()
 	}
 	if err != nil {
 		log.Printf("%s failed: %v", cmd, err)
@@ -121,6 +141,10 @@ func (w logWriter) Write(p []byte) (int, error) {
 
 // handler is the Service Control Manager side.
 type handler struct{}
+
+// quietBoot: quiet mode applies in general (daemon.quiet not off); on a
+// system shutdown the filters are put back for the next boot.
+var quietBoot atomic.Bool
 
 // resumed: the machine woke up (power event); runCore restarts the tunnel sessions.
 var resumed = make(chan struct{}, 1)
@@ -161,17 +185,70 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 				st <- svc.Status{State: svc.StopPending}
 				cancel()
 				<-done
+				if t := winsplit.RealTarn(); t != nil {
+					if c.Cmd == svc.Shutdown {
+						// the next boot's DHCP client reads the host name, DUID and MAC at start
+						if err := t.PrepareShutdown(winsplit.BootWant(tarnCfg.Load())); err != nil {
+							log.Printf("disguise for the next boot: %v", err)
+						}
+					} else if err := t.RestoreAll(); err != nil { // stopped by hand: everything back
+						log.Printf("disguise: restoring: %v", err)
+					}
+				}
+				if c.Cmd == svc.Shutdown && quietBoot.Load() {
+					// the next boot starts before this service: cover it
+					if err := winsplit.EnableQuietBoot(); err != nil {
+						log.Printf("quiet boot filter: %v", err)
+					}
+				}
 				return false, 0
 			}
 		case err := <-done: // stopped by the API (restart) or died
-			cancel()
 			if err != nil {
+				cancel()
 				log.Printf("stopped: %v", err)
 				return false, 1 // non-zero: the recovery action restarts the service
 			}
-			return false, 1 // /v1/restart: also exit with an error so the SCM restarts us
+			// restart requested (/v1/restart, changed tunnels): bring
+			// everything up again in this process. Exiting with an error for
+			// the SCM to restart us took 5 s more and put an "ended
+			// unexpectedly" event (7031) in the log every time. A failing
+			// start still ends the service with an error (recovery).
+			log.Print("restarting")
+			ch := make(chan error, 1)
+			done = ch
+			go func() { ch <- runCore(ctx, nil) }()
 		}
 	}
+}
+
+// Windows' DNS client service sends the lookups of every program: its events
+// tell which program asked, so a name takes that program's route (Tor, its
+// own tunnel, blocked) instead of the default route. One watch for the whole
+// process: Windows needs a few seconds before its events flow, and a restart
+// in the process (changed tunnels) keeps it running.
+var (
+	dnsWatchOnce sync.Once
+	dnsWatchRun  *winsplit.DNSWatch              // nil: not available (logged)
+	dnsOwners    atomic.Pointer[winsplit.Owners] // of the running core
+)
+
+func startDNSWatch() *winsplit.DNSWatch {
+	dnsWatchOnce.Do(func() {
+		w, err := winsplit.StartDNSWatch(func(pid uint32) string {
+			if o := dnsOwners.Load(); o != nil {
+				return o.App(pid)
+			}
+			return ""
+		}, func(s string) { log.Print(s) })
+		if err != nil {
+			log.Printf("DNS askers: %v (names asked through Windows' DNS client follow the default route)", err)
+			return
+		}
+		dnsWatchRun = w
+		log.Print("DNS askers: watching which program asks (DNS client events)")
+	})
+	return dnsWatchRun
 }
 
 // runCore brings everything up and blocks until ctx ends or the API asks for
@@ -180,6 +257,21 @@ func runCore(ctx context.Context, ready func()) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
+	// ProgramData grants every user read and create rights by default: the
+	// tunnel keys, shunt.toml and the log would be open to any local user
+	// (OWASP T7). SYSTEM and Administrators only, also for files that were
+	// there before (upgrades, files copied in by hand). The API socket is
+	// made below and opened to users on its own (grantUsers); reaching it
+	// needs no rights on the directory (traverse checking is bypassed for
+	// everyone by default).
+	lockDataDir(dataDir)
+	// processes started in a route (shunt-desktop run --via): kept across restarts
+	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
+	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
+	jobs.Load()
+	owners := winsplit.NewOwners(jobs)
+	dnsOwners.Store(owners)
+	dnsWatch := startDNSWatch() // before anything else: Windows needs a few seconds
 	// The kill switch follows [daemon] kill_switch at once, also when edited
 	// in the window. It needs the adapter's LUID, so it goes on once the
 	// adapter is up; until then the persistent filters of an earlier run keep
@@ -254,6 +346,88 @@ func runCore(ctx context.Context, ready func()) error {
 		inboundOn = true
 		log.Printf("inbound protection on (lan=%v, %d open ports)", a.LAN, len(ports))
 	}
+	// quiet mode (daemon.quiet, per network): persistent WFP filters drop
+	// outgoing discovery (NetBIOS, LLMNR, mDNS, SSDP, multicast, broadcast).
+	// On a trusted network they are lifted; a boot filter (the same set) keeps
+	// them in the minutes before the service runs.
+	var quMu sync.Mutex
+	quState := ""
+	applyQuiet := func() {
+		quMu.Lock()
+		defer quMu.Unlock()
+		socksMu.Lock()
+		c := socksCfg
+		socksMu.Unlock()
+		if c == nil {
+			return
+		}
+		nw := inNetwork.Load().(string)
+		want := c.QuietFor(nw)
+		quietBoot.Store(c.Daemon.Quiet == nil || *c.Daemon.Quiet)
+		if want { // at the source, also for adapters that appeared since
+			if err := winsplit.QuietSource(); err != nil {
+				log.Printf("quiet mode (registry): %v", err)
+			}
+		}
+		state := fmt.Sprintf("%v|%s", want, nw)
+		if state == quState {
+			return
+		}
+		if !want {
+			winsplit.DisableQuiet()
+			quState = state
+			log.Print("quiet mode off")
+			return
+		}
+		if err := winsplit.EnableQuiet(); err != nil {
+			log.Printf("quiet mode: %v", err)
+			return
+		}
+		quState = state
+		log.Print("quiet mode on")
+	}
+	// Disguise towards the network (daemon.mac, daemon.dhcp_hostname, per
+	// network profile): Windows' own random Wi-Fi hardware address (from the
+	// next connection), the cable adapters' MAC and the DHCP FQDN options (see
+	// winsplit.Tarn). The host name in option 12 and the DUID are only read by
+	// Windows' DHCP client at boot: shutdown prepares them for the next boot.
+	var macMu sync.Mutex
+	var netKnown atomic.Bool
+	macState, tarnState := "", ""
+	applyMAC := func() {
+		macMu.Lock()
+		defer macMu.Unlock()
+		socksMu.Lock()
+		c := socksCfg
+		socksMu.Unlock()
+		if c == nil {
+			return
+		}
+		nw := inNetwork.Load().(string)
+		w := winsplit.WantFor(c, nw)
+		// only once the network is known: restarting the cable adapter before
+		// the router's MAC was looked up leaves that lookup empty (the profile
+		// would not be recognised)
+		if key := fmt.Sprintf("%+v", w); netKnown.Load() && key != tarnState {
+			tarnState = key
+			if t := winsplit.RealTarn(); t != nil {
+				rs, err := t.Apply(w)
+				log.Printf("disguise (network %q): hide name %v, cable MAC %q, adapters restarted %v", nw, w.HideName, w.MAC, rs)
+				if err != nil {
+					log.Printf("disguise: %v", err)
+				}
+			}
+		}
+		if c.Daemon.MAC == macState {
+			return
+		}
+		macState = c.Daemon.MAC
+		on := c.Daemon.MAC == config.MACRandom || c.Daemon.MAC == config.MACStable
+		if !on && c.Daemon.MAC != config.MACPermanent {
+			return // "" = leave Windows' setting alone
+		}
+		log.Printf("Wi-Fi random hardware address %v (%d interfaces)", on, winsplit.SetWifiRandomMAC(on))
+	}
 	applySocks := func() {
 		socksMu.Lock()
 		defer socksMu.Unlock()
@@ -287,8 +461,11 @@ func runCore(ctx context.Context, ready func()) error {
 			socksMu.Lock()
 			socksCfg = c
 			socksMu.Unlock()
+			tarnCfg.Store(c)
 			applySocks()
 			go applyInbound()
+			go applyQuiet()
+			go applyMAC()
 			ksApps = nil
 			for _, t := range c.Tunnels {
 				if t.IsTor() && !t.Disabled {
@@ -330,6 +507,12 @@ func runCore(ctx context.Context, ready func()) error {
 	if err != nil {
 		return err
 	}
+	// the DHCP client has read the neutral host name and DUID by now
+	if t := winsplit.RealTarn(); t != nil {
+		if err := t.RestoreBoot(); err != nil {
+			log.Printf("disguise: restoring the boot values: %v", err)
+		}
+	}
 	var phys atomic.Uint32
 	phys.Store(up.Index)
 	ad, err := winsplit.OpenAdapter(splitstack.DNSAddr)
@@ -346,16 +529,13 @@ func runCore(ctx context.Context, ready func()) error {
 	ksMu.Unlock()
 	applyKS()
 	applyInbound()
+	applyQuiet()
 	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
 		log.Printf("DNS guard: %v (Windows may still ask the network's DNS servers directly)", err)
 	}
 
 	link, stopLink := splitstack.TunLink(ad.Dev, winsplit.MTU)
 	defer stopLink()
-	// processes started in a route (shunt-desktop run --via): kept across restarts
-	_ = os.MkdirAll(filepath.Join(dataDir, "state"), 0o755)
-	jobs := &winsplit.Jobs{State: filepath.Join(dataDir, "state", "jobs.json")}
-	jobs.Load()
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
@@ -369,8 +549,14 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 	}()
 	e, err := splitstack.New(splitstack.Options{
-		Link:       link,
-		Owner:      winsplit.NewOwners(jobs).Owner,
+		Link:  link,
+		Owner: owners.Owner,
+		DNSAskers: func(app, name string, arrived time.Time) []string {
+			if dnsWatch == nil || !winsplit.IsDNSClient(app) {
+				return nil
+			}
+			return dnsWatch.Askers(name, arrived)
+		},
 		Log:        func(s string) { log.Print(s) },
 		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {
@@ -396,7 +582,7 @@ func runCore(ctx context.Context, ready func()) error {
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); applyInbound() })
+	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); netKnown.Store(true); applyInbound(); applyQuiet(); go applyMAC() })
 	go func() {
 		for {
 			select {
@@ -470,11 +656,16 @@ func runCore(ctx context.Context, ready func()) error {
 
 	restart := make(chan struct{}, 1)
 	m.SetRules = e.SetRules
+	// a little later: the API call that changed the tunnels (reload, config,
+	// import) still gets its answer before the service goes down (MH08:
+	// the caller saw a broken connection and took the reload as failed)
 	m.Restart = func() {
-		select {
-		case restart <- struct{}{}:
-		default:
-		}
+		time.AfterFunc(300*time.Millisecond, func() {
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+		})
 	}
 	s := &winsvc.Server{Core: e, Warnings: func() []string {
 		clockMu.Lock()
@@ -495,6 +686,11 @@ func runCore(ctx context.Context, ready func()) error {
 			return tr
 		},
 		Pin: func(pid int, route string) error { return jobs.Pin(uint32(pid), route) },
+		// who is calling decides what they may do (winsvc/auth.go)
+		Identify:    func(c net.Conn) *winsvc.Caller { return identify(c, m.ManageGroup()) },
+		ManageGroup: m.ManageGroup(),
+		ProcInfo:    procInfo,
+		RouteOf:     func(pid int) string { return jobs.Route(uint32(pid)) },
 		Procs: func(name string) ([]api.ProcRoute, error) {
 			ps, err := winsplit.Processes(name)
 			out := make([]api.ProcRoute, 0, len(ps))
@@ -539,11 +735,12 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 }
 
-// grantUsers lets every local user talk to the API (reading status, panic).
-// Changing the config needs write access to windows.json, which stays with
-// Administrators.
+// grantUsers lets every local user connect to the API (connecting needs
+// write access to the socket file; not delete, so nobody can put their own
+// socket in its place). What a caller may do is checked per request
+// (winsvc/auth.go: Identify).
 func grantUsers(path string) {
-	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(M)").CombinedOutput(); err != nil {
+	if out, err := exec.Command("icacls", path, "/grant", "*S-1-5-32-545:(RX,W)").CombinedOutput(); err != nil {
 		log.Printf("icacls %s: %v: %s", path, err, out)
 	}
 }
@@ -625,6 +822,18 @@ func lockDown(dir string) {
 	}
 }
 
+// lockDataDir locks dir down (lockDown) and makes everything below it
+// inherit from it only, dropping rights granted to users on single files.
+func lockDataDir(dir string) {
+	lockDown(dir)
+	if ents, _ := os.ReadDir(dir); len(ents) == 0 {
+		return // nothing below it yet (icacls would complain about "*")
+	}
+	if out, err := exec.Command("icacls", filepath.Join(dir, "*"), "/reset", "/T", "/C", "/Q").CombinedOutput(); err != nil {
+		log.Printf("icacls %s: %v: %s", dir, err, out)
+	}
+}
+
 func install() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -658,14 +867,29 @@ func install() error {
 	return nil
 }
 
+// manageGroupFromFile returns daemon.socket_group of shunt.toml, or the
+// default group.
+func manageGroupFromFile() string {
+	if c, err := config.Load(filepath.Join(dataDir, "shunt.toml")); err == nil && c.Daemon.SocketGroup != "" {
+		return c.Daemon.SocketGroup
+	}
+	return winsvc.DefaultManageGroup
+}
+
 func uninstall() error {
 	winsplit.DisableKillSwitch()
 	winsplit.DisableDNSGuard()
-	return control(func(s *mgr.Service) error {
+	winsplit.DisableQuiet()
+	err := control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)
 		return s.Delete()
 	})
+	winsplit.StopDNSWatchSession() // left over if the service ever crashed
+	if t := winsplit.RealTarn(); t != nil {
+		_ = t.RestoreAll() // host name, DUID, MAC, DNS registration as they were
+	}
+	return err
 }
 
 func control(f func(*mgr.Service) error) error {

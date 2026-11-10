@@ -11,7 +11,12 @@ orig=$(nmcli -g GENERAL.CONNECTION dev show "$dev")
 for n in "Netz A" "Netz B"; do
 	sudo -n nmcli con delete "$n" >/dev/null 2>&1 || true
 	sudo -n nmcli con add type ethernet ifname "$dev" con-name "$n" ipv6.method auto >/dev/null
-	sudo -n nmcli -w 30 con up "$n" >/dev/null || echo "FAIL $n kam nicht hoch"
+	# shuntd may stop this first activation before DHCP (host name) and start it again itself
+	if ! sudo -n nmcli -w 30 con up "$n" >/dev/null 2>&1; then
+		echo "Hinweis: $n erste Aktivierung abgebrochen (shuntd-Startschutz?)"
+		for i in $(seq 20); do nmcli -g GENERAL.STATE con show "$n" 2>/dev/null | grep -q activated && break; sleep 1; done
+		nmcli -g GENERAL.STATE con show "$n" 2>/dev/null | grep -q activated || echo "FAIL $n kam nicht hoch"
+	fi
 	sleep 12
 	echo "$n: $(ip -6 addr show dev "$dev" scope global | grep -o "inet6 [^ ]*" | tr "\n" " ")"
 done

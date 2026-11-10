@@ -99,7 +99,11 @@ _de() {
 	'could not download the installer of release %s') printf %s 'Installer von Release %s konnte nicht geladen werden' ;;
 	'release %s: continuing with its own installer') printf %s 'Release %s: weiter mit dessen eigenem Installer' ;;
 	'could not download the checksums of release %s') printf %s 'Prüfsummen von Release %s konnten nicht geladen werden' ;;
+	'release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)') printf %s 'Release %s: install.sh passt nicht zur signierten Prüfsumme – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die Signatur von SHA256SUMS ist falsch – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'release %s: its signed checksums belong to release %s - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen gehören zu Release %s – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'release %s: its signed checksums do not name the release - an old release under a new name? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen nennen kein Release – ein altes Release unter neuem Namen? (daraus wurde nichts installiert)' ;;
+	'release %s: older release, its signed checksums do not name the release') printf %s 'Release %s: älteres Release, die signierten Prüfsummen nennen das Release nicht' ;;
 	'Dry run - this is what the installer would do (nothing is changed)') printf %s 'Probelauf – das würde der Installer tun (es wird nichts geändert)' ;;
 	'Installing dependencies') printf %s 'Abhängigkeiten werden installiert' ;;
 	'updating package lists (apt)') printf %s 'Paketlisten werden aktualisiert (apt)' ;;
@@ -125,6 +129,11 @@ _de() {
 	'checksum mismatch - download corrupted or tampered with') printf %s 'Prüfsumme stimmt nicht – Download beschädigt oder manipuliert' ;;
 	'checksum verified') printf %s 'Prüfsumme stimmt' ;;
 	'checksum mismatch (desktop app)') printf %s 'Prüfsumme stimmt nicht (Desktop-App)' ;;
+	'could not download the service files of release %s') printf %s 'Dienst-Dateien von Release %s konnten nicht geladen werden' ;;
+	'checksum mismatch (service files)') printf %s 'Prüfsumme stimmt nicht (Dienst-Dateien)' ;;
+	'release %s has no signed service files - using the ones of %s') printf %s 'Release %s hat keine signierten Dienst-Dateien – nehme die aus %s' ;;
+	'release %s has no signed service files (systemd units, polkit policy) - nothing is downloaded unsigned; install it with its own installer') printf %s 'Release %s hat keine signierten Dienst-Dateien (systemd-Units, polkit-Regel) – unsigniert wird nichts geladen; installiere es mit seinem eigenen Installer' ;;
+	'%s is missing (neither in the signed release files nor in the source checkout)') printf %s '%s fehlt (weder in den signierten Release-Dateien noch im Quelltext)' ;;
 	'no prebuilt desktop app for %s in this release - skipping it (build from source with --from-source)') printf %s 'keine fertige Desktop-App für %s in diesem Release – wird übersprungen (aus dem Quelltext bauen mit --from-source)' ;;
 	'%s - building from source') printf %s '%s – wird aus dem Quelltext gebaut' ;;
 	'Building from source (%s)') printf %s 'Bauen aus dem Quelltext (%s)' ;;
@@ -147,13 +156,13 @@ _de() {
 	'Switch to plain DNS lookups? (backup is kept, undone on uninstall)') printf %s 'Auf einfache DNS-Abfragen umstellen? (Sicherung bleibt, wird beim Deinstallieren rückgängig gemacht)' ;;
 	'privacy settings: host name setting fixed for NetworkManager 1.52+ (%s)') printf %s 'Datenschutzeinstellungen: Host-Namen-Einstellung für NetworkManager 1.52+ korrigiert (%s)' ;;
 	'Foreign Wi-Fi networks see your laptop'\''s MAC address and host name.') printf %s 'Fremde WLANs sehen die MAC-Adresse und den Host-Namen deines Laptops.' ;;
-	'Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?') printf %s 'Verstecken (eigene MAC pro Netz, kein Host-Name im DHCP, IPv6-Datenschutzadressen)?' ;;
+	'Hide them (new MAC on every connection, no host name in DHCP, IPv6 privacy addresses)?') printf %s 'Verstecken (neue MAC bei jeder Verbindung, kein Host-Name im DHCP, IPv6-Datenschutzadressen)?' ;;
 	'privacy settings active from the next Wi-Fi connection (%s)') printf %s 'Datenschutzeinstellungen gelten ab der nächsten WLAN-Verbindung (%s)' ;;
 	'%s: %s') printf %s '%s: %s' ;;
 	'real MAC kept on the networks you trust: %s') printf %s 'echte MAC bleibt in den Netzen, denen du vertraust: %s' ;;
 	'At home: Configure → network profile → MAC "the real one" (router reservations keep working).') printf %s 'Zuhause: Configure → Netzprofil → MAC „die echte“ (Router-Reservierungen funktionieren weiter).' ;;
 	'Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network).') printf %s 'Deine WLAN-Datenschutzeinstellungen lassen die Kabel-MAC und die Geräte-ID im DHCPv6 aus (in jedem Netz gleich).' ;;
-	'Hide those too (The Shunt sets each network: own MAC per network, no host name)?') printf %s 'Auch die verstecken (The Shunt stellt jedes Netz ein: eigene MAC pro Netz, kein Host-Name)?' ;;
+	'Hide those too (The Shunt sets each network: new MAC on every connection, no host name)?') printf %s 'Auch die verstecken (The Shunt stellt jedes Netz ein: neue MAC bei jeder Verbindung, kein Host-Name)?' ;;
 	'Dry run') printf %s 'Probelauf' ;;
 	'configuration check failed - fix %s and run the installer again') printf %s 'Konfigurationsprüfung fehlgeschlagen – korrigiere %s und starte den Installer erneut' ;;
 	'configuration valid') printf %s 'Konfiguration gültig' ;;
@@ -329,7 +338,7 @@ trap on_exit EXIT
 
 NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
 
-# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "random" to
 # [daemon] when they are not set there; prints what it added.
 daemon_privacy() {
 	_f=$1
@@ -340,7 +349,7 @@ daemon_privacy() {
 		END { printf "%d%d%d", s, h, m }' "$_f")
 	_h='' _m=''
 	case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
-	case $_have in ??0) _m='mac = "stable"' ;; esac
+	case $_have in ??0) _m='mac = "random"' ;; esac
 	[ -n "$_h$_m" ] || return 0
 	_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
 	case $_have in
@@ -385,6 +394,9 @@ if [[ $MODE == uninstall ]]; then
 		rm -f "$NM_PRIVACY" && ok "network privacy settings removed"
 		nmcli general reload conf >/dev/null 2>&1 || true
 	fi
+	# drop-in of 'shuntd setup-tailscale'
+	rm -f /etc/systemd/system/shuntd.service.d/50-tailscale.conf
+	rmdir /etc/systemd/system/shuntd.service.d 2>/dev/null || true
 	rm -f "$UNIT" "$LOCKDOWN_UNIT" "$POLKIT_POLICY" "$BIN_DIR/shuntd" "$BIN_DIR/shunt" "$BIN_DIR/shunt-desktop" "$DESKTOP_ENTRY" "$DESKTOP_ICON"
 	if [[ -n ${SUDO_USER:-} ]]; then rm -f "$(user_home "$SUDO_USER")/.config/autostart/the-shunt.desktop"; fi
 	[[ -L /usr/sbin/shuntd ]] && rm -f /usr/sbin/shuntd
@@ -476,6 +488,13 @@ find_release() { # -> sets tag (empty: build from source) and why
 		why="--from-source"
 		return
 	fi
+	if [[ -n ${SHUNT_RELEASE_INSTALLER:-} ]]; then
+		# started for exactly this signed release (by the app's update or an
+		# older installer): its signed files or nothing - never fall back to
+		# an unsigned source build when the release list cannot be read
+		tag=$REF
+		return
+	fi
 	api() { curl -fsSL --connect-timeout 10 --max-time 20 "https://api.github.com/repos/$REPO/$1" 2>/dev/null; }
 	asset() { curl -fsSLI --connect-timeout 10 --max-time 30 -o /dev/null "https://github.com/$REPO/releases/download/$1/$2" 2>/dev/null; }
 	local t
@@ -497,15 +516,29 @@ find_release() { # -> sets tag (empty: build from source) and why
 	done
 }
 # use_release_installer: run the installer of release $tag (same arguments)
+# Its installer is a release file listed in the signed SHA256SUMS; it runs
+# only if it matches. (Releases before it was listed: the tag's file.) It
+# goes into a new private directory: in a shared one (/tmp) someone else's
+# go.mod there would make it build from source.
 use_release_installer() {
 	[[ $REF == "$tag" || -n ${SHUNT_RELEASE_INSTALLER:-} ]] && return
-	local f
-	f=$(mktemp)
-	curl -fsSLo "$f" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
-		die "could not download the installer of release %s" "$tag"
+	local d want
+	command -v ssh-keygen >/dev/null || pkg_install "ssh-keygen (checks the release signature)" ssh
+	fetch_sums
+	d=$(mktemp -d)
+	want=$(awk '$2 == "install.sh" || $2 == "*install.sh" {print $1}' "$WORK/SHA256SUMS")
+	if [[ -n $want ]]; then
+		curl -fsSLo "$d/install.sh" "https://github.com/$REPO/releases/download/$tag/install.sh" ||
+			die "could not download the installer of release %s" "$tag"
+		printf '%s  %s\n' "$want" "$d/install.sh" | sha256sum -c --quiet - >>"$LOG" 2>&1 ||
+			die "release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)" "$tag"
+	else
+		curl -fsSLo "$d/install.sh" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
+			die "could not download the installer of release %s" "$tag"
+	fi
 	ok "release %s: continuing with its own installer" "$tag"
 	rm -rf "$WORK"
-	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$f" "${ARGS[@]}"
+	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$d/install.sh" "${ARGS[@]}"
 }
 # fetch_sums: download and check the signed checksum list of release $tag
 fetch_sums() {
@@ -516,6 +549,47 @@ fetch_sums() {
 	ssh-keygen -Y verify -f "$WORK/allowed_signers" -I "${RELEASE_SIGNER%% *}" -n "$RELEASE_NS" \
 		-s "$WORK/SHA256SUMS.sig" <"$WORK/SHA256SUMS" >>"$LOG" 2>&1 ||
 		die "release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)" "$tag"
+	# the signed list names its release ("# tag <tag>", releases from
+	# v0.7.1-rc24 on): an old signed release published again under a newer
+	# tag is refused. A list without the line (older releases) is only
+	# accepted for a tag the user named (SHUNT_REF=<tag>), never for the
+	# newest release picked here or for a release's own installer.
+	local signed
+	signed=$(sed -n 's/^# tag //p' "$WORK/SHA256SUMS")
+	if [[ -n $signed ]]; then
+		[[ $signed == "$tag" ]] ||
+			die "release %s: its signed checksums belong to release %s - download tampered with? (nothing was installed from it)" "$tag" "${signed//$'\n'/ }"
+	elif [[ $REF == "$tag" && -z ${SHUNT_RELEASE_INSTALLER:-} ]]; then
+		warn "release %s: older release, its signed checksums do not name the release" "$tag"
+	else
+		die "release %s: its signed checksums do not name the release - an old release under a new name? (nothing was installed from it)" "$tag"
+	fi
+}
+
+# fetch_extras: the service files of release $tag (fetch_sums ran) into
+# PKG_DIR: its signed shunt_linux_extras.tar.gz; a release without it
+# (older) only with the files of the source checkout this installer runs from
+fetch_extras() {
+	if grep -q " shunt_linux_extras.tar.gz\$" "$WORK/SHA256SUMS"; then
+		curl -fsSLo "$WORK/extras.tar.gz" "https://github.com/$REPO/releases/download/$tag/shunt_linux_extras.tar.gz" ||
+			die "could not download the service files of release %s" "$tag"
+		(cd "$WORK" && grep " shunt_linux_extras.tar.gz\$" SHA256SUMS | sed "s/shunt_linux_extras.tar.gz/extras.tar.gz/" | sha256sum -c --quiet) ||
+			die "checksum mismatch (service files)"
+		PKG_DIR=$WORK/packaging
+		rm -rf "$PKG_DIR"
+		mkdir -p "$PKG_DIR" && tar -xzf "$WORK/extras.tar.gz" -C "$PKG_DIR" --no-same-owner
+	elif [[ -f $SRC_DIR/packaging/systemd/shuntd.service ]]; then
+		PKG_DIR=$SRC_DIR/packaging
+		warn "release %s has no signed service files - using the ones of %s" "$tag" "$SRC_DIR"
+	else
+		die "release %s has no signed service files (systemd units, polkit policy) - nothing is downloaded unsigned; install it with its own installer" "$tag"
+	fi
+}
+check_extras() {
+	local f
+	for f in systemd/shuntd.service systemd/shunt-lockdown.service polkit/org.theshunt.policy desktop/the-shunt.desktop desktop/the-shunt.svg; do
+		[[ -f $PKG_DIR/$f ]] || die "%s is missing (neither in the signed release files nor in the source checkout)" "packaging/$f"
+	done
 }
 
 # before any question: a release is installed by its own installer
@@ -650,6 +724,12 @@ else
 	build_from "$WORK/src"
 	SRC_DIR=$WORK/src
 fi
+# systemd units, desktop entry and polkit policy run or decide as root: from
+# a release only its signed file shunt_linux_extras.tar.gz (or the files of
+# the source checkout this installer runs from), never downloaded unsigned
+PKG_DIR=$SRC_DIR/packaging
+[[ -z $tag ]] || fetch_extras
+check_extras
 install -m755 "$WORK/bin/shuntd" "$WORK/bin/shunt" "$BIN_DIR/"
 if [[ -f $WORK/bin/lyrebird ]]; then
 	install -d /usr/local/libexec/shunt
@@ -661,15 +741,6 @@ fi
 # sudo's secure_path does not include /usr/local/bin everywhere (Kali)
 ln -sf "$BIN_DIR/shuntd" /usr/sbin/shuntd
 ok "installed %s to %s" "$("$BIN_DIR/shuntd" version)" "$BIN_DIR"
-
-unit_src() { # file name -> path of packaged unit (or download)
-	if [[ -f $SRC_DIR/packaging/systemd/$1 ]]; then
-		echo "$SRC_DIR/packaging/systemd/$1"
-	else
-		curl -fsSLo "$WORK/$1" "https://raw.githubusercontent.com/$REPO/$REF/packaging/systemd/$1"
-		echo "$WORK/$1"
-	fi
-}
 
 # ---------------------------------------------------------------- config
 say "Configuration"
@@ -765,15 +836,16 @@ if grep -qE '^hosts:.*\bresolve\b' /etc/nsswitch.conf 2>/dev/null; then
 fi
 
 # Opsec on foreign networks; NetworkManager applies it on the next connect.
-# Older versions wrote "false", which NetworkManager 1.52+ ignores.
-if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
-	sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+# Older versions wrote dhcp-send-hostname here: NetworkManager 1.46 does not
+# know it as a default ("unknown key"), shuntd sets it per profile.
+if [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=' "$NM_PRIVACY"; then
+	sed -i '/^ipv[46]\.dhcp-send-hostname=/d' "$NM_PRIVACY"
 	nmcli general reload conf >/dev/null 2>&1 || true
-	ok "privacy settings: host name setting fixed for NetworkManager 1.52+ (%s)" "$NM_PRIVACY"
+	ok "privacy settings: removed host name lines NetworkManager ignores (%s)" "$NM_PRIVACY"
 fi
 if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-active -q NetworkManager 2>/dev/null; then
 	note "Foreign Wi-Fi networks see your laptop's MAC address and host name."
-	if yes_no "Hide them (own MAC per network, no host name in DHCP, IPv6 privacy addresses)?" y; then
+	if yes_no "Hide them (new MAC on every connection, no host name in DHCP, IPv6 privacy addresses)?" y; then
 		cat >"$NM_PRIVACY" <<'EOF'
 # The Shunt: privacy on foreign networks (removed by install.sh --uninstall).
 # Settings in a connection profile itself still take precedence.
@@ -781,12 +853,9 @@ if [[ -d /etc/NetworkManager/conf.d && ! -f $NM_PRIVACY ]] && systemctl is-activ
 wifi.scan-rand-mac-address=yes
 
 [connection]
-# a different MAC on every Wi-Fi, but the same one each time you return
-# (keeps router reservations and hotel logins working)
-wifi.cloned-mac-address=stable
-# 0, not false: NetworkManager 1.52+ ignores "false" here
-ipv4.dhcp-send-hostname=0
-ipv6.dhcp-send-hostname=0
+# a new MAC on every Wi-Fi connection (a network profile can say otherwise:
+# mac = "permanent" at home keeps router reservations and MAC filters working)
+wifi.cloned-mac-address=random
 ipv6.ip6-privacy=2
 EOF
 		nmcli general reload conf >/dev/null 2>&1 || true
@@ -810,7 +879,7 @@ elif [[ -f $NM_PRIVACY ]] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && [[
 	# device IDs are not (asked once, only in a terminal: an update from
 	# the app must not change the MAC at home unasked)
 	note "Your Wi-Fi privacy settings leave out the cable MAC and the device ID in DHCPv6 (the same on every network)."
-	if yes_no "Hide those too (The Shunt sets each network: own MAC per network, no host name)?" y; then
+	if yes_no "Hide those too (The Shunt sets each network: new MAC on every connection, no host name)?" y; then
 		added=$(daemon_privacy "$ETC/shunt.toml")
 		if [[ -n $added ]]; then
 			ok "%s: %s" "$ETC/shunt.toml" "$added"
@@ -834,15 +903,11 @@ ok "configuration valid"
 
 # ---------------------------------------------------------------- service
 say "Starting the service"
-install -m644 "$(unit_src shuntd.service)" "$UNIT"
-install -m644 "$(unit_src shunt-lockdown.service)" "$LOCKDOWN_UNIT"
+install -m644 "$PKG_DIR/systemd/shuntd.service" "$UNIT"
+install -m644 "$PKG_DIR/systemd/shunt-lockdown.service" "$LOCKDOWN_UNIT"
 if [[ -x $BIN_DIR/shunt-desktop ]]; then
-	for f in the-shunt.desktop the-shunt.svg; do
-		if [[ -f $SRC_DIR/packaging/desktop/$f ]]; then cp "$SRC_DIR/packaging/desktop/$f" "$WORK/$f"; else
-			curl -fsSLo "$WORK/$f" "https://raw.githubusercontent.com/$REPO/$REF/packaging/desktop/$f"; fi
-	done
-	install -D -m644 "$WORK/the-shunt.desktop" "$DESKTOP_ENTRY"
-	install -D -m644 "$WORK/the-shunt.svg" "$DESKTOP_ICON"
+	install -D -m644 "$PKG_DIR/desktop/the-shunt.desktop" "$DESKTOP_ENTRY"
+	install -D -m644 "$PKG_DIR/desktop/the-shunt.svg" "$DESKTOP_ICON"
 	gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
 	if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] && yes_no "Show the tray icon automatically after login?" y; then
 		h=$(user_home "$SUDO_USER")
@@ -852,12 +917,7 @@ if [[ -x $BIN_DIR/shunt-desktop ]]; then
 	fi
 	ok "desktop app installed: menu entry \"The Shunt\""
 fi
-if [[ -f $SRC_DIR/packaging/polkit/org.theshunt.policy ]]; then
-	install -D -m644 "$SRC_DIR/packaging/polkit/org.theshunt.policy" "$POLKIT_POLICY"
-else
-	curl -fsSLo "$WORK/org.theshunt.policy" "https://raw.githubusercontent.com/$REPO/$REF/packaging/polkit/org.theshunt.policy"
-	install -D -m644 "$WORK/org.theshunt.policy" "$POLKIT_POLICY"
-fi
+install -D -m644 "$PKG_DIR/polkit/org.theshunt.policy" "$POLKIT_POLICY"
 systemctl daemon-reload
 systemctl enable -q shuntd.service
 # boot lockdown: shuntd lockdown decides at boot from daemon.boot_lockdown

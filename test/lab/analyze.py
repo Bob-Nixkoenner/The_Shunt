@@ -20,7 +20,7 @@ import subprocess
 import sys
 from collections import Counter, defaultdict
 
-from scapy.all import (ARP, DHCP, DNS, DNSQR, ICMPv6ND_NS, IP, TCP, UDP, BOOTP, IPv6, Ether,
+from scapy.all import (ARP, DHCP, DNS, DNSQR, ICMP, UDPerror, ICMPv6ND_NS, IP, TCP, UDP, BOOTP, IPv6, Ether,
                        PcapReader, Raw)
 from scapy.layers.dhcp6 import DHCP6, DHCP6OptClientId, DHCP6OptClientFQDN
 
@@ -68,7 +68,31 @@ def allowed_net(dst, dport, proto):
     return any(ip in n and dport == p and proto == pr for n, p, pr in allow_net)
 
 
+# host:<name>:<port>/<proto>: a host name (or a domain suffix with a leading dot), matched through the DNS
+# answers in the captures; for hosts behind a CDN whose addresses rotate (Pop!_OS check and apt on CloudFront)
+allow_host = []
+for a in allow:
+    if a.startswith("host:"):
+        h, rest = a[5:].rsplit(":", 1)
+        port, proto = rest.split("/")
+        allow_host.append((h.lower(), int(port), proto))
+
+
+def allowed_host(dst, dport, proto):
+    n = names.get(dst, "").lower()
+    return bool(n) and any(dport == p and proto == pr and (n == h or (h.startswith(".") and n.endswith(h)))
+                           for h, p, pr in allow_host)
+
+
 allow_dns = "dns" in allow
+# LABMARK tor_end: tor was ended on purpose; what follows within TOR_REST seconds (FIN/RST/ACK without payload to a
+# relay's OR port, e.g. 9001/9003, FIN or RST only, no process) is the teardown of its relay connections, not user traffic
+tor_end = meta.get("tor_end")
+TOR_REST = 15
+# GitHub (raw.githubusercontent.com): download of the DNS filter lists. It follows the default route (issue #8):
+# direct by design when the default route is "direct"
+GITHUB_NETS = [ipaddress.ip_network(n) for n in ("185.199.108.0/22", "140.82.112.0/20", "2606:50c0::/32")]
+DIRECT_CONFIGS = {"direct", "filter-real-direct", "race-hold"}
 strict_fp = "fingerprint" in meta.get("checks", [])
 
 findings = []  # (severity, group, text)
@@ -106,6 +130,16 @@ def who(dst, dport):
     return ", ".join(k for k, _ in Counter(named).most_common(3))
 
 
+def tcp_data_len(pkt):
+    """Bytes of TCP data, from the IP length fields. Not len(pkt[TCP].payload): a frame below the Ethernet minimum
+    of 60 bytes (a bare FIN/ACK/RST) carries zero padding that scapy shows as a Padding layer under TCP."""
+    if IP in pkt:
+        return pkt[IP].len - pkt[IP].ihl * 4 - pkt[TCP].dataofs * 4
+    if IPv6 in pkt:
+        return pkt[IPv6].plen - pkt[TCP].dataofs * 4
+    return len(bytes(pkt[TCP].payload))
+
+
 def allowed_comm(w):
     if "*" in allow_comms:  # no process trace (Windows client): allow whatever the test allows
         return True
@@ -127,6 +161,7 @@ client_ips = set(meta.get("client_ips", []))
 names = {}  # ip -> name, from DNS answers seen anywhere
 inbound = set()  # (remote ip, remote port, client port) of connections opened towards the client
 outbound = set()  # (remote ip, remote port, client port) the client opened
+tor_rest = Counter()  # (relay, port) -> packets after tor ended
 replies_lan = Counter()  # answers to the untrusted network's own probes
 http_fp = set()
 
@@ -138,6 +173,8 @@ def learn_names(pkt):
                 rr = pkt[DNS].an[i]
                 if rr.type in (1, 28):
                     names.setdefault(str(rr.rdata), rr.rrname.decode().rstrip("."))
+                    if rr.rrname.rstrip(b".").lower() in CAPTIVE_HOSTS:
+                        captive_dsts.add(str(rr.rdata))  # the address the client got, not the gateway's
             except Exception:
                 pass
 
@@ -190,6 +227,11 @@ outside = 0
 def in_strict(t):
     return any(a <= t and (b is None or t <= b) for a, b in strict)
 
+
+# host: rules also match names resolved through the tunnel (the app asked there, then went direct)
+if allow_host and os.path.exists(p("ct130.pcap")):
+    for pkt in PcapReader(p("ct130.pcap")):
+        learn_names(pkt)
 
 if os.path.exists(p("gw.pcap")):
     for pkt in PcapReader(p("gw.pcap")):
@@ -301,9 +343,14 @@ if os.path.exists(p("gw.pcap")):
                 # e.g. one that arrived through the tunnel
                 gw_flows[(dst, dport, "tcp-Antwort", who(dst, dport))] += 1
                 continue
-        if proto in ("icmp", "icmp6") and IP in pkt and pkt[IP].proto == 1 and pkt.getlayer(3) is not None \
-                and getattr(pkt.getlayer(3), "type", None) in (0, 3):
-            replies_lan[(dst, "icmp")] += 1
+        # echo reply / unreachable: an answer, not a new connection. ICMP is the layer after IP, not
+        # getlayer(3) (that is the quoted IP header of an error).
+        if proto == "icmp" and ICMP in pkt and pkt[ICMP].type in (0, 3):
+            what = "icmp"
+            if pkt[ICMP].type == 3 and pkt[ICMP].code == 3 and UDPerror in pkt:
+                # e.g. udp port 68 unreachable: a DHCP answer that came after the profile switch (F05)
+                what = f"icmp port unreachable udp/{pkt[UDPerror].dport}"
+            replies_lan[(dst, what)] += 1
             continue
         if TCP in pkt and dport == 80 and pkt[TCP].payload:
             raw = bytes(pkt[TCP].payload)
@@ -320,17 +367,29 @@ if os.path.exists(p("gw.pcap")):
                 gw_dns.append((q, dst, who(dst, 53) if who(dst, 53) != "?" else who(dst, sport)))
             continue
         w = who(dst, dport)
-        if (dst, dport, proto) in allow_dst or allowed_net(dst, dport, proto) or allowed_comm(w):
+        if (dst, dport, proto) in allow_dst or allowed_net(dst, dport, proto) or allowed_comm(w) \
+                or allowed_host(dst, dport, proto):
             continue
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
+            continue
+        if tor_end and TCP in pkt and w in ("?", "kernel") and tcp_data_len(pkt) <= 0 and (int(pkt[TCP].flags) & 0x05) \
+                and tor_end <= float(pkt.time) <= tor_end + TOR_REST:
+            tor_rest[(dst, dport)] += 1
             continue
         gw_flows[(dst, dport, proto, w)] += 1
 
 for k in [k for k in gw_flows if k[0] in captive_dsts and k[1] == 80 and k[2] == "tcp"]:
     captive_checks[label(k[0])] += gw_flows.pop(k)
+for (dst, dport), n in tor_rest.items():
+    find("info", "Tor-Rest nach tor-Ende", f"tcp → {dst}:{dport} ({n} Pakete ohne Inhalt, Verbindungsabbau eines Relays nach dem Beenden von tor)")
 for k, n in gw_flows.items():
     dst, dport, proto, w = k
+    if dport == 443 and proto in ("tcp", "tcp-Antwort") and meta.get("config") in DIRECT_CONFIGS \
+            and any(ipaddress.ip_address(dst) in net for net in GITHUB_NETS):
+        find("info", "Listen-Download des DNS-Filters", f"{label(dst)}:{dport} ({n} Pakete): folgt der Standardroute, bei direct"
+             " also direkt, gewollt (#8)")
+        continue
     if proto == "tcp-Antwort":
         find("leak", "Antwort am Tunnel vorbei", f"tcp → {label(dst)}:{dport} ({n} Pakete), Prozess: {w}"
              " – Verbindung kam nicht über dieses Netz, die Antwort geht aber hier raus")
@@ -343,8 +402,16 @@ for d, n in captive_checks.items():
 for q, dst, w in gw_dns:
     if allow_dns or allowed_comm(w):
         continue
-    if w == "shuntd" and q.encode() in CAPTIVE_HOSTS:  # name of the portal check: the portal sits in front of any tunnel
-        find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt)")
+    # name of the portal check: the portal sits in front of any tunnel, the check is on by default (decided
+    # 08.11.: info, not a finding). Without systemd-resolved (Debian) shuntd resolves on its own and the
+    # trace cannot attribute the lookup ("?"), and when the check's HTTP request did not get out (dead
+    # tunnel) only the lookup is left: an unknown process asking this name counts as the check too. The
+    # trace names every process that sent to that DNS server and port ("curl, shuntd" in M06, where curl
+    # in the namespace asks the same server): shuntd among them is enough.
+    procs = {x.strip() for x in w.split(",")}
+    if q.encode() in CAPTIVE_HOSTS and ("shuntd" in procs or w == "?"):
+        why = "" if "shuntd" in procs or captive_checks else ", Prozess unbekannt, ohne HTTP-Anfrage im Mitschnitt"
+        find("info", "Portal-Prüfung von shuntd", f"DNS {q} an {label(dst)} (Namensauflösung der Prüfung, gewollt{why})")
         continue
     find("leak", "DNS über das fremde Netz", f"{q} an {dst}, Prozess: {w}")
 
@@ -385,6 +452,12 @@ if strict_fp:
     for v in sorted(fp.get("MAC", ())):
         if "Hersteller" in v:
             find("leak", "Fingerabdruck", f"echte MAC sichtbar: {v}")
+# discovery: any broadcast/multicast discovery of this device (LLMNR, NetBIOS, mDNS, SSDP, WSD, KDE Connect,
+# Syncthing) counts, without the DHCP names the fingerprint check also wants (quiet mode, D05)
+if "discovery" in meta.get("checks", []):
+    names_seen = sorted(fp.get("Rundrufe", ()))
+    for n in names_seen:
+        find("leak", "Rundruf im fremden Netz", f"{n}: Gerät sendet Discovery (Ruhemodus soll das verhindern)")
 # per-network: the client joined two networks (F05); one value for both = recognisable across networks
 if "per-network" in meta.get("checks", []):
     # a value counts as "in both" only when it came with two MACs (each

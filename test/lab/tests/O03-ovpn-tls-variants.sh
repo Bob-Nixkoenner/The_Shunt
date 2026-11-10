@@ -2,7 +2,7 @@ ID=O03
 TITLE="OpenVPN mit falschem tls-crypt-Schluessel / tls-auth statt tls-crypt: Tunnel bleibt unten, nie direkt"
 CONFIG=ovpn-variants
 EXPECT_CANARY=none
-ALLOW=(dst:192.168.222.130:1194/udp)
+ALLOW=(dst:${CT130_IP}:1194/udp)
 PREP='
 cat >/tmp/mk.sh <<\EOF2
 cd /etc/shunt/tunnels

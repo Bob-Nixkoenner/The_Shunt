@@ -2,7 +2,7 @@ ID=O06
 TITLE="OpenVPN mit abgelaufenem Client-Zertifikat: Tunnel bleibt unten, nie direkt"
 CONFIG=ovpn-variants
 EXPECT_CANARY=none
-ALLOW=(dst:192.168.222.130:1194/udp)
+ALLOW=(dst:${CT130_IP}:1194/udp)
 PREP='
 cat >/tmp/exp.crt <<\EOF2
 -----BEGIN CERTIFICATE-----

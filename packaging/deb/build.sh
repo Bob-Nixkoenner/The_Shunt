@@ -2,6 +2,7 @@
 # Builds Debian packages from built binaries:
 #   the-shunt_<ver>_<arch>.deb          shuntd + shunt, systemd units, polkit policy
 #   the-shunt-desktop_<ver>_amd64.deb   tray app + window (needs GTK/WebKit), if BIN has shunt-desktop
+# REQUIRE_LYREBIRD=1 aborts when BIN has no lyrebird (releases set it); otherwise a warning.
 # Usage: VERSION=v0.7.1-rc1 ARCH=amd64 BIN=<dir with shuntd shunt [shunt-desktop]> OUT=dist bash packaging/deb/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -24,6 +25,12 @@ ln -s ../bin/shuntd "$P/usr/sbin/shuntd" # sudo's secure_path
 if [[ -f $BIN/lyrebird ]]; then
 	install -d "$P/usr/libexec/shunt"
 	install -m755 "$BIN/lyrebird" "$P/usr/libexec/shunt/"
+elif [[ -n ${REQUIRE_LYREBIRD:-} ]]; then
+	echo "ERROR: $BIN/lyrebird is missing and REQUIRE_LYREBIRD is set (build it: OUT=<absolute path of $BIN> bash packaging/pt/build.sh)" >&2
+	exit 1
+else
+	echo "WARNING: $BIN/lyrebird is missing: this .deb has no Tor bridge transports (obfs4, snowflake, meek)." >&2
+	echo "         Build it with: OUT=<absolute path of $BIN> bash packaging/pt/build.sh   (releases set REQUIRE_LYREBIRD=1)" >&2
 fi
 for u in shuntd.service shunt-lockdown.service; do
 	sed 's|/usr/local/bin/|/usr/bin/|g' "packaging/systemd/$u" >"$P/lib/systemd/system/$u"
@@ -31,6 +38,8 @@ for u in shuntd.service shunt-lockdown.service; do
 done
 install -m644 packaging/polkit/org.theshunt.policy "$P/usr/share/polkit-1/actions/"
 install -m644 packaging/shunt.toml.example "$P/usr/share/doc/the-shunt/shunt.toml.example"
+# reference copy: 'shuntd setup-tailscale' writes the same text (not active by default)
+install -m644 packaging/systemd/shuntd-tailscale.conf "$P/usr/share/doc/the-shunt/shuntd-tailscale.conf"
 install -m644 README.md LICENSE "$P/usr/share/doc/the-shunt/" 2>/dev/null || true
 cat >"$P/DEBIAN/control" <<EOF
 Package: the-shunt
@@ -63,7 +72,7 @@ if [ "$1" = configure ]; then
 	fi
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
-	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "stable" to
+	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "random" to
 	# [daemon] when they are not set there; prints what it added.
 	daemon_privacy() {
 		_f=$1
@@ -74,7 +83,7 @@ if [ "$1" = configure ]; then
 			END { printf "%d%d%d", s, h, m }' "$_f")
 		_h='' _m=''
 		case $_have in ?0?) _h='dhcp_hostname = "none"' ;; esac
-		case $_have in ??0) _m='mac = "stable"' ;; esac
+		case $_have in ??0) _m='mac = "random"' ;; esac
 		[ -n "$_h$_m" ] || return 0
 		_add=$(printf '%s\n%s\n' "$_h" "$_m" | sed '/^$/d')
 		case $_have in
@@ -112,9 +121,10 @@ if [ "$1" = configure ]; then
 	# Privacy on foreign networks, as install.sh offers it: on by default,
 	# written once (whoever deletes the file keeps it deleted on updates).
 	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
-	# older packages wrote "false", which NetworkManager 1.52+ ignores
-	if [ -f "$NM_PRIVACY" ] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=false$' "$NM_PRIVACY"; then
-		sed -i 's/^\(ipv[46]\.dhcp-send-hostname\)=false$/\1=0/' "$NM_PRIVACY"
+	# older packages wrote dhcp-send-hostname, which NetworkManager 1.46
+	# does not know as a default (shuntd sets it per profile)
+	if [ -f "$NM_PRIVACY" ] && grep -q '^# The Shunt: privacy' "$NM_PRIVACY" && grep -q '^ipv[46]\.dhcp-send-hostname=' "$NM_PRIVACY"; then
+		sed -i '/^ipv[46]\.dhcp-send-hostname=/d' "$NM_PRIVACY"
 		nmcli general reload conf >/dev/null 2>&1 || true
 	fi
 	if [ -d /etc/NetworkManager/conf.d ] && [ ! -f "$NM_PRIVACY" ] && [ ! -e /var/lib/shunt/nm-privacy-offered ]; then
@@ -126,17 +136,14 @@ if [ "$1" = configure ]; then
 wifi.scan-rand-mac-address=yes
 
 [connection]
-# a different MAC on every Wi-Fi, but the same one each time you return
-# (keeps router reservations and hotel logins working)
-wifi.cloned-mac-address=stable
-# 0, not false: NetworkManager 1.52+ ignores "false" here
-ipv4.dhcp-send-hostname=0
-ipv6.dhcp-send-hostname=0
+# a new MAC on every Wi-Fi connection (a network profile can say otherwise:
+# mac = "permanent" at home keeps router reservations and MAC filters working)
+wifi.cloned-mac-address=random
 ipv6.ip6-privacy=2
 NMEOF
 		nmcli general reload conf >/dev/null 2>&1 || true
-		if [ -n "$DE" ]; then echo "The Shunt: WLAN-Datenschutz ab der nächsten Verbindung (eigene MAC pro Netz, kein Host-Name im DHCP): $NM_PRIVACY"
-		else echo "The Shunt: Wi-Fi privacy on from the next connection (own MAC per network, no host name in DHCP): $NM_PRIVACY"; fi
+		if [ -n "$DE" ]; then echo "The Shunt: WLAN-Datenschutz ab der nächsten Verbindung (neue MAC bei jeder Verbindung, kein Host-Name im DHCP): $NM_PRIVACY"
+		else echo "The Shunt: Wi-Fi privacy on from the next connection (new MAC on every connection, no host name in DHCP): $NM_PRIVACY"; fi
 		# the cable MAC and the DHCPv6 DUID need shuntd (first install only:
 		# an update never changes the MAC at home unasked)
 		added=$(daemon_privacy /etc/shunt/shunt.toml)
@@ -175,6 +182,11 @@ EOF
 cat >"$P/DEBIAN/postrm" <<'EOF'
 #!/bin/sh
 set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+	# drop-in of 'shuntd setup-tailscale' (kept on upgrades)
+	rm -f /etc/systemd/system/shuntd.service.d/50-tailscale.conf
+	rmdir /etc/systemd/system/shuntd.service.d 2>/dev/null || true
+fi
 systemctl daemon-reload >/dev/null 2>&1 || true
 if [ "$1" = remove ] || [ "$1" = purge ]; then
 	NM_PRIVACY=/etc/NetworkManager/conf.d/90-shunt-privacy.conf
