@@ -50,7 +50,7 @@ CT130=${CT130:?set CT130 in local.env (ssh target of the tunnel test server)}
 CT130_IF=${CT130_IF:-wgt0}
 LAB_OUT=${LAB_OUT:-$HOME/projects/shunt-lab-results}
 # WireGuard config of the client's tunnel "intern" (test keys, not in git)
-TUNNEL_CONF=${TUNNEL_CONF:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern/wg-intern-linux-test.conf}
+TUNNEL_CONF=${TUNNEL_CONF:-${LAB_VPN_DIR:-$HERE/vpn}/wg-intern-linux-test.conf}
 SSHO=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes
 	-o LogLevel=ERROR -o ConnectTimeout=8 -o ServerAliveInterval=10)
 

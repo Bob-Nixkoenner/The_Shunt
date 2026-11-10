@@ -2,8 +2,8 @@ ID=O02
 TITLE="OpenVPN ueber TCP/443 im Netz, das nur 80/443 durchlaesst: Tunnel geht, nichts daneben"
 CONFIG=ovpn-tcp
 MODE=portsonly
-ALLOW=(dst:192.168.222.130:443/tcp)
-ENDPOINTS=(192.168.222.130:443/tcp) # not in LAB_ENDPOINTS (UDP only): counts as tunnel transport
+ALLOW=(dst:${CT130_IP}:443/tcp)
+ENDPOINTS=(${CT130_IP}:443/tcp) # not in LAB_ENDPOINTS (UDP only): counts as tunnel transport
 EXIT_IF=tun1
 EXIT_NET=10.68.0.
 NOTE="Wie E07, aber der Tunnel ist OpenVPN ueber TCP 443 (CT130, Instanz intern-tcp, tun1). Das Netz laesst nur 80/443 durch: Der Tunnel muss hochkommen und die Tunnel-App ueber ihn rausgehen; sichtbar sein darf nur TCP/443 zum Endpunkt. Aufruf: CT130_IF=tun1 TUNNEL_IP=10.68.0."

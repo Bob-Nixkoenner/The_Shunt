@@ -51,7 +51,9 @@ resolve_test() {
 
 # OpenVPN variant of the tunnel "intern" (configs/ovpn-*.toml): the client needs the
 # openvpn program and the .ovpn of the internal test server (test keys, not in git)
-OVPN_CONF=${OVPN_CONF:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern/ovpn-intern-linux-test.ovpn}
+OVPN_CONF=${OVPN_CONF:-${LAB_VPN_DIR:-$HERE/vpn}/ovpn-intern-linux-test.ovpn}
+# address of the test server, taken from CT130 (user@address) in local.env: tests must not carry it
+CT130_IP=${CT130_IP:-${CT130#*@}}
 ensure_ovpn() {
 	client "command -v openvpn >/dev/null" || { echo "client has no openvpn: install it (pacman -S openvpn / apt install openvpn), then retake the snapshot" >&2; return 1; }
 	local want f name
@@ -73,7 +75,7 @@ ensure_ovpn() {
 #   hopwg.conf  WireGuard inside OpenVPN: the VM's normal WireGuard config ($TUNNEL_CONF) with the
 #               endpoint 10.67.0.1:51830 (wgt0 as seen through the OpenVPN tunnel)
 # HOP_BADKEY=1 (set by a test file) writes hop.conf with a wrong server key (inner hop never comes up).
-HOP_DIR=${HOP_DIR:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern}
+HOP_DIR=${HOP_DIR:-${LAB_VPN_DIR:-$HERE/vpn}}
 HOP_CONF=${HOP_CONF:-$HOP_DIR/wg-hop-linux-test.conf}
 OVPN_HOP_CONF=${OVPN_HOP_CONF:-$HOP_DIR/ovpn-hop-linux-test.ovpn}
 ensure_hop() { # $1 = config name

@@ -11,7 +11,7 @@
 set -u
 cd "$(dirname "$0")"
 [[ ${1:-} == --list ]] && { sed -n '2,11p' "$0"; exit 0; }
-HOP_DIR=${HOP_DIR:-$HOME/Nextcloud/Shared/PC/Linux/the-shunt/vm-dateien/testserver-intern}
+HOP_DIR=${HOP_DIR:-${LAB_VPN_DIR:-$PWD/vpn}}
 [[ -z ${HOP_CONF:-} && -n ${HOP_VM:-} ]] && export HOP_CONF=$HOP_DIR/wg-hop-lab-$HOP_VM.conf
 if [[ -z ${HOPIP:-} && -r ${HOP_CONF:-/nonexistent} ]]; then
 	HOPIP=$(sed -n 's|^Address *= *\([0-9.]*\)/.*|\1|p' "$HOP_CONF" | head -n1)
