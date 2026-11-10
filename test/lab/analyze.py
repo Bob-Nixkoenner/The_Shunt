@@ -130,6 +130,16 @@ def who(dst, dport):
     return ", ".join(k for k, _ in Counter(named).most_common(3))
 
 
+def tcp_data_len(pkt):
+    """Bytes of TCP data, from the IP length fields. Not len(pkt[TCP].payload): a frame below the Ethernet minimum
+    of 60 bytes (a bare FIN/ACK/RST) carries zero padding that scapy shows as a Padding layer under TCP."""
+    if IP in pkt:
+        return pkt[IP].len - pkt[IP].ihl * 4 - pkt[TCP].dataofs * 4
+    if IPv6 in pkt:
+        return pkt[IPv6].plen - pkt[TCP].dataofs * 4
+    return len(bytes(pkt[TCP].payload))
+
+
 def allowed_comm(w):
     if "*" in allow_comms:  # no process trace (Windows client): allow whatever the test allows
         return True
@@ -363,7 +373,7 @@ if os.path.exists(p("gw.pcap")):
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
             continue
-        if tor_end and TCP in pkt and w in ("?", "kernel") and not pkt[TCP].payload and (int(pkt[TCP].flags) & 0x05) \
+        if tor_end and TCP in pkt and w in ("?", "kernel") and tcp_data_len(pkt) <= 0 and (int(pkt[TCP].flags) & 0x05) \
                 and tor_end <= float(pkt.time) <= tor_end + TOR_REST:
             tor_rest[(dst, dport)] += 1
             continue
