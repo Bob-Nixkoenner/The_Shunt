@@ -1,5 +1,8 @@
 # Windows lab: like win-filter-lab, but shuntlab.test is on the allow list (FL03).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]

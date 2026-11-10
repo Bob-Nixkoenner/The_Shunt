@@ -1,6 +1,9 @@
 # Windows lab: Tor as the route of single apps (labtun, labdir). Everything else stays on the
 # WireGuard tunnel, so the gateway sees only WireGuard plus tor.exe (H04, H05, H08).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]

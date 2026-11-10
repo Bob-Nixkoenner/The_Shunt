@@ -1,6 +1,9 @@
 # Windows M04: a tunnel that never comes up (wrong endpoint) and one with a wrong key.
 # dead.conf / badkey.conf are written by the PREP of tests-win/M04 from tunnels\intern.conf.
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]
