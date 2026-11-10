@@ -86,7 +86,7 @@ def allowed_host(dst, dport, proto):
 
 allow_dns = "dns" in allow
 # LABMARK tor_end: tor was ended on purpose; what follows within TOR_REST seconds (FIN/RST/ACK without payload to a
-# relay's OR port 9001, no process) is the teardown of its relay connections, not user traffic
+# relay's OR port, e.g. 9001/9003, FIN or RST only, no process) is the teardown of its relay connections, not user traffic
 tor_end = meta.get("tor_end")
 TOR_REST = 15
 # GitHub (raw.githubusercontent.com): download of the DNS filter lists. It follows the default route (issue #8):
@@ -363,7 +363,7 @@ if os.path.exists(p("gw.pcap")):
         if w == "shuntd" and proto == "tcp" and dport == 80:
             captive_checks[label(dst)] += 1  # Shunt's own portal check, direct by design
             continue
-        if tor_end and TCP in pkt and dport == 9001 and w in ("?", "kernel") and not pkt[TCP].payload \
+        if tor_end and TCP in pkt and w in ("?", "kernel") and not pkt[TCP].payload and (int(pkt[TCP].flags) & 0x05) \
                 and tor_end <= float(pkt.time) <= tor_end + TOR_REST:
             tor_rest[(dst, dport)] += 1
             continue
