@@ -7,5 +7,5 @@ NOTE="shuntlab.test steht auf der Liste und auf allow. Die Anfrage an 10.111.0.5
 CLIENT='
 function Nx($n,$t) { $r = Resolve-DnsName $n -Type $t -Server 10.111.0.53 -DnsOnly -QuickTimeout -ErrorAction SilentlyContinue -ErrorVariable e; if ($r) { "Antwort" } elseif ($e -and $e[0].Exception.NativeErrorCode -eq 9003) { "NXDOMAIN" } else { "anders: " + $e[0].Exception.Message } }
 $a = Nx $c A; "A $a"
-if ($a -eq "NXDOMAIN") { "FAIL Ausnahme greift nicht: NXDOMAIN" }
+if ($a -like "anders*") { "FAIL Ausnahme greift nicht: $a" }
 '
