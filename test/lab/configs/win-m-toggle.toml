@@ -1,5 +1,8 @@
 # Windows M05: labtog (copy of curl.exe, PREP) is switched between tunnel and direct live.
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]

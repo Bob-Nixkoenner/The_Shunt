@@ -2,6 +2,9 @@
 # "intern" (wgt0). tunnels\hop.conf comes from winclient.sh (WIN_HOP_CONF = wg-hop-lab-win.conf).
 # Capture the inner hop on CT130: CT130_IF=wgt1 TUNNEL_IP=<Address of the hop file> (see README).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]

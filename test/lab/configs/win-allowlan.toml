@@ -1,5 +1,8 @@
 # Like base, with allow_lan on the tunnel (LAN stays reachable for tunnelled apps).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]

@@ -1,5 +1,8 @@
 # Windows lab: like win-tor-app, Tor with the built-in obfs4 bridges (lyrebird.exe, H06).
 [daemon]
+# Lab: ohne Tarnung (mac/dhcp_hostname leer = unveraendert), sonst aendert sich die MAC beim Dienststart
+mac = ""
+dhcp_hostname = ""
 default_route = "tunnel:intern"
 
 [tunnel.intern]
