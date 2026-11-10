@@ -72,13 +72,44 @@ func forgetLease(uuid string) (removed int) {
 	return removed
 }
 
+// relabelDir: the only directory relabel touches (a test points defaultsFile
+// elsewhere and must not relabel a real path).
+var relabelDir = "/run/NetworkManager"
+
+// relabel gives /run/NetworkManager the SELinux label NetworkManager expects
+// and reports whether it changed anything. shuntd may create the directory
+// before NetworkManager does (both start together): it then carries the
+// generic var_run_t, NetworkManager is denied reading conf.d/ files there, and
+// "nmcli general reload conf" still answers success while the defaults are
+// never read (lab F05 on Fedora: the first DHCP round of a new profile went
+// out with the hardware MAC). Without restorecon (no SELinux) nothing happens.
+func relabel(ctx context.Context) bool {
+	dir := filepath.Dir(filepath.Dir(defaultsFile))
+	if dir != relabelDir {
+		return false
+	}
+	bin, err := lookPath("restorecon")
+	if err != nil {
+		return false
+	}
+	out, err := exec.CommandContext(ctx, bin, "-Rv", dir).Output()
+	return err == nil && len(strings.TrimSpace(string(out))) > 0
+}
+
 // writeDefaults puts Defaults in place (or removes them) and has
 // NetworkManager read its configuration again if that changed anything.
 func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 	want := Defaults(c)
 	have, _ := os.ReadFile(defaultsFile)
 	if string(have) == want {
-		return // read already (or retryReload still at it)
+		// read already (or retryReload still at it); unless the file kept a
+		// label NetworkManager may not read (SELinux), then it needs a reload
+		if want == "" || !relabel(ctx) {
+			return
+		}
+		_, err := nmcli(ctx, "general", "reload", "conf")
+		defaultsLive.Store(err == nil)
+		return
 	}
 	defaultsLive.Store(false)
 	var err error
@@ -91,6 +122,9 @@ func writeDefaults(ctx context.Context, c *config.Config, log *slog.Logger) {
 		log.Warn("network privacy: cannot write NetworkManager defaults, trying again", "err", err)
 		retryWrite(ctx, c, log)
 		return
+	}
+	if want != "" {
+		relabel(ctx)
 	}
 	_, err = nmcli(ctx, "general", "reload", "conf")
 	defaultsLive.Store(err == nil && want != "")
@@ -125,6 +159,9 @@ func retryWrite(ctx context.Context, c *config.Config, log *slog.Logger) {
 			err := tryWrite(want)
 			if err == nil {
 				// reload NetworkManager so connections already up get the defaults
+				if want != "" {
+					relabel(ctx)
+				}
 				_, err = nmcli(ctx, "general", "reload", "conf")
 				defaultsLive.Store(err == nil && want != "")
 				if err != nil {
