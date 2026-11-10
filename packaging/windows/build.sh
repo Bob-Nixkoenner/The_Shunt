@@ -32,7 +32,10 @@ if [ -z "${NO_TOR:-}" ]; then
   # (sha256 + GPG signature of the Tor Browser Developers key) and tor-watch.yml checks weekly
   TOR_VER=$(sed -n 's/.*"tor-bundle-windows": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
   TOR_SHA=$(sed -n 's/.*"tor-bundle-windows-sha256": *"\([^"]*\)".*/\1/p' packaging/tor-versions.json)
-  curl -fsSL -o "$tmp/tor.tgz" "https://dist.torproject.org/torbrowser/$TOR_VER/tor-expert-bundle-windows-x86_64-$TOR_VER.tar.gz"
+  # dist.torproject.org keeps only the newest release; older pins are in the archive
+  TOR_F=tor-expert-bundle-windows-x86_64-$TOR_VER.tar.gz
+  curl -fsSL -o "$tmp/tor.tgz" "https://dist.torproject.org/torbrowser/$TOR_VER/$TOR_F" \
+    || curl -fsSL -o "$tmp/tor.tgz" "https://archive.torproject.org/tor-package-archive/torbrowser/$TOR_VER/$TOR_F"
   echo "$TOR_SHA  $tmp/tor.tgz" | sha256sum -c -
   if command -v gpg >/dev/null && [ "${VERIFY_SIG:-1}" = 1 ]; then bash .github/scripts/tor-bundle.sh verify; fi
   mkdir -p "$tmp/torx" "$OUT/tor/pt" "$OUT/tor/licenses"
