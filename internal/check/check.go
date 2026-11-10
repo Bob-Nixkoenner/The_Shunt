@@ -160,9 +160,24 @@ func Config(c *config.Config, env Env) []Finding {
 	}
 	if env.Windows {
 		if c.Daemon.MAC == "" || c.Daemon.MAC == config.MACPermanent {
-			add(Info, "stealth.unset", "In foreign networks your real Wi-Fi MAC address is visible (daemon.mac is empty or permanent; Windows' random hardware addresses are not switched on).", "daemon.mac")
+			add(Info, "stealth.unset", "In foreign networks your real MAC address is visible (daemon.mac is empty or permanent; no random addresses are set).", "daemon.mac")
+		} else if c.Daemon.DHCPHostname == "" {
+			add(Info, "stealth.unset", "In foreign networks your computer name is visible (daemon.dhcp_hostname is switched off with an empty value).", "daemon.dhcp_hostname")
 		}
-		add(Info, "stealth.winname", "Windows always sends the computer name to the network (DHCP, DHCPv6) and cannot be told not to; rename the computer to something neutral. Cable adapters keep their real MAC address.", "")
+		if c.Daemon.DHCPHostname == config.HostnameNone || c.Daemon.MAC == config.MACRandom || c.Daemon.MAC == config.MACStable {
+			add(Info, "stealth.winname", "Windows reads its DHCP computer name, its DHCPv6 ID and a changed cable MAC only when the computer or the adapter starts: The Shunt writes neutral values at shutdown and puts the real ones back once it runs, so the very first start after installing, a power cut and a trusted network until the next restart still show the real or the neutral name. The DHCP FQDN options are dropped at once. Cable adapters on the PCI/USB bus get a new MAC address at every start of the computer (random) or one fixed address (stable); Wi-Fi uses Windows' own random addresses (the driver must support them).", "")
+		}
+		if c.Daemon.MAC == config.MACRandom {
+			trusted := false
+			for _, n := range c.Networks {
+				if n.Trusted() {
+					trusted = true
+				}
+			}
+			if !trusted {
+				add(Info, "stealth.home", "The disguise also applies at home: this computer gets a new MAC address at every start, and a router with an address reservation or MAC filter will not recognise it. Add your home network as a profile with the real MAC address (mac = \"permanent\").", "network")
+			}
+		}
 	}
 	if (env.linux() || env.Windows) && c.Daemon.Quiet != nil && !*c.Daemon.Quiet {
 		add(Info, "quiet.off", "The quiet mode is off: on networks you have not trusted, this computer still announces itself (multicast, broadcast, KDE Connect, Syncthing, mDNS and the like).", "daemon.quiet")
