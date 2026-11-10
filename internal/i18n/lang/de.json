@@ -576,6 +576,8 @@
   "Privacy": "Datenschutz",
   "Privacy and protection": "Datenschutz und Schutz",
   "Privacy policy": "Datenschutzerklärung",
+  "Private DNS is not off": "Privates DNS ist nicht aus",
+  "Android's Private DNS is on \"Automatic\" or set to a provider. When the VPN switches on, Android first tries encrypted DNS (port 853) on the real network, and a provider gets the DNS of all apps past the tunnels. We recommend setting Private DNS to \"Off\".": "Das Private DNS von Android steht auf „Automatisch“ oder auf einen Anbieter. Beim Einschalten des VPN probiert Android zuerst verschlüsseltes DNS (Port 853) im echten Netz, und ein Anbieter bekommt das DNS aller Apps am Tunnel vorbei. Wir empfehlen, Privates DNS auf „Aus“ zu stellen.",
   "Private DNS is on": "Privater DNS ist an",
   "Probing every route (api.ipify.org + Google DNS)...": "Jeder Weg wird geprüft (api.ipify.org + Google DNS)...",
   "Probing every route, this takes a few seconds…": "Prüfe jede Route, das dauert ein paar Sekunden…",

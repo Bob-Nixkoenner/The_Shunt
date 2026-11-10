@@ -39,6 +39,20 @@ object VpnState {
     val lockdown = MutableStateFlow(false)
     /** Android's "Private DNS" (DoT) is active: it bypasses the VPN's DNS. */
     val privateDns = MutableStateFlow(false)
+    /**
+     * The Private DNS setting itself: "off", "opportunistic" ("Automatic", Android's default) or "hostname" (a
+     * provider); "" = not readable. Different from [privateDns]: with "Automatic" Android probes encrypted DNS
+     * (port 853) on the real network when the VPN switches on or the network changes, even if the DNS server
+     * knows no DoT and the setting is never "active" (lab AN08).
+     */
+    val privateDnsMode = MutableStateFlow("")
+
+    fun refreshPrivateDnsMode(ctx: Context) {
+        // unset = Android's default, which is "Automatic"
+        privateDnsMode.value = try {
+            android.provider.Settings.Global.getString(ctx.contentResolver, "private_dns_mode") ?: "opportunistic"
+        } catch (e: Exception) { "" }
+    }
     /** The running service, to ask it again: the user turns always-on on while it runs. */
     @Volatile var service: VpnService? = null
 
