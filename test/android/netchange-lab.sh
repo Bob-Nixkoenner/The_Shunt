@@ -27,7 +27,8 @@ vpn_up() { sh "printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc -w 3 10.9.0.1 80" 2>/dev
 
 leak_rules() { # (re)install NFLOG rules, needs root
 	local U cmd
-	U=$(sh pm list packages -U $PKG | sed 's/.*uid://' | tr -d '\r')
+	# multi-user output is uid:10225,1010225: the first one is the app's
+	U=$(sh pm list packages -U $PKG | sed 's/.*uid://; s/,.*//' | tr -d '\r')
 	for cmd in iptables ip6tables; do
 		sh "$cmd -S OUTPUT | grep -q NFLOG && { $cmd -S OUTPUT | grep NFLOG | sed 's/^-A/-D/' | while read l; do $cmd \$l; done; }" 2>/dev/null
 		for IF in wlan0 eth0; do
@@ -145,6 +146,9 @@ setup() {
 
 mode() { # mode S|O : always-on + block without VPN (S) or neither (O)
 	if [[ $1 == S ]]; then
+		# NOTE: Android does not treat this as real Always-on (the app shows "no kill switch", the system does not restart the VPN
+		# after install -r / a crash). Valid Always-on + lockdown runs need the Android VPN settings (gear of the app, then
+		# "Block connections without VPN"); the first start also needs the consent page ("Accept") tapped.
 		sh settings put secure always_on_vpn_app $PKG
 		sh settings put secure always_on_vpn_lockdown 1
 	else
