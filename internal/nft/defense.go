@@ -54,6 +54,11 @@ func RenderDefense(o DefenseOpts) string {
 	w("\t\tiifname \"lo\" return")
 	w("\t\tip saddr @never4 return")
 	w("\t\tip6 saddr @never6 return")
+	// Replies to connections this machine opened always pass: a scan with a
+	// forged source address must not cut the tunnel or any other own
+	// connection to that address (ban spoofing). Bans stop what a source
+	// starts on its own.
+	w("\t\tct direction reply return")
 	w("\t\tip saddr @ban4 counter drop")
 	w("\t\tip6 saddr @ban6 counter drop")
 	if o.Log {

@@ -89,3 +89,12 @@ func TestRenderDefenseConnLogGolden(t *testing.T) {
 		t.Error("output chain without ConnLog")
 	}
 }
+
+// Ban spoofing: replies to own connections must pass before the ban drop.
+func TestDefenseRepliesPassBans(t *testing.T) {
+	s := RenderDefense(DefenseOpts{Log: true})
+	r, b := strings.Index(s, "ct direction reply return"), strings.Index(s, "@ban4 counter drop")
+	if r < 0 || b < 0 || r > b {
+		t.Fatalf("reply rule missing or after the ban drop:\n%s", s)
+	}
+}

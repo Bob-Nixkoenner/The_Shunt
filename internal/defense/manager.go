@@ -38,7 +38,8 @@ type Manager struct {
 	agg        map[aggKey]*aggEntry
 	aggDropped int
 
-	onEvent func(Event, Class) // evidence log hook (WithEventHook)
+	onEvent func(Event, Class)    // evidence log hook (WithEventHook)
+	ownAddr func(netip.Addr) bool // this machine's addresses (WithOwnAddr)
 
 	stop     context.CancelFunc
 	done     chan struct{}
@@ -54,6 +55,32 @@ func WithListen(f ListenFunc) Option { return func(m *Manager) { m.dec.Listen = 
 // WithBanHooks sets the callbacks for blocks and unblocks (firewall).
 func WithBanHooks(onBan, onUnban func(Ban)) Option {
 	return func(m *Manager) { m.bans.OnBan, m.bans.OnUnban = onBan, onUnban }
+}
+
+// WithOwnAddr tells the manager which addresses belong to this machine; they
+// are never blocked (a forged source address must not lock out the host
+// itself).
+func WithOwnAddr(f func(netip.Addr) bool) Option { return func(m *Manager) { m.ownAddr = f } }
+
+// Bannable reports whether a can be blocked at all: a unicast address that
+// is not this machine's own and not on the never-list. Multicast,
+// unspecified and the IPv4 broadcast address only ever appear as forged
+// sources. (Loopback stays allowed: the kernel drops it on real interfaces
+// as a martian and the nft chain skips lo, so a ban there is harmless; the
+// decoy tests rely on it.)
+func (m *Manager) Bannable(a netip.Addr) bool {
+	a = a.Unmap()
+	if !a.IsValid() || a.IsUnspecified() || a.IsMulticast() ||
+		a.IsInterfaceLocalMulticast() || a == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return false
+	}
+	if a.Is4() && a.As4()[0] == 0 { // 0.0.0.0/8: "this network", never a real source
+		return false
+	}
+	if m.never.Contains(a) {
+		return false
+	}
+	return m.ownAddr == nil || !m.ownAddr(a)
 }
 
 // WithSSHHostKey keeps the ssh decoy's host key in this file (created with
@@ -302,7 +329,7 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	secs := m.cfg.BanSeconds
 	m.mu.Unlock()
 	src = src.Unmap()
-	if !f.Watch || !f.Block || !src.IsValid() || m.never.Contains(src) {
+	if !f.Watch || !f.Block || !m.Bannable(src) {
 		return
 	}
 	m.addBan(src, reason, time.Duration(secs)*time.Second)
@@ -327,6 +354,10 @@ func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration) {
 // ErrNeverBan is returned when a manual block hits the never-list.
 var ErrNeverBan = errors.New("address is on the never-block list (gateway, DNS, portal or your own list)")
 
+// ErrNotBannable is returned for a manual block of an address that cannot be
+// a remote source (own, multicast, broadcast, unspecified).
+var ErrNotBannable = errors.New("address cannot be blocked (own address, multicast or broadcast)")
+
 // Ban blocks src by hand for the configured time.
 func (m *Manager) Ban(src string) error {
 	a, err := netip.ParseAddr(strings.TrimSpace(src))
@@ -342,6 +373,9 @@ func (m *Manager) Ban(src string) error {
 	}
 	if m.never.Contains(a) {
 		return ErrNeverBan
+	}
+	if !m.Bannable(a) {
+		return ErrNotBannable
 	}
 	m.addBan(a, KindManual, time.Duration(secs)*time.Second)
 	return nil

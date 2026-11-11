@@ -57,7 +57,7 @@ func (d *Daemon) defIface() string {
 
 // startDefense creates the manager; the config is applied by reload.
 func (d *Daemon) startDefense(ctx context.Context) {
-	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
+	opts := append(d.defenseOptions(), defense.WithOwnAddr(ownAddr), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
 		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")),
 		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")),
 		defense.WithEventHook(d.evidenceEvent))
@@ -296,7 +296,7 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 		}
 		if err := d.def.m.Ban(req.Src); err != nil {
 			code := http.StatusBadRequest
-			if errors.Is(err, defense.ErrNeverBan) {
+			if errors.Is(err, defense.ErrNeverBan) || errors.Is(err, defense.ErrNotBannable) {
 				code = http.StatusConflict
 			}
 			writeErr(w, code, err)
