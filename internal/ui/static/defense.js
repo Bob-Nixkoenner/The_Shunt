@@ -59,19 +59,19 @@ function defThermo(st, small) {
   const heat = Math.max(0, Math.min(100, st.heat | 0));
   return el("div", { class: "thermo heat-" + lv + (small ? " small" : ""), title: T("Heat 0–100: quiet below 25, noticed from 25, hot from 50, attack from 80") },
     el("div", { class: "head" }, el("span", { class: "num" }, heat), el("span", { class: "lvl" }, defLevelText()[lv]),
-      el("span", { class: "pill" }, defClassText()[st.class] || defClassText().public)),
+      small ? el("span", { class: "pill" }, defClassText()[st.class] || defClassText().public) : ""),
     el("div", { class: "track" }, el("div", { class: "fill", style: "width:" + Math.max(2, heat) + "%" }),
       ...[25, 50, 80].map((p) => el("div", { class: "tick", style: "left:" + p + "%" }))),
     small ? "" : el("div", { class: "scale" }, el("span", {}, "0"), el("span", {}, "25"), el("span", {}, "50"), el("span", {}, "80"), el("span", {}, "100")));
 }
 
-function defEventRow(e, withSrc) {
+function defEventRow(e, compact) {
   const kind = defKindText()[e.kind] || e.kind;
   const where = [e.src, e.port ? (e.proto || "") + (e.port ? ":" + e.port : "") : ""].filter(Boolean).join(" ");
   return el("div", { class: "ev s" + (e.severity | 0) },
     el("span", { class: "t" }, defTime(e.time)), el("span", { class: "dot" }),
-    el("span", { class: "x" }, el("b", {}, kind), where && withSrc !== false ? el("span", { class: "mono" }, " " + where) : "",
-      e.detail ? el("div", { class: "muted" }, e.detail) : ""));
+    el("span", { class: "x" }, el("b", {}, kind), where ? el("span", { class: "mono" }, " " + where) : "",
+      e.detail && !compact ? el("div", { class: "muted" }, e.detail) : ""));
 }
 
 function renderDefense() {
@@ -136,9 +136,9 @@ function renderDefTile() {
   const last = defEvents.slice(-5).reverse();
   const bans = (defSt.bans || []).length;
   sum.textContent = bans ? Tn(bans, "{n} address blocked", "{n} addresses blocked") : "";
-  $("#def-tile").replaceChildren(el("div", { class: "cards" },
+  $("#def-tile").replaceChildren(el("div", { class: "deftile" },
     el("div", {}, defThermo(defSt, true)),
-    el("div", { class: "evlist", style: "max-height:none" }, ...(last.length ? last.map((e) => defEventRow(e, false)) : [el("div", { class: "muted" }, "Nothing seen yet.")]))));
+    el("div", { class: "evlist", style: "max-height:none" }, ...(last.length ? last.map((e) => defEventRow(e, true)) : [el("div", { class: "muted" }, "Nothing seen yet.")]))));
 }
 
 // live window: hits on decoys, tarpit and the fake login, as they happen

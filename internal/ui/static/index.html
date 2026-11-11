@@ -254,7 +254,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 .deftable .d { color: var(--muted); font-size: 12px; }
 .evlist { display: grid; gap: 4px; max-height: 340px; overflow-y: auto; }
 .ev { display: grid; grid-template-columns: 62px 10px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 13px; padding: 3px 6px; border-radius: 6px; background: var(--panel2); }
-.ev .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); align-self: center; }
+.ev .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); align-self: start; margin-top: 5px; }
 .ev.s1 .dot { background: var(--info); } .ev.s2 .dot { background: var(--warn); } .ev.s3 .dot { background: var(--bad); }
 .ev .t { color: var(--muted); font-variant-numeric: tabular-nums; }
 .ev .x { overflow-wrap: anywhere; } .ev .x .muted { font-size: 12px; }
@@ -262,6 +262,8 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 #def-live[hidden] { display: none; }
 #def-live .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 700; font-size: 13px; }
 #def-live .evlist { max-height: 180px; }
+.deftile { display: grid; gap: 16px; grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr); align-items: start; }
+@media (max-width: 640px) { .deftile { grid-template-columns: minmax(0, 1fr); } }
 .defnote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 </style>
 </head>
