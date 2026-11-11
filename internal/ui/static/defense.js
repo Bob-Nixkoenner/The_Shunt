@@ -32,12 +32,12 @@ const defFeatText = () => ({
   scan: [T("Port scans"), T("Many ports from one source.")],
   brute: [T("Brute force"), T("Many failed connections in a row.")],
   reputation: [T("Bad address lists"), T("Peers and destinations on lists of known attackers.")],
-  first_seen: [T("New destinations"), T("An app contacts an address for the first time.")],
+  first_seen: [T("New destinations"), T("An app contacts a destination for the first time (shown only, never blocks; each app learns for 10 minutes first).")],
   arp: [T("ARP/NDP spoofing"), T("The gateway's hardware address changes.")],
   dhcp: [T("Rogue DHCP"), T("A second DHCP server answers.")],
   dns: [T("DNS tampering"), T("DNS answers differ or port 53 is diverted.")],
-  tls: [T("Certificate changes"), T("The certificate of a known target changes.")],
-  beacon: [T("Beacons"), T("Traffic at regular intervals.")],
+  tls: [T("Certificate changes"), T("Checks the certificate issuer of a few public sites now and then (shown only).")],
+  beacon: [T("Beacons"), T("An app connects to one destination at clockwork intervals (Linux only).")],
   dns_tunnel: [T("DNS tunnels"), T("Long, random names and many TXT queries.")],
   evil_twin: [T("Evil twin"), T("Same Wi-Fi name, different access point.")],
 });
@@ -80,6 +80,30 @@ function defThermo(st, small) {
     small ? "" : el("div", { class: "scale" }, el("span", {}, "0"), el("span", {}, "25"), el("span", {}, "50"), el("span", {}, "80"), el("span", {}, "100")));
 }
 
+// defDetail turns the machine detail of the connection-based findings into a
+// sentence (the service writes "key=value" pairs in English); anything else is shown as it is.
+function defDetail(e) {
+  const d = e.detail || "";
+  const kv = {};
+  d.split(" ").forEach((x) => { const i = x.indexOf("="); if (i > 0) kv[x.slice(0, i)] = x.slice(i + 1); });
+  if (e.kind === "first_seen" && kv.app && kv.target) {
+    return T("{app} contacted {target} for the first time", { app: kv.app, target: kv.target }) +
+      (kv.more ? " " + T("(+{n} more not listed)", { n: kv.more }) : "");
+  }
+  if (e.kind === "beacon" && kv.app && kv.interval) {
+    return T("{app} connects here about every {interval} (regularity {score})", { app: kv.app, interval: kv.interval, score: kv.score || "?" });
+  }
+  if (e.kind === "dns_tunnel" && kv.domain) {
+    return T("Unusual lookups under {domain}: long random names (score {score}, {n} queries in {w} s)", { domain: kv.domain, score: kv.score || "?", n: kv.queries || "?", w: parseInt(kv.window) || 60 });
+  }
+  if (e.kind === "tls" && kv.target) {
+    if (d.includes("issuer chain differs")) return T("The certificate issuer of {target} differs from the one remembered earlier", { target: kv.target });
+    if (d.includes("two ways")) return T("Two network paths to {target} show different certificate issuers", { target: kv.target });
+    if (d.includes("not trusted")) return T("The certificate chain of {target} is not trusted by this system", { target: kv.target });
+  }
+  return d;
+}
+
 function defEventRow(e, compact) {
   const kind = defKindText()[e.kind] || e.kind;
   const where = [e.src, e.port ? (e.proto || "") + (e.port ? ":" + e.port : "") : ""].filter(Boolean).join(" ");
@@ -88,7 +112,7 @@ function defEventRow(e, compact) {
     el("span", { class: "x" }, el("b", {}, kind),
       e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
         : where ? el("span", { class: "mono" }, " " + where) : "",
-      e.detail && !compact ? el("div", { class: "muted" }, e.detail) : ""));
+      e.detail && !compact ? el("div", { class: "muted" }, defDetail(e)) : ""));
 }
 
 function renderDefense() {
@@ -207,12 +231,15 @@ function renderDefTile() {
     $("#def-tile").replaceChildren(el("div", { class: "muted" }, T("Defense is off: nothing is watched, no decoys run.")));
     return;
   }
-  const last = defEvents.slice(-5).reverse();
+  // "new destination" notes are plentiful and harmless: counted, not listed here
+  const last = defEvents.filter((e) => e.kind !== "first_seen").slice(-5).reverse();
+  const fsN = (defSt.counts || {}).first_seen | 0;
   const bans = (defSt.bans || []).length;
   sum.textContent = bans ? Tn(bans, "{n} address blocked", "{n} addresses blocked") : "";
   $("#def-tile").replaceChildren(el("div", { class: "deftile" },
     el("div", {}, defThermo(defSt, true)),
-    el("div", { class: "evlist", style: "max-height:none" }, ...(last.length ? last.map((e) => defEventRow(e, true)) : [el("div", { class: "muted" }, "Nothing seen yet.")]))));
+    el("div", { class: "evlist", style: "max-height:none" }, ...(last.length ? last.map((e) => defEventRow(e, true)) : [el("div", { class: "muted" }, "Nothing seen yet.")]),
+      fsN ? el("div", { class: "muted" }, Tn(fsN, "{n} new destination noted in this network", "{n} new destinations noted in this network")) : "")));
 }
 
 // live window: hits on decoys, tarpit and the fake login, as they happen

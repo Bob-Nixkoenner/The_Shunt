@@ -59,7 +59,15 @@ var mockSrc = []string{"192.0.2.17", "192.0.2.44", "198.51.100.23", "198.51.100.
 
 func (m *mockDefense) pick() defense.Event {
 	src := mockSrc[m.rand(len(mockSrc))]
-	switch m.rand(8) {
+	switch m.rand(12) {
+	case 8:
+		return defense.Event{Kind: defense.KindFirstSeen, Severity: defense.SevInfo, Src: "198.51.100.77", Port: 443, Proto: "tcp", Detail: "app=firefox target=example.org"}
+	case 9:
+		return defense.Event{Kind: defense.KindBeacon, Severity: defense.SevLow, Src: "203.0.113.40", Port: 8443, Proto: "tcp", Detail: "app=sync-client interval=1m0s score=0.93"}
+	case 10:
+		return defense.Event{Kind: defense.KindDNSTunnel, Severity: defense.SevMedium, Detail: "domain=tunnel.example score=0.81 queries=24 window=60s"}
+	case 11:
+		return defense.Event{Kind: defense.KindTLS, Severity: defense.SevHigh, Port: 443, Proto: "tcp", Detail: "target=api.github.com issuer chain differs from the remembered one"}
 	case 0:
 		return defense.Event{Kind: defense.KindTarpit, Severity: defense.SevMedium, Src: src, Port: 22, Proto: "tcp", Detail: "held in the tarpit"}
 	case 1:
