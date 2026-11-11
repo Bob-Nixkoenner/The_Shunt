@@ -1456,6 +1456,12 @@
   "Same Wi-Fi name, different access point.": "Gleicher WLAN-Name, anderer Zugangspunkt.",
   "Needs a newer service.": "Braucht einen neueren Dienst.",
   "Defense: watch for attacks, decoy ports in foreign networks": "Abwehr: Angriffe beobachten, Köder-Ports in fremden Netzen",
-  "Watches for scans, spoofed gateways and tampered DNS, lets decoy ports and a fake login catch snoopers, and shows a heat gauge on the Defense tab. Blocking stays off until you switch it on there. Events stay on this computer.": "Beobachtet Scans, gefälschte Gateways und manipuliertes DNS, lässt Köder-Ports und eine Schein-Anmeldung Schnüffler fangen und zeigt ein Hitze-Thermometer im Reiter Abwehr. Blocken bleibt aus, bis du es dort einschaltest. Ereignisse bleiben auf diesem Computer."
+  "Watches for scans, spoofed gateways and tampered DNS, lets decoy ports and a fake login catch snoopers, and shows a heat gauge on the Defense tab. Blocking stays off until you switch it on there. Events stay on this computer.": "Beobachtet Scans, gefälschte Gateways und manipuliertes DNS, lässt Köder-Ports und eine Schein-Anmeldung Schnüffler fangen und zeigt ein Hitze-Thermometer im Reiter Abwehr. Blocken bleibt aus, bis du es dort einschaltest. Ereignisse bleiben auf diesem Computer.",
+  "Defense: network under attack": "Abwehr: Netz wird angegriffen",
+  "Heat {heat}. Open the Defense tab to see who is knocking and what was blocked.": "Hitze {heat}. Im Reiter Abwehr siehst du, wer anklopft und was gesperrt wurde.",
+  "Defense: network is hot": "Abwehr: Netz ist heiß",
+  "Heat {heat}. Several hostile events in this network.": "Hitze {heat}. Mehrere feindliche Ereignisse in diesem Netz.",
+  "Defense: something unusual in this network": "Abwehr: etwas Auffälliges in diesem Netz",
+  "Heat {heat}. Details in the Defense tab.": "Hitze {heat}. Einzelheiten im Reiter Abwehr."
  }
 }

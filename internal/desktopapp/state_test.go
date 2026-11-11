@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -169,5 +170,53 @@ func TestPending(t *testing.T) {
 	n := Diff(View{Down: map[string]bool{}, DNSDown: map[string]bool{}}, v, false)
 	if len(n) != 1 || n[0].Summary != "An app wants to go online" {
 		t.Errorf("%+v", n)
+	}
+}
+
+func defView(heat int) View {
+	now := time.Now()
+	st := status(false, time.Second, now)
+	if heat >= 0 {
+		st.Defense = &api.DefenseBrief{Heat: heat, Level: defense.LevelFor(heat), Class: defense.ClassPublic}
+	}
+	return Compute(st, nil, now)
+}
+
+func TestDefenseNotifications(t *testing.T) {
+	if v := defView(63); v.DefHeat != 63 || v.DefLevel != defense.LevelHot {
+		t.Fatalf("view carries heat and level: %+v", v)
+	}
+	if v := defView(-1); v.DefLevel != "" {
+		t.Fatalf("defense off: %+v", v)
+	}
+	cases := []struct {
+		name       string
+		prev, cur  int
+		want       int
+		wantUrgent bool
+	}{
+		{"quiet stays", 5, 10, 0, false},
+		{"quiet to noticed", 10, 30, 1, false},
+		{"noticed to hot", 30, 55, 1, false},
+		{"hot to attack is urgent", 55, 90, 1, true},
+		{"quiet to attack at once", 5, 95, 1, true},
+		{"same level, heat rises", 52, 70, 0, false},
+		{"falling is not reported", 90, 40, 0, false},
+		{"falling to quiet", 40, 5, 0, false},
+		{"off to noticed", -1, 30, 1, false},
+		{"off to quiet", -1, 5, 0, false},
+	}
+	for _, c := range cases {
+		got := Diff(defView(c.prev), defView(c.cur), false)
+		if len(got) != c.want {
+			t.Errorf("%s: %d notifications %+v", c.name, len(got), got)
+			continue
+		}
+		if c.want == 1 && got[0].Urgent != c.wantUrgent {
+			t.Errorf("%s: urgent = %v", c.name, got[0].Urgent)
+		}
+	}
+	if got := Diff(View{}, defView(90), true); len(got) != 0 {
+		t.Errorf("first view is not announced: %+v", got)
 	}
 }
