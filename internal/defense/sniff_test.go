@@ -280,3 +280,95 @@ func TestProbeAllowed(t *testing.T) {
 		}
 	}
 }
+
+func dhcpWithOpts(opts ...[]byte) []byte {
+	p := make([]byte, 240)
+	p[0] = 2
+	copy(p[236:], []byte{0x63, 0x82, 0x53, 0x63})
+	p = append(p, 53, 1, 2, 54, 4, 192, 0, 2, 1)
+	for _, o := range opts {
+		p = append(p, o...)
+	}
+	return append(p, 255)
+}
+
+func opt(code byte, v ...byte) []byte { return append([]byte{code, byte(len(v))}, v...) }
+
+func TestDHCPOptionsTunnelVision(t *testing.T) {
+	// 0.0.0.0/1 and 128.0.0.0/1 via 192.0.2.99 (a host that is not the router)
+	p := dhcpWithOpts(opt(3, 192, 0, 2, 1), opt(121, 1, 0, 192, 0, 2, 99, 1, 128, 192, 0, 2, 99), opt(15, 'x'), opt(252, 'u'))
+	i, ok := ParseDHCPOptions(p)
+	if !ok || i.RouteOpt != 121 || len(i.Routes) != 2 || !i.WPAD || !i.Domain {
+		t.Fatalf("%+v %v", i, ok)
+	}
+	if i.Routes[0].Prefix.String() != "0.0.0.0/1" || i.Routes[1].Prefix.String() != "128.0.0.0/1" {
+		t.Fatalf("%v", i.Routes)
+	}
+	w := newDHCPOptWatch()
+	evs := w.Feed(i)
+	if len(evs) != 1 || evs[0].Kind != KindDHCPOption || evs[0].Severity != SevHigh || evs[0].Src != "192.0.2.1" {
+		t.Fatalf("%+v", evs)
+	}
+	if len(w.Feed(i)) != 0 {
+		t.Fatal("same summary twice")
+	}
+}
+
+func TestDHCPOptionsBenign(t *testing.T) {
+	// /24 route plus a default via the offered router: informational only
+	p := dhcpWithOpts(opt(3, 192, 0, 2, 1), opt(6, 198, 51, 100, 53), opt(121, 24, 198, 51, 100, 192, 0, 2, 7, 0, 192, 0, 2, 1))
+	i, ok := ParseDHCPOptions(p)
+	if !ok || len(i.Routes) != 2 || i.Routes[0].Prefix.String() != "198.51.100.0/24" {
+		t.Fatalf("%+v", i)
+	}
+	if c, _ := i.Covering(); c {
+		t.Fatal("benign routes flagged")
+	}
+	ev := newDHCPOptWatch().Feed(i)
+	if len(ev) != 1 || ev[0].Severity != SevInfo || strings.Contains(ev[0].Detail, "192.0.2.7") {
+		t.Fatalf("%+v", ev)
+	}
+	// default route to another host than option 3
+	p = dhcpWithOpts(opt(3, 192, 0, 2, 1), opt(121, 0, 203, 0, 113, 5))
+	i, _ = ParseDHCPOptions(p)
+	if c, _ := i.Covering(); !c {
+		t.Fatal("foreign default route must be flagged")
+	}
+	// option 249 is read like 121
+	i, _ = ParseDHCPOptions(dhcpWithOpts(opt(249, 7, 10, 0, 0, 0, 1, 1, 1)))
+	if i.RouteOpt != 249 || len(i.Routes) != 1 || i.Routes[0].Prefix.String() != "10.0.0.0/7" {
+		t.Fatalf("%+v", i)
+	}
+}
+
+func TestDHCPOptionsMalformed(t *testing.T) {
+	for _, o := range [][]byte{
+		opt(121, 33, 1, 2, 3, 4, 5, 6, 7, 8), // width 33
+		opt(121, 24, 1, 2),                   // truncated
+		{121, 200, 1},                        // length beyond packet
+	} {
+		i, ok := ParseDHCPOptions(dhcpWithOpts(o))
+		if ok && !i.Malformed {
+			t.Fatalf("not flagged: %x", o)
+		}
+		if ok {
+			if c, _ := i.Covering(); c {
+				t.Fatalf("garbage must not count as covering: %x", o)
+			}
+		}
+	}
+	if _, ok := ParseDHCPOptions(dhcpWithOpts()[:100]); ok {
+		t.Fatal("short")
+	}
+	// request (op 1) is not a reply
+	p := dhcpWithOpts()
+	p[0] = 1
+	if _, ok := ParseDHCPOptions(p); ok {
+		t.Fatal("op 1")
+	}
+}
+
+func FuzzParseDHCPOptions(f *testing.F) {
+	f.Add(dhcpWithOpts(opt(121, 1, 0, 192, 0, 2, 99)))
+	f.Fuzz(func(t *testing.T, b []byte) { ParseDHCPOptions(b) })
+}

@@ -256,6 +256,7 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 	tv := unix.NsecToTimeval(int64(time.Second))
 	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 	w := newDHCPWatch()
+	ow := newDHCPOptWatch()
 	buf := make([]byte, 2048)
 	for ctx.Err() == nil {
 		n, _, err := unix.Recvfrom(fd, buf, 0)
@@ -268,6 +269,11 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 		ihl := int(buf[0]&0xf) * 4
 		if n < ihl+8 || binary.BigEndian.Uint16(buf[ihl:]) != 67 {
 			continue
+		}
+		if info, ok := ParseDHCPOptions(buf[ihl+8 : n]); ok {
+			for _, ev := range ow.Feed(info) {
+				s.emit(FeatDHCPOption, ev)
+			}
 		}
 		srv, ok := ParseDHCPReply(buf[ihl+8 : n])
 		if !ok {
