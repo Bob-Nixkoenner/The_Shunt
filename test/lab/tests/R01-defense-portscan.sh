@@ -17,7 +17,9 @@ during() {
 	kali attacker/observer.sh start || true
 	kali env "TARGET=$(client_ip)" PORTS=1-1024 attacker/portscan.sh || true
 	sleep 2
-	kali attacker/observer.sh stop >/tmp/r01-observer.$$ 2>&1 || true
+	kali attacker/observer.sh stop >"$out/observer.txt" 2>&1 || true
+	echo "Beobachter sah:"
+	tail -n 15 "$out/observer.txt"
 }
 CLIENT='
 api() { curl -s --unix-socket /run/shunt/shuntd.sock "http://shunt$1"; }
@@ -25,6 +27,5 @@ sleep 30
 st=$(api /v1/defense)
 echo "$st" | grep -o "\"counts\":{[^}]*}"
 echo "$st" | grep -q "\"kind\":\"scan\"" || api "/v1/defense/events?since=0" | grep -q "\"kind\":\"scan\"" || echo "FAIL kein scan-Ereignis"
-echo "Beobachter sah: $(cat /tmp/r01-observer.* 2>/dev/null | tail -5)"
 true
 '
