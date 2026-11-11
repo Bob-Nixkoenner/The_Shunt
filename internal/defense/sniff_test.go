@@ -543,3 +543,64 @@ func TestLeaseParsers(t *testing.T) {
 		t.Fatal("must be empty without data")
 	}
 }
+
+// Lab R05 (2026-11-11): a man in the middle redirected DNS and did not pass
+// the tunnel on. The reference (through the tunnel) was asked first and hung
+// until the real path was back, so the local questions never saw the
+// redirection. Now the local questions go out first and the reference has
+// its own time limit.
+func TestDNSCheckReferenceHangs(t *testing.T) {
+	hang := func(ctx context.Context, _ string) ([]netip.Addr, error) {
+		<-ctx.Done() // the tunnel is dead: no answer until the deadline
+		return nil, ctx.Err()
+	}
+	// the attacker's resolver answers everything with one address
+	evil := fakeDNS(t, "198.18.0.66")
+	c := &DNSCheck{Reference: hang, Names: []string{"example.test"}, Public: "127.0.0.1:1", RefTimeout: 300 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	ev, refOK := c.RunStatus(ctx, Env{DNS: []string{evil}})
+	if len(ev) != 1 || ev[0].Kind != KindDNSHijack || !strings.Contains(ev[0].Detail, "reserved") {
+		t.Fatalf("redirected DNS with a dead reference not found: %+v", ev)
+	}
+	if refOK {
+		t.Fatal("reference reported as reachable")
+	}
+	if el := time.Since(start); el > 3*time.Second {
+		t.Fatalf("the reference held the check for %v", el)
+	}
+}
+
+// With the reference out of reach, the default names are compared with
+// their well-known addresses (one step lower in severity).
+func TestDNSCheckBuiltinReference(t *testing.T) {
+	failing := func(context.Context, string) ([]netip.Addr, error) { return nil, context.DeadlineExceeded }
+	ctx := context.Background()
+	evil := fakeDNS(t, "203.0.113.66") // looks public, is not the name's address
+	c := &DNSCheck{Reference: failing, Public: "127.0.0.1:1"}
+	ev, refOK := c.RunStatus(ctx, Env{DNS: []string{evil}})
+	if refOK || len(ev) != 1 || ev[0].Severity != SevMedium || !strings.Contains(ev[0].Detail, "reference not reachable") {
+		t.Fatalf("%+v refOK=%v", ev, refOK)
+	}
+	// an honest resolver is no finding, with or without the reference
+	honest := fakeDNS(t, "8.8.8.8")
+	c = &DNSCheck{Reference: failing, Names: []string{"dns.google"}, Public: "127.0.0.1:1"}
+	if ev, _ := c.RunStatus(ctx, Env{DNS: []string{honest}}); len(ev) != 0 {
+		t.Fatalf("honest resolver: %+v", ev)
+	}
+	// a name without known addresses cannot be judged without the reference
+	c = &DNSCheck{Reference: failing, Names: []string{"example.test"}, Public: "127.0.0.1:1"}
+	if ev, _ := c.RunStatus(ctx, Env{DNS: []string{evil}}); len(ev) != 0 {
+		t.Fatalf("unknown name judged without a reference: %+v", ev)
+	}
+	// a reachable reference wins over the built-in addresses (severity high)
+	ref := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.53")}, nil
+	}
+	c = &DNSCheck{Reference: ref, Names: []string{"dns.google"}, Public: "127.0.0.1:1"}
+	ev, refOK = c.RunStatus(ctx, Env{DNS: []string{evil}})
+	if !refOK || len(ev) != 1 || ev[0].Severity != SevHigh || strings.Contains(ev[0].Detail, "not reachable") {
+		t.Fatalf("%+v refOK=%v", ev, refOK)
+	}
+}

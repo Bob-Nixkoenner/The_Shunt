@@ -151,6 +151,12 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   network's resolver and at 9.9.9.9 directly (outside the tunnel). `defense.dns_probe` (`auto` / `on` /
   `off`) works exactly like `dhcp_probe`; when it is not allowed, only the passive gateway-MAC watch
   runs (the DoH reference over the default route is not sent into the local network).
+  Order of one check: first the network's resolvers and 9.9.9.9 are asked, then the reference (at most
+  8 s per name). The reference usually runs through the tunnel, and whoever redirects DNS often cuts
+  or delays the tunnel too; asked first, it held the whole check until the real path was back (lab
+  R05). If the reference stays out of reach, `dns.google` and `one.one.one.one` are compared with
+  their well-known addresses (8.8.8.8/8.8.4.4, 1.1.1.1/1.0.0.1); such a finding is rated medium and
+  says so. A private or reserved answer for these names counts without any reference.
   Features missing from `[defense.features.*]` keep their default (watch on, block off).
 - Reputation lists (abuse.ch, CC0) are fetched twice a day while the `reputation` feature is on;
   the cache is `<cache dir>/defense`.

@@ -268,6 +268,8 @@ type DNSCheck struct {
 	// Public is the resolver used for the "is port 53 diverted" question
 	// (default 9.9.9.9:53).
 	Public string
+	// RefTimeout bounds one Reference call (default dnsRefTimeout).
+	RefTimeout time.Duration
 }
 
 // Fixed names with stable addresses.
@@ -322,13 +324,26 @@ func (c *DNSCheck) Run(ctx context.Context, env Env) []Event {
 	return evs
 }
 
-// reservedAnswer reports an address that a fixed public name never has:
-// private, loopback, link-local or the benchmark range 198.18.0.0/15 (a
-// typical rebind / sinkhole target).
+// reservedNets are ranges a fixed public name is never answered with, next
+// to private, loopback and link-local addresses: the benchmark range (a
+// typical rebind / sinkhole target). The documentation ranges are left out
+// on purpose: the tests use them as stand-ins for public addresses.
+var reservedNets = []netip.Prefix{
+	netip.MustParsePrefix("198.18.0.0/15"),
+}
+
+// reservedAnswer reports an address that a fixed public name never has.
 func reservedAnswer(a netip.Addr) bool {
 	a = a.Unmap()
-	return a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified() ||
-		netip.MustParsePrefix("198.18.0.0/15").Contains(a)
+	if a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified() {
+		return true
+	}
+	for _, p := range reservedNets {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
 
 func anyReserved(as []netip.Addr) bool {
@@ -340,9 +355,30 @@ func anyReserved(as []netip.Addr) bool {
 	return false
 }
 
+// knownDNSAnswers are the addresses of the default names, published by
+// their operators and unchanged for years. They stand in when the reference
+// cannot be reached (for example because whoever redirects DNS also cuts
+// the tunnel); a finding that rests on them alone is rated one step lower.
+var knownDNSAnswers = map[string][]netip.Addr{
+	"dns.google":      {netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("8.8.4.4")},
+	"one.one.one.one": {netip.MustParseAddr("1.1.1.1"), netip.MustParseAddr("1.0.0.1")},
+}
+
+// dnsRefTimeout bounds one reference lookup, so a dead path to the
+// reference cannot use up the time of the whole check.
+const dnsRefTimeout = 8 * time.Second
+
 // RunStatus is Run plus refOK: whether the reference answered for at least
-// one name. A nil Reference never reports failure. Without a reference only the rebind pattern (a reserved or
-// private answer for a fixed public name) can be judged.
+// one name. A nil Reference never reports failure.
+//
+// Order matters: the network's resolvers and the public resolver are asked
+// first, the reference afterwards. The reference usually goes through the
+// tunnel, and a man in the middle who redirects DNS often cuts or delays
+// the tunnel as well. Asked first, the reference then held the whole check
+// until the real path was back, so the local questions never saw the
+// redirection (lab R05, 2026-11-11). Without a reference a reserved or
+// private answer for a fixed public name still counts (rebind pattern), and
+// the built-in addresses of the default names stand in for the comparison.
 func (c *DNSCheck) RunStatus(ctx context.Context, env Env) (evs []Event, refOK bool) {
 	names := c.Names
 	if len(names) == 0 {
@@ -352,47 +388,80 @@ func (c *DNSCheck) RunStatus(ctx context.Context, env Env) (evs []Event, refOK b
 	if pub == "" {
 		pub = "9.9.9.9:53"
 	}
-	var divertedAny, localDiff, rebind bool
-	for _, name := range names {
-		var ref []netip.Addr
-		var err error
-		if c.Reference != nil {
-			ref, err = c.Reference(ctx, name)
-		}
-		have := c.Reference != nil && err == nil && len(ref) > 0
-		if have {
-			refOK = true
-		}
+	type answers struct {
+		local  [][]netip.Addr // one per resolver that answered
+		public []netip.Addr
+	}
+	got := make([]answers, len(names))
+	var rebind bool
+	for i, name := range names {
 		for _, s := range env.DNS {
 			if _, _, err := net.SplitHostPort(s); err != nil {
 				s = net.JoinHostPort(s, "53")
 			}
-			got, err := c.ask(ctx, s, name)
-			if err != nil || len(got) == 0 {
+			a, err := c.ask(ctx, s, name)
+			if err != nil || len(a) == 0 {
+				continue // no answer is not an attack
+			}
+			if anyReserved(a) {
+				rebind = true
 				continue
 			}
-			if anyReserved(got) {
+			got[i].local = append(got[i].local, a)
+		}
+		a, err := c.ask(ctx, pub, name)
+		if err == nil && len(a) > 0 {
+			if anyReserved(a) {
 				rebind = true
-			} else if have && !overlap(got, ref) {
+			} else {
+				got[i].public = a
+			}
+		}
+	}
+	var localDiff, divertedAny, builtinOnly bool
+	for i, name := range names {
+		var ref []netip.Addr
+		builtin := false
+		if c.Reference != nil {
+			rctx, cancel := context.WithTimeout(ctx, c.refTimeout())
+			r, err := c.Reference(rctx, name)
+			cancel()
+			if err == nil && len(r) > 0 {
+				ref, refOK = r, true
+			}
+		}
+		if len(ref) == 0 {
+			if c.Reference == nil {
+				continue // no reference configured: only the rebind pattern is judged
+			}
+			if ref = knownDNSAnswers[name]; len(ref) == 0 {
+				continue // nothing to compare with
+			}
+			builtin = true
+		}
+		for _, a := range got[i].local {
+			if !overlap(a, ref) {
 				localDiff = true
+				builtinOnly = builtinOnly || builtin
 			}
 		}
-		got, err := c.ask(ctx, pub, name)
-		if err == nil && len(got) > 0 {
-			if anyReserved(got) {
-				rebind = true
-			} else if have && !overlap(got, ref) {
-				divertedAny = true
-			}
+		if a := got[i].public; len(a) > 0 && !overlap(a, ref) {
+			divertedAny = true
+			builtinOnly = builtinOnly || builtin
 		}
+	}
+	sev, note := SevHigh, ""
+	if builtinOnly {
+		// the reference was out of reach: compared with the built-in addresses
+		sev, note = SevMedium, " (reference not reachable, compared with the known addresses of the name)"
 	}
 	if localDiff {
-		evs = append(evs, Event{Kind: KindDNSHijack, Severity: SevHigh, Proto: "udp", Port: 53,
-			Detail: "the network's resolver answers differently from the reference for a fixed name"})
+		evs = append(evs, Event{Kind: KindDNSHijack, Severity: sev, Proto: "udp", Port: 53,
+			Detail: "the network's resolver answers differently from the reference for a fixed name" + note})
 	}
 	if divertedAny {
-		evs = append(evs, Event{Kind: KindDNSHijack, Severity: SevHigh, Proto: "udp", Port: 53,
-			Detail: "port 53 to a public resolver is answered with other data (diverted)"})
+		evs = append(evs, Event{Kind: KindDNSHijack, Severity: sev, Proto: "udp", Port: 53,
+			Detail: "port 53 to a public resolver is answered with other data (diverted)" + note})
 	}
 	if rebind {
 		evs = append(evs, Event{Kind: KindDNSHijack, Severity: SevHigh, Proto: "udp", Port: 53,
@@ -402,6 +471,13 @@ func (c *DNSCheck) RunStatus(ctx context.Context, env Env) (evs []Event, refOK b
 		refOK = true
 	}
 	return evs, refOK
+}
+
+func (c *DNSCheck) refTimeout() time.Duration {
+	if c.RefTimeout > 0 {
+		return c.RefTimeout
+	}
+	return dnsRefTimeout
 }
 
 // dnsBackoff are the waits between attempts after a trigger when the
