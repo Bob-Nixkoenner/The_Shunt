@@ -47,6 +47,10 @@ func WithBanHooks(onBan, onUnban func(Ban)) Option {
 	return func(m *Manager) { m.bans.OnBan, m.bans.OnUnban = onBan, onUnban }
 }
 
+// WithSSHHostKey keeps the ssh decoy's host key in this file (created with
+// mode 0600 on first use). Without it the key lives in memory only.
+func WithSSHHostKey(path string) Option { return func(m *Manager) { m.dec.HostKeyPath = path } }
+
 // WithReportFile keeps the per-network reports in this file (mode 0600).
 // Without it they stay in memory.
 func WithReportFile(path string) Option { return func(m *Manager) { m.rpts = NewReports(path) } }
@@ -73,6 +77,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 	m.det = NewDetector(DetectConfig{}, m.never)
 	m.det.OnFound = m.found
 	m.dec = NewDecoys(nil, m.decoyHit)
+	m.dec.SSHDelay = sshDefaultDelay
 	for _, o := range opts {
 		o(m)
 	}

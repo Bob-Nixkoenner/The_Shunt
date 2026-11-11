@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // ListenFunc opens a TCP listener for a decoy port. The Linux side replaces
@@ -39,11 +41,14 @@ type DecoyOptions struct {
 
 // Decoys runs the TCP decoy listeners.
 type Decoys struct {
-	Listen   ListenFunc
-	OnHit    func(Hit)
-	Tarpit   *Tarpit
-	MaxConns int           // simultaneous handlers over all ports (default 64)
-	Timeout  time.Duration // per-connection limit for normal decoys (default 15 s)
+	Listen      ListenFunc
+	OnHit       func(Hit)
+	Tarpit      *Tarpit
+	HostKeyPath string        // ssh decoy host key file ("" = memory only)
+	SSHBanner   string        // ssh version string (default DefaultSSHBanner)
+	SSHDelay    time.Duration // pause after every refused ssh login (tarpit)
+	MaxConns    int           // simultaneous handlers over all ports (default 64)
+	Timeout     time.Duration // per-connection limit for normal decoys (default 15 s)
 
 	mu      sync.Mutex
 	lns     map[int]net.Listener
@@ -51,6 +56,10 @@ type Decoys struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	sem     chan struct{}
+
+	keyMu  sync.Mutex
+	signer ssh.Signer
+	sshSem chan struct{}
 }
 
 // NewDecoys returns a stopped decoy set.
@@ -76,6 +85,7 @@ func (d *Decoys) Start(ports []int, opt DecoyOptions) {
 		n = 64
 	}
 	d.sem = make(chan struct{}, n)
+	d.sshSem = make(chan struct{}, sshMaxConc)
 	for _, p := range ports {
 		if p <= 0 || p > 65535 || d.lns[p] != nil {
 			continue
@@ -168,8 +178,8 @@ func Banner(port int) string {
 	switch port {
 	case 21:
 		return "220 FTP server ready\r\n"
-	case 22:
-		return "SSH-2.0-OpenSSH_9.6\r\n"
+	case 22, 2222:
+		return DefaultSSHBanner + "\r\n"
 	case 25, 587:
 		return "220 mail ESMTP Postfix\r\n"
 	case 80, 8080:
@@ -181,6 +191,9 @@ func Banner(port int) string {
 	}
 	return ""
 }
+
+func isTelnetPort(p int) bool { return p == 23 || p == 2323 }
+func isSSHPort(p int) bool    { return p == 22 || p == 2222 }
 
 func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOptions) {
 	src := addrOf(c.RemoteAddr())
@@ -194,12 +207,12 @@ func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOpti
 	if port == 443 {
 		d.tlsHello(c, src, port)
 	}
-	if opt.Cowrie && (port == 23 || port == 22) {
+	if opt.Cowrie && (isTelnetPort(port) || isSSHPort(port)) {
 		_ = c.SetDeadline(time.Now().Add(to * 4))
-		if port == 23 {
+		if isTelnetPort(port) {
 			telnetTrap(c, src, port, d.hit)
 		} else {
-			sshBannerTrap(c, src, port, d.hit)
+			d.sshTrap(ctx, c, src, port)
 		}
 		c.Close()
 		return

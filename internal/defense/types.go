@@ -202,7 +202,7 @@ func DefaultConfig() Config {
 	}
 	return Config{
 		Features:   f,
-		DecoyPorts: []int{22, 23, 80, 443, 445, 3389},
+		DecoyPorts: []int{22, 23, 2222, 2323, 80, 443, 445, 3389},
 		BanSeconds: 3600,
 		DHCPProbe:  ProbeAuto,
 	}

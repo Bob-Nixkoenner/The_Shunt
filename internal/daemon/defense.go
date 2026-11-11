@@ -51,7 +51,8 @@ func (d *Daemon) defIface() string {
 // startDefense creates the manager; the config is applied by reload.
 func (d *Daemon) startDefense(ctx context.Context) {
 	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
-		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")))
+		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")),
+		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")))
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")

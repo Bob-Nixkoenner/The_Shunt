@@ -512,23 +512,6 @@ func TestCowrieTelnet(t *testing.T) {
 			t.Fatalf("detail %q", h.Detail)
 		}
 	}
-	// ssh banner variant
-	mu.Unlock()
-	c2 := pm.dial(t, 22)
-	io.WriteString(c2, "SSH-2.0-libssh_0.9\r\n")
-	io.ReadAll(c2)
-	c2.Close()
-	waitFor(t, "ssh cowrie", func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		for _, h := range hits {
-			if h.Kind == KindCowrie && strings.Contains(h.Detail, "libssh") {
-				return true
-			}
-		}
-		return false
-	})
-	mu.Lock()
 }
 
 func TestPasswordDigest(t *testing.T) {
@@ -562,7 +545,7 @@ func TestManagerDecoysByClass(t *testing.T) {
 	}
 	m.SetNetwork("net2", ClassPublic)
 	st := m.Status()
-	if len(st.Decoys) != 5 { // 445 taken
+	if len(st.Decoys) != 7 { // 445 taken
 		t.Fatalf("decoys %v", st.Decoys)
 	}
 	m.SetNetwork("net3", ClassManaged)
