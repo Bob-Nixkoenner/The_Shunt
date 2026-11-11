@@ -165,3 +165,24 @@ Not ported because Windows lacks the feature: tor-all (H01–H03, H09–H11), To
 ## Reihenfolge im Gesamtlauf (Linux)
 - **P01 immer als Letztes** (nach allen anderen Tests): P01 stellt die Uhr +10 min und zurueck, danach antwortet der VirtualBox-Gastdienst nicht mehr, alle folgenden Tests melden "Client nicht erreichbar".
 - **M07** installiert das neueste Paket aus `$LAB_OUT/debs/`: dort muss das zu testende Paket (z. B. rk3j) das neueste sein, sonst laeuft der Rest des Laufs mit einer alten Version (Kopf von `report.md` pruefen: "Shunt: ...").
+
+## Gesamtdurchlauf (Abwehr-Suite)
+
+`run-defense-suite.sh` runs Q01, Q02, Q03, R01-R08 in one go (R07 last, it waits 660 s for the learning phase).
+
+```sh
+./run-defense-suite.sh --dry-run                 # list only, touches nothing
+./run-defense-suite.sh --client shunt-debian     # full run
+./run-defense-suite.sh --skip R07 --cooldown 90  # without the learning-phase test
+./run-defense-suite.sh --only R04,R05 --snapshot-reset lab-basis
+```
+
+Options: `--only`, `--skip`, `--client`, `--cooldown SEC` (default 60), `--snapshot-reset SNAP` (retry from a snapshot),
+`--shutdown-vms` (only VMs the script started), `--ignore-belegung`, `--dry-run`, `--help`.
+
+Before the start it checks the booking list, running VMs, temperature (pause above 75 C until below 68 C, 15 min at most),
+`CLIENT_VM`, `local.env`, the build revision of the client package against `git rev-parse --short HEAD` (warning without a
+VCS stamp), runs `kali-sync`, checks Kali's link/IP and runs `suricata-update` once when Kali has 0 rules. Per test it
+restarts `shuntd`, runs `lab.sh run <T>` with a limit (20 min, R07 30 min) and retries once on FUND/FEHLER.
+Results: `$LAB_OUT/<date>/suite-<time>/` with `suite-report.md` (table test, result, duration, heat max, events by kind,
+one-line note) and `suite.log`. Local only, never in git.
