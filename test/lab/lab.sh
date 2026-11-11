@@ -55,6 +55,8 @@ SSHO=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o I
 	-o LogLevel=ERROR -o ConnectTimeout=8 -o ServerAliveInterval=10)
 
 gw() { ssh "${SSHO[@]}" -p "$GW_PORT" "$USER_VM@127.0.0.1" "sudo $(printf '%q ' "$@")"; }
+KALI_PORT=${KALI_PORT:-2226}
+kali() { ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "sudo $(printf '%q ' "$@")"; } # run a command as root in shunt-kali
 gw_cp_from() { scp "${SSHO[@]}" -P "$GW_PORT" -r "$USER_VM@127.0.0.1:$1" "$2"; }
 gw_cp_to() { scp "${SSHO[@]}" -P "$GW_PORT" -r "$1" "$USER_VM@127.0.0.1:$2"; }
 client_ip() { gw labctl client | awk '{print $2}'; }
