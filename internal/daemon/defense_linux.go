@@ -3,8 +3,10 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -311,4 +313,57 @@ func (d *Daemon) connApp(s sockets.Socket) string {
 		return o.Procs[0]
 	}
 	return ""
+}
+
+// tlsCheck runs the certificate check once (default route, normal name
+// resolution; second way = DoH answer dialled by address). Only one run at a
+// time. Quiet when the feature is off or the network is down.
+func (d *Daemon) tlsCheck(ctx context.Context) {
+	if d.def.m == nil || !d.def.m.Watching(defense.FeatTLS) || !d.def.tlsBusy.CompareAndSwap(false, true) {
+		return
+	}
+	defer d.def.tlsBusy.Store(false)
+	st := d.def.m.Status()
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		tr, ok := d.downloadClient().Transport.(*http.Transport)
+		if !ok || tr.DialContext == nil {
+			return nil, fmt.Errorf("no dialer")
+		}
+		return tr.DialContext(ctx, network, addr)
+	}
+	c := &defense.TLSChecker{M: d.def.m, Path: filepath.Join(d.defenseStateDir(), "tlspins.json")}
+	c.Fetch = func(ctx context.Context, host string) ([]*x509.Certificate, error) {
+		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		return defense.FetchChain(ctx, dial, net.JoinHostPort(host, "443"), host)
+	}
+	c.FetchAlt = func(ctx context.Context, host string) ([]*x509.Certificate, error) {
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		ips, err := d.dnsReference(ctx, host)
+		if err != nil || len(ips) == 0 {
+			return nil, fmt.Errorf("no second way")
+		}
+		return defense.FetchChain(ctx, dial, net.JoinHostPort(ips[0].String(), "443"), host)
+	}
+	c.Run(ctx, defense.TLSTargets(st.Config), st.Class)
+}
+
+// defenseTLSLoop checks 20 s after start and then every defense.TLSInterval;
+// tlsSoon (a new network) triggers an extra run after a short wait for the link.
+func (d *Daemon) defenseTLSLoop(ctx context.Context) {
+	t := time.NewTimer(20 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.def.tlsSoon:
+			t.Reset(15 * time.Second)
+			continue
+		case <-t.C:
+		}
+		d.tlsCheck(ctx)
+		t.Reset(defense.TLSInterval)
+	}
 }

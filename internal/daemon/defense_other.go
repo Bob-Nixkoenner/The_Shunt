@@ -21,3 +21,6 @@ func (d *Daemon) defensePushPorts() {}
 // defenseConnLoop: no socket listing on this platform, so no beacon or
 // first-contact detection (DNS tunnel detection works everywhere).
 func (d *Daemon) defenseConnLoop(context.Context) {}
+
+// defenseTLSLoop: the certificate check is Linux-only for now.
+func (d *Daemon) defenseTLSLoop(context.Context) {}

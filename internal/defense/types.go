@@ -159,6 +159,10 @@ type Config struct {
 	// ReputationOff names built-in lists ("feodo", "sslbl") the user
 	// switched off. Empty = both run.
 	ReputationOff []string `json:"reputation_off" toml:"reputation_off"`
+	// TLSTargets are the public sites whose certificate chain the tls
+	// feature checks (host names, at most 16). Empty = api.github.com and
+	// www.wikipedia.org.
+	TLSTargets []string `json:"tls_targets,omitempty" toml:"tls_targets,omitempty"`
 }
 
 // DefaultConfig: detection on, blocking off, decoys on common ports. Off

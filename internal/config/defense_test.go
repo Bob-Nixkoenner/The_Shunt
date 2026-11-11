@@ -61,3 +61,23 @@ func TestDefenseReputationOff(t *testing.T) {
 		t.Fatal("spamhaus_drop must be refused")
 	}
 }
+
+func TestDefenseTLSTargets(t *testing.T) {
+	c := &Config{Defense: &defense.Config{TLSTargets: []string{"www.example.org", "api.example.net"}}}
+	if err := c.validateDefense(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"https://example.org", "example.org:443", "192.0.2.1", "localhost", "a b.example", "ex/ample.org", "-x.example.org"} {
+		c.Defense.TLSTargets = []string{bad}
+		if c.validateDefense() == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	c.Defense.TLSTargets = make([]string, defense.MaxTLSTargets+1)
+	for i := range c.Defense.TLSTargets {
+		c.Defense.TLSTargets[i] = "a.example.org"
+	}
+	if c.validateDefense() == nil {
+		t.Fatal("too many targets accepted")
+	}
+}

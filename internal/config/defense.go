@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 )
@@ -72,6 +73,14 @@ func (c *Config) validateDefense() error {
 			return fmt.Errorf("defense.reputation_off: unknown source %q (known: %v)", n, defense.BuiltinSourceNames())
 		}
 	}
+	if len(d.TLSTargets) > defense.MaxTLSTargets {
+		return fmt.Errorf("defense.tls_targets: at most %d", defense.MaxTLSTargets)
+	}
+	for _, h := range d.TLSTargets {
+		if !validTLSHost(h) {
+			return fmt.Errorf("defense.tls_targets: %q is no host name (no scheme, port or address)", h)
+		}
+	}
 	for _, s := range d.Never {
 		if _, err := netip.ParsePrefix(s); err != nil {
 			if _, err2 := netip.ParseAddr(s); err2 != nil {
@@ -80,4 +89,26 @@ func (c *Config) validateDefense() error {
 		}
 	}
 	return nil
+}
+
+// validTLSHost: a plain DNS host name with at least two labels (letters,
+// digits, hyphens), no address, scheme, port or path.
+func validTLSHost(h string) bool {
+	if len(h) < 4 || len(h) > 253 || !strings.Contains(h, ".") {
+		return false
+	}
+	if _, err := netip.ParseAddr(h); err == nil {
+		return false
+	}
+	for _, l := range strings.Split(h, ".") {
+		if l == "" || len(l) > 63 || l[0] == '-' || l[len(l)-1] == '-' {
+			return false
+		}
+		for _, r := range l {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }

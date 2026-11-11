@@ -38,6 +38,9 @@ type defenseState struct {
 	never    []netip.Prefix
 	logStop  func() // stops the packet log reader
 	lastEnv  string // class/key/enabled the sensors run for
+
+	tlsBusy atomic.Bool   // a certificate check is running
+	tlsSoon chan struct{} // a new network: check again soon
 }
 
 func (d *Daemon) defIface() string {
@@ -52,12 +55,14 @@ func (d *Daemon) startDefense(ctx context.Context) {
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")
+	d.def.tlsSoon = make(chan struct{}, 1)
 	go func() {
 		<-ctx.Done()
 		d.stopDefense()
 	}()
 	go d.defenseLoops(ctx)
 	go d.defenseConnLoop(ctx)
+	go d.defenseTLSLoop(ctx)
 }
 
 // defenseNet starts defenseNetwork in the background (it takes d.mu).
@@ -130,6 +135,10 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 	}
 	if on {
 		d.Log.Info("defense: network joined", "class", class)
+		select {
+		case d.def.tlsSoon <- struct{}{}:
+		default:
+		}
 		d.def.sensors.SetEnv(env)
 	} else {
 		d.def.sensors.Stop()
