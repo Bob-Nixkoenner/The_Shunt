@@ -71,7 +71,7 @@ fun DefenseSettingsSection(settings: Settings, update: (Settings) -> Unit) {
         Text(T("Network class"), color = c.text, fontWeight = FontWeight.SemiBold)
         Hint("Public: strictest watching (default, also for unknown networks). Trusted: quiet warnings. Managed: for a workplace network.")
         for ((link, label) in listOf("wifi" to "Wi-Fi", "mobile" to "Mobile data")) {
-            // big system font: the name on its own line, the buttons one under the other (no word breaks in the middle)
+            // the name on its own line (a name column next to the buttons left too little width: "Öffentli/ch"); with a big system font the buttons stack
             val classButtons: @Composable (Modifier) -> Unit = { m ->
                 for (k in Defense.CLASSES) ShuntButton(
                     Defense.classLabel(k),
@@ -80,13 +80,8 @@ fun DefenseSettingsSection(settings: Settings, update: (Settings) -> Unit) {
                     modifier = m,
                 )
             }
-            if (bigFont()) {
-                Text(T(label), color = c.text)
-                ButtonRow(classButtons)
-            } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
-                Text(T(label), color = c.text, modifier = Modifier.width(88.dp))
-                classButtons(Modifier.weight(1f))
-            }
+            Text(T(label), color = c.text)
+            ButtonRow(classButtons)
         }
         Hint("Not available on Android: checks of the router (ARP, DHCP, IPv6), decoy ports, scan detection and the check for a fake Wi-Fi with the same name.")
     }
