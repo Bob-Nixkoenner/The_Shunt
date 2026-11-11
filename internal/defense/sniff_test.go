@@ -446,18 +446,100 @@ func TestDNSSeriesRetry(t *testing.T) {
 	}
 }
 
-func TestDHCPWatchKnowsGateway(t *testing.T) {
-	w := newDHCPWatchFor("192.0.2.1")
-	if _, hit := w.Feed(netip.MustParseAddr("192.0.2.1")); hit {
+func dhcpClock() (func() time.Time, *time.Time) {
+	t := time.Unix(1000, 0)
+	return func() time.Time { return t }, &t
+}
+
+func ad(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+func TestDHCPServerIsGateway(t *testing.T) {
+	now, _ := dhcpClock()
+	w := newDHCPWatchWith("192.0.2.1", nil, now)
+	if _, hit := w.Feed(ad("192.0.2.1")); hit {
 		t.Fatal("gateway is the known server")
 	}
-	ev, hit := w.Feed(netip.MustParseAddr("192.0.2.66"))
-	if !hit || ev.Kind != KindRogueDHCP || ev.Src != "192.0.2.66" {
+	ev, hit := w.Feed(ad("192.0.2.66"))
+	if !hit || ev.Kind != KindRogueDHCP || ev.Severity != SevHigh || !strings.Contains(ev.Detail, "second server") {
 		t.Fatalf("%+v %v", ev, hit)
 	}
-	// without a gateway: first server is the baseline
-	w = newDHCPWatchFor("")
-	if _, hit := w.Feed(netip.MustParseAddr("192.0.2.66")); hit {
-		t.Fatal("single server without gateway")
+}
+
+func TestDHCPServerNotGatewayOwnLease(t *testing.T) {
+	now, clk := dhcpClock()
+	w := newDHCPWatchWith("192.0.2.1", []netip.Addr{ad("192.0.2.53")}, now)
+	if _, hit := w.Feed(ad("192.0.2.53")); hit {
+		t.Fatal("lease server is known")
+	}
+	*clk = clk.Add(time.Minute)
+	if _, hit := w.Feed(ad("192.0.2.53")); hit {
+		t.Fatal("still known")
+	}
+	if ev, hit := w.Feed(ad("203.0.113.9")); !hit || ev.Kind != KindRogueDHCP {
+		t.Fatalf("%+v", ev)
+	}
+}
+
+func TestDHCPServerLearnedInWindow(t *testing.T) {
+	now, _ := dhcpClock()
+	// DHCP server is not the gateway and the lease is unreadable
+	w := newDHCPWatchWith("192.0.2.1", nil, now)
+	if _, hit := w.Feed(ad("192.0.2.53")); hit {
+		t.Fatal("first answer in the window is learned")
+	}
+	if _, hit := w.Feed(ad("192.0.2.53")); hit {
+		t.Fatal("stable")
+	}
+	if ev, hit := w.Feed(ad("198.51.100.7")); !hit || ev.Kind != KindRogueDHCP {
+		t.Fatalf("second server missed: %+v", ev)
+	}
+}
+
+func TestDHCPRogueBeforeFirstOffer(t *testing.T) {
+	now, _ := dhcpClock()
+	// limit: a rogue answering first in the window is learned; the real
+	// server then counts as the second one
+	w := newDHCPWatchWith("192.0.2.1", nil, now)
+	if _, hit := w.Feed(ad("192.0.2.66")); hit {
+		t.Fatal("learned first")
+	}
+	if ev, hit := w.Feed(ad("192.0.2.1")); hit {
+		// gateway is pre-known, so it is no alarm
+		t.Fatalf("%+v", ev)
+	}
+	if ev, hit := w.Feed(ad("192.0.2.200")); !hit || ev.Kind != KindRogueDHCP {
+		t.Fatalf("%+v", ev)
+	}
+}
+
+func TestDHCPNoLeaseNoBaseline(t *testing.T) {
+	now, clk := dhcpClock()
+	w := newDHCPWatchWith("", nil, now)
+	*clk = clk.Add(time.Minute) // window over, nobody answered
+	ev, hit := w.Feed(ad("192.0.2.53"))
+	if !hit || ev.Kind != KindObservation || ev.Severity != SevInfo {
+		t.Fatalf("want info only: %+v", ev)
+	}
+	if ev, hit := w.Feed(ad("192.0.2.54")); !hit || ev.Kind != KindRogueDHCP {
+		t.Fatalf("learned server then another: %+v", ev)
+	}
+}
+
+func TestLeaseParsers(t *testing.T) {
+	if got := parseNMCLIDHCP("DHCP4.OPTION[1]:dhcp_lease_time = 3600\nDHCP4.OPTION[2]:dhcp_server_identifier = 192.0.2.53\n"); len(got) != 1 || got[0] != ad("192.0.2.53") {
+		t.Fatalf("%v", got)
+	}
+	if got := parseNetworkdLease("ADDRESS=192.0.2.9\nSERVER_ADDRESS=192.0.2.54\n"); len(got) != 1 || got[0] != ad("192.0.2.54") {
+		t.Fatalf("%v", got)
+	}
+	dh := "lease {\n interface \"eth0\";\n option dhcp-server-identifier 192.0.2.10;\n}\nlease {\n interface \"eth0\";\n option dhcp-server-identifier 192.0.2.55;\n}\n"
+	if got := parseDhclientLease(dh, "eth0"); len(got) != 1 || got[0] != ad("192.0.2.55") {
+		t.Fatalf("%v", got)
+	}
+	if got := parseDhclientLease(dh, "wlan0"); got != nil {
+		t.Fatalf("%v", got)
+	}
+	if parseNMCLIDHCP("junk") != nil || parseNetworkdLease("") != nil || LeaseServers("", 0) != nil {
+		t.Fatal("must be empty without data")
 	}
 }

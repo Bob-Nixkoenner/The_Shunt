@@ -113,6 +113,12 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   (random hardware address, broadcast flag, no host name, never a REQUEST) 4 s after joining and every
   5 min, so every server answers with a broadcast OFFER the listener sees; without it, it only sees replies
   to this machine's own requests. A second server ID raises `rogue_dhcp`.
+  Known servers are the gateway address, the server of this client's own lease (read without root from
+  NetworkManager `nmcli`, systemd-networkd or dhclient lease files; skipped when unreadable) and the first
+  server that answers within 10 s after joining while no known one has answered. Only a different server
+  raises `rogue_dhcp` (high, "second server"); with no known or learned server, an unknown one is only an
+  info note and is learned. Limit: a rogue server that answers before the real one and is learned first
+  cannot be told apart this way; the active probe makes both answer, so the real one then counts as second.
   This probe sends into the network, so it is switchable with `defense.dhcp_probe`: `auto` (default) =
   only in public networks and never while the quiet mode (`daemon.quiet`, `quiet_out`) is on for the
   network; `on` = always (also in quiet mode, counts as explicit permission; not for trusted or managed

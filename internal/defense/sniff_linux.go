@@ -311,7 +311,7 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 	}
 	tv := unix.NsecToTimeval(int64(time.Second))
 	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
-	w := newDHCPWatchFor(env.GatewayIP)
+	w := newDHCPWatchWith(env.GatewayIP, LeaseServers(env.Iface, link.Attrs().Index), time.Now)
 	ow := newDHCPOptWatch()
 	buf := make([]byte, 2048)
 	for ctx.Err() == nil {

@@ -70,23 +70,44 @@ func (g *gwWatch) Feed(ip netip.Addr, mac string) (Event, bool) {
 	return Event{Kind: KindARP, Severity: SevHigh, Detail: "the gateway's hardware address changed (possible ARP/NDP spoofing)"}, true
 }
 
-// dhcpWatch notices a second DHCP server answering.
+// dhcpLearnWindow is how long after joining the first answering server may
+// be learned as the network's own DHCP server.
+const dhcpLearnWindow = 10 * time.Second
+
+// dhcpWatch notices a second DHCP server answering. Known servers are the
+// gateway address, the server of this client's own lease (when readable)
+// and the first server that answers within the learning window while
+// nothing else known has answered. Only another server than these is
+// reported. Without any confirmed server (no lease, nobody known answered)
+// an unknown server only produces an info observation and is learned.
 type dhcpWatch struct {
-	mu      sync.Mutex
-	servers map[netip.Addr]bool
-	said    bool
+	mu        sync.Mutex
+	known     map[netip.Addr]bool
+	start     time.Time
+	now       func() time.Time
+	hasLease  bool
+	confirmed bool // a known server (or a learned one) has answered
+	said      bool
 }
 
-func newDHCPWatch() *dhcpWatch { return &dhcpWatch{servers: map[netip.Addr]bool{}} }
+func newDHCPWatch() *dhcpWatch { return newDHCPWatchWith("", nil, time.Now) }
 
-// newDHCPWatchFor starts with the gateway address as the known server, so a
-// single OFFER/ACK from any other address (also one sent to another client,
-// as long as the socket sees it) is already a second server. Without a
-// usable gateway address it behaves like newDHCPWatch.
-func newDHCPWatchFor(gateway string) *dhcpWatch {
-	d := newDHCPWatch()
+// newDHCPWatchFor starts with the gateway address as known server.
+func newDHCPWatchFor(gateway string) *dhcpWatch { return newDHCPWatchWith(gateway, nil, time.Now) }
+
+// newDHCPWatchWith also takes the server addresses of the client's own
+// lease and a clock (the learning window starts now).
+func newDHCPWatchWith(gateway string, lease []netip.Addr, now func() time.Time) *dhcpWatch {
+	d := &dhcpWatch{known: map[netip.Addr]bool{}, now: now, start: now()}
 	if a, err := netip.ParseAddr(gateway); err == nil {
-		d.servers[a.Unmap()] = true
+		d.known[a.Unmap()] = true
+	}
+	for _, a := range lease {
+		if a.IsValid() {
+			d.known[a.Unmap()] = true
+			d.hasLease = true
+			d.confirmed = true
+		}
 	}
 	return d
 }
@@ -99,13 +120,30 @@ func (d *dhcpWatch) Feed(server netip.Addr) (Event, bool) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.servers[server] = true
-	if len(d.servers) < 2 || d.said {
+	if d.known[server] {
+		d.confirmed = true
+		return Event{}, false
+	}
+	inWindow := d.now().Sub(d.start) < dhcpLearnWindow
+	if inWindow && !d.hasLease && !d.confirmed {
+		// first answer after joining: this is the network's server
+		d.known[server] = true
+		d.confirmed = true
+		return Event{}, false
+	}
+	if !d.confirmed {
+		// no basis to compare with: note it, do not alarm
+		d.known[server] = true
+		d.confirmed = true
+		return Event{Kind: KindObservation, Severity: SevInfo, Src: server.String(), Proto: "udp", Port: 67,
+			Detail: "DHCP server learned late, no baseline to compare (no alarm)"}, true
+	}
+	if d.said {
 		return Event{}, false
 	}
 	d.said = true
 	return Event{Kind: KindRogueDHCP, Severity: SevHigh, Src: server.String(), Proto: "udp", Port: 67,
-		Detail: "a second DHCP server answered on this network"}, true
+		Detail: "a second DHCP server answered on this network (second server)"}, true
 }
 
 // ParseDHCPReply extracts the server address of a DHCP OFFER or ACK from a
