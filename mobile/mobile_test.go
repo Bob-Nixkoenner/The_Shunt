@@ -56,6 +56,7 @@ type fakePlatform struct{ uid atomic.Int64 }
 
 func (p *fakePlatform) OwnerUid(int, string, int, string, int) int { return int(p.uid.Load()) }
 func (p *fakePlatform) Log(string)                                 {}
+func (p *fakePlatform) AppName(int) string                         { return "" }
 
 var serverIP = netip.MustParseAddr("10.9.0.1")
 

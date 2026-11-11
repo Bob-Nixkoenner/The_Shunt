@@ -57,6 +57,8 @@ object Levels {
         // opsec only: the band in the header, the emergency switch on the status tab
         "opsec.band" to OPSEC,
         "opsec.emergency" to OPSEC,
+        // the defense watcher: thermometer tile on the status tab, switch and network classes in the settings
+        "defense.ui" to OPSEC,
     )
 
     fun shows(key: String, level: Level): Boolean = TABLE[key]?.contains(level) ?: true

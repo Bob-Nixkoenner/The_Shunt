@@ -280,6 +280,7 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
         if (settings.strictCheck) StrictBanners(settings)
         // Opsec: the emergency switch where you see it first
         if (settings.shows("opsec.emergency")) EmergencySection(settings, update, prominent = true)
+        DefenseStatusSection(settings, status)
 
         Section("VPN") {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1119,6 +1120,7 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
                 }
             )
         }
+        DefenseSettingsSection(settings, update)
     }
     if (opsecOn) OpsecOnDialog(settings, onDone = { s -> opsecOn = false; s?.let(update) })
     leaveTo?.let { to -> OpsecOffDialog(settings, to, onDone = { s -> leaveTo = null; s?.let(update) }) }

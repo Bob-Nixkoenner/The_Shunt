@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -32,6 +33,8 @@ object VpnState {
     val running = MutableStateFlow(false)
     val error = MutableStateFlow<String?>(null)
     @Volatile var engine: Engine? = null
+    /** The kind of the real network now ("wifi", "mobile", "ethernet" or ""), for the defense's network class. */
+    @Volatile var link = ""
     /** A start reached the service in this process (it may still be connecting). */
     @Volatile var startRequested = false
     /** Android's own kill switch: always-on VPN with "block connections without VPN". */
@@ -129,7 +132,7 @@ class ShuntVpnService : VpnService() {
             val pfd = b.establish() ?: throw IllegalStateException("VPN permission missing")
             tun = pfd
             runCatching { Mobile.setTimezone(java.util.TimeZone.getDefault().id) } // log times in local time
-            VpnState.engine = Mobile.start(pfd.fd.toLong(), settings.coreJson(this), CorePlatform(cm))
+            VpnState.engine = Mobile.start(pfd.fd.toLong(), settings.coreJson(this), CorePlatform(cm, packageManager))
             // every real network, not the default one: our own default network is this VPN,
             // so a default network callback never saw Wi-Fi <-> mobile data
             val real = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -142,9 +145,11 @@ class ShuntVpnService : VpnService() {
             notifyStatus()
             Watchdog.setWanted(this, true)
             watchdog.post(pushWatchdog)
+            Defense.apply(this, VpnState.engine!!, settings)
             // filter lists: start with what is on disk, then refresh (also
             // without network the VPN must come up at once)
             if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
+            Defense.refreshLists(this, VpnState.engine)
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
             VpnState.error.value = e.message ?: e.toString()
@@ -182,7 +187,7 @@ class ShuntVpnService : VpnService() {
             // the kind of network for link:wifi / link:mobile routes (and network profiles)
             val link = linkOf(n?.let { cm.getNetworkCapabilities(it) })
             if (link != appliedLink) {
-                VpnState.engine?.let { it.setNetwork(link, ""); appliedLink = link }
+                VpnState.engine?.let { it.setNetwork(link, ""); appliedLink = link; VpnState.link = link; Defense.network(it, Store.load(this@ShuntVpnService), link) }
             }
             notifyStatus()
         }
@@ -287,6 +292,7 @@ class ShuntVpnService : VpnService() {
         netCallback = null
         VpnState.engine?.stop()
         VpnState.engine = null
+        VpnState.link = ""
         VpnState.service = null
         tun?.close()
         tun = null
@@ -306,7 +312,14 @@ class ShuntVpnService : VpnService() {
         super.onDestroy()
     }
 
-    private class CorePlatform(private val cm: ConnectivityManager) : Platform {
+    private class CorePlatform(private val cm: ConnectivityManager, private val pm: PackageManager) : Platform {
+        /** Package name of a UID for the defense's events (worker thread of the core, not the packet path). */
+        override fun appName(uid: Long): String = try {
+            pm.getPackagesForUid(uid.toInt())?.firstOrNull() ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+
         override fun ownerUid(proto: Long, srcIP: String, srcPort: Long, dstIP: String, dstPort: Long): Long = try {
             cm.getConnectionOwnerUid(
                 proto.toInt(),
@@ -345,7 +358,7 @@ class ShuntVpnService : VpnService() {
         fun applyRules(ctx: Context, s: Settings): String? {
             val e = VpnState.engine ?: return null
             return try {
-                e.setRules(s.coreJson(ctx)); null
+                e.setRules(s.coreJson(ctx)); Defense.apply(ctx, e, s); null
             } catch (ex: Exception) {
                 ex.message
             }

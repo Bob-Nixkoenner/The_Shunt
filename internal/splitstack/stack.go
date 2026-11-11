@@ -201,6 +201,7 @@ func (e *Engine) dialTo(ctx context.Context, f *flow, dst netip.AddrPort) (net.C
 
 func (e *Engine) handleTCP(r *tcp.ForwarderRequest) {
 	f := e.newFlow(6, r.ID())
+	e.observeConn(f) // OPUS-REVIEW: hot path, non-blocking send (observe.go)
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimout)
 	out, err := e.dial(ctx, f)
 	cancel()
@@ -247,6 +248,7 @@ func relayTCP(a, b net.Conn) {
 
 func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
 	f := e.newFlow(17, r.ID())
+	e.observeConn(f) // OPUS-REVIEW: hot path, non-blocking send (observe.go)
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
 	if terr != nil {
@@ -325,6 +327,7 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 			if n >= 2 {
 				pending.Delete(binary.BigEndian.Uint16(buf))
 			}
+			e.observeAnswer(buf[:n]) // OPUS-REVIEW: copies into the bounded queue
 			in.Write(buf[:n])
 		}
 		close(done)
@@ -339,6 +342,7 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		arrived := time.Now()
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
+			e.observeQuery(f.app, q.Question[0].Name, q.Question[0].Qtype) // OPUS-REVIEW
 			e.mu.RLock()
 			noDoH := e.blockDoH
 			e.mu.RUnlock()
@@ -494,6 +498,7 @@ func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, ans
 		if answered != nil {
 			answered(&resp)
 		}
+		e.observeAnswer(buf[:n]) // OPUS-REVIEW
 		in.Write(buf[:n])
 		return
 	}
