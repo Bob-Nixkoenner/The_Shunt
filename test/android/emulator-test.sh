@@ -109,11 +109,22 @@ toggle
 wait_vpn down && echo "  ok   VPN off" || { echo "  FAIL VPN still up"; fails=$((fails + 1)); }
 toggle
 wait_vpn up && sleep 3 && check "VPN on again, tunnel works" "tunnel=work" "$(get)" || { echo "  FAIL VPN did not come back"; fails=$((fails + 1)); }
-tap_text() { # tap the first view whose text starts with $1
+# The app shows its texts in the device language (catalog internal/i18n/lang/<code>.json, the
+# English text is the key). The test names the English text; the screen text is looked up here,
+# so the test also passes on a German (or other translated) emulator.
+UI_LANG=$($ADB shell getprop persist.sys.locale 2>/dev/null | tr -d '\r' | cut -c1-2)
+ui_text() { # ui_text "English text" -> the text as the app shows it in the device language
+	if [[ -n $UI_LANG && $UI_LANG != en && -f internal/i18n/lang/$UI_LANG.json ]]; then
+		python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["strings"].get(sys.argv[2], sys.argv[2]))' \
+			"internal/i18n/lang/$UI_LANG.json" "$1"
+	else echo "$1"; fi
+}
+tap_text() { # tap the first view whose text starts with $1 (English text, looked up in the device language)
 	dump_ui
-	local b
-	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$1[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
-	[[ -n $b ]] || { echo "  FAIL no '$1' on screen"; fails=$((fails + 1)); return 1; }
+	local b want
+	want=$(ui_text "$1")
+	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$want[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
+	[[ -n $b ]] || { echo "  FAIL no '$1' (shown as '$want') on screen"; fails=$((fails + 1)); return 1; }
 	read -r x1 y1 x2 y2 <<<"$(echo "$b" | tr -c '0-9' ' ')"
 	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
