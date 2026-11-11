@@ -21,7 +21,8 @@ const defKindText = () => ({
   decoy_hit: T("Decoy port hit"), tarpit: T("Held in the tarpit"), cowrie: T("Login attempt on fake service"),
   scan: T("Port scan"), brute_force: T("Brute force"), reputation: T("Known bad address"), first_seen: T("New destination"),
   arp: T("ARP/NDP spoofing"), rogue_dhcp: T("Second DHCP server"), dns_hijack: T("DNS answers differ"), tls: T("Certificate changed"),
-  beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"), ban: T("Blocked"),
+  beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"),
+  dhcp_option: T("DHCP options"), rogue_ra: T("Rogue IPv6 router"), dns_rebind: T("DNS rebind"), new_iface: T("New network interface"), ban: T("Blocked"),
   unban: T("Block lifted"), manual: T("Blocked by you"), net_enter: T("Network joined"), observation: T("Observation"),
 });
 // what each switch does: [name, one line]
@@ -40,6 +41,10 @@ const defFeatText = () => ({
   beacon: [T("Beacons"), T("An app connects to one destination at clockwork intervals (Linux only).")],
   dns_tunnel: [T("DNS tunnels"), T("Long, random names and many TXT queries.")],
   evil_twin: [T("Evil twin"), T("Same Wi-Fi name, different access point.")],
+  dhcp_option: [T("DHCP options"), T("Routes from the network's DHCP reply that bypass the tunnel (shown only, never blocks).")],
+  rogue_ra: [T("IPv6 routers"), T("A second or odd IPv6 router or DHCPv6 server (shown only, never blocks).")],
+  dns_rebind: [T("DNS rebind"), T("A public name that resolves to a private address. Needs defense.rebind_protect; drops the answer only with Block.")],
+  new_iface: [T("New interfaces"), T("A network interface appears that was not there at start, e.g. a USB adapter (Linux, shown only).")],
 });
 // the lists: [name, what is in it, how often, how long it counts, source link, terms link, restriction]
 const DEF_SRC = {
@@ -105,8 +110,36 @@ function defDetail(e) {
     const nm = (defSrcText()[kv.list] || [kv.list])[0];
     return kv.ja3 ? T("TLS fingerprint {ja3} is on the list {list}", { ja3: kv.ja3, list: nm }) : T("On the list {list}", { list: nm });
   }
+  if (e.kind === "dhcp_option") {
+    const cov = d.startsWith("covers-default");
+    const routes = kv.routes ? kv.routes.split(" ")[0] : "";
+    if (cov) return T("The DHCP reply sends routes that cover the default route ({routes}): traffic can bypass the VPN tunnel (TunnelVision pattern)", { routes: routes || "?" });
+    if (kv.routes) return T("The DHCP reply contains classless routes ({routes}); they do not hide the default route", { routes: routes });
+    if (kv.opts) return T("DHCP options offered: {opts}", { opts: kv.opts });
+  }
+  if (e.kind === "dns_rebind" && kv.domain) {
+    return kv.action === "dropped" ? T("{domain} resolved to a {class} address; the answer was dropped", { domain: kv.domain, class: kv.class || "?" })
+      : T("{domain} resolved to a {class} address (DNS rebind pattern)", { domain: kv.domain, class: kv.class || "?" });
+  }
+  if (e.kind === "new_iface" && kv.type) {
+    const how = (kv.bus === "usb" ? T("USB") + " " : "") + kv.type;
+    if (d.startsWith("default route")) return T("A new network interface ({how}) got the default route", { how });
+    return T("A new network interface appeared ({how}); the USB hint is a guess from system files", { how });
+  }
   let m;
   switch (e.kind) {
+    case "rogue_ra":
+      if (d.startsWith("a second router advertises itself as default router and names")) return T("A second IPv6 router appeared and also names DNS servers");
+      if (d.startsWith("a second router")) return T("A second IPv6 router advertises itself as default router");
+      if (d.startsWith("a second DHCPv6")) return T("A second DHCPv6 server answered on this network");
+      if (d.startsWith("a router address is now")) return T("An IPv6 router address is now advertised from another hardware address (possible spoofing)");
+      if (d.startsWith("a default router announced lifetime 0")) return T("An IPv6 router withdrew the default route (lifetime 0)");
+      if (d.startsWith("a prefix was announced")) return T("A prefix was announced with lifetime 0 (removes addresses)");
+      if (d.startsWith("DNS servers were announced")) return T("IPv6 DNS servers were announced with lifetime 0 (removes them)");
+      if (d.startsWith("the announced DNS servers differ")) return T("The IPv6 DNS servers announced now differ from the first ones");
+      if (d.startsWith("advertisement behind a fragment")) return T("A router advertisement came behind a fragment header (evades switch RA-Guard)");
+      if ((m = /^flood: (\d+) router advertisements in (\d+)s$/.exec(d))) return T("{n} router advertisements in {s} s", { n: m[1], s: m[2] });
+      break;
     case "tarpit":
       if ((m = /^held (\d+)s$/.exec(d))) return T("Held in the tarpit for {n} s", { n: m[1] });
       break;

@@ -54,6 +54,10 @@ const (
 	KindBeacon      Kind = "beacon"      // regular-interval traffic
 	KindDNSTunnel   Kind = "dns_tunnel"  // long/random names, many TXT queries
 	KindEvilTwin    Kind = "evil_twin"   // same SSID, different BSSID/gateway
+	KindDHCPOption  Kind = "dhcp_option" // DHCP options that reroute traffic (121/249) or point at other services
+	KindRogueRA     Kind = "rogue_ra"    // second IPv6 router / odd router advertisement / second DHCPv6 server
+	KindDNSRebind   Kind = "dns_rebind"  // public name answered with a private address
+	KindNewIface    Kind = "new_iface"   // a network interface appeared that was not there at start
 	KindBan         Kind = "ban"         // a source was blocked
 	KindManual      Kind = "manual"      // ban reason: the user blocked it
 	KindUnban       Kind = "unban"       // a block was lifted
@@ -123,13 +127,18 @@ const (
 	FeatBeacon     = "beacon"
 	FeatDNSTunnel  = "dns_tunnel"
 	FeatEvilTwin   = "evil_twin"
+	FeatDHCPOption = "dhcp_option"
+	FeatRogueRA    = "rogue_ra"
+	FeatDNSRebind  = "dns_rebind"
+	FeatNewIface   = "new_iface"
 )
 
 // AllFeatures lists every feature in display order.
 var AllFeatures = []string{
 	FeatDecoy, FeatTarpit, FeatCowrie, FeatScan, FeatBrute, FeatReputation,
 	FeatFirstSeen, FeatARP, FeatDHCP, FeatDNS, FeatTLS, FeatBeacon,
-	FeatDNSTunnel, FeatEvilTwin,
+	FeatDNSTunnel, FeatEvilTwin, FeatDHCPOption, FeatRogueRA, FeatDNSRebind,
+	FeatNewIface,
 }
 
 // Feature is one switch: watch (detect and report) and block (act on it).
@@ -170,6 +179,15 @@ type Config struct {
 	// DNSProbe is the same switch for the active DNS check (queries to the
 	// network's resolvers and to a public resolver outside the tunnel).
 	DNSProbe string `json:"dns_probe,omitempty" toml:"dns_probe,omitempty"`
+	// RebindProtect switches the DNS rebind check of the DNS proxy on
+	// (default off). When on, answers for public names that carry private,
+	// loopback, link-local or CGNAT addresses are reported (feature
+	// dns_rebind); they are dropped only when that feature's Block switch is
+	// on too.
+	RebindProtect bool `json:"rebind_protect,omitempty" toml:"rebind_protect,omitempty"`
+	// RebindAllow lists domains (and their sub-domains) that may resolve to
+	// private addresses, e.g. a home server's name.
+	RebindAllow []string `json:"rebind_allow,omitempty" toml:"rebind_allow,omitempty"`
 }
 
 // DHCP probe modes.

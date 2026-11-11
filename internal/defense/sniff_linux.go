@@ -30,6 +30,7 @@ type Sensors struct {
 	Mark uint32
 
 	mu     sync.Mutex
+	ifw    *ifaceWatch // interfaces present at the first start
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -41,17 +42,19 @@ func (s *Sensors) SetEnv(env Env) {
 	s.mu.Lock()
 	s.cancel = cancel
 	s.mu.Unlock()
-	if env.Iface == "" {
-		return
-	}
 	run := func(f func()) {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); f() }()
+	}
+	run(func() { s.newIface(ctx) })
+	if env.Iface == "" {
+		return
 	}
 	recheck := make(chan struct{}, 1) // gateway MAC changed: ask the DNS question again now
 	run(func() { s.neighbours(ctx, env, recheck) })
 	run(func() { s.dhcp(ctx, env) })
 	run(func() { s.dhcpProbe(ctx, env) })
+	run(func() { s.routerAdverts(ctx, env) })
 	run(func() { s.once(ctx, env, recheck) })
 }
 
@@ -256,6 +259,7 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 	tv := unix.NsecToTimeval(int64(time.Second))
 	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
 	w := newDHCPWatch()
+	ow := newDHCPOptWatch()
 	buf := make([]byte, 2048)
 	for ctx.Err() == nil {
 		n, _, err := unix.Recvfrom(fd, buf, 0)
@@ -268,6 +272,11 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 		ihl := int(buf[0]&0xf) * 4
 		if n < ihl+8 || binary.BigEndian.Uint16(buf[ihl:]) != 67 {
 			continue
+		}
+		if info, ok := ParseDHCPOptions(buf[ihl+8 : n]); ok {
+			for _, ev := range ow.Feed(info) {
+				s.emit(FeatDHCPOption, ev)
+			}
 		}
 		srv, ok := ParseDHCPReply(buf[ihl+8 : n])
 		if !ok {

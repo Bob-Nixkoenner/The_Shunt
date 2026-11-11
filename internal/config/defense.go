@@ -97,6 +97,14 @@ func (c *Config) validateDefense() error {
 			return fmt.Errorf("defense.tls_targets: %q is no host name (no scheme, port or address)", h)
 		}
 	}
+	if len(d.RebindAllow) > 64 {
+		return fmt.Errorf("defense.rebind_allow: at most 64 entries")
+	}
+	for _, h := range d.RebindAllow {
+		if !validTLSHost(h) {
+			return fmt.Errorf("defense.rebind_allow: %q is no domain name (no scheme, port or address)", h)
+		}
+	}
 	for _, s := range d.Never {
 		if _, err := netip.ParsePrefix(s); err != nil {
 			if _, err2 := netip.ParseAddr(s); err2 != nil {

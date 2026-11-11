@@ -38,9 +38,10 @@ type dnsTrack struct {
 
 // dnsState is the Manager's DNS-side memory.
 type dnsState struct {
-	mu    sync.Mutex
-	keys  map[dnsKey]*dnsTrack
-	names map[netip.Addr]nameAt // addresses the proxy answered with
+	mu      sync.Mutex
+	keys    map[dnsKey]*dnsTrack
+	names   map[netip.Addr]nameAt // addresses the proxy answered with
+	rebound map[string]time.Time  // base domain -> last rebind event
 }
 
 type nameAt struct {
@@ -190,5 +191,6 @@ func (m *Manager) domainOf(a netip.Addr) string {
 func (m *Manager) forgetDNS() {
 	m.dns.mu.Lock()
 	m.dns.keys = nil
+	m.dns.rebound = nil
 	m.dns.mu.Unlock()
 }

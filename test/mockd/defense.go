@@ -48,6 +48,13 @@ func newMockDefense() *mockDefense {
 	for i, ev := range []defense.Event{
 		{Kind: defense.KindRogueDHCP, Severity: defense.SevHigh, Detail: "a second DHCP server answered on this network"},
 		{Kind: defense.KindEvilTwin, Severity: defense.SevHigh, Detail: "a known Wi-Fi name appears with a different gateway (possible evil twin)"},
+		{Kind: defense.KindDHCPOption, Severity: defense.SevHigh, Src: "192.0.2.254", Proto: "udp", Port: 67, Detail: "covers-default opts=3,6,121 routes=0.0.0.0/1,128.0.0.0/1 routeopt=121 (prefix 0.0.0.0/1 is shorter than /8)"},
+		{Kind: defense.KindDHCPOption, Severity: defense.SevInfo, Src: "192.0.2.1", Proto: "udp", Port: 67, Detail: "opts=3,6,15,42"},
+		{Kind: defense.KindRogueRA, Severity: defense.SevHigh, Src: "fe80::2", Proto: "icmpv6", Detail: "a second router advertises itself as default router and names DNS servers"},
+		{Kind: defense.KindRogueRA, Severity: defense.SevMedium, Src: "fe80::1", Proto: "icmpv6", Detail: "a prefix was announced with valid lifetime 0 (removes addresses)"},
+		{Kind: defense.KindDNSRebind, Severity: defense.SevMedium, Proto: "udp", Port: 53, Detail: "domain=rebind.example class=private action=reported"},
+		{Kind: defense.KindNewIface, Severity: defense.SevMedium, Detail: "new interface type=ethernet bus=usb driver=cdc_ether"},
+		{Kind: defense.KindNewIface, Severity: defense.SevHigh, Detail: "default route via a new interface type=ethernet bus=usb driver=cdc_ether"},
 		{Kind: defense.KindDNSHijack, Severity: defense.SevHigh, Detail: "port 53 to a public resolver is answered with other data (diverted)"},
 		{Kind: defense.KindBeacon, Severity: defense.SevLow, Src: "203.0.113.41", Port: 8443, Proto: "tcp", Detail: "app=sync-client interval=1m0s score=0.93"},
 		{Kind: defense.KindCowrie, Severity: defense.SevMedium, Src: "192.0.2.44", Port: 22, Proto: "tcp", Detail: "ssh client SSH-2.0-libssh_0.9"},
