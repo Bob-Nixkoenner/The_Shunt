@@ -254,3 +254,57 @@ func TestObserver(t *testing.T) {
 		t.Fatalf("observer saw %v", o.qs)
 	}
 }
+
+type aUpstream string
+
+func (a aUpstream) Exchange(_ context.Context, m *dns.Msg) (*dns.Msg, error) {
+	r := new(dns.Msg)
+	r.SetReply(m)
+	r.Answer = append(r.Answer, &dns.A{Hdr: dns.RR_Header{Name: m.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.ParseIP(string(a))})
+	return r, nil
+}
+func (a aUpstream) String() string { return "a" }
+
+type rebindRec struct {
+	obsRec
+	drop bool
+	seen []string
+}
+
+func (r *rebindRec) Rebind(name string, addrs []netip.Addr) bool {
+	r.seen = append(r.seen, name+" "+addrs[0].String())
+	return r.drop
+}
+
+// An observer that also implements Rebinder can have an answer dropped; a
+// plain observer and no observer leave the answer alone.
+func TestRebinder(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 1}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct}
+	p.upstreams = RouteUpstreams{"direct": {aUpstream("192.0.2.9")}}
+	q := new(dns.Msg)
+	q.SetQuestion("rebind.example.test.", dns.TypeA)
+	ask := func() *dns.Msg {
+		w := &fakeRW{}
+		p.serve(1, w, q)
+		return w.got
+	}
+	if r := ask(); len(r.Answer) != 1 {
+		t.Fatal("no observer")
+	}
+	p.Observer = &obsRec{}
+	if r := ask(); len(r.Answer) != 1 {
+		t.Fatal("plain observer")
+	}
+	rb := &rebindRec{}
+	p.Observer = rb
+	if r := ask(); len(r.Answer) != 1 || len(rb.seen) != 1 || rb.seen[0] != "rebind.example.test 192.0.2.9" {
+		t.Fatalf("report only: %v", rb.seen)
+	}
+	rb.drop = true
+	if r := ask(); len(r.Answer) != 0 || r.Rcode != dns.RcodeRefused {
+		t.Fatalf("dropped answer expected, got rcode %d with %d records", r.Rcode, len(r.Answer))
+	}
+}

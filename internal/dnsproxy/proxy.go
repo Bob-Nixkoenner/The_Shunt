@@ -83,6 +83,13 @@ type Observer interface {
 	Answer(name string, addrs []netip.Addr)
 }
 
+// Rebinder is an optional extra of an Observer: it judges an answered
+// address set and may ask the proxy to drop it (DNS rebind protection). An
+// Observer without it leaves the proxy unchanged.
+type Rebinder interface {
+	Rebind(name string, addrs []netip.Addr) (drop bool)
+}
+
 // FilterStats counts what the DNS filter blocked since the daemon started.
 type FilterStats struct {
 	Blocked uint64            `json:"blocked"`
@@ -478,6 +485,9 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 			}
 		}
 		if len(addrs) > 0 {
+			if rb, ok := o.(Rebinder); ok && rb.Rebind(name, addrs) {
+				return fail(r, dns.RcodeRefused)
+			}
 			o.Answer(name, addrs)
 		}
 	}
