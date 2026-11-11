@@ -1614,6 +1614,12 @@
   "{n} reachable from the internet": "{n} aus dem Internet erreichbar",
   "⚠ {n} port(s) can be reached from the internet: this device has a public address or the incoming protection is open. Programs: {names}.": "⚠ {n} Port(s) sind aus dem Internet erreichbar: Dieses Gerät hat eine öffentliche Adresse oder der Eingangsschutz ist offen. Programme: {names}.",
   "This device has a public address and nothing blocks incoming connections. Switch on “Incoming connections” (closed) in the app.": "Dieses Gerät hat eine öffentliche Adresse und nichts blockiert eingehende Verbindungen. Schalte „Eingehende Verbindungen“ (geschlossen) in der App ein.",
-  "This device has a public address. Incoming connections are blocked ({mode}); check from outside to be sure.": "Dieses Gerät hat eine öffentliche Adresse. Eingehende Verbindungen sind blockiert ({mode}); prüfe von außen, um sicher zu sein."
+  "This device has a public address. Incoming connections are blocked ({mode}); check from outside to be sure.": "Dieses Gerät hat eine öffentliche Adresse. Eingehende Verbindungen sind blockiert ({mode}); prüfe von außen, um sicher zu sein.",
+  "check a case archive (.tar.gz) or the evidence log: hash chain and manifest; reads files only, needs no service": "prüft ein Fall-Archiv (.tar.gz) oder das Beweis-Log: Hash-Kette und Manifest; liest nur Dateien, braucht den Dienst nicht",
+  "usage: shunt evidence verify <archive.tar.gz | directory>": "Aufruf: shunt evidence verify <Archiv.tar.gz | Verzeichnis>",
+  "note: {text}": "Hinweis: {text}",
+  "PROBLEM: {text}": "PROBLEM: {text}",
+  "evidence verify: FAILED, first problem at {where}": "evidence verify: FEHLGESCHLAGEN, erstes Problem bei {where}",
+  "evidence verify: OK ({lines} lines, {files} files)": "evidence verify: OK ({lines} Zeilen, {files} Dateien)"
  }
 }
