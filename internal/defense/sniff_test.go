@@ -165,3 +165,32 @@ func readFile(p string) (string, error) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+func TestParseLoggedPacket(t *testing.T) {
+	v4 := make([]byte, 24)
+	v4[0], v4[9] = 0x45, 6
+	copy(v4[12:], []byte{198, 51, 100, 9})
+	v4[22], v4[23] = 0x01, 0xbb // dport 443
+	a, pr, port, ok := ParseLoggedPacket(v4)
+	if !ok || a != netip.MustParseAddr("198.51.100.9") || pr != "tcp" || port != 443 {
+		t.Fatal(a, pr, port, ok)
+	}
+	v4[6] = 0x00
+	v4[7] = 0x08 // fragment offset
+	if _, _, _, ok := ParseLoggedPacket(v4); ok {
+		t.Fatal("later fragment")
+	}
+	v6 := make([]byte, 44)
+	v6[0], v6[6] = 0x60, 17
+	copy(v6[8:], netip.MustParseAddr("2001:db8::5").AsSlice())
+	v6[42], v6[43] = 0, 53
+	a, pr, port, ok = ParseLoggedPacket(v6)
+	if !ok || a != netip.MustParseAddr("2001:db8::5") || pr != "udp" || port != 53 {
+		t.Fatal(a, pr, port, ok)
+	}
+	for _, bad := range [][]byte{nil, {0x45}, v6[:20], {0x10, 0, 0, 0}} {
+		if _, _, _, ok := ParseLoggedPacket(bad); ok {
+			t.Fatal("garbage accepted")
+		}
+	}
+}

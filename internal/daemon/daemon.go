@@ -34,6 +34,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dhcphost"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
@@ -76,6 +77,7 @@ type Daemon struct {
 	// sockets names the programs behind sockets (DNS blocks per app, open ports).
 	sockets     sockets.Resolver
 	filter      *blocklist.Manager
+	def         defenseState // see defense.go
 	watcher     AppWatcher
 	startWarned bool       // the eBPF start guard failed (logged once)
 	startLogged bool       // the eBPF start guard loaded (logged once)
@@ -567,6 +569,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.filter = &blocklist.Manager{Dir: d.filterDir(), Log: d.Log, Client: d.downloadClient,
 		OnChange: func(f *blocklist.Filter) { d.proxy.SetFilter(f) }}
 
+	d.startDefense(ctx)
 	if err := d.reload(self); err != nil {
 		return err
 	}
@@ -844,6 +847,8 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.Log.Warn(n.Text())
 	}
 	d.cfg, d.plan, d.prep = p.Config, p.Plan, p
+	d.defenseApply(p.Config)
+	d.defenseNet(d.netInfo)
 	d.applyTCPTimestamps(p.Config.Daemon.TCPTimestamps)
 	wasPassing := d.passing
 	d.passing = d.ov.Passing(time.Now())
@@ -1039,6 +1044,7 @@ func (d *Daemon) checkNetwork() {
 	d.netInfo = info
 	if moved {
 		go d.probeCaptive()
+		d.defenseNet(info)
 		go d.applyNetPrivacy() // the profile in use may want another setting here
 		if d.prep != nil {     // allow_lan routes follow the attached networks
 			if err := d.syncRoutes(d.plan, d.ifaceUp(d.prep)); err != nil {
@@ -1207,6 +1213,7 @@ func (d *Daemon) probeCaptive() {
 		switch state {
 		case captive.Portal:
 			d.Log.Warn("Wi-Fi login page detected: tunnels cannot connect until you log in (shunt captive)", "page", login, "ssid", d.netInfo.SSID)
+			d.defenseReport(defense.Event{Kind: defense.KindObservation, Severity: defense.SevInfo, Detail: "captive portal: the network wants a login before it is open"})
 		case captive.Online:
 			if d.captive == captive.Portal {
 				d.Log.Info("Wi-Fi login done, network is open")
@@ -1369,6 +1376,7 @@ func (d *Daemon) routes() http.Handler {
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.status())
 	})
+	d.defenseRoutes(mux)
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		book := d.book
@@ -1884,7 +1892,8 @@ func (d *Daemon) status() api.Status {
 	ovs := d.ov.Status(time.Now())
 	st := api.Status{DefaultRoute: d.plan.DefaultRoute.String(), Panic: d.panic, PassLeft: ovs.PassLeft, TorAll: d.torAll, DNS: map[string][]string{},
 		Network: d.prep.Network, NetInfo: d.netInfo, Captive: d.captive, CaptiveURL: d.captiveURL,
-		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill}
+		Firewall: d.cfg.FirewallMode(d.prep.Network), Version: d.Version, PanicKill: d.cfg.Daemon.PanicKill,
+		Defense: d.defenseBrief()}
 	if d.fw != nil {
 		st.Pending = len(d.fw.List())
 	}
