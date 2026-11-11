@@ -16,9 +16,14 @@ func (c *Config) DefenseConfig() defense.Config {
 		return d
 	}
 	d := *c.Defense
-	if d.Features == nil {
-		d.Features = defense.DefaultConfig().Features
+	// Features the file does not mention keep their default (watch on, block
+	// off): a partial [defense.features.*] table must not silently switch
+	// the other sensors (ARP, DHCP, DNS, brute force ...) off.
+	f := defense.DefaultConfig().Features
+	for k, v := range d.Features {
+		f[k] = v
 	}
+	d.Features = f
 	if d.DecoyPorts == nil {
 		d.DecoyPorts = defense.DefaultConfig().DecoyPorts
 	}

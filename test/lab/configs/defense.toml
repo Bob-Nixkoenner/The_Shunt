@@ -30,3 +30,12 @@ watch = true
 [defense.features.scan]
 watch = true
 block = true
+[defense.features.brute]
+watch = true
+block = true
+[defense.features.arp]
+watch = true
+[defense.features.dhcp]
+watch = true
+[defense.features.dns]
+watch = true
