@@ -135,7 +135,8 @@ private fun App() {
                     ).filter { it.first != "Ports" || showPorts }.forEachIndexed { i, (label, icon) ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
-                            label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                            // big system font: the label stays at 11 dp, else six tabs do not fit and the words are cut off
+                            label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal, fontSize = if (bigFont()) with(LocalDensity.current) { 11.dp.toSp() } else androidx.compose.ui.unit.TextUnit.Unspecified) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
                                 selectedIconColor = c.accent, unselectedIconColor = c.muted,
