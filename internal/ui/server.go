@@ -478,6 +478,14 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("POST /api/defense/outside-scan", func(w http.ResponseWriter, r *http.Request) {
+		res, err := s.Client.DefenseOutsideScan()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, res)
+	})
 	mux.HandleFunc("POST /api/defense/unban", func(w http.ResponseWriter, r *http.Request) {
 		var req api.DefenseUnban
 		if !decode(w, r, &req) {

@@ -24,6 +24,7 @@ const defKindText = () => ({
   beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"),
   dhcp_option: T("DHCP options"), rogue_ra: T("Rogue IPv6 router"), dns_rebind: T("DNS rebind"), new_iface: T("New network interface"), ban: T("Blocked"),
   unban: T("Block lifted"), manual: T("Blocked by you"), net_enter: T("Network joined"), observation: T("Observation"),
+  exposed: T("Directly reachable from the internet"), outside: T("Outside check"),
 });
 // what each switch does: [name, one line]
 const defFeatText = () => ({
@@ -126,6 +127,9 @@ function defDetail(e) {
     if (d.startsWith("default route")) return T("A new network interface ({how}) got the default route", { how });
     return T("A new network interface appeared ({how}); the USB hint is a guess from system files", { how });
   }
+  if (kv.more && !kv.app && e.kind !== "outside") return T("{n} more of the same kind in a short time (folded into one line)", { n: kv.more });
+  if (e.kind === "exposed" && kv.inbound) return defExposedText(kv.inbound, (kv.public || "").split(","));
+  if (e.kind === "outside") return defOutsideText(d);
   let m;
   switch (e.kind) {
     case "rogue_ra":
@@ -188,6 +192,34 @@ function defDetail(e) {
   return d;
 }
 
+// the warning for a device with a public address; stronger when nothing filters
+function defExposedText(inbound, fams) {
+  const f = fams.filter(Boolean).map((x) => x === "v6" ? "IPv6" : "IPv4").join(" + ") || "IPv4";
+  if (inbound === "open" || inbound === "off") {
+    return T("This device has a public address ({fam}) and is reachable directly from the internet. Nothing blocks incoming connections ({mode}): every program that listens can be attacked. Switch on “Incoming connections” (closed) under Configure → Privacy and protection.", { fam: f, mode: inbound === "off" ? T("protection off") : T("open") });
+  }
+  return T("This device has a public address ({fam}) and is reachable directly from the internet. Incoming connections are limited ({mode}); check from outside to be sure.", { fam: f, mode: inbound });
+}
+// "open v4=22,80 v6=none" in words
+function defOutsideText(d) {
+  const parts = d.replace(/^open /, "").split(" ").filter(Boolean).map((x) => {
+    const [fam, v] = x.split("=");
+    const nm = fam === "v6" ? "IPv6" : "IPv4";
+    return v === "none" ? T("{fam}: nothing answers", { fam: nm }) : v === "error" ? T("{fam}: check failed", { fam: nm }) : T("{fam}: ports {ports} answer", { fam: nm, ports: v });
+  });
+  return parts.join(" · ");
+}
+// red plaque, on the tile and in the tab
+function defExposedBadge() {
+  const x = defSt && defSt.exposed;
+  if (!defSt || !defSt.enabled || !x || !(x.v4 || x.v6)) return null;
+  const strong = x.inbound === "open" || x.inbound === "off";
+  return el("div", { class: "banner bad", role: "alert", style: "margin:8px 0" },
+    el("b", {}, "⚠ " + T("Directly reachable from the internet")), " ",
+    defExposedText(x.inbound || "off", [x.v4 ? "v4" : "", x.v6 ? "v6" : ""]),
+    );
+}
+
 // defInterval shows a Go duration ("1m0s", "45s", "1h0m0s") as "1 min" / "45 s".
 function defInterval(v) {
   const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(v);
@@ -217,7 +249,7 @@ function renderDefense() {
   if (!defSt) {
     $("#def-thermo").replaceChildren(el("div", { class: "muted" }, T("The service has no defense module yet.")));
     $("#def-feats").replaceChildren(); $("#def-bans").replaceChildren(); $("#def-events").replaceChildren();
-    $("#def-class").replaceChildren(); $("#def-notes").textContent = "";
+    $("#def-class").replaceChildren(); $("#def-notes").textContent = ""; $("#def-exposed").replaceChildren();
     $("#def-on").disabled = true; $("#def-unban-all").hidden = true;
     return;
   }
@@ -231,7 +263,12 @@ function renderDefense() {
   else if (defSt.class === "managed") notes.push(T("Managed network: watching only, no decoys."));
   else if ((defSt.decoys || []).length) notes.push(T("Decoys listen on: {ports}", { ports: defSt.decoys.join(", ") }));
   if (defSt.unsupported) notes.push(defSt.unsupported);
+  const exp = defSt.exposed && (defSt.exposed.v4 || defSt.exposed.v6);
+  if (on && exp && !(defSt.config && defSt.config.decoys_when_exposed)) notes.push(T("Decoys stay off here: with a public address they would be real attack surface."));
   $("#def-notes").textContent = notes.join(" ");
+  const badge = defExposedBadge();
+  $("#def-exposed").replaceChildren(...(badge ? [badge] : []), ...(on && exp ? [defDecoyChoice()] : []));
+  renderOutside();
   // heat
   $("#def-thermo").replaceChildren(defThermo(defSt, false));
   // switches
@@ -250,7 +287,7 @@ function renderDefense() {
   const bans = defSt.bans || [];
   $("#def-unban-all").hidden = !bans.length;
   $("#def-bans").replaceChildren(...(bans.length ? bans.map((b) => el("tr", {},
-    el("td", { class: "mono" }, el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(b.src) }, b.src)),
+    el("td", { class: "mono" }, b.src.includes("/") ? el("span", { title: T("A whole range, blocked because many addresses in it attacked") }, b.src) : el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(b.src) }, b.src)),
     el("td", {}, defKindText()[b.reason] || b.reason, " ", el("span", { class: "muted" }, defLeft(b.expires))),
     el("td", { style: "text-align:right" }, el("button", { onclick: () => defUnban(b.src) }, "Unblock"), " ", el("button", { onclick: () => defAllow(b.src) }, T("Always allow")))))
     : [el("tr", {}, el("td", { class: "muted" }, "No address is blocked."))]));
@@ -317,6 +354,46 @@ async function defAllow(src) {
   await defUnban(src);
 }
 
+function defDecoyChoice() {
+  const box = el("input", { type: "checkbox", onchange: () => {
+    const cfg = JSON.parse(JSON.stringify(defSt.config));
+    cfg.decoys_when_exposed = box.checked;
+    defSend(cfg);
+  } });
+  box.checked = !!(defSt.config && defSt.config.decoys_when_exposed);
+  return el("label", { class: "row muted", style: "margin:4px 0" }, box, " ", T("Run the decoys anyway (not recommended with a public address)"));
+}
+
+// the outside check: your own server connects back and lists answering ports
+function renderOutside() {
+  const o = (defSt.config && defSt.config.outside_scan) || {};
+  const x = defSt.exposed || {};
+  const exp = !!(x.v4 || x.v6);
+  const act = document.activeElement;
+  if (act !== $("#out-host") && act !== $("#out-token")) { $("#out-host").value = o.host || ""; $("#out-token").value = o.token || ""; }
+  $("#out-on").checked = !!o.enabled;
+  $("#out-run").disabled = !(o.enabled && o.host && exp) || defOutBusy;
+  $("#out-msg").textContent = !exp ? T("This device has no public address: there is nothing to check from outside.") : !o.enabled || !o.host ? T("Enter your server and allow the check first.") : "";
+  const r = defSt.outside;
+  $("#out-res").replaceChildren(...(r ? [el("div", {}, T("Last check {when}", { when: defAge(r.time) })),
+    ...(r.checks || []).map((c) => el("div", { class: c.error ? "" : (c.open || []).length ? "banner bad" : "", style: c.error ? "color:var(--bad)" : "" },
+      el("b", {}, c.family === "v6" ? "IPv6: " : "IPv4: "),
+      c.error ? c.error : (c.open || []).length ? T("answering from the internet: {ports}", { ports: c.open.join(", ") }) : T("no port answers from the internet")))] : []));
+}
+let defOutBusy = false;
+$("#out-save").addEventListener("click", () => {
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  cfg.outside_scan = { enabled: $("#out-on").checked, host: $("#out-host").value.trim(), token: $("#out-token").value };
+  defSend(cfg);
+});
+$("#out-run").addEventListener("click", async () => {
+  if (!(await ask(T("Your own server will now connect to this device's public address and try a list of ports. Only do this with a server you run yourself. Continue?"), { ok: T("Check") }))) return;
+  defOutBusy = true; renderOutside(); $("#out-msg").textContent = T("Checking … this can take a minute.");
+  try { await api("POST", "/api/defense/outside-scan", {}); } catch (e) { toast(T("Nothing was checked: {error}", { error: e.message })); }
+  defOutBusy = false;
+  await loadDefense();
+});
+
 // the tile on the overview: gauge and the last five events
 function renderDefTile() {
   const sum = $("#def-sum");
@@ -331,7 +408,8 @@ function renderDefTile() {
   const fsN = (defSt.counts || {}).first_seen | 0;
   const bans = (defSt.bans || []).length;
   sum.textContent = bans ? Tn(bans, "{n} address blocked", "{n} addresses blocked") : "";
-  $("#def-tile").replaceChildren(el("div", { class: "deftile" },
+  const tb = defExposedBadge();
+  $("#def-tile").replaceChildren(...(tb ? [tb] : []), el("div", { class: "deftile" },
     el("div", {}, defThermo(defSt, true)),
     el("div", { class: "evlist", style: "max-height:none" }, ...(last.length ? last.map((e) => defEventRow(e, true)) : [el("div", { class: "muted" }, "Nothing seen yet.")]),
       fsN ? el("div", { class: "muted" }, Tn(fsN, "{n} new destination noted in this network", "{n} new destinations noted in this network")) : "")));

@@ -1,6 +1,7 @@
 package defense
 
 import (
+	"net/netip"
 	"sort"
 	"sync"
 	"time"
@@ -12,10 +13,15 @@ import (
 type Bans struct {
 	mu      sync.Mutex
 	m       map[string]Ban
+	Max     int // hard cap on the table (0 = DefaultMaxBans); the soonest-expiring entry makes room
 	now     func() time.Time
 	OnBan   func(Ban)
 	OnUnban func(Ban)
 }
+
+// DefaultMaxBans is the hard cap of the ban table: a flood from many sources
+// (masscan, botnet) must not grow memory or the firewall set without limit.
+const DefaultMaxBans = 4096
 
 // NewBans returns an empty table.
 func NewBans() *Bans { return &Bans{m: map[string]Ban{}, now: time.Now} }
@@ -34,10 +40,31 @@ func (b *Bans) Add(src string, reason Kind, d time.Duration) (Ban, bool) {
 		b.mu.Unlock()
 		return ban, false
 	}
+	max := b.Max
+	if max <= 0 {
+		max = DefaultMaxBans
+	}
+	var evicted []Ban
+	for len(b.m) >= max {
+		var oldest string
+		var at time.Time
+		for k, v := range b.m {
+			if oldest == "" || v.Expires.Before(at) || (v.Expires.Equal(at) && k < oldest) {
+				oldest, at = k, v.Expires
+			}
+		}
+		evicted = append(evicted, b.m[oldest])
+		delete(b.m, oldest)
+	}
 	ban = Ban{Src: src, Reason: reason, Since: now, Expires: now.Add(d)}
 	b.m[src] = ban
-	cb := b.OnBan
+	cb, un := b.OnBan, b.OnUnban
 	b.mu.Unlock()
+	if un != nil {
+		for _, v := range evicted {
+			un(v)
+		}
+	}
 	if cb != nil {
 		cb(ban)
 	}
@@ -103,4 +130,45 @@ func (b *Bans) List() []Ban {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Src < out[j].Src })
 	return out
+}
+
+// RangeOf is the block range of a: /24 for IPv4, /64 for IPv6.
+func RangeOf(a netip.Addr) netip.Prefix {
+	a = a.Unmap()
+	bits := 64
+	if a.Is4() {
+		bits = 24
+	}
+	p, _ := a.Prefix(bits)
+	return p
+}
+
+// Covered reports whether a range ban (CIDR entry) covers a.
+func (b *Bans) Covered(a netip.Addr) bool {
+	r := RangeOf(a).String()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ban, ok := b.m[r]
+	return ok && b.now().Before(ban.Expires)
+}
+
+// InRange lists the single-address bans inside p.
+func (b *Bans) InRange(p netip.Prefix) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []string
+	for k := range b.m {
+		if a, err := netip.ParseAddr(k); err == nil && p.Contains(a) {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Len is the number of entries (single addresses and ranges).
+func (b *Bans) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.m)
 }

@@ -11,7 +11,9 @@ import (
 )
 
 // Current looks at the default IPv4 route of the main table and its gateway.
-func Current() Info {
+func Current() Info { return WithPublic(current()) }
+
+func current() Info {
 	var info Info
 	routes, err := netlink.RouteListFiltered(netlink.FAMILY_V4, &netlink.Route{Table: unix.RT_TABLE_MAIN}, netlink.RT_FILTER_TABLE)
 	if err != nil {

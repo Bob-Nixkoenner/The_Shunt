@@ -36,6 +36,20 @@ func parsePrefix(s string) (netip.Prefix, bool) {
 	return netip.Prefix{}, false
 }
 
+// Overlaps reports whether any entry overlaps p (a range must never swallow one).
+func (n *NeverSet) Overlaps(p netip.Prefix) bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, l := range [][]netip.Prefix{n.cfg, n.auto} {
+		for _, q := range l {
+			if q.Overlaps(p) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SetConfig replaces the configured entries.
 func (n *NeverSet) SetConfig(p []netip.Prefix) { n.mu.Lock(); n.cfg = p; n.mu.Unlock() }
 

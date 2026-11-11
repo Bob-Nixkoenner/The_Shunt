@@ -15,6 +15,70 @@ profile, counts as `public`.
 | managed | off | everything |
 | trusted | off | everything (quiet) |
 
+### Exposed: a public address on the uplink
+
+Next to the class there is a trait, "exposed": an address of the uplink interface is neither private
+(RFC 1918, ULA `fc00::/7`), link-local, loopback nor carrier-grade NAT (`100.64.0.0/10`) for IPv4, or a
+global unicast address (`2000::/3`) for IPv6 (`netdetect.Info.PublicV4/PublicV6`, found per interface,
+platform neutral; the documentation ranges count as public so tests can use them). It is independent of
+the class: a trusted home network can have a public address too, and the machine behind a modem in
+DMZ mode, a phone or a laptop with its own SIM is directly reachable.
+
+Behaviour while exposed (`Status.exposed = {v4, v6, inbound}`):
+
+- On entering (and when the inbound mode changes while exposed) the event `exposed` (severity high) says the
+  device is directly reachable, naming the inbound mode of the profile in effect (`closed`, `lan`, `open` or
+  `off` = The Shunt does not filter). `open`/`off` counts double for the heat and the text is stronger. The UI
+  shows a red plaque "Directly reachable from the internet" on the overview tile and the Defense tab; the
+  tray app notifies (urgent when nothing filters). The warning needs the defense to be on.
+- Decoys are **off**, also in a public class, unless `defense.decoys_when_exposed = true`: with a public
+  address a decoy is real attack surface. (Hardening the decoys against exploits comes first.)
+- Limits: events of one kind and source within 30 s are folded into the first one plus a line
+  `more=N` (rare important kinds like ARP, DNS, TLS are never folded; heat and report counts still see
+  every event; at most 2048 sources are tracked, beyond that events are only counted). Blocks go per range once
+  4 addresses of one /24 (IPv4) or /64 (IPv6) are blocked (not if the range holds a never-block address such
+  as the gateway). The ban table is capped at 4096 entries (the soonest-expiring one makes room). The
+  event ring keeps 1000 events. The nft block sets are interval sets so a range is one element.
+
+### Outside check (your own server)
+
+`[defense.outside_scan] enabled = true, host = "https://…/outside-scan", token = "…"`; off by default.
+`POST /v1/defense/outside-scan` (manage permission) and the UI button "Check from outside (only with your own
+server)" send one request, on the physical link outside any tunnel (bypass mark; per family that has a public
+address), to that server. The client sends no target and no port list. The server
+(`tools/outside-scan.sh`, run as CGI behind nginx+fcgiwrap or as an ssh forced command) connects back to the
+**source address of the request only**, tries a fixed port list (at most 100, `nmap -Pn`, rate 100 packets/s,
+60 s) and answers `{"addr":…,"open":[…],"scanned":N}`. The client refuses an answer whose address is not one
+of this machine's own interface addresses, whose family does not match or that lists more than 100 or invalid
+ports; the result is shown in the Defense tab and recorded as the event `outside` (high when ports answer).
+Only your own server: the script refuses private/CGNAT/loopback sources, needs the token, and scans one address
+per minute at most.
+
+Server set-up (not done by The Shunt; example for a Debian container with a public address):
+`apt install nmap fcgiwrap nginx`, copy the script to `/usr/local/bin/outside-scan.sh`, create
+`/var/lib/outside-scan` (owner of the fcgiwrap user), and in nginx
+
+```
+location = /outside-scan {
+    include fastcgi_params;
+    fastcgi_pass unix:/run/fcgiwrap.socket;
+    fastcgi_param SCRIPT_FILENAME /usr/local/bin/outside-scan.sh;
+    fastcgi_param OUTSIDE_SCAN_TOKEN "change-me";   # same as defense.outside_scan.token
+    # nginx must be the first hop: REMOTE_ADDR has to be the client's own address (no proxy in front)
+}
+```
+
+nmap needs no root for a connect scan (`-sT` is used implicitly without privileges); with CAP_NET_RAW it uses SYN.
+ssh variant: `command="OUTSIDE_SCAN_TOKEN=… /usr/local/bin/outside-scan.sh",restrict` in `authorized_keys` (the
+script reads `SSH_CLIENT`); that variant is for manual tests, the client speaks HTTP only.
+
+### Open ports (Port monitor)
+
+`GET /v1/listening` marks a port `public` (red in the UI, with the program name) when it waits on all or a public
+address, is not blocked or LAN-only by the inbound protection, and either nothing filters (inbound `open`/off) or
+the uplink has a public address. A port that the closed inbound mode blocks is not red; the outside check is the
+proof. Linux only: Windows and Android have no port list (the UI says so and points to the outside check).
+
 ## What runs where
 
 - Decoys (`internal/defense`): TCP listeners on `decoy_ports`, bound to the physical uplink
@@ -179,4 +243,4 @@ DNS proxy runs with the defense.
 
 `GET /v1/defense`, `GET /v1/defense/events?since=N` (or `?src=<ip>`), `GET /v1/defense/reports[?export=1]`,
 `POST /v1/defense/config`, `POST /v1/defense/ban`, `POST /v1/defense/unban` (config, ban and unban need the manage permission). `GET /v1/status` carries
-`defense: {heat, level, class}` while the defense is on.
+`defense: {heat, level, class, exposed, exposed_inbound}` while the defense is on. `POST /v1/defense/outside-scan` runs the outside check (manage permission; 409 when off or no public address, 429 while one runs).

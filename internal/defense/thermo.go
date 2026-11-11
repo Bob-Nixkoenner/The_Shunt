@@ -2,6 +2,7 @@ package defense
 
 import (
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -92,7 +93,11 @@ func (t *Thermo) Add(ev Event) {
 	defer t.mu.Unlock()
 	t.decay(t.now())
 	t.counts[ev.Kind]++
-	t.raw += eventPoints(ev.Kind, ev.Severity) * ClassFactor(t.class)
+	p := eventPoints(ev.Kind, ev.Severity) * ClassFactor(t.class)
+	if ev.Kind == KindExposed && !strings.Contains(ev.Detail, "inbound=closed") && !strings.Contains(ev.Detail, "inbound=lan") {
+		p *= 2 // nothing stops the internet: open or not filtered
+	}
+	t.raw += p
 }
 
 // Heat returns 0-100.

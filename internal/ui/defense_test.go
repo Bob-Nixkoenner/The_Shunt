@@ -64,6 +64,12 @@ func fakeDaemon(t *testing.T) (sock string, got *[]string) {
 		rec = append(rec, "unban "+u.Src)
 		mu.Unlock()
 	})
+	mux.HandleFunc("/v1/defense/outside-scan", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rec = append(rec, "outside "+r.Method)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(defense.OutsideResult{Checks: []defense.OutsideCheck{{Family: "v4", Open: []int{22}}}})
+	})
 	srv := &http.Server{Handler: mux}
 	go srv.Serve(ln)
 	t.Cleanup(func() { srv.Close() })
@@ -121,7 +127,11 @@ func TestDefenseRoutes(t *testing.T) {
 	if w = do("POST", "/api/defense/unban", `{"src":"198.51.100.9"}`); w.Code != 200 {
 		t.Fatalf("unban: %d %s", w.Code, w.Body)
 	}
-	want := []string{"events since=5", "events src=192.0.2.5", "config 192.0.2.1", "reports ", "reports export=1", "ban 203.0.113.4", "unban 198.51.100.9"}
+	w = do("POST", "/api/defense/outside-scan", `{}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"open":[22]`) {
+		t.Fatalf("outside-scan: %d %s", w.Code, w.Body)
+	}
+	want := []string{"events since=5", "events src=192.0.2.5", "config 192.0.2.1", "reports ", "reports export=1", "ban 203.0.113.4", "unban 198.51.100.9", "outside POST"}
 	if strings.Join(*got, "|") != strings.Join(want, "|") {
 		t.Fatalf("daemon got %v, want %v", *got, want)
 	}

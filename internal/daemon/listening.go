@@ -9,6 +9,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 )
 
@@ -26,6 +27,7 @@ func (d *Daemon) listening() api.Listening {
 	if d.prep != nil {
 		out.Network = d.prep.Network
 	}
+	out.PublicV4, out.PublicV6 = d.netInfo.PublicV4, d.netInfo.PublicV6
 	if d.plan != nil {
 		out.Uplinks = slices.Clone(d.plan.LinkIfaces)
 		for _, r := range d.plan.Routes {
@@ -93,10 +95,17 @@ func (d *Daemon) listening() api.Listening {
 				p.Blocked = !p.LANOnly
 			}
 		}
+		// reachable from the internet: waits on every or on a public
+		// address, is not blocked, and either nothing filters (open/off) or
+		// the uplink itself is public
+		p.Public = reachableFromInternet(p, a, in == nil || in.Mode == config.InboundOpen, out.PublicV4 || out.PublicV6)
 		out.Ports = append(out.Ports, p)
 	}
 	sort.SliceStable(out.Ports, func(i, j int) bool {
 		a, b := out.Ports[i], out.Ports[j]
+		if a.Public != b.Public {
+			return a.Public
+		}
 		if a.Exposed != b.Exposed {
 			return a.Exposed
 		}
@@ -140,4 +149,12 @@ func ifaceAddrs() (map[netip.Addr]string, map[int]string, []string) {
 		}
 	}
 	return byAddr, byIndex, phys
+}
+
+// reachableFromInternet: p waits on every or on a public address, is not
+// blocked (or LAN-only), and either nothing filters (unfiltered: inbound open
+// or off) or the uplink itself has a public address.
+func reachableFromInternet(p api.OpenPort, a netip.Addr, unfiltered, publicUplink bool) bool {
+	pubBound := p.Reach == "all" || netdetect.IsPublicV4(a) || netdetect.IsPublicV6(a)
+	return p.Exposed && !p.Blocked && !p.LANOnly && pubBound && (unfiltered || publicUplink)
 }

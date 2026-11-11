@@ -63,6 +63,8 @@ const (
 	KindUnban       Kind = "unban"       // a block was lifted
 	KindNetEnter    Kind = "net_enter"   // network joined (class in Detail)
 	KindObservation Kind = "observation" // passive finding (broadcast chatter, captive portal, ...)
+	KindExposed     Kind = "exposed"     // the uplink has a public address: directly reachable from the internet
+	KindOutside     Kind = "outside"     // result of the outside check (ports that answer from the internet)
 )
 
 // Severity of an event. It feeds the heat gauge.
@@ -188,6 +190,24 @@ type Config struct {
 	// RebindAllow lists domains (and their sub-domains) that may resolve to
 	// private addresses, e.g. a home server's name.
 	RebindAllow []string `json:"rebind_allow,omitempty" toml:"rebind_allow,omitempty"`
+	// DecoysWhenExposed lets the decoys run although the uplink has a public
+	// address (default false: a decoy there is real attack surface).
+	DecoysWhenExposed bool `json:"decoys_when_exposed,omitempty" toml:"decoys_when_exposed,omitempty"`
+	// OutsideScan configures the check from outside against your own server.
+	OutsideScan OutsideScanConfig `json:"outside_scan" toml:"outside_scan"`
+}
+
+// OutsideScanConfig is [defense.outside_scan]: a server of your own (see
+// tools/outside-scan.sh) that connects back to this machine's public
+// address and reports which ports answer. Off by default; it can only ever
+// be asked about the address the request came from.
+type OutsideScanConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+	// Host is the https:// (or http:// on a trusted path) URL of the check
+	// endpoint, e.g. "https://scan.example.net/outside-scan".
+	Host string `json:"host,omitempty" toml:"host,omitempty"`
+	// Token is the shared secret the endpoint expects (header X-Shunt-Token).
+	Token string `json:"token,omitempty" toml:"token,omitempty"`
 }
 
 // DHCP probe modes.
@@ -238,10 +258,24 @@ type Ban struct {
 	Expires time.Time `json:"expires"`
 }
 
+// Exposure says whether the uplink has a public address. It is a trait on
+// top of the class: a trusted network at home can have one too.
+type Exposure struct {
+	V4 bool `json:"v4"`
+	V6 bool `json:"v6"`
+	// Inbound is the incoming protection in effect on this network:
+	// "closed", "lan", "open" or "off" (The Shunt does not filter).
+	Inbound string `json:"inbound,omitempty"`
+}
+
+// Any reports whether either family is public.
+func (e Exposure) Any() bool { return e.V4 || e.V6 }
+
 // Status is what /v1/defense returns.
 type Status struct {
 	Enabled bool         `json:"enabled"`
 	Class   Class        `json:"class"`
+	Exposed Exposure     `json:"exposed"`
 	Heat    int          `json:"heat"` // 0-100
 	Level   Level        `json:"level"`
 	Decoys  []int        `json:"decoys"` // ports currently listening
@@ -251,6 +285,8 @@ type Status struct {
 	Config  Config       `json:"config"`
 	// Sources is the state of every list (also the ones that are off).
 	Sources []SourceInfo `json:"sources"`
+	// Outside is the last outside check (nil = none yet).
+	Outside *OutsideResult `json:"outside,omitempty"`
 	// Unsupported is set when this platform lacks parts (reason text).
 	Unsupported string `json:"unsupported,omitempty"`
 }
@@ -283,6 +319,10 @@ type Engine interface {
 	// SetNetwork tells the engine which network the machine is in now.
 	// key identifies the network locally (never logged or sent anywhere).
 	SetNetwork(key string, class Class)
+	// SetExposure tells the engine whether the uplink has a public address.
+	SetExposure(e Exposure)
+	// SetOutside records an outside-check result.
+	SetOutside(r OutsideResult)
 	Configure(cfg Config)
 	Status() Status
 	Events(since uint64) EventsResponse

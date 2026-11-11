@@ -50,6 +50,10 @@ type View struct {
 	// DefHeat and DefLevel: the defense gauge ("" level = defense off).
 	DefHeat  int
 	DefLevel defense.Level
+	// DefExposed: the uplink has a public address; DefInbound is the
+	// incoming protection then in effect (closed | lan | open | off).
+	DefExposed bool
+	DefInbound string
 }
 
 // Compute derives the view from a status (err != nil: daemon unreachable).
@@ -62,6 +66,7 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	v.Pending = st.Pending
 	if st.Defense != nil {
 		v.DefHeat, v.DefLevel = st.Defense.Heat, st.Defense.Level
+		v.DefExposed, v.DefInbound = st.Defense.Exposed, st.Defense.ExposedInbound
 		if !defRank(v.DefLevel).known() { // an unknown word: trust the number
 			v.DefLevel = defense.LevelFor(v.DefHeat)
 		}
@@ -227,6 +232,13 @@ func Diff(prev, cur View, first bool) []Notification {
 	for n := range prev.Down {
 		if !cur.Down[n] && reachable(cur) {
 			out = append(out, Notification{i18n.T("Tunnel {name} is back", "name", n), "", false})
+		}
+	}
+	if cur.DefExposed && !prev.DefExposed {
+		if cur.DefInbound == "open" || cur.DefInbound == "off" {
+			out = append(out, Notification{i18n.T("Directly reachable from the internet"), i18n.T("This device has a public address and nothing blocks incoming connections. Switch on “Incoming connections” (closed) in the app."), true})
+		} else {
+			out = append(out, Notification{i18n.T("Directly reachable from the internet"), i18n.T("This device has a public address. Incoming connections are blocked ({mode}); check from outside to be sure.", "mode", cur.DefInbound), false})
 		}
 	}
 	out = append(out, defenseNote(prev, cur)...)

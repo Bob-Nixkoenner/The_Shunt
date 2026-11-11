@@ -49,6 +49,9 @@ func (c *Config) validateDefense() error {
 	if !defense.ValidProbeMode(d.DNSProbe) {
 		return fmt.Errorf("defense.dns_probe %q (auto, on or off)", d.DNSProbe)
 	}
+	if err := defense.ValidateOutsideScan(d.OutsideScan); err != nil {
+		return err
+	}
 	known := map[string]bool{}
 	for _, n := range defense.AllFeatures {
 		known[n] = true

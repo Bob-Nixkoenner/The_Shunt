@@ -90,6 +90,12 @@ route = "tunnel:vps"
 # rebind_protect = false          # DNS rebind check in the DNS proxy: public names answered with private
 #                                 # addresses are reported (dropped only with block = true on dns_rebind)
 # rebind_allow   = ["home.example.org"]  # names (and sub-domains) that may resolve to private addresses
+# decoys_when_exposed = false     # decoys also when the uplink has a public address (default: off, they would be
+#                                 # real attack surface there)
+# [defense.outside_scan]          # "Check from outside": YOUR OWN server connects back (see tools/outside-scan.sh)
+# enabled = false
+# host    = "https://scan.example.net/outside-scan"
+# token   = ""                    # shared secret (header X-Shunt-Token)
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 #                                 #   dhcp_option rogue_ra dns_rebind new_iface (these four only report)

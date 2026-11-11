@@ -19,15 +19,20 @@ import (
 
 var fixedHeat = -1 // -heat: >= 0 pins the gauge
 
+// -exposed: "" (not exposed), "open" or "closed": the uplink has a public
+// address and the incoming protection is that mode
+var exposedMode string
+
 type mockDefense struct {
-	mu     sync.Mutex
-	start  time.Time
-	last   time.Time
-	events []defense.Event
-	bans   []defense.Ban
-	cfg    defense.Config
-	seq    uint64
-	rng    uint32
+	mu      sync.Mutex
+	start   time.Time
+	last    time.Time
+	events  []defense.Event
+	bans    []defense.Ban
+	cfg     defense.Config
+	outside *defense.OutsideResult
+	seq     uint64
+	rng     uint32
 }
 
 var dfn = newMockDefense()
@@ -43,6 +48,10 @@ func newMockDefense() *mockDefense {
 		m.add(time.Now().Add(-time.Duration(90-i*12)*time.Second), m.pick())
 	}
 	m.add(time.Now().Add(-20*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=feodo"})
+	if exposedMode != "" {
+		m.add(time.Now().Add(-25*time.Second), defense.Event{Kind: defense.KindExposed, Severity: defense.SevHigh, Detail: "inbound=" + exposedMode + " public=v4"})
+		m.add(time.Now().Add(-24*time.Second), defense.Event{Kind: defense.KindScan, Severity: defense.SevMedium, Src: "203.0.113.8", Detail: "more=57"})
+	}
 	m.add(time.Now().Add(-10*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=sslbl_ja3 ja3=e7d705a3286e19ea42f587b344ee6865"})
 	// one example of every remaining kind, so the visual check shows all of them
 	for i, ev := range []defense.Event{
@@ -176,7 +185,12 @@ func (m *mockDefense) status() defense.Status {
 	if m.cfg.Enabled && defense.ClassPublic.Decoys() {
 		decoys = m.cfg.DecoyPorts
 	}
-	return defense.Status{Enabled: m.cfg.Enabled, Class: defense.ClassPublic, Heat: h, Level: defense.LevelFor(h),
+	var expo defense.Exposure
+	if exposedMode != "" {
+		expo = defense.Exposure{V4: true, Inbound: exposedMode}
+		decoys = []int{}
+	}
+	return defense.Status{Enabled: m.cfg.Enabled, Class: defense.ClassPublic, Exposed: expo, Outside: m.outside, Heat: h, Level: defense.LevelFor(h),
 		Decoys: decoys, Bans: append([]defense.Ban{}, m.bans...), Counts: counts, LastSeq: m.seq, Config: m.cfg, Sources: m.sources()}
 }
 
@@ -185,7 +199,7 @@ func (m *mockDefense) brief() *api.DefenseBrief {
 	if !st.Enabled {
 		return nil
 	}
-	return &api.DefenseBrief{Heat: st.Heat, Level: st.Level, Class: st.Class}
+	return &api.DefenseBrief{Heat: st.Heat, Level: st.Level, Class: st.Class, Exposed: st.Exposed.Any(), ExposedInbound: st.Exposed.Inbound}
 }
 
 func (m *mockDefense) handle(mux *http.ServeMux) {
@@ -212,6 +226,21 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 			}
 		}
 		js(w, defense.EventsResponse{Events: out, LastSeq: m.seq})
+	})
+	mux.HandleFunc("POST /v1/defense/outside-scan", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if exposedMode == "" || !m.cfg.OutsideScan.Enabled {
+			http.Error(w, `{"error":"the outside check is off or there is no public address"}`, http.StatusConflict)
+			return
+		}
+		res := defense.OutsideResult{Time: time.Now(), Checks: []defense.OutsideCheck{{Family: "v4", Open: []int{}, Scanned: 39}}}
+		if exposedMode == "open" {
+			res.Checks[0].Open = []int{22, 8080}
+		}
+		m.outside = &res
+		m.add(time.Now(), defense.Event{Kind: defense.KindOutside, Severity: defense.SevHigh, Detail: "open v4=22,8080"})
+		js(w, res)
 	})
 	mux.HandleFunc("POST /v1/defense/config", func(w http.ResponseWriter, r *http.Request) {
 		var c defense.Config

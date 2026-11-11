@@ -1036,7 +1036,7 @@ func (d *Daemon) checkNetwork() {
 			}
 		}
 	}
-	moved := info.Key() != d.netInfo.Key()
+	moved := info.Key() != d.netInfo.Key() || info.Exposure() != d.netInfo.Exposure()
 	if relink {
 		d.Log.Info("connections changed", "links", ls.Names())
 		d.netRetry = true // reload below

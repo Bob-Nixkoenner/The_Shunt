@@ -220,3 +220,21 @@ func TestDefenseNotifications(t *testing.T) {
 		t.Errorf("first view is not announced: %+v", got)
 	}
 }
+
+func TestExposedNotification(t *testing.T) {
+	mk := func(exposed bool, inbound string) View {
+		now := time.Now()
+		st := status(false, time.Second, now)
+		st.Defense = &api.DefenseBrief{Heat: 5, Level: defense.LevelQuiet, Class: defense.ClassTrusted, Exposed: exposed, ExposedInbound: inbound}
+		return Compute(st, nil, now)
+	}
+	if n := Diff(mk(false, ""), mk(true, "closed"), false); len(n) != 1 || n[0].Urgent || n[0].Summary != "Directly reachable from the internet" {
+		t.Fatalf("closed: %+v", n)
+	}
+	if n := Diff(mk(false, ""), mk(true, "open"), false); len(n) != 1 || !n[0].Urgent {
+		t.Fatalf("open must be urgent: %+v", n)
+	}
+	if n := Diff(mk(true, "open"), mk(true, "open"), false); len(n) != 0 {
+		t.Fatalf("no repeat: %+v", n)
+	}
+}
