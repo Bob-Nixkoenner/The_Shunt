@@ -63,6 +63,15 @@ func (c *Config) validateDefense() error {
 			return fmt.Errorf("defense.reputation_sources: unknown source %q (known: %v)", n, defense.OptionalSourceNames())
 		}
 	}
+	okOff := map[string]bool{}
+	for _, n := range defense.BuiltinSourceNames() {
+		okOff[n] = true
+	}
+	for _, n := range d.ReputationOff {
+		if !okOff[n] {
+			return fmt.Errorf("defense.reputation_off: unknown source %q (known: %v)", n, defense.BuiltinSourceNames())
+		}
+	}
 	for _, s := range d.Never {
 		if _, err := netip.ParsePrefix(s); err != nil {
 			if _, err2 := netip.ParseAddr(s); err2 != nil {

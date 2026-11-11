@@ -41,6 +41,21 @@ const defFeatText = () => ({
   dns_tunnel: [T("DNS tunnels"), T("Long, random names and many TXT queries.")],
   evil_twin: [T("Evil twin"), T("Same Wi-Fi name, different access point.")],
 });
+// the lists: [name, what is in it, how often, how long it counts, source link, terms link, restriction]
+const DEF_SRC = {
+  feodo: { url: "https://feodotracker.abuse.ch/blocklist/", terms: "https://abuse.ch/terms-of-use/" },
+  sslbl: { url: "https://sslbl.abuse.ch/blacklist/", terms: "https://abuse.ch/terms-of-use/" },
+  sslbl_ja3: { url: "https://sslbl.abuse.ch/blacklist/", terms: "https://abuse.ch/terms-of-use/" },
+  et_compromised: { url: "https://rules.emergingthreats.net/blockrules/", terms: "https://rules.emergingthreats.net/open/suricata/BSD-License.txt", ask: true },
+  spamhaus_drop: { url: "https://www.spamhaus.org/drop/", terms: "https://www.spamhaus.org/blocklists/drop-fair-use-policy/", ask: true },
+};
+const defSrcText = () => ({
+  feodo: [T("abuse.ch Feodo Tracker"), T("Addresses of botnet command servers. Updated about every 5 minutes at the provider; this device fetches twice a day. Entries count 48 h after a download. Licence CC0.")],
+  sslbl: [T("abuse.ch SSLBL (addresses)"), T("Addresses that host malware command servers seen by their TLS certificates. Fetched twice a day; entries count 48 h. Licence CC0.")],
+  sslbl_ja3: [T("abuse.ch SSLBL (JA3)"), T("TLS fingerprints (JA3) of known malware clients; matched against what hits the decoy on port 443. Fetched twice a day; entries count 72 h. Licence CC0.")],
+  et_compromised: [T("Emerging Threats compromised IPs"), T("Addresses of hosts known to be compromised. Updated daily at the provider; this device fetches twice a day; entries count 48 h. This list has known false alarms, so it only reports and never blocks. Note: the BSD licence of Emerging Threats is stated for its rule folder; for these IP lists the licence is not explicitly stated.")],
+  spamhaus_drop: [T("Spamhaus DROP"), T("Network ranges run by criminals (IPv4 and IPv6). Updated daily. The terms of use grant no licence to build the list into an app, so it is not offered.")],
+});
 const BAIT = ["decoy_hit", "tarpit", "cowrie"];
 
 function defTime(t) {
@@ -111,19 +126,76 @@ function renderDefense() {
     watch.disabled = !on;
     return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1])), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
   }));
+  renderDefSources(on);
   // bans
   const bans = defSt.bans || [];
   $("#def-unban-all").hidden = !bans.length;
   $("#def-bans").replaceChildren(...(bans.length ? bans.map((b) => el("tr", {},
     el("td", { class: "mono" }, el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(b.src) }, b.src)),
     el("td", {}, defKindText()[b.reason] || b.reason, " ", el("span", { class: "muted" }, defLeft(b.expires))),
-    el("td", { style: "text-align:right" }, el("button", { onclick: () => defUnban(b.src) }, "Unblock"))))
+    el("td", { style: "text-align:right" }, el("button", { onclick: () => defUnban(b.src) }, "Unblock"), " ", el("button", { onclick: () => defAllow(b.src) }, T("Always allow")))))
     : [el("tr", {}, el("td", { class: "muted" }, "No address is blocked."))]));
   // events
   const shown = defEvents.slice(-100).reverse();
   $("#def-evsum").textContent = defEvents.length ? T("{n} shown", { n: shown.length }) : "";
   $("#def-events").replaceChildren(...(shown.length ? shown.map((e) => defEventRow(e)) : [el("div", { class: "muted" }, "Nothing seen yet.")]));
   renderDefTile();
+}
+
+function defAge(ts) {
+  const s = Math.round((Date.now() - new Date(ts)) / 1000);
+  if (!(s >= 0)) return "";
+  return s < 5400 ? T("{n} min ago", { n: Math.max(1, Math.round(s / 60)) }) : s < 172800 ? T("{n} h ago", { n: Math.round(s / 3600) }) : T("{n} days ago", { n: Math.round(s / 86400) });
+}
+function renderDefSources(on) {
+  const txt = defSrcText(), cfg = defSt.config || {};
+  const info = {};
+  (defSt.sources || []).forEach((x) => { info[x.name] = x; });
+  const names = ["feodo", "sslbl", "sslbl_ja3", "et_compromised", "spamhaus_drop"];
+  $("#def-sources").replaceChildren(...names.map((n) => {
+    const i = info[n] || { name: n, on: false };
+    const m = DEF_SRC[n], dead = !!i.unavailable;
+    const box = el("input", { type: "checkbox", "aria-label": txt[n][0], onchange: () => defSetSource(n, box.checked, m.ask) });
+    box.checked = !!i.on && !dead; box.disabled = !on || dead;
+    let st;
+    if (dead) st = T("Terms require a separate agreement.");
+    else if (!i.on) st = T("Off: nothing is downloaded.");
+    else if (i.error && !i.updated) st = T("Error: {error}", { error: i.error }) + " · " + T("Expired");
+    else if (!i.updated) st = T("Not downloaded yet.");
+    else st = T("Updated {when}", { when: defAge(i.updated) }) + " · " + Tn(i.entries | 0, "{n} entry", "{n} entries") + (i.expired ? " · " + T("Expired") : "") + (i.error ? " · " + T("Error: {error}", { error: i.error }) : "");
+    return el("div", { class: "srccard" + (i.on ? "" : " off") },
+      el("div", { class: "hd" }, el("b", {}, txt[n][0]),
+        i.on && !dead ? el("span", { class: "pill " + (i.quality ? "ok" : "warn"), title: T("Only high quality lists may block") }, i.quality ? T("may block") : T("reports only")) : "",
+        el("a", { href: m.url, target: "_blank", rel: "noopener" }, T("Source")),
+        el("a", { href: m.terms, target: "_blank", rel: "noopener" }, T("Terms")), box),
+      el("div", { class: "d" }, txt[n][1]),
+      el("div", { class: "st" }, st),
+      dead ? "" : el("div", { class: "st" }, T("Your device downloads this list directly from the provider; Shunt ships no data.")));
+  }));
+}
+async function defSetSource(n, onNow, ask1) {
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  if (onNow && ask1 && !(cfg.reputation_sources || []).includes(n) &&
+    !(await ask(n === "et_compromised"
+      ? T("This list is run by Emerging Threats. Its BSD licence is stated for the rule folder; for the IP lists the licence is not explicitly stated. Your device would download it directly from the provider. Switch it on?")
+      : T("This list has restrictions. Switch it on?"), { ok: T("Switch on") }))) return renderDefense();
+  if (n === "feodo" || n === "sslbl") {
+    cfg.reputation_off = (cfg.reputation_off || []).filter((x) => x !== n);
+    if (!onNow) cfg.reputation_off.push(n);
+  } else {
+    cfg.reputation_sources = (cfg.reputation_sources || []).filter((x) => x !== n);
+    if (onNow) cfg.reputation_sources.push(n);
+  }
+  defSend(cfg);
+}
+// allow an address for good (it lands on the never-list and is never blocked)
+async function defAllow(src) {
+  if (!(await ask(T("Always allow {src}? It is added to the never-block list and any block on it is lifted.", { src }), { ok: T("Allow") }))) return;
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  cfg.never = cfg.never || [];
+  if (!cfg.never.includes(src)) cfg.never.push(src);
+  await defSend(cfg);
+  await defUnban(src);
 }
 
 // the tile on the overview: gauge and the last five events
@@ -239,8 +311,9 @@ function defRenderSource(src, evs) {
   const btn = ban
     ? el("button", { onclick: async () => { await defUnban(src); defOpenSource(src); } }, T("Unblock"))
     : el("button", { class: "primary", onclick: () => defBan(src) }, T("Block"));
+  const allow = el("button", { onclick: async () => { await defAllow(src); defOpenSource(src); } }, T("Always allow"));
   const parts = [el("div", { class: "row" }, ban ? el("span", { class: "pill bad" }, T("Blocked")) : el("span", { class: "pill" }, T("Not blocked")),
-    ban ? el("span", { class: "muted" }, defLeft(ban.expires)) : "", el("span", { class: "spacer" }), btn)];
+    ban ? el("span", { class: "muted" }, defLeft(ban.expires)) : "", el("span", { class: "spacer" }), allow, btn)];
   if (!evs.length) {
     parts.push(el("div", { class: "muted" }, T("No events from this source are kept any more.")));
   } else {

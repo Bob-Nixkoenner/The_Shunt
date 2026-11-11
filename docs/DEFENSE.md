@@ -79,6 +79,25 @@ choice stays with the user. Left out on purpose: `emerging-botcc.rules` and `eme
 (Suricata rules, not address lists) and `fwrules/emerging-Block-IPs.txt` (its header says it is built
 from Spamhaus, DShield and abuse.ch data; Spamhaus is not used here).
 
+### Spamhaus DROP / DROPv6 (documented, not built in)
+
+Read 2026-11-11 (spamhaus.org/drop, drop-fair-use-policy, terms-conditions):
+- Files: `drop_v4.json`, `drop_v6.json` (also `drop.txt`, said to be deprecated later); entries are a CIDR plus an SBL id; re-evaluated daily; "Please DO NOT auto-fetch the DROP list more than once per hour", elsewhere "not ... more than once per day".
+- Terms 2.1: "provided to you free of charge subject to these Terms"; 2.2: "designed for use by firewalls and routing equipment".
+- Terms 3.1: "protected by copyright and database right. Nothing in these Terms shall be construed as granting an assignment or licence of any intellectual property rights"; 3.3: Spamhaus may revoke the right to use "for any reason".
+- 3.2: the name "Spamhaus" may not be used "in your marketing, promotional or any other commercial materials". 4.2: lists must be kept current.
+- Nothing says whether an app may download it on the end user's machine (neither allowed nor forbidden), and no licence is granted.
+- Decision: not built in. The UI shows the switch greyed out ("Terms require a separate agreement"); it can be added once Spamhaus agrees in writing. `defense.reputation_sources` refuses `spamhaus_drop`.
+
+### Rules for sources
+
+1. Nothing is bundled except the tiny documentation-range example list; the user's machine downloads every list from the provider itself.
+2. Download over HTTPS through the default route (`downloadClient`, as `internal/blocklist`), neutral User-Agent `the-shunt`, 30 s time limit, 8 MiB size limit, at most every 12 h.
+3. Every list has a maximum age (48 h, JA3 72 h). An older list, or one whose download keeps failing, expires and stops matching; the status shows the age and `expired`.
+4. Every hit names its list (`list=<name>`).
+5. Only high quality lists may block (`feodo`, `sslbl`, `sslbl_ja3`); `et_compromised` and any list with known false alarms only report, even when Block is on.
+6. A hit can be allowed for good in the UI ("Always allow": adds the address to `defense.never` and lifts the block). Built-in lists are switched off with `defense.reputation_off`.
+
 ### Pivot on a source
 
 Click an address in the event list, the live window or the block list: the UI opens a detail view

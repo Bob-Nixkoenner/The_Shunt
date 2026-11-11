@@ -251,6 +251,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 .deftable td, .deftable th { padding: 6px 8px; vertical-align: middle; }
 .deftable th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; }
 .deftable .sw { text-align: center; width: 76px; }
+.srccard { border: 1px solid var(--border, #8884); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.srccard .hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.srccard .hd b { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.srccard .d, .srccard .st { font-size: 12px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+.srccard.off { opacity: .85; }
 .deftable .d { color: var(--muted); font-size: 12px; }
 .evlist { display: grid; gap: 4px; max-height: 340px; overflow-y: auto; }
 .ev { display: grid; grid-template-columns: 62px 10px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 13px; padding: 3px 6px; border-radius: 6px; background: var(--panel2); }
@@ -579,6 +584,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <tbody id="def-feats"></tbody>
     </table></div>
     <div class="hint">Blocking is off by default: a block can also hit a harmless device. Addresses of your gateway and DNS server are never blocked.</div>
+  </section>
+  <section data-fold>
+    <h2>Lists and sources</h2>
+    <div class="hint" style="margin:0 0 8px">Your device downloads these lists directly from the provider; Shunt ships no data. A list that is too old, or whose download keeps failing, expires and stops matching. Only lists of high quality may block; the others only report.</div>
+    <div id="def-sources"></div>
   </section>
   <section data-fold>
     <h2>Blocked addresses <span class="spacer"></span><button id="def-unban-all">Unblock all</button></h2>

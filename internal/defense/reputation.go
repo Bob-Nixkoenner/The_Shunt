@@ -97,12 +97,34 @@ type Reputation struct {
 	mu    sync.RWMutex
 	lists map[string]*repList
 	ja3   map[string]*ja3List
+	stat  map[string]SourceStat
 	now   func() time.Time
+}
+
+// SourceStat is what the last download of one source did.
+type SourceStat struct {
+	Entries int
+	Updated time.Time
+	Error   string
+}
+
+// SetStat records the outcome of a download for source name.
+func (r *Reputation) SetStat(name string, st SourceStat) {
+	r.mu.Lock()
+	r.stat[name] = st
+	r.mu.Unlock()
+}
+
+// Stat returns the recorded outcome for name (zero if never tried).
+func (r *Reputation) Stat(name string) SourceStat {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.stat[name]
 }
 
 // NewReputation returns an empty set.
 func NewReputation() *Reputation {
-	return &Reputation{lists: map[string]*repList{}, ja3: map[string]*ja3List{}, now: time.Now}
+	return &Reputation{lists: map[string]*repList{}, ja3: map[string]*ja3List{}, stat: map[string]SourceStat{}, now: time.Now}
 }
 
 // SetList replaces list name. A zero expires means it never expires.
@@ -202,10 +224,38 @@ var OptionalSources = map[string]Source{
 // OptionalSourceNames lists the valid names for Config.ReputationSources.
 func OptionalSourceNames() []string { return []string{"sslbl_ja3", "et_compromised"} }
 
-// SourcesFor returns the built-in sources plus the chosen optional ones
-// (unknown names are ignored).
-func SourcesFor(names []string) []Source {
-	out := append([]Source(nil), DefaultSources...)
+// BuiltinSourceNames lists the CC0 lists that run unless named in
+// Config.ReputationOff.
+func BuiltinSourceNames() []string { return []string{"feodo", "sslbl"} }
+
+// QualityList says whether hits on list name may block a source. Lists with
+// known false alarms (et_compromised, and anything else) only report.
+func QualityList(name string) bool {
+	switch name {
+	case "feodo", "sslbl", "sslbl_ja3", SpamhausDROP:
+		return true
+	}
+	return false
+}
+
+// SpamhausDROP is documented but not built in: the terms of use grant no
+// licence (see docs/DEFENSE.md). It is reported in the status as
+// unavailable and can never be switched on.
+const SpamhausDROP = "spamhaus_drop"
+
+// SourcesFor returns the built-in sources (minus those named in off) plus
+// the chosen optional ones (unknown names are ignored).
+func SourcesFor(names, off []string) []Source {
+	skip := map[string]bool{}
+	for _, n := range off {
+		skip[n] = true
+	}
+	var out []Source
+	for _, s := range DefaultSources {
+		if !skip[s.Name] {
+			out = append(out, s)
+		}
+	}
 	seen := map[string]bool{}
 	for _, n := range names {
 		if s, ok := OptionalSources[n]; ok && !seen[n] {
@@ -254,29 +304,36 @@ func (u *Updater) one(ctx context.Context, s Source) error {
 		if mk := os.MkdirAll(u.Dir, 0o700); mk == nil {
 			_ = os.WriteFile(file, body, 0o600)
 		}
-		u.load(s, bytes.NewReader(body), u.Rep.now().Add(ttl))
+		n := u.load(s, bytes.NewReader(body), u.Rep.now().Add(ttl))
+		u.Rep.SetStat(s.Name, SourceStat{Entries: n, Updated: u.Rep.now()})
 		return nil
 	}
 	// fall back to cache; expiry counts from the file's age
 	st, serr := os.Stat(file)
 	if serr != nil {
+		u.Rep.SetStat(s.Name, SourceStat{Error: err.Error()})
 		return err
 	}
 	f, oerr := os.Open(file)
 	if oerr != nil {
+		u.Rep.SetStat(s.Name, SourceStat{Error: err.Error()})
 		return err
 	}
 	defer f.Close()
-	u.load(s, f, st.ModTime().Add(ttl))
+	n := u.load(s, f, st.ModTime().Add(ttl))
+	u.Rep.SetStat(s.Name, SourceStat{Entries: n, Updated: st.ModTime(), Error: err.Error()})
 	return err
 }
 
-func (u *Updater) load(s Source, r io.Reader, exp time.Time) {
+func (u *Updater) load(s Source, r io.Reader, exp time.Time) int {
 	if s.JA3 {
-		u.Rep.SetJA3List(s.Name, ParseJA3List(r), exp)
-		return
+		set := ParseJA3List(r)
+		u.Rep.SetJA3List(s.Name, set, exp)
+		return len(set)
 	}
-	u.Rep.SetList(s.Name, ParseList(r), exp)
+	p := ParseList(r)
+	u.Rep.SetList(s.Name, p, exp)
+	return len(p)
 }
 
 func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
@@ -284,6 +341,7 @@ func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "the-shunt")
 	cl := u.Client
 	if cl == nil {
 		cl = &http.Client{Timeout: 30 * time.Second}

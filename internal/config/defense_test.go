@@ -45,3 +45,19 @@ func TestDefenseReputationSources(t *testing.T) {
 		t.Fatal("unknown source accepted")
 	}
 }
+
+func TestDefenseReputationOff(t *testing.T) {
+	c := &Config{Defense: &defense.Config{ReputationOff: []string{"feodo"}}}
+	if err := c.validateDefense(); err != nil {
+		t.Fatal(err)
+	}
+	c.Defense.ReputationOff = []string{"et_compromised"}
+	if c.validateDefense() == nil {
+		t.Fatal("only built-in lists can be switched off")
+	}
+	c.Defense.ReputationSources = []string{"spamhaus_drop"}
+	c.Defense.ReputationOff = nil
+	if c.validateDefense() == nil {
+		t.Fatal("spamhaus_drop must be refused")
+	}
+}

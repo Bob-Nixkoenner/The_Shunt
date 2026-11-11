@@ -626,7 +626,7 @@ func TestManagerNeverAndBlockSwitch(t *testing.T) {
 	cfg.Never = []string{"192.0.2.0/24"}
 	cfg.Features[FeatReputation] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.Reputation().SetList("x", ParseList(strings.NewReader("192.0.2.5\n198.51.100.5\n")), time.Time{})
+	m.Reputation().SetList("feodo", ParseList(strings.NewReader("192.0.2.5\n198.51.100.5\n")), time.Time{})
 	m.SetNever(ParsePrefixes([]string{"2001:db8::1"}))
 	m.Observe(mustAddr("192.0.2.5"), 1, "tcp", true) // never-listed: reported but not banned
 	m.Observe(mustAddr("198.51.100.5"), 1, "tcp", true)

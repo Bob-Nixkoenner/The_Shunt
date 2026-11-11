@@ -219,7 +219,9 @@ func (m *Manager) CheckPeer(a netip.Addr, port int, proto string) bool {
 		return false
 	}
 	m.Report(Event{Kind: KindReputation, Severity: SevHigh, Src: a.Unmap().String(), Port: port, Proto: proto, Detail: "list=" + name})
-	m.maybeBan(a, KindReputation, FeatReputation)
+	if QualityList(name) {
+		m.maybeBan(a, KindReputation, FeatReputation)
+	}
 	return true
 }
 
@@ -242,7 +244,9 @@ func (m *Manager) ja3Seen(h Hit) {
 		if name, bad := m.rep.LookupJA3(h.JA3); bad {
 			ev.Kind, ev.Severity, ev.Detail = KindReputation, SevHigh, "list="+name+" ja3="+h.JA3
 			m.Report(ev)
-			m.maybeBan(h.Src, KindReputation, FeatReputation)
+			if QualityList(name) {
+				m.maybeBan(h.Src, KindReputation, FeatReputation)
+			}
 			return
 		}
 	}
@@ -331,7 +335,34 @@ func (m *Manager) Status() Status {
 	heat := m.therm.Heat()
 	return Status{Enabled: cfg.Enabled, Class: class, Heat: heat, Level: LevelFor(heat),
 		Decoys: m.dec.Ports(), Bans: m.bans.List(), Counts: m.therm.Counts(),
-		LastSeq: m.ring.LastSeq(), Config: cfg}
+		LastSeq: m.ring.LastSeq(), Config: cfg, Sources: m.sourceInfo(cfg)}
+}
+
+// sourceInfo reports every list with its switch and last download result.
+func (m *Manager) sourceInfo(cfg Config) []SourceInfo {
+	on := map[string]bool{}
+	for _, s := range SourcesFor(cfg.ReputationSources, cfg.ReputationOff) {
+		on[s.Name] = true
+	}
+	var out []SourceInfo
+	now := m.rep.now()
+	for _, n := range []string{"feodo", "sslbl", "sslbl_ja3", "et_compromised"} {
+		st := m.rep.Stat(n)
+		ttl := time.Duration(0)
+		if s, ok := OptionalSources[n]; ok {
+			ttl = s.TTL
+		} else {
+			for _, d := range DefaultSources {
+				if d.Name == n {
+					ttl = d.TTL
+				}
+			}
+		}
+		// expired: the list is no longer used for lookups
+		exp := on[n] && ((!st.Updated.IsZero() && now.After(st.Updated.Add(ttl))) || (st.Updated.IsZero() && st.Error != ""))
+		out = append(out, SourceInfo{Name: n, On: on[n], Entries: st.Entries, Updated: st.Updated, Error: st.Error, Expired: exp, Quality: QualityList(n)})
+	}
+	return append(out, SourceInfo{Name: SpamhausDROP, Unavailable: true})
 }
 
 // Close stops everything. It is safe to call twice.

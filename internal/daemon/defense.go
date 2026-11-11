@@ -302,7 +302,7 @@ func (d *Daemon) defenseLoops(ctx context.Context) {
 		if d.def.m.Watching(defense.FeatReputation) {
 			up.Client = d.downloadClient()
 			rctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			if err := up.Refresh(rctx, defense.SourcesFor(d.def.m.Status().Config.ReputationSources)); err != nil {
+			if err := up.Refresh(rctx, defense.SourcesFor(d.def.m.Status().Config.ReputationSources, d.def.m.Status().Config.ReputationOff)); err != nil {
 				d.Log.Debug("defense: reputation lists", "err", err)
 			}
 			cancel()

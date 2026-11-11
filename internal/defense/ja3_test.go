@@ -10,6 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -124,10 +127,10 @@ func TestParseJA3ListAndUpdater(t *testing.T) {
 }
 
 func TestSourcesForOptional(t *testing.T) {
-	if n := len(SourcesFor(nil)); n != len(DefaultSources) {
+	if n := len(SourcesFor(nil, nil)); n != len(DefaultSources) {
 		t.Fatalf("default must have no optional lists: %d", n)
 	}
-	got := SourcesFor([]string{"sslbl_ja3", "et_compromised", "et_compromised", "bogus"})
+	got := SourcesFor([]string{"sslbl_ja3", "et_compromised", "et_compromised", "bogus"}, nil)
 	if len(got) != len(DefaultSources)+2 {
 		t.Fatalf("%+v", got)
 	}
@@ -169,5 +172,120 @@ func TestManagerJA3Hit(t *testing.T) {
 	}
 	if !seenInfo || !seenBad {
 		t.Fatalf("info=%v bad=%v %+v", seenInfo, seenBad, m.Events(0).Events)
+	}
+}
+
+func TestSourcesForOff(t *testing.T) {
+	got := SourcesFor(nil, []string{"feodo"})
+	if len(got) != 1 || got[0].Name != "sslbl" {
+		t.Fatalf("%+v", got)
+	}
+	if n := len(SourcesFor(nil, []string{"feodo", "sslbl"})); n != 0 {
+		t.Fatal(n)
+	}
+}
+
+func TestQualityListOnly(t *testing.T) {
+	for _, n := range []string{"feodo", "sslbl", "sslbl_ja3", SpamhausDROP} {
+		if !QualityList(n) {
+			t.Fatal(n)
+		}
+	}
+	if QualityList("et_compromised") || QualityList("x") {
+		t.Fatal("false-alarm list may not block")
+	}
+	if _, ok := OptionalSources[SpamhausDROP]; ok {
+		t.Fatal("spamhaus must not be built in")
+	}
+}
+
+// A hit on a report-only list is reported with its name but never blocks.
+func TestReportOnlyListDoesNotBan(t *testing.T) {
+	pm := &portMap{real: map[int]int{}}
+	m, _ := newTestManager(t, pm, make(chan Ban, 4))
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Features[FeatReputation] = Feature{Watch: true, Block: true}
+	m.Configure(cfg)
+	m.SetNetwork("k", ClassPublic)
+	m.Reputation().SetList("et_compromised", ParseList(strings.NewReader("192.0.2.9\n")), time.Time{})
+	m.Reputation().SetList("feodo", ParseList(strings.NewReader("192.0.2.10\n")), time.Time{})
+	m.CheckPeer(netip.MustParseAddr("192.0.2.9"), 0, "tcp")
+	m.CheckPeer(netip.MustParseAddr("192.0.2.10"), 0, "tcp")
+	var det []string
+	for _, e := range m.Events(0).Events {
+		if e.Kind == KindReputation {
+			det = append(det, e.Src+" "+e.Detail)
+		}
+	}
+	if len(det) != 2 || det[0] != "192.0.2.9 list=et_compromised" {
+		t.Fatalf("%v", det)
+	}
+	for _, b := range m.Status().Bans {
+		if b.Src == "192.0.2.9" {
+			t.Fatal("report-only list banned")
+		}
+	}
+}
+
+func TestSourceStatusAndExpiry(t *testing.T) {
+	ok := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ok {
+			http.Error(w, "no", 503)
+			return
+		}
+		if r.UserAgent() != "the-shunt" {
+			t.Errorf("user agent %q", r.UserAgent())
+		}
+		io.WriteString(w, "192.0.2.1\n192.0.2.2\n")
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	r := NewReputation()
+	u := &Updater{Rep: r, Dir: dir}
+	s := Source{Name: "feodo", URL: srv.URL, TTL: time.Hour}
+	if err := u.Refresh(context.Background(), []Source{s}); err != nil {
+		t.Fatal(err)
+	}
+	if st := r.Stat("feodo"); st.Entries != 2 || st.Updated.IsZero() || st.Error != "" {
+		t.Fatalf("%+v", st)
+	}
+	ok = false
+	// the download keeps failing and the cached list is older than its TTL
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "rep-feodo.txt"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Refresh(context.Background(), []Source{s}); err == nil {
+		t.Fatal("want error")
+	}
+	if st := r.Stat("feodo"); st.Error == "" {
+		t.Fatalf("%+v", st)
+	}
+	if _, hit := r.Lookup(netip.MustParseAddr("192.0.2.1")); hit {
+		t.Fatal("expired list still matches")
+	}
+}
+
+func TestSourceInfoExpired(t *testing.T) {
+	pm := &portMap{real: map[int]int{}}
+	m, _ := newTestManager(t, pm, make(chan Ban, 1))
+	now := m.Reputation().now()
+	m.Reputation().SetStat("feodo", SourceStat{Entries: 3, Updated: now.Add(-100 * time.Hour)})
+	m.Reputation().SetStat("sslbl", SourceStat{Entries: 3, Updated: now.Add(-time.Hour)})
+	var feodo, sslbl, drop SourceInfo
+	for _, s := range m.Status().Sources {
+		switch s.Name {
+		case "feodo":
+			feodo = s
+		case "sslbl":
+			sslbl = s
+		case SpamhausDROP:
+			drop = s
+		}
+	}
+	if !feodo.On || !feodo.Expired || sslbl.Expired || !drop.Unavailable || drop.On {
+		t.Fatalf("%+v %+v %+v", feodo, sslbl, drop)
 	}
 }

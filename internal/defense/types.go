@@ -156,6 +156,9 @@ type Config struct {
 	// "et_compromised"). Empty = only the built-in CC0 lists. Nothing
 	// optional is fetched unless the user lists it here.
 	ReputationSources []string `json:"reputation_sources" toml:"reputation_sources"`
+	// ReputationOff names built-in lists ("feodo", "sslbl") the user
+	// switched off. Empty = both run.
+	ReputationOff []string `json:"reputation_off" toml:"reputation_off"`
 }
 
 // DefaultConfig: detection on, blocking off, decoys on common ports. Off
@@ -191,8 +194,25 @@ type Status struct {
 	Counts  map[Kind]int `json:"counts"` // events per kind since the network was joined
 	LastSeq uint64       `json:"last_seq"`
 	Config  Config       `json:"config"`
+	// Sources is the state of every list (also the ones that are off).
+	Sources []SourceInfo `json:"sources"`
 	// Unsupported is set when this platform lacks parts (reason text).
 	Unsupported string `json:"unsupported,omitempty"`
+}
+
+// SourceInfo is the status of one reputation list.
+type SourceInfo struct {
+	Name    string    `json:"name"`
+	On      bool      `json:"on"`
+	Entries int       `json:"entries"`
+	Updated time.Time `json:"updated,omitzero"`
+	Error   string    `json:"error,omitempty"`
+	// Expired: too old (or never downloaded), so it no longer matches.
+	Expired bool `json:"expired,omitempty"`
+	// Quality: the list may block; other lists only report.
+	Quality bool `json:"quality,omitempty"`
+	// Unavailable: documented, but the terms of use forbid building it in.
+	Unavailable bool `json:"unavailable,omitempty"`
 }
 
 // EventsResponse is what /v1/defense/events?since=N returns: events with

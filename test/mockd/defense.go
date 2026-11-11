@@ -144,7 +144,7 @@ func (m *mockDefense) status() defense.Status {
 		decoys = m.cfg.DecoyPorts
 	}
 	return defense.Status{Enabled: m.cfg.Enabled, Class: defense.ClassPublic, Heat: h, Level: defense.LevelFor(h),
-		Decoys: decoys, Bans: append([]defense.Ban{}, m.bans...), Counts: counts, LastSeq: m.seq, Config: m.cfg}
+		Decoys: decoys, Bans: append([]defense.Ban{}, m.bans...), Counts: counts, LastSeq: m.seq, Config: m.cfg, Sources: m.sources()}
 }
 
 func (m *mockDefense) brief() *api.DefenseBrief {
@@ -248,4 +248,26 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		m.mu.Unlock()
 		js(w, map[string]bool{"ok": true})
 	})
+}
+
+// sources fakes the list status from the switches (numbers are made up).
+func (m *mockDefense) sources() []defense.SourceInfo {
+	on := map[string]bool{}
+	for _, s := range defense.SourcesFor(m.cfg.ReputationSources, m.cfg.ReputationOff) {
+		on[s.Name] = true
+	}
+	ago := time.Now().Add(-3 * time.Hour)
+	out := []defense.SourceInfo{
+		{Name: "feodo", On: on["feodo"], Entries: 214, Updated: ago},
+		{Name: "sslbl", On: on["sslbl"], Entries: 1043, Updated: ago},
+		{Name: "sslbl_ja3", On: on["sslbl_ja3"], Entries: 87, Updated: ago},
+		{Name: "et_compromised", On: on["et_compromised"], Error: "http 503"},
+	}
+	for i := range out {
+		out[i].Quality = defense.QualityList(out[i].Name)
+		if !out[i].On {
+			out[i].Entries, out[i].Updated, out[i].Error = 0, time.Time{}, ""
+		}
+	}
+	return append(out, defense.SourceInfo{Name: defense.SpamhausDROP, Unavailable: true})
 }
