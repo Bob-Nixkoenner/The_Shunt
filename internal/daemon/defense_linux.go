@@ -218,7 +218,7 @@ func (d *Daemon) defenseLog(ctx context.Context) {
 			listen, at = listeningPorts(), time.Now()
 		}
 		d.evidencePacket(*a.Payload, proto, port, listen)
-		for _, p := range d.def.m.Status().Decoys {
+		for _, p := range d.def.m.DecoyPorts() {
 			if p == port && proto == "tcp" {
 				return 0
 			}
@@ -255,7 +255,7 @@ func (d *Daemon) defensePushPorts() {
 	if d.def.m == nil || !d.defTableOn() {
 		return
 	}
-	ports := d.def.m.Status().Decoys
+	ports := d.def.m.DecoyPorts()
 	d.def.mu.Lock()
 	same := !d.def.needPush && fmt.Sprint(ports) == fmt.Sprint(d.def.portsSet)
 	d.def.mu.Unlock()
