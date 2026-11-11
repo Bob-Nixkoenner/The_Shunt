@@ -374,6 +374,11 @@ type DefenseBrief struct {
 	Heat  int           `json:"heat"`
 	Level defense.Level `json:"level"`
 	Class defense.Class `json:"class,omitempty"`
+	// Exposed: the uplink has a public address (directly reachable from the
+	// internet); ExposedInbound is the incoming protection then in effect
+	// (closed | lan | open | off).
+	Exposed        bool   `json:"exposed,omitempty"`
+	ExposedInbound string `json:"exposed_inbound,omitempty"`
 }
 
 // DefenseUnban is the body of POST /v1/defense/unban.
@@ -445,7 +450,11 @@ type Listening struct {
 	// Inbound: the mode in effect (closed | lan | open, "" = The Shunt
 	// does not filter incoming connections).
 	Inbound string `json:"inbound,omitempty"`
-	Error   string `json:"error,omitempty"`
+	// PublicV4 / PublicV6: the uplink has a public address (the machine is
+	// directly reachable from the internet).
+	PublicV4 bool   `json:"public_v4,omitempty"`
+	PublicV6 bool   `json:"public_v6,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // OpenPort is one listening socket.
@@ -463,11 +472,15 @@ type OpenPort struct {
 	Tunnel  bool `json:"tunnel"`
 	// Blocked: The Shunt drops new connections to it from the network
 	// (LANOnly: only private addresses get through).
-	Blocked bool          `json:"blocked,omitempty"`
-	LANOnly bool          `json:"lan_only,omitempty"`
-	Owner   sockets.Owner `json:"owner"`
-	UID     uint32        `json:"uid"`
-	V6Only  bool          `json:"v6only,omitempty"`
+	Blocked bool `json:"blocked,omitempty"`
+	LANOnly bool `json:"lan_only,omitempty"`
+	// Public: waits on all or a public address, nothing of The Shunt stops
+	// the network (inbound open or off, or the uplink has a public address)
+	// and it is not blocked: reachable from the internet. Shown red.
+	Public bool          `json:"public,omitempty"`
+	Owner  sockets.Owner `json:"owner"`
+	UID    uint32        `json:"uid"`
+	V6Only bool          `json:"v6only,omitempty"`
 }
 
 // InboundAsk: on a network without a profile, incoming connections are

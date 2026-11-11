@@ -126,6 +126,15 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 	class := cfg.NetClass(info)
 	d.def.iface.Store(info.Iface)
 	d.def.m.SetNetwork(defNetKey(info), class)
+	profile := ""
+	if n := cfg.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
+		profile = n.Name
+	}
+	inMode, _ := cfg.InboundFor(profile)
+	if inMode == "" {
+		inMode = "off"
+	}
+	d.def.m.SetExposure(defense.Exposure{V4: info.PublicV4, V6: info.PublicV6, Inbound: inMode})
 	env := defense.Env{Iface: info.Iface, SSID: info.SSID, GatewayIP: info.GatewayIP, GatewayMAC: info.GatewayMAC}
 	var never []netip.Prefix
 	if a, err := netip.ParseAddr(info.GatewayIP); err == nil {
@@ -183,7 +192,7 @@ func (d *Daemon) defenseBrief() *api.DefenseBrief {
 	if !s.Enabled {
 		return nil
 	}
-	return &api.DefenseBrief{Heat: s.Heat, Level: s.Level, Class: s.Class}
+	return &api.DefenseBrief{Heat: s.Heat, Level: s.Level, Class: s.Class, Exposed: s.Exposed.Any(), ExposedInbound: s.Exposed.Inbound}
 }
 
 // defenseStatus is GET /v1/defense.
