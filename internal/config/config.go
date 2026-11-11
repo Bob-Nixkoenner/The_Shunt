@@ -13,6 +13,9 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 )
 
 // DefaultPath is where shuntd looks for its config.
@@ -36,6 +39,9 @@ type Config struct {
 	// Gateway: route the traffic of other devices/VMs behind this machine
 	// (nil = off).
 	Gateway *Gateway `toml:"gateway,omitempty" json:"gateway,omitempty"`
+	// Defense: decoys, attack detection and blocking (nil = off). Events
+	// stay on this machine.
+	Defense *defense.Config `toml:"defense,omitempty" json:"defense,omitempty"`
 }
 
 // Firewall modes for programs without a rule.
@@ -114,6 +120,18 @@ type Network struct {
 	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
 	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
 	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
+	// Class tells the defense how far this network is trusted: trusted |
+	// public | managed ("" = public).
+	Class string `toml:"class,omitempty" json:"class,omitempty"`
+}
+
+// NetClass returns the defense class of the network described by info: the
+// class of the matching [[network]] profile, public for an unknown network.
+func (c *Config) NetClass(info netdetect.Info) defense.Class {
+	if n := c.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
+		return defense.Class(n.Class).Normalize()
+	}
+	return defense.ClassPublic
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -619,6 +637,9 @@ func (c *Config) Validate() error {
 		if !validHostname(n.DHCPHostname) {
 			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
 		}
+		if n.Class != "" && !defense.Class(n.Class).Valid() {
+			return fmt.Errorf("%s: class %q (trusted | public | managed)", where, n.Class)
+		}
 		if !validMAC(n.MAC) {
 			return fmt.Errorf("%s: mac %q (random | stable | permanent)", where, n.MAC)
 		}
@@ -646,6 +667,9 @@ func (c *Config) Validate() error {
 		if !validMode(n.Firewall) {
 			return fmt.Errorf("network %q: firewall %q (off | ask | block)", n.Name, n.Firewall)
 		}
+	}
+	if err := c.validateDefense(); err != nil {
+		return err
 	}
 	if err := c.validateInbound(); err != nil {
 		return err

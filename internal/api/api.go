@@ -12,12 +12,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
@@ -73,6 +75,9 @@ type Status struct {
 	// Version of the running shuntd (the installed one after an update).
 	Version string `json:"version,omitempty"`
 	Pending int    `json:"pending,omitempty"`
+	// Defense: the heat gauge in short (tray and header); nil while the
+	// defense is off. TODO(paket B): the daemon fills it from defense.Status.
+	Defense *DefenseBrief `json:"defense,omitempty"`
 	// DNSFailing: routes whose DNS servers don't answer (route -> last error).
 	DNSFailing map[string]string `json:"dns_failing,omitempty"`
 	NetInfo    netdetect.Info    `json:"net_info"`
@@ -351,6 +356,49 @@ func (c *Client) SpeedStep(ctx context.Context, route string, s speedtest.Step) 
 	var m speedtest.Measurement
 	err := c.DoCtx(ctx, "POST", "/v1/speedtest/step", SpeedStepRequest{Route: route, Step: s}, &m)
 	return m, err
+}
+
+// Defense: the daemon side of /v1/defense* (package B builds the handlers):
+//
+//	GET  /v1/defense                 -> defense.Status
+//	GET  /v1/defense/events?since=N  -> defense.EventsResponse
+//	POST /v1/defense/config          <- defense.Config
+//	POST /v1/defense/unban           <- DefenseUnban ("" = all)
+
+// DefenseBrief is the part of defense.Status the status call carries.
+type DefenseBrief struct {
+	Heat  int           `json:"heat"`
+	Level defense.Level `json:"level"`
+	Class defense.Class `json:"class,omitempty"`
+}
+
+// DefenseUnban is the body of POST /v1/defense/unban.
+type DefenseUnban struct {
+	Src string `json:"src"`
+}
+
+// DefenseStatus asks GET /v1/defense.
+func (c *Client) DefenseStatus() (defense.Status, error) {
+	var st defense.Status
+	err := c.Do("GET", "/v1/defense", nil, &st)
+	return st, err
+}
+
+// DefenseEvents asks GET /v1/defense/events for the events after seq since.
+func (c *Client) DefenseEvents(since uint64) (defense.EventsResponse, error) {
+	var ev defense.EventsResponse
+	err := c.Do("GET", "/v1/defense/events?since="+strconv.FormatUint(since, 10), nil, &ev)
+	return ev, err
+}
+
+// DefenseConfigure sends the [defense] settings (POST /v1/defense/config).
+func (c *Client) DefenseConfigure(cfg defense.Config) error {
+	return c.Do("POST", "/v1/defense/config", cfg, nil)
+}
+
+// DefenseUnban lifts one block ("" = all).
+func (c *Client) DefenseUnban(src string) error {
+	return c.Do("POST", "/v1/defense/unban", DefenseUnban{Src: src}, nil)
 }
 
 // Listening answers GET /v1/listening: what on this machine waits for

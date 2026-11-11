@@ -28,6 +28,8 @@ const (
 	EmergencyTable = "shunt_emerg"
 	// ArpTable (family arp): see tunnelAddrGuard.
 	ArpTable = "shunt_arp"
+	// DefenseTable: blocked sources and the scan counter, see defense.go.
+	DefenseTable = "shunt_defense"
 )
 
 // Render produces the main ruleset for a plan.
@@ -214,6 +216,9 @@ func Render(p *engine.Plan) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// Decoy ports of the defense (filled at runtime, see DecoyPortsScript):
+		// let through on the uplinks, otherwise "closed" never lets them see a scan.
+		w("\tset %s {\n\t\ttype inet_service;\n\t}", DecoySet)
 		w("\tchain inbound {")
 		w("\t\ttype filter hook input priority filter; policy accept;")
 		for _, l := range lines {
@@ -746,6 +751,7 @@ func inboundLines(in *engine.Inbound) ([]string, error) {
 	out := []string{
 		fmt.Sprintf("iifname != { %s } return", quoteList(ifs)),
 		"ct state established,related accept",
+		fmt.Sprintf("tcp dport @%s accept", DecoySet),
 		"meta l4proto ipv6-icmp icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept",
 		"meta l4proto icmp icmp type { destination-unreachable, time-exceeded, parameter-problem } accept",
 		"meta nfproto ipv4 udp sport 67 udp dport 68 accept",

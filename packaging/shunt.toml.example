@@ -69,3 +69,19 @@ route = "direct"
 name  = "Torrent only through the VPS"
 group = ["torrent"]
 route = "tunnel:vps"
+
+# Defense (off by default): decoy ports, scan/brute-force detection, bad-IP
+# lists and a heat gauge. Events stay on this machine; nothing is sent anywhere.
+# Which networks get decoys is set per network: [[network]] class = "trusted"
+# (home: quiet) | "public" (default, also every unknown network: decoys on) |
+# "managed" (employer: watch only, no decoys). Ports below 1024 need
+# CAP_NET_BIND_SERVICE (set in shuntd.service); a port that something else
+# already uses is skipped.
+# [defense]
+# enabled     = true
+# decoy_ports = [22, 23, 80, 443, 445, 3389]
+# ban_seconds = 3600              # how long a hostile source stays blocked
+# never       = ["192.0.2.0/24"]  # never blocked (gateway, DNS and login page are added by themselves)
+# [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
+# watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
+# block = true                    # block = also drop the source (nft table shunt_defense)
