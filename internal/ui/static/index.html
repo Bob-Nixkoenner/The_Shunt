@@ -283,6 +283,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 #def-src .tl i { flex: 1; min-width: 2px; background: var(--muted); border-radius: 2px 2px 0 0; opacity: .85; }
 #def-src .tl i.s1 { background: var(--info); } #def-src .tl i.s2 { background: var(--warn); } #def-src .tl i.s3 { background: var(--bad); }
 #def-src .evlist { max-height: 220px; }
+#def-src .evbox { display: grid; gap: 6px; border-top: 1px solid var(--border, #8884); padding-top: 8px; }
 .deftile { display: grid; gap: 16px; grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr); align-items: start; }
 @media (max-width: 640px) { .deftile { grid-template-columns: minmax(0, 1fr); } }
 .defnote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -614,6 +615,23 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     <div id="def-reports" class="evlist" style="max-height:none"></div>
     <div class="hint">One report per network, kept on this computer only (the network is a code, never its name). Source addresses are cut to /24 (IPv4) or /48 (IPv6). Nothing is sent anywhere; the file you save is a copy for you.</div>
   </section>
+  <section data-fold id="sec-evidence">
+    <h2>Evidence <span class="spacer"></span><span id="ev-state" class="pill"></span></h2>
+    <div class="hint" style="margin:0 0 8px">Keeps a local record of attacks that cannot be changed unnoticed, so you can hand a case to the police or a lawyer. Everything stays on this computer. Addresses of other people are personal data under many laws: it is off by default, old data is deleted after the time you set, and nothing is ever sent without you pressing a button. The Shunt never scans back.</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 14px">
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="ev-on"> Keep evidence</label>
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="ev-cap"> Record packets (Linux only)</label>
+      <span class="muted" id="ev-cap-note"></span>
+    </div>
+    <div id="ev-status" style="margin:8px 0"></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 10px">
+      <label class="muted" for="ev-days">Keep for (days)</label><input id="ev-days" type="number" min="1" max="3650" style="width:90px"><button id="ev-save">Save</button>
+      <span class="spacer"></span><button id="ev-purge">Delete all but kept cases</button><button id="ev-purge-all">Delete everything</button>
+    </div>
+    <h2 style="margin-top:14px">Cases</h2>
+    <div id="ev-cases"></div>
+    <div class="hint">A kept case stays until you delete it. To save one, open an address in the event list. Export makes an archive with the log lines, a hash chain, the packets and a plain-language description of the method; it is saved only when you press Export.</div>
+  </section>
   <section data-fold>
     <h2>Events <span class="muted" style="text-transform:none;letter-spacing:0" id="def-evsum"></span></h2>
     <div id="def-events" class="evlist"></div>
@@ -814,6 +832,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 <script src="opsec.js"></script>
 <script src="ports.js"></script>
 <script src="defense.js"></script>
+<script src="evidence.js"></script>
 <script src="speed.js"></script>
 </body>
 </html>

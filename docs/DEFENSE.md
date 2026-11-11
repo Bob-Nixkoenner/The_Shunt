@@ -245,8 +245,32 @@ marked **assumption** are not confirmed by that catalogue.
 Windows and Android: stubs only (no packet sockets or netlink). `dns_rebind` is platform neutral and works wherever the
 DNS proxy runs with the defense.
 
+## Evidence (Beweissicherung)
+
+Goal: material you can hand to the police, a lawyer or an abuse desk. The Shunt records, it never attacks and **never scans back**. Off by default (`[defense.evidence] enabled`).
+
+What is written (`<state dir>/defense/evidence/`, directory 0700, files 0600, UTC):
+- `events-YYYYMMDD-NNN.jsonl`: one JSON line per event: `seq, time_utc, kind, severity, src (full address), port, proto, detail, shunt_version, net_class, prev_hash, hash`. Each line carries the SHA-256 of the line before it (hash chain across files and days); `chain.json` lists the files with the hash each starts from. Cases live in `cases.json`.
+- State lines once per file and on change: clock sync (`state_clock`), clock jumps above 5 s (`clock_jump`, a manipulated time source is an attack too), network join and class (`state_net`).
+- Not written: name, SSID, BSSID or MAC of the network (also scrubbed from free text), addresses of this machine, passwords (the fake login keeps length and a hash prefix only), and events that describe your own programs (`first_seen`, `beacon`, `observation`, `dns_tunnel`, `dns_rebind`).
+- Retention: `retention_days` (90) and `max_mb`; oldest first; a kept (pinned) case is exempt until you delete it. "Delete all" removes everything (a second button also the kept cases). Removals are recorded in `chain.json`, so a gap is not mistaken for tampering.
+
+Packet capture (`capture = true`, Linux only), pcapng for Wireshark/Zeek/Suricata:
+- (a) first packet (cut to 128 bytes) of new inbound connections to decoy or closed ports, taken from the NFLOG group of the defense table (so by construction unsolicited); (b) incoming ARP, DHCPv4/v6 and ICMPv6 RS/RA/NS/NA frames (AF_PACKET with a BPF filter attached before binding). Never normal, outgoing or established traffic. The Shunt's own DNS/TLS probes are not captured (they cannot be told apart from normal traffic by a filter).
+- A ring in memory (512 packets / 2 MiB) is the pre-roll; it reaches the disk only when an event of severity medium or higher happens (pre-roll plus 60 s), as `pcap/<time>-<seq>.pcapng`, each packet commented `event=<seq>`. `capture_max_mb` limits the directory. Control frames can contain hardware addresses of devices on the network: look before you share.
+
+Export (button, or `POST /v1/defense/evidence/export`): `.tar.gz` with `events.jsonl`, `chain.jsonl` (hashes of every line in the span), `capture.pcapng`, `manifest.json` (SHA-256 of all files, period, time source, versions, OS and architecture, no host name), `README.txt` (method in plain words), `addresses.txt`/`addresses.csv` (for whois and similar; **the Shunt does not scan**) and, if `tsa_url` is set, `timestamp.tsr` (RFC 3161 over `manifest.json`; only the hash is sent, only on export). Check with `shunt evidence verify <archive|dir>` (reads files only); a `.tsr` is checked with `openssl ts -verify`.
+
+Abuse contact (button, `GET /v1/defense/evidence/abuse?src=`): RDAP via the IANA bootstrap, then the registry of the range (never the address itself); operator, country, range, abuse e-mail; answer kept 7 days; neutral user agent, 10 s timeout, normal route, only on a button press.
+
+Limits: whoever can rewrite all files on the machine can forge a consistent chain; the time stamp or a head hash given to someone earlier is the defence. VLAN-tagged control frames are not captured.
+
+Legal note (no legal advice): IP addresses are personal data in many jurisdictions. Keeping them to report an offence is usually justified, keeping them longer is not; whether a record is usable in court depends on the case. Before acting on a serious finding ask the police or a lawyer. Scanning other people's machines can be illegal.
+
 ## API
 
 `GET /v1/defense`, `GET /v1/defense/events?since=N` (or `?src=<ip>`), `GET /v1/defense/reports[?export=1]`,
 `POST /v1/defense/config`, `POST /v1/defense/ban`, `POST /v1/defense/unban` (config, ban and unban need the manage permission). `GET /v1/status` carries
 `defense: {heat, level, class, exposed, exposed_inbound}` while the defense is on. `POST /v1/defense/outside-scan` runs the outside check (manage permission; 409 when off or no public address, 429 while one runs).
+
+Evidence endpoints: `GET /v1/defense/evidence` (status, cases), `POST .../case` (`create|pin|unpin|delete`), `POST .../purge` (`all` also removes kept cases), `POST .../export`, `GET .../download?name=`, `GET .../abuse?src=` (all but the first need authorization).

@@ -538,6 +538,7 @@ function defRenderSource(src, evs) {
     parts.push(el("div", { class: "tl", "aria-label": T("Timeline") }, ...s.tl.map((b) => el("i", { class: "s" + b.sev, style: "height:" + (b.n ? Math.max(8, Math.round((b.n / peak) * 100)) : 0) + "%" }))));
     parts.push(el("div", { class: "evlist" }, ...evs.slice().reverse().map((e) => defEventRow(e))));
   }
+  if (typeof evSourceBox === "function") parts.push(evSourceBox(src));
   $("#def-src-body").replaceChildren(...parts);
 }
 async function defOpenSource(src) {
