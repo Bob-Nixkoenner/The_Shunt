@@ -82,6 +82,7 @@ route = "tunnel:vps"
 # decoy_ports = [22, 23, 80, 443, 445, 3389]
 # ban_seconds = 3600              # how long a hostile source stays blocked
 # never       = ["192.0.2.0/24"]  # never blocked (gateway, DNS and login page are added by themselves)
+# tls_targets = ["api.github.com", "www.wikipedia.org"]  # public sites for the tls feature (the default)
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 # block = true                    # block = also drop the source (nft table shunt_defense)
