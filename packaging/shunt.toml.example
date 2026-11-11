@@ -87,6 +87,12 @@ route = "tunnel:vps"
 #                                 # quiet mode) | on (always) | off (listen only, send nothing)
 # dns_probe   = "auto"            # same switch for the active DNS check (asks the network resolver and a
 #                                 # public resolver directly, outside the tunnel)
+# decoys_when_exposed = false     # decoys also when the uplink has a public address (default: off, they would be
+#                                 # real attack surface there)
+# [defense.outside_scan]          # "Check from outside": YOUR OWN server connects back (see tools/outside-scan.sh)
+# enabled = false
+# host    = "https://scan.example.net/outside-scan"
+# token   = ""                    # shared secret (header X-Shunt-Token)
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 # block = true                    # block = also drop the source (nft table shunt_defense)
