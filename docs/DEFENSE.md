@@ -291,8 +291,8 @@ last events (German and English via `internal/i18n/lang/de.json`).
 **Privacy.** Everything stays on the phone: events in memory (1000), first-contact memory hashed in the private app
 directory, list files from public URLs. No SSID, BSSID, MAC or address of the user's own network goes into an event or a
 log (private and link-local destinations are not tracked; only public destinations and package names appear). No new
-permission and no `QUERY_ALL_PACKAGES`: the package name of a UID comes from `getPackagesForUid`, which works for apps
-that hold a connection through the VPN. Known: the core's existing log line for a network change still prints the
+permission and no `QUERY_ALL_PACKAGES`: the package name of a UID comes from `getPackagesForUid` (with package visibility
+filtering on Android 11+ an app that is not visible shows as `uid-N`, which first-contact tracking skips). Known: the core's existing log line for a network change still prints the
 Wi-Fi name that the app passes; the app passes an empty one today.
 
 **Not tested here.** The Kotlin side was written but not built (no `shunt-core.aar` and no Android NDK on this
