@@ -49,6 +49,26 @@ func (r *Ring) LastSeq() uint64 {
 	return r.last
 }
 
+// MaxSourceEvents is the most events EventsFor returns.
+const MaxSourceEvents = 500
+
+// EventsFor returns the newest events whose Src is src, oldest first. The
+// last_seq of the answer is the ring's, so a caller can keep polling.
+func (r *Ring) EventsFor(src string) EventsResponse {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := []Event{}
+	for i := len(r.buf) - 1; i >= 0 && len(out) < MaxSourceEvents; i-- {
+		if r.buf[i].Src == src {
+			out = append(out, r.buf[i])
+		}
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return EventsResponse{Events: out, LastSeq: r.last}
+}
+
 // Events returns events with Seq > since, oldest first, at most MaxEventsPerCall.
 func (r *Ring) Events(since uint64) EventsResponse {
 	r.mu.Lock()

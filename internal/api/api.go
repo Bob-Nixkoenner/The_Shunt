@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"syscall"
 	"time"
@@ -362,8 +363,10 @@ func (c *Client) SpeedStep(ctx context.Context, route string, s speedtest.Step) 
 //
 //	GET  /v1/defense                 -> defense.Status
 //	GET  /v1/defense/events?since=N  -> defense.EventsResponse
+//	GET  /v1/defense/events?src=IP   -> all kept events of that source
 //	POST /v1/defense/config          <- defense.Config
 //	POST /v1/defense/unban           <- DefenseUnban ("" = all)
+//	POST /v1/defense/ban             <- DefenseUnban (one address, by hand)
 
 // DefenseBrief is the part of defense.Status the status call carries.
 type DefenseBrief struct {
@@ -391,9 +394,22 @@ func (c *Client) DefenseEvents(since uint64) (defense.EventsResponse, error) {
 	return ev, err
 }
 
+// DefenseEventsFor asks GET /v1/defense/events?src=<ip> for every kept
+// event of one source address.
+func (c *Client) DefenseEventsFor(src string) (defense.EventsResponse, error) {
+	var ev defense.EventsResponse
+	err := c.Do("GET", "/v1/defense/events?src="+url.QueryEscape(src), nil, &ev)
+	return ev, err
+}
+
 // DefenseConfigure sends the [defense] settings (POST /v1/defense/config).
 func (c *Client) DefenseConfigure(cfg defense.Config) error {
 	return c.Do("POST", "/v1/defense/config", cfg, nil)
+}
+
+// DefenseBan blocks one address (POST /v1/defense/ban).
+func (c *Client) DefenseBan(src string) error {
+	return c.Do("POST", "/v1/defense/ban", DefenseUnban{Src: src}, nil)
 }
 
 // DefenseUnban lifts one block ("" = all).

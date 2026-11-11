@@ -49,11 +49,27 @@ func TestDefenseRoutes(t *testing.T) {
 	if len(ev.Events) != 0 {
 		t.Fatal("since")
 	}
+	for i, s := range []string{"192.0.2.7", "198.51.100.1", "192.0.2.7"} {
+		d.def.m.Report(defense.Event{Kind: defense.KindDecoyHit, Src: s, Port: 20 + i})
+	}
+	get("/v1/defense/events?src=192.0.2.7", &ev)
+	if len(ev.Events) != 2 || ev.Events[0].Port != 20 || ev.Events[1].Port != 22 {
+		t.Fatalf("src filter: %+v", ev)
+	}
+	get("/v1/defense/events?src=::ffff:192.0.2.7", &ev)
+	if len(ev.Events) != 2 {
+		t.Fatalf("mapped src: %+v", ev)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/defense/events?src=x", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad src: %d", rec.Code)
+	}
 	if b := d.defenseBrief(); b == nil || b.Class != defense.ClassTrusted {
 		t.Fatalf("%+v", b)
 	}
 	// changing things needs the manage permission: no peer, no change
-	for _, p := range []string{"/v1/defense/config", "/v1/defense/unban"} {
+	for _, p := range []string{"/v1/defense/config", "/v1/defense/unban", "/v1/defense/ban"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("POST", p, strings.NewReader("{}")))
 		if rec.Code != http.StatusForbidden {

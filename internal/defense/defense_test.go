@@ -767,3 +767,68 @@ func TestDetectorStates(t *testing.T) {
 		t.Fatalf("split: %+v", got)
 	}
 }
+
+func TestRingEventsFor(t *testing.T) {
+	r := NewRing(10)
+	for i := 0; i < 30; i++ {
+		src := "192.0.2.1"
+		if i%3 == 0 {
+			src = "2001:db8::1"
+		}
+		r.Add(Event{Kind: KindScan, Src: src, Port: i})
+	}
+	got := r.EventsFor("2001:db8::1")
+	if len(got.Events) == 0 || got.LastSeq != 30 {
+		t.Fatalf("%+v", got)
+	}
+	for i, e := range got.Events {
+		if e.Src != "2001:db8::1" || i > 0 && e.Seq <= got.Events[i-1].Seq {
+			t.Fatalf("order/filter: %+v", got.Events)
+		}
+	}
+	if len(r.EventsFor("203.0.113.9").Events) != 0 {
+		t.Fatal("unknown source")
+	}
+	big := NewRing(2000)
+	for i := 0; i < 1200; i++ {
+		big.Add(Event{Src: "192.0.2.1", Port: i})
+	}
+	e := big.EventsFor("192.0.2.1").Events
+	if len(e) != MaxSourceEvents || e[len(e)-1].Port != 1199 {
+		t.Fatalf("cap keeps the newest: %d", len(e))
+	}
+}
+
+func TestManagerManualBan(t *testing.T) {
+	m := NewManager(nil)
+	defer m.Close()
+	if err := m.Ban("192.0.2.5"); err == nil {
+		t.Fatal("must be refused while off")
+	}
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Never = []string{"198.51.100.0/24"}
+	m.Configure(cfg)
+	for _, bad := range []string{"", "x", "198.51.100.3"} {
+		if m.Ban(bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := m.Ban("::ffff:192.0.2.5"); err != nil {
+		t.Fatal(err)
+	}
+	st := m.Status()
+	if len(st.Bans) != 1 || st.Bans[0].Src != "192.0.2.5" || st.Bans[0].Reason != KindManual {
+		t.Fatalf("%+v", st.Bans)
+	}
+	if err := m.Ban("192.0.2.5"); err != nil || len(m.Status().Bans) != 1 {
+		t.Fatal("twice must only extend")
+	}
+	if n := m.Status().Counts[KindBan]; n != 1 {
+		t.Fatalf("ban events: %d", n)
+	}
+	m.Unban("192.0.2.5")
+	if len(m.Status().Bans) != 0 {
+		t.Fatal("unban")
+	}
+}

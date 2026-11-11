@@ -55,6 +55,7 @@ const (
 	KindDNSTunnel   Kind = "dns_tunnel"  // long/random names, many TXT queries
 	KindEvilTwin    Kind = "evil_twin"   // same SSID, different BSSID/gateway
 	KindBan         Kind = "ban"         // a source was blocked
+	KindManual      Kind = "manual"      // ban reason: the user blocked it
 	KindUnban       Kind = "unban"       // a block was lifted
 	KindNetEnter    Kind = "net_enter"   // network joined (class in Detail)
 	KindObservation Kind = "observation" // passive finding (broadcast chatter, captive portal, ...)
@@ -210,8 +211,13 @@ type Engine interface {
 	Configure(cfg Config)
 	Status() Status
 	Events(since uint64) EventsResponse
+	// EventsFor returns every kept event of one source address.
+	EventsFor(src string) EventsResponse
 	// Unban lifts one block ("" = all).
 	Unban(src string)
+	// Ban blocks one address by hand (refused for the never-list and when
+	// the defense is off).
+	Ban(src string) error
 	// Report adds an event from outside (sniffers, DNS proxy, ...).
 	Report(ev Event)
 	Close()

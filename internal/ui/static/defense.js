@@ -22,7 +22,7 @@ const defKindText = () => ({
   scan: T("Port scan"), brute_force: T("Brute force"), reputation: T("Known bad address"), first_seen: T("New destination"),
   arp: T("ARP/NDP spoofing"), rogue_dhcp: T("Second DHCP server"), dns_hijack: T("DNS answers differ"), tls: T("Certificate changed"),
   beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"), ban: T("Blocked"),
-  unban: T("Block lifted"), net_enter: T("Network joined"), observation: T("Observation"),
+  unban: T("Block lifted"), manual: T("Blocked by you"), net_enter: T("Network joined"), observation: T("Observation"),
 });
 // what each switch does: [name, one line]
 const defFeatText = () => ({
@@ -70,7 +70,9 @@ function defEventRow(e, compact) {
   const where = [e.src, e.port ? (e.proto || "") + (e.port ? ":" + e.port : "") : ""].filter(Boolean).join(" ");
   return el("div", { class: "ev s" + (e.severity | 0) },
     el("span", { class: "t" }, defTime(e.time)), el("span", { class: "dot" }),
-    el("span", { class: "x" }, el("b", {}, kind), where ? el("span", { class: "mono" }, " " + where) : "",
+    el("span", { class: "x" }, el("b", {}, kind),
+      e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
+        : where ? el("span", { class: "mono" }, " " + where) : "",
       e.detail && !compact ? el("div", { class: "muted" }, e.detail) : ""));
 }
 
@@ -113,7 +115,7 @@ function renderDefense() {
   const bans = defSt.bans || [];
   $("#def-unban-all").hidden = !bans.length;
   $("#def-bans").replaceChildren(...(bans.length ? bans.map((b) => el("tr", {},
-    el("td", { class: "mono" }, b.src),
+    el("td", { class: "mono" }, el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(b.src) }, b.src)),
     el("td", {}, defKindText()[b.reason] || b.reason, " ", el("span", { class: "muted" }, defLeft(b.expires))),
     el("td", { style: "text-align:right" }, el("button", { onclick: () => defUnban(b.src) }, "Unblock"))))
     : [el("tr", {}, el("td", { class: "muted" }, "No address is blocked."))]));
@@ -213,3 +215,59 @@ $("#def-popup").addEventListener("change", (e) => lvSet("shunt-def-popup", e.tar
 $("#def-open").addEventListener("click", () => setTab("defense"));
 setInterval(pollDefense, 2000);
 setTimeout(pollDefense, 400);
+
+// Pivot: everything one source did (the events the service still keeps)
+let defSrcCur = "";
+const SRC_BUCKETS = 24;
+function defSrcSummary(evs) {
+  const kinds = {}, ports = new Set();
+  for (const e of evs) {
+    kinds[e.kind] = (kinds[e.kind] || 0) + 1;
+    if (e.port) ports.add((e.proto || "tcp") + "/" + e.port);
+  }
+  const t0 = new Date(evs[0].time).getTime(), t1 = new Date(evs[evs.length - 1].time).getTime();
+  const span = Math.max(1, t1 - t0), tl = new Array(SRC_BUCKETS).fill(null).map(() => ({ n: 0, sev: 0 }));
+  for (const e of evs) {
+    const i = Math.min(SRC_BUCKETS - 1, Math.floor(((new Date(e.time).getTime() - t0) / span) * SRC_BUCKETS));
+    tl[i].n++; tl[i].sev = Math.max(tl[i].sev, e.severity | 0);
+  }
+  return { kinds, ports: [...ports].sort((a, b) => parseInt(a.split("/")[1]) - parseInt(b.split("/")[1])), tl, t0, t1 };
+}
+function defRenderSource(src, evs) {
+  $("#def-src-title").textContent = src;
+  const ban = ((defSt && defSt.bans) || []).find((b) => b.src === src);
+  const btn = ban
+    ? el("button", { onclick: async () => { await defUnban(src); defOpenSource(src); } }, T("Unblock"))
+    : el("button", { class: "primary", onclick: () => defBan(src) }, T("Block"));
+  const parts = [el("div", { class: "row" }, ban ? el("span", { class: "pill bad" }, T("Blocked")) : el("span", { class: "pill" }, T("Not blocked")),
+    ban ? el("span", { class: "muted" }, defLeft(ban.expires)) : "", el("span", { class: "spacer" }), btn)];
+  if (!evs.length) {
+    parts.push(el("div", { class: "muted" }, T("No events from this source are kept any more.")));
+  } else {
+    const s = defSrcSummary(evs), peak = Math.max(...s.tl.map((b) => b.n));
+    parts.push(el("div", { class: "muted" }, T("First seen {a}, last seen {b}, {n} events", { a: defTime(s.t0), b: defTime(s.t1), n: evs.length })));
+    parts.push(el("div", { class: "chips" }, ...Object.keys(s.kinds).map((k) => el("span", { class: "pill" }, (defKindText()[k] || k) + " × " + s.kinds[k]))));
+    if (s.ports.length) parts.push(el("div", {}, el("span", { class: "muted" }, T("Ports") + ": "), el("span", { class: "mono" }, s.ports.join(", "))));
+    parts.push(el("div", { class: "tl", "aria-label": T("Timeline") }, ...s.tl.map((b) => el("i", { class: "s" + b.sev, style: "height:" + (b.n ? Math.max(8, Math.round((b.n / peak) * 100)) : 0) + "%" }))));
+    parts.push(el("div", { class: "evlist" }, ...evs.slice().reverse().map((e) => defEventRow(e))));
+  }
+  $("#def-src-body").replaceChildren(...parts);
+}
+async function defOpenSource(src) {
+  defSrcCur = src;
+  $("#def-src").hidden = false;
+  try {
+    const r = await api("GET", "/api/defense/events?src=" + encodeURIComponent(src));
+    if (defSrcCur === src) defRenderSource(src, r.events || []);
+  } catch (e) { $("#def-src-body").replaceChildren(el("div", { class: "muted" }, e.message)); }
+}
+async function defBan(src) {
+  if (!(await ask(T("Block {src}? A block can also hit a harmless device. It ends by itself; you can lift it here.", { src }), { ok: T("Block") }))) return;
+  try { await api("POST", "/api/defense/ban", { src }); } catch (e) { toast(T("Nothing was changed: {error}", { error: e.message })); }
+  await loadDefense();
+  defOpenSource(src);
+}
+function defCloseSource() { $("#def-src").hidden = true; defSrcCur = ""; }
+$("#def-src-close").addEventListener("click", defCloseSource);
+$("#def-src").addEventListener("click", (e) => { if (e.target.id === "def-src") defCloseSource(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#def-src").hidden) defCloseSource(); });

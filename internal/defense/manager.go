@@ -2,8 +2,10 @@ package defense
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 )
@@ -254,6 +256,31 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	}
 }
 
+// ErrNeverBan is returned when a manual block hits the never-list.
+var ErrNeverBan = errors.New("address is on the never-block list (gateway, DNS, portal or your own list)")
+
+// Ban blocks src by hand for the configured time.
+func (m *Manager) Ban(src string) error {
+	a, err := netip.ParseAddr(strings.TrimSpace(src))
+	if err != nil {
+		return err
+	}
+	a = a.Unmap()
+	m.mu.Lock()
+	enabled, secs := m.cfg.Enabled, m.cfg.BanSeconds
+	m.mu.Unlock()
+	if !enabled {
+		return errors.New("defense is off")
+	}
+	if m.never.Contains(a) {
+		return ErrNeverBan
+	}
+	if b, isNew := m.bans.Add(a.String(), KindManual, time.Duration(secs)*time.Second); isNew {
+		m.Report(Event{Kind: KindBan, Severity: SevLow, Src: b.Src, Detail: "reason=" + string(KindManual)})
+	}
+	return nil
+}
+
 // Unban lifts one block ("" = all).
 func (m *Manager) Unban(src string) {
 	for _, b := range m.bans.Remove(src) {
@@ -263,6 +290,17 @@ func (m *Manager) Unban(src string) {
 
 // Events returns events with Seq > since.
 func (m *Manager) Events(since uint64) EventsResponse { return m.ring.Events(since) }
+
+// EventsFor returns the events of one source address (all kinds), oldest
+// first. src is normalised (IPv4-mapped form, case); anything that is no
+// address matches nothing.
+func (m *Manager) EventsFor(src string) EventsResponse {
+	a, err := netip.ParseAddr(src)
+	if err != nil {
+		return EventsResponse{Events: []Event{}, LastSeq: m.ring.LastSeq()}
+	}
+	return m.ring.EventsFor(a.Unmap().String())
+}
 
 // Status returns the current state.
 func (m *Manager) Status() Status {

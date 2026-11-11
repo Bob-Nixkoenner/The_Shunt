@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"path/filepath"
@@ -187,6 +189,14 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 			writeJSON(w, http.StatusOK, defense.EventsResponse{Events: []defense.Event{}})
 			return
 		}
+		if src := r.URL.Query().Get("src"); src != "" {
+			if _, err := netip.ParseAddr(src); err != nil {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("src: not an IP address"))
+				return
+			}
+			writeJSON(w, http.StatusOK, d.def.m.EventsFor(src))
+			return
+		}
 		writeJSON(w, http.StatusOK, d.def.m.Events(since))
 	})
 	mux.HandleFunc("POST /v1/defense/config", func(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +211,30 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 		}
 		if err := d.saveDefenseConfig(cfg); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		var req api.DefenseUnban
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if d.def.m == nil {
+			writeErr(w, http.StatusConflict, fmt.Errorf("defense is not available"))
+			return
+		}
+		if err := d.def.m.Ban(req.Src); err != nil {
+			code := http.StatusBadRequest
+			if errors.Is(err, defense.ErrNeverBan) {
+				code = http.StatusConflict
+			}
+			writeErr(w, code, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

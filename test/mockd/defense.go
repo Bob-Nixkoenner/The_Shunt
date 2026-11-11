@@ -162,6 +162,16 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		m.advance(time.Now())
+		if src := r.URL.Query().Get("src"); src != "" {
+			out := []defense.Event{}
+			for _, e := range m.events {
+				if e.Src == src {
+					out = append(out, e)
+				}
+			}
+			js(w, defense.EventsResponse{Events: out, LastSeq: m.seq})
+			return
+		}
 		out := []defense.Event{}
 		for _, e := range m.events {
 			if e.Seq > since && len(out) < 200 {
@@ -178,6 +188,15 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		}
 		m.mu.Lock()
 		m.cfg = c
+		m.mu.Unlock()
+		js(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
+		var u api.DefenseUnban
+		_ = json.NewDecoder(r.Body).Decode(&u)
+		m.mu.Lock()
+		now := time.Now()
+		m.bans = append(m.bans, defense.Ban{Src: u.Src, Reason: defense.KindManual, Since: now, Expires: now.Add(time.Hour)})
 		m.mu.Unlock()
 		js(w, map[string]bool{"ok": true})
 	})

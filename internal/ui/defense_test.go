@@ -44,6 +44,13 @@ func fakeDaemon(t *testing.T) (sock string, got *[]string) {
 		rec = append(rec, "config "+strings.Join(c.Never, ","))
 		mu.Unlock()
 	})
+	mux.HandleFunc("/v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
+		var u api.DefenseUnban
+		json.NewDecoder(r.Body).Decode(&u)
+		mu.Lock()
+		rec = append(rec, "ban "+u.Src)
+		mu.Unlock()
+	})
 	mux.HandleFunc("/v1/defense/unban", func(w http.ResponseWriter, r *http.Request) {
 		var u api.DefenseUnban
 		json.NewDecoder(r.Body).Decode(&u)
@@ -82,13 +89,25 @@ func TestDefenseRoutes(t *testing.T) {
 	if ev.LastSeq != 7 || !strings.Contains(w.Body.String(), `"events":[]`) {
 		t.Fatalf("events must be an empty list, not null: %s", w.Body)
 	}
+	if w = do("GET", "/api/defense/events?src=192.0.2.5", ""); w.Code != 200 {
+		t.Fatalf("src: %d %s", w.Code, w.Body)
+	}
+	if w = do("GET", "/api/defense/events?src=not-an-ip", ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad src: %d", w.Code)
+	}
 	if w = do("POST", "/api/defense/config", `{"enabled":true,"never":["192.0.2.1"]}`); w.Code != 200 {
 		t.Fatalf("config: %d %s", w.Code, w.Body)
+	}
+	if w = do("POST", "/api/defense/ban", `{"src":"203.0.113.4"}`); w.Code != 200 {
+		t.Fatalf("ban: %d %s", w.Code, w.Body)
+	}
+	if w = do("POST", "/api/defense/ban", `{"src":"nope"}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad ban: %d", w.Code)
 	}
 	if w = do("POST", "/api/defense/unban", `{"src":"198.51.100.9"}`); w.Code != 200 {
 		t.Fatalf("unban: %d %s", w.Code, w.Body)
 	}
-	want := []string{"events since=5", "config 192.0.2.1", "unban 198.51.100.9"}
+	want := []string{"events since=5", "events src=192.0.2.5", "config 192.0.2.1", "ban 203.0.113.4", "unban 198.51.100.9"}
 	if strings.Join(*got, "|") != strings.Join(want, "|") {
 		t.Fatalf("daemon got %v, want %v", *got, want)
 	}

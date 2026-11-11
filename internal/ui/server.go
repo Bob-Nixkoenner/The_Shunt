@@ -24,6 +24,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -417,7 +418,17 @@ func (s *Server) handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/defense/events", func(w http.ResponseWriter, r *http.Request) {
 		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
-		ev, err := s.Client.DefenseEvents(since)
+		var ev defense.EventsResponse
+		var err error
+		if src := r.URL.Query().Get("src"); src != "" {
+			if _, perr := netip.ParseAddr(src); perr != nil {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("src: not an IP address"))
+				return
+			}
+			ev, err = s.Client.DefenseEventsFor(src)
+		} else {
+			ev, err = s.Client.DefenseEvents(since)
+		}
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, err)
 			return
@@ -433,6 +444,21 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		if err := s.Client.DefenseConfigure(cfg); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/defense/ban", func(w http.ResponseWriter, r *http.Request) {
+		var req api.DefenseUnban
+		if !decode(w, r, &req) {
+			return
+		}
+		if _, err := netip.ParseAddr(req.Src); err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("src: not an IP address"))
+			return
+		}
+		if err := s.Client.DefenseBan(req.Src); err != nil {
 			writeErr(w, http.StatusBadGateway, err)
 			return
 		}

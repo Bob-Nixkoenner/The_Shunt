@@ -262,6 +262,17 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 #def-live[hidden] { display: none; }
 #def-live .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 700; font-size: 13px; }
 #def-live .evlist { max-height: 180px; }
+.srclink { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
+.srclink:hover { text-decoration: underline; }
+#def-src { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+#def-src[hidden] { display: none; }
+#def-src .box { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px; width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; display: grid; gap: 10px; }
+#def-src .hd { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+#def-src .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+#def-src .tl { display: flex; align-items: flex-end; gap: 2px; height: 44px; }
+#def-src .tl i { flex: 1; min-width: 2px; background: var(--muted); border-radius: 2px 2px 0 0; opacity: .85; }
+#def-src .tl i.s1 { background: var(--info); } #def-src .tl i.s2 { background: var(--warn); } #def-src .tl i.s3 { background: var(--bad); }
+#def-src .evlist { max-height: 220px; }
 .deftile { display: grid; gap: 16px; grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr); align-items: start; }
 @media (max-width: 640px) { .deftile { grid-template-columns: minmax(0, 1fr); } }
 .defnote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -576,6 +587,12 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     <div class="hint">Events stay on this computer; nothing is sent anywhere.</div>
   </section>
 </main>
+<div id="def-src" hidden role="dialog" aria-modal="true" aria-labelledby="def-src-title">
+  <div class="box">
+    <div class="hd"><span id="def-src-title" class="mono"></span><span class="spacer"></span><button id="def-src-close" aria-label="Close">×</button></div>
+    <div id="def-src-body"></div>
+  </div>
+</div>
 <div id="def-live" hidden role="status" aria-live="polite">
   <div class="hd"><span id="def-live-title"></span><span class="spacer"></span><button id="def-live-close" aria-label="Close">×</button></div>
   <div id="def-live-list" class="evlist"></div>
