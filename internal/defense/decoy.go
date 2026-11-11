@@ -3,6 +3,7 @@ package defense
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sort"
@@ -27,6 +28,7 @@ type Hit struct {
 	Kind   Kind
 	Sev    Severity
 	Detail string
+	JA3    string // TLS client fingerprint when the hit carried a ClientHello
 }
 
 // DecoyOptions says which extras are on.
@@ -189,6 +191,9 @@ func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOpti
 	}
 	d.hit(Hit{Src: src, Port: port, Kind: KindDecoyHit, Sev: SevMedium, Detail: "tcp connect"})
 
+	if port == 443 {
+		d.tlsHello(c, src, port)
+	}
 	if opt.Cowrie && (port == 23 || port == 22) {
 		_ = c.SetDeadline(time.Now().Add(to * 4))
 		if port == 23 {
@@ -231,4 +236,19 @@ func addrOf(a net.Addr) netip.Addr {
 		return ap.Addr().Unmap()
 	}
 	return netip.Addr{}
+}
+
+// tlsHello reads the first bytes of a connection on the TLS decoy and, if it
+// is a ClientHello, reports its JA3 fingerprint. Waits at most 2 s.
+func (d *Decoys) tlsHello(c net.Conn, src netip.Addr, port int) {
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 4096)
+	n, _ := io.ReadAtLeast(c, buf, 11)
+	_ = c.SetReadDeadline(time.Time{})
+	if n < 11 {
+		return
+	}
+	if _, h, ok := JA3(buf[:n]); ok {
+		d.hit(Hit{Src: src, Port: port, Kind: KindObservation, Sev: SevInfo, Detail: "ja3=" + h, JA3: h})
+	}
 }

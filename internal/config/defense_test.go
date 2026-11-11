@@ -34,3 +34,14 @@ func TestNetClassAndDefenseValidation(t *testing.T) {
 		t.Fatal("unknown feature accepted")
 	}
 }
+
+func TestDefenseReputationSources(t *testing.T) {
+	c := &Config{Defense: &defense.Config{ReputationSources: []string{"sslbl_ja3", "et_compromised"}}}
+	if err := c.validateDefense(); err != nil {
+		t.Fatal(err)
+	}
+	c.Defense.ReputationSources = []string{"nope"}
+	if c.validateDefense() == nil {
+		t.Fatal("unknown source accepted")
+	}
+}

@@ -151,6 +151,10 @@ type Config struct {
 	// Never lists addresses/CIDRs that are never blocked (gateway, DNS and
 	// captive portal are added automatically at runtime).
 	Never []string `json:"never" toml:"never"`
+	// ReputationSources names optional downloadable lists ("sslbl_ja3",
+	// "et_compromised"). Empty = only the built-in CC0 lists. Nothing
+	// optional is fetched unless the user lists it here.
+	ReputationSources []string `json:"reputation_sources" toml:"reputation_sources"`
 }
 
 // DefaultConfig: detection on, blocking off, decoys on common ports. Off

@@ -2,8 +2,10 @@ package defense
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +22,12 @@ import (
 const (
 	FeodoURL = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
 	SSLBLURL = "https://sslbl.abuse.ch/blacklist/sslipblacklist.txt"
+	// SSLBLJA3URL: CSV "ja3_md5,Firstseen,Lastseen,Listingreason" (checked
+	// 2026-11-11). Optional source "sslbl_ja3".
+	SSLBLJA3URL = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+	// ETCompromisedURL: bare IPv4 per line, "---" first line. Optional
+	// source "et_compromised"; see docs/DEFENSE.md for the licence notes.
+	ETCompromisedURL = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
 )
 
 //go:embed testdata/example_list.txt
@@ -52,6 +60,32 @@ func ParseList(r io.Reader) []netip.Prefix {
 	return out
 }
 
+// ParseJA3List reads JA3 digests (32 hex characters, first CSV field).
+func ParseJA3List(r io.Reader) map[string]struct{} {
+	out := map[string]struct{}{}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 1<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if i := strings.IndexByte(line, ','); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.ToLower(line)
+		if len(line) != 32 {
+			continue
+		}
+		if _, err := hex.DecodeString(line); err == nil {
+			out[line] = struct{}{}
+		}
+	}
+	return out
+}
+
+type ja3List struct {
+	set     map[string]struct{}
+	expires time.Time
+}
+
 type repList struct {
 	prefixes map[netip.Prefix]struct{}
 	bits     map[int]bool // prefix lengths present
@@ -62,12 +96,13 @@ type repList struct {
 type Reputation struct {
 	mu    sync.RWMutex
 	lists map[string]*repList
+	ja3   map[string]*ja3List
 	now   func() time.Time
 }
 
 // NewReputation returns an empty set.
 func NewReputation() *Reputation {
-	return &Reputation{lists: map[string]*repList{}, now: time.Now}
+	return &Reputation{lists: map[string]*repList{}, ja3: map[string]*ja3List{}, now: time.Now}
 }
 
 // SetList replaces list name. A zero expires means it never expires.
@@ -81,6 +116,30 @@ func (r *Reputation) SetList(name string, p []netip.Prefix, expires time.Time) {
 	r.mu.Lock()
 	r.lists[name] = l
 	r.mu.Unlock()
+}
+
+// SetJA3List replaces JA3 list name (zero expires = never).
+func (r *Reputation) SetJA3List(name string, set map[string]struct{}, expires time.Time) {
+	r.mu.Lock()
+	r.ja3[name] = &ja3List{set: set, expires: expires}
+	r.mu.Unlock()
+}
+
+// LookupJA3 returns the name of an unexpired JA3 list holding hash.
+func (r *Reputation) LookupJA3(hash string) (string, bool) {
+	now := r.now()
+	hash = strings.ToLower(hash)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, l := range r.ja3 {
+		if !l.expires.IsZero() && !now.Before(l.expires) {
+			continue
+		}
+		if _, ok := l.set[hash]; ok {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // Lookup returns the name of a list that contains a (and has not expired).
@@ -117,6 +176,11 @@ func (r *Reputation) Prune() {
 			delete(r.lists, n)
 		}
 	}
+	for n, l := range r.ja3 {
+		if !l.expires.IsZero() && !now.Before(l.expires) {
+			delete(r.ja3, n)
+		}
+	}
 	r.mu.Unlock()
 }
 
@@ -125,6 +189,31 @@ type Source struct {
 	Name string
 	URL  string
 	TTL  time.Duration // how long its entries count after a download (default 24 h)
+	JA3  bool          // the list holds JA3 digests, not addresses
+}
+
+// Optional sources: off unless named in Config.ReputationSources. Nothing
+// here is downloaded by default.
+var OptionalSources = map[string]Source{
+	"sslbl_ja3":      {Name: "sslbl_ja3", URL: SSLBLJA3URL, TTL: 72 * time.Hour, JA3: true},
+	"et_compromised": {Name: "et_compromised", URL: ETCompromisedURL, TTL: 48 * time.Hour},
+}
+
+// OptionalSourceNames lists the valid names for Config.ReputationSources.
+func OptionalSourceNames() []string { return []string{"sslbl_ja3", "et_compromised"} }
+
+// SourcesFor returns the built-in sources plus the chosen optional ones
+// (unknown names are ignored).
+func SourcesFor(names []string) []Source {
+	out := append([]Source(nil), DefaultSources...)
+	seen := map[string]bool{}
+	for _, n := range names {
+		if s, ok := OptionalSources[n]; ok && !seen[n] {
+			seen[n] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // DefaultSources are the two built-in CC0 lists.
@@ -165,7 +254,7 @@ func (u *Updater) one(ctx context.Context, s Source) error {
 		if mk := os.MkdirAll(u.Dir, 0o700); mk == nil {
 			_ = os.WriteFile(file, body, 0o600)
 		}
-		u.Rep.SetList(s.Name, ParseList(strings.NewReader(string(body))), u.Rep.now().Add(ttl))
+		u.load(s, bytes.NewReader(body), u.Rep.now().Add(ttl))
 		return nil
 	}
 	// fall back to cache; expiry counts from the file's age
@@ -178,8 +267,16 @@ func (u *Updater) one(ctx context.Context, s Source) error {
 		return err
 	}
 	defer f.Close()
-	u.Rep.SetList(s.Name, ParseList(f), st.ModTime().Add(ttl))
+	u.load(s, f, st.ModTime().Add(ttl))
 	return err
+}
+
+func (u *Updater) load(s Source, r io.Reader, exp time.Time) {
+	if s.JA3 {
+		u.Rep.SetJA3List(s.Name, ParseJA3List(r), exp)
+		return
+	}
+	u.Rep.SetList(s.Name, ParseList(r), exp)
 }
 
 func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {

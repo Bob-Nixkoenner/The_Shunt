@@ -54,6 +54,15 @@ func (c *Config) validateDefense() error {
 	if d.BanSeconds < 0 || d.BanSeconds > 30*24*3600 {
 		return fmt.Errorf("defense.ban_seconds %d (0 = default, at most 30 days)", d.BanSeconds)
 	}
+	okSrc := map[string]bool{}
+	for _, n := range defense.OptionalSourceNames() {
+		okSrc[n] = true
+	}
+	for _, n := range d.ReputationSources {
+		if !okSrc[n] {
+			return fmt.Errorf("defense.reputation_sources: unknown source %q (known: %v)", n, defense.OptionalSourceNames())
+		}
+	}
 	for _, s := range d.Never {
 		if _, err := netip.ParsePrefix(s); err != nil {
 			if _, err2 := netip.ParseAddr(s); err2 != nil {

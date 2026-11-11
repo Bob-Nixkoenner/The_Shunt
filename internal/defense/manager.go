@@ -204,10 +204,29 @@ func (m *Manager) CheckPeer(a netip.Addr, port int, proto string) bool {
 }
 
 func (m *Manager) decoyHit(h Hit) {
+	if h.JA3 != "" {
+		m.ja3Seen(h)
+		return
+	}
 	m.Report(Event{Kind: h.Kind, Severity: h.Sev, Src: h.Src.String(), Port: h.Port, Proto: "tcp", Detail: h.Detail})
 	if h.Kind == KindDecoyHit {
 		m.Observe(h.Src, h.Port, "tcp", false)
 	}
+}
+
+// ja3Seen reports a TLS fingerprint; a hit on the JA3 list is severity high
+// and can ban like any bad-reputation peer.
+func (m *Manager) ja3Seen(h Hit) {
+	ev := Event{Kind: h.Kind, Severity: h.Sev, Src: h.Src.String(), Port: h.Port, Proto: "tcp", Detail: h.Detail}
+	if f := m.feature(FeatReputation); f.Watch {
+		if name, bad := m.rep.LookupJA3(h.JA3); bad {
+			ev.Kind, ev.Severity, ev.Detail = KindReputation, SevHigh, "list="+name+" ja3="+h.JA3
+			m.Report(ev)
+			m.maybeBan(h.Src, KindReputation, FeatReputation)
+			return
+		}
+	}
+	m.Report(ev)
 }
 
 func (m *Manager) found(f Finding) {
