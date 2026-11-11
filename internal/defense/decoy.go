@@ -182,6 +182,7 @@ func Banner(port int) string {
 
 func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOptions) {
 	src := addrOf(c.RemoteAddr())
+	defer context.AfterFunc(ctx, func() { c.Close() })() // Stop must not wait for slow peers
 	to := d.Timeout
 	if to <= 0 {
 		to = 15 * time.Second
@@ -208,9 +209,11 @@ func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOpti
 		}) {
 			return
 		}
+		c.Close() // all traps busy: do not tie up a handler
+		return
 	}
 	_ = c.SetDeadline(time.Now().Add(to))
-	if b := Banner(port); b != "" && !opt.Tarpit {
+	if b := Banner(port); b != "" {
 		_, _ = c.Write([]byte(b))
 	}
 	buf := make([]byte, 512)

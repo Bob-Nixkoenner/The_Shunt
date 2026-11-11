@@ -20,10 +20,11 @@ type Manager struct {
 	dec   *Decoys
 	now   func() time.Time
 
-	mu    sync.Mutex
-	cfg   Config
-	key   string
-	class Class
+	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
+	mu     sync.Mutex
+	cfg    Config
+	key    string
+	class  Class
 
 	stop     context.CancelFunc
 	done     chan struct{}
@@ -120,8 +121,8 @@ func (m *Manager) Configure(cfg Config) {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.never.SetConfig(ParsePrefixes(cfg.Never))
-	m.syncDecoysLocked()
 	m.mu.Unlock()
+	m.syncDecoys()
 }
 
 // SetNetwork records the network; a new key resets the counters.
@@ -131,23 +132,29 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	changed := key != m.key
 	m.key, m.class = key, class
 	m.therm.SetNetwork(key, class)
-	m.syncDecoysLocked()
 	enabled := m.cfg.Enabled
 	m.mu.Unlock()
+	m.syncDecoys()
 	if changed && enabled {
 		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class)})
 	}
 }
 
-// syncDecoysLocked starts or stops decoys to match config and class.
-func (m *Manager) syncDecoysLocked() {
-	if f := featureOf(m.cfg, FeatDecoy); !f.Watch || !m.class.Decoys() {
+// syncDecoys starts or stops decoys to match config and class. Handlers
+// call back into the manager, so mu must not be held while stopping.
+func (m *Manager) syncDecoys() {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+	m.mu.Lock()
+	cfg, class := m.cfg, m.class
+	m.mu.Unlock()
+	if f := featureOf(cfg, FeatDecoy); !f.Watch || !class.Decoys() {
 		m.dec.Stop()
 		return
 	}
-	m.dec.Start(m.cfg.DecoyPorts, DecoyOptions{
-		Tarpit: featureOf(m.cfg, FeatTarpit).Watch,
-		Cowrie: featureOf(m.cfg, FeatCowrie).Watch,
+	m.dec.Start(cfg.DecoyPorts, DecoyOptions{
+		Tarpit: featureOf(cfg, FeatTarpit).Watch,
+		Cowrie: featureOf(cfg, FeatCowrie).Watch,
 	})
 }
 
