@@ -280,7 +280,7 @@ function renderDefense() {
     const block = el("input", { type: "checkbox", "aria-label": T("Block") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: f.watch, block: block.checked }) });
     watch.checked = !!f.watch; block.checked = !!f.block && !!f.watch; block.disabled = !f.watch || !on;
     watch.disabled = !on;
-    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
+    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : k === "scan" ? defBanChoice(on, f) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
   }));
   renderDefSources(on);
   // bans
@@ -430,6 +430,22 @@ function defLiveFeed(fresh) {
   $("#def-live-list").replaceChildren(...defLive.slice().reverse().map((e) => defEventRow(e)));
 }
 $("#def-live-close").addEventListener("click", () => { $("#def-live").hidden = true; defLive = []; defMuteUntil = Date.now() + 5 * 60 * 1000; });
+
+// defBanChoice: a scan is blocked only after the source made a real
+// connection to a decoy, because the sender address of single packets can be
+// forged (config ban_unverified, default off = wait). Only matters while
+// blocking of scans is on.
+function defBanChoice(on, f) {
+  const box = el("input", { type: "checkbox", onchange: () => {
+    const cfg = JSON.parse(JSON.stringify(defSt.config));
+    cfg.ban_unverified = box.checked;
+    defSend(cfg);
+  } });
+  box.checked = !!(defSt.config && defSt.config.ban_unverified);
+  box.disabled = !on || !f.watch || !f.block;
+  return el("label", { class: "d defprobe" }, box, " ",
+    T("Block at once, without waiting for a real connection (not recommended: sender addresses can be forged)"));
+}
 
 // defProbeChoice: the active DHCP probe sends a request into the network, so
 // it has its own choice (auto = public networks only, never in quiet mode)

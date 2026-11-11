@@ -112,7 +112,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   detail `confirmed=handshake`); a handshake counts for 30 minutes. So a pure SYN scan (`nmap -sS`)
   is reported but not blocked until the scanner connects to a port it found open. Reputation hits
   and manual blocks are not held back. `defense.ban_unverified = true` restores blocking on packets
-  alone. Limit: someone who can read our SYN-ACK (same open Wi-Fi, on the path) can still finish a
+  alone (Defense tab, row "Port scans": "Block at once, without waiting for a real connection"; off by
+  default, usable only while blocking of scans is on). Limit: someone who can read our SYN-ACK (same open Wi-Fi, on the path) can still finish a
   handshake under a forged address; the reply rule above then limits the damage.
   Internal errors: a panic in a decoy handler, sensor or packet reader is caught, counted and logged
   (`defense.Guard`, log line "internal error caught"); it costs one connection or one sensor round,

@@ -1613,6 +1613,7 @@
   "Nothing was checked: {error}": "Es wurde nichts geprüft: {error}",
   "Outside check": "Außen-Test",
   "Run the decoys anyway (not recommended with a public address)": "Köder trotzdem laufen lassen (mit öffentlicher Adresse nicht empfohlen)",
+  "Block at once, without waiting for a real connection (not recommended: sender addresses can be forged)": "Sofort sperren, ohne auf eine echte Verbindung zu warten (nicht empfohlen: Absenderadressen lassen sich fälschen)",
   "This device has a public address ({fam}) and is reachable directly from the internet. Incoming connections are limited ({mode}); check from outside to be sure.": "Dieses Gerät hat eine öffentliche Adresse ({fam}) und ist direkt aus dem Internet erreichbar. Eingehende Verbindungen sind eingeschränkt ({mode}); prüfe von außen, um sicher zu sein.",
   "This device has a public address ({fam}) and is reachable directly from the internet. Nothing blocks incoming connections ({mode}): every program that listens can be attacked. Switch on “Incoming connections” (closed) under Configure → Privacy and protection.": "Dieses Gerät hat eine öffentliche Adresse ({fam}) und ist direkt aus dem Internet erreichbar. Nichts blockiert eingehende Verbindungen ({mode}): Jedes Programm, das lauscht, kann angegriffen werden. Schalte „Eingehende Verbindungen“ (geschlossen) unter Einrichten → Datenschutz und Schutz ein.",
   "This device has a public address; the incoming protection blocks the ports above.": "Dieses Gerät hat eine öffentliche Adresse; der Eingangsschutz blockiert die Ports oben.",
