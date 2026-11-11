@@ -434,6 +434,14 @@ func (c *Client) DefenseUnban(src string) error {
 	return c.Do("POST", "/v1/defense/unban", DefenseUnban{Src: src}, nil)
 }
 
+// DefenseOutsideScan asks the configured server of the user's own to check
+// this machine's public address from outside (POST /v1/defense/outside-scan).
+func (c *Client) DefenseOutsideScan() (defense.OutsideResult, error) {
+	var r defense.OutsideResult
+	err := c.Do("POST", "/v1/defense/outside-scan", struct{}{}, &r)
+	return r, err
+}
+
 // Listening answers GET /v1/listening: what on this machine waits for
 // connections from outside, and from where it can be reached.
 type Listening struct {

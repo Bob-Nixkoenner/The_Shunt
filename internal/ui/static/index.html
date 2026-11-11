@@ -571,6 +571,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <section>
     <h2>Heat <span class="spacer"></span><span id="def-class"></span></h2>
     <div id="def-thermo"></div>
+    <div id="def-exposed"></div>
     <div id="def-notes" class="hint"></div>
     <div class="row" style="margin-top:10px">
       <label class="row" style="color:var(--text)"><input type="checkbox" id="def-on"> Defense on</label>
@@ -578,6 +579,18 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <label class="muted" for="def-popup">Live window</label>
       <select id="def-popup"><option value="auto">from Hot upwards</option><option value="always">always on a hit</option><option value="never">never</option></select>
     </div>
+  </section>
+  <section data-fold id="sec-outside">
+    <h2>Check from outside</h2>
+    <div class="hint" style="margin:0 0 8px">Asks a server of your own to connect back to this device's public address and say which ports answer from the internet. It only ever checks the address it is asked from, never another one, and only the ports the server has in its fixed list. Use only your own server (see tools/outside-scan.sh).</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 14px">
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="out-on"> Allow the outside check</label>
+      <label class="muted" for="out-host">Server address</label><input id="out-host" placeholder="https://scan.example.net/outside-scan" style="min-width:260px">
+      <label class="muted" for="out-token">Token</label><input id="out-token" type="password" autocomplete="off" style="min-width:140px">
+      <button id="out-save">Save</button>
+    </div>
+    <div class="row" style="margin-top:10px"><button id="out-run" class="primary">Check from outside (only with your own server)</button><span class="muted" id="out-msg"></span></div>
+    <div id="out-res" class="hint"></div>
   </section>
   <section data-fold>
     <h2>Switches <span class="muted" style="text-transform:none;letter-spacing:0">watch = notice and report · block = also shut the source out</span></h2>

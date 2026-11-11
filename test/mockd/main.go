@@ -28,6 +28,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -96,7 +97,9 @@ func main() {
 	flag.StringVar(&platform, "platform", "", `platform the UI shows ("" = Linux, "windows")`)
 	flag.StringVar(&version, "version", "v0.7.1", "version the daemon reports (the app warns when it differs from its own)")
 	flag.IntVar(&fixedHeat, "heat", -1, "pin the defense heat (0-100); default: swings through all levels")
+	flag.StringVar(&exposedMode, "exposed", "", `pretend the uplink has a public address, with the incoming protection "open" or "closed"`)
 	flag.Parse()
+	dfn = newMockDefense() // the history depends on -exposed
 	cfg, err := config.Parse(raw)
 	if err != nil {
 		log.Fatal(err)
@@ -161,6 +164,15 @@ func main() {
 		js(w, res)
 	})
 	dfn.handle(mux)
+	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
+		o := func(n string) sockets.Owner { return sockets.Owner{Name: n, Procs: []string{n}} }
+		pub := exposedMode == "open"
+		js(w, api.Listening{Network: "", Inbound: exposedMode, Uplinks: []string{"wlan0"}, PublicV4: exposedMode != "", Ports: []api.OpenPort{
+			{Proto: "tcp", Addr: "0.0.0.0", Port: 22, Reach: "all", Exposed: true, Public: pub, Blocked: exposedMode == "closed", Owner: o("sshd")},
+			{Proto: "tcp", Addr: "0.0.0.0", Port: 8080, Reach: "all", Exposed: true, Public: pub, Blocked: exposedMode == "closed", Owner: o("python3")},
+			{Proto: "tcp", Addr: "127.0.0.1", Port: 631, Reach: "localhost", Owner: o("cupsd")},
+		}})
+	})
 	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) { js(w, []any{}) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { js(w, map[string]any{}) })
 	log.Fatal((&http.Server{Handler: mux}).Serve(ln))
