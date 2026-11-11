@@ -2,7 +2,7 @@
 # Every address comes from the environment or from the running system, never from this file.
 #   IFACE   lab interface (default: the NIC in the KALI_IP subnet, see lab_iface; else eth0)
 #   TARGET  victim address (the Shunt client), required by most scripts
-#   GW      gateway address (default: read from the routing table)
+#   GW      gateway address (default: default route of IFACE, else the .1 of IFACE's /24)
 # lab.env (written by lab.sh kali-sync) carries KALI_IP, the fixed address on the lab LAN
 [[ -f $(dirname "${BASH_SOURCE[0]}")/lab.env ]] && . "$(dirname "${BASH_SOURCE[0]}")/lab.env"
 # The lab NIC is the one with an address in KALI_IP's /24, not the one with the default route
@@ -22,6 +22,13 @@ lab_iface() {
 IFACE=${IFACE:-$(lab_iface)}
 IFACE=${IFACE:-eth0}
 GW=${GW:-$(ip -4 route show default dev "$IFACE" 2>/dev/null | awk '{print $3; exit}')}
+# The lab NIC has no default route by design (see lab_iface), so the line above is usually empty:
+# then the gateway is the .1 of the lab NIC's own /24 (how the lab gateway VM is set up).
+if [[ -z $GW ]]; then
+	_lab_addr=$(ip -4 -o addr show dev "$IFACE" 2>/dev/null | awk '{print $4; exit}')
+	[[ -n $_lab_addr ]] && GW=${_lab_addr%.*}.1
+	unset _lab_addr
+fi
 DURATION=${DURATION:-20}
 need() { command -v "$1" >/dev/null || { echo "missing tool: $1 (apt install it in shunt-kali)" >&2; exit 2; }; }
 need_target() { [[ -n ${TARGET:-} ]] || { echo "set TARGET=<victim address>" >&2; exit 2; }; }

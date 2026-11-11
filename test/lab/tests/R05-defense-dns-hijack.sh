@@ -5,7 +5,8 @@ CONFIG=defense
 ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 EXPECT_CANARY=none
 NOTE="shunt-kali faehrt attacker/dns-hijack.sh (ARP-Spoof + eigener DNS-Server, antwortet auf
-jede Anfrage mit einer fremden Adresse). Erwartet: Ereignis kind=dns_hijack (Gateway-MAC-Wechsel loest sofort eine neue DNS-Pruefung aus, sonst alle 5 min),
+jede Anfrage mit einer fremden Adresse; der uebrige Verkehr des Clients wird zum echten Gateway
+weitergereicht, FORWARD=1, Gegenprobe mit gekapptem Tunnel: FORWARD=0). Erwartet: Ereignis kind=dns_hijack (Gateway-MAC-Wechsel loest sofort eine neue DNS-Pruefung aus, sonst alle 5 min),
 Canary-Abgleich schlaegt an falls der Client eine Kanarien-Domain abfragt. Braucht
 kali()-Helfer (TODO). Nicht in der Lab-VM gelaufen (Stand 11.11.)."
 during() {
