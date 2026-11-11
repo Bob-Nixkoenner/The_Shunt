@@ -122,10 +122,18 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 		env.DNS = append(env.DNS, s.Addr.String())
 		never = append(never, netip.PrefixFrom(s.Addr.Addr(), s.Addr.Addr().BitLen()))
 	}
+	quiet := true
+	if n := cfg.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
+		quiet = cfg.QuietFor(n.Name)
+	} else {
+		quiet = cfg.QuietFor("")
+	}
+	mode := cfg.DefenseConfig().DHCPProbe
+	env.DHCPProbe = defense.ProbeAllowed(mode, class, quiet)
 	d.def.m.SetNever(never)
 	d.defenseNever(never)
 	on := cfg.DefenseConfig().Enabled
-	cur := defNetKey(info) + "|" + string(class) + "|" + strconv.FormatBool(on)
+	cur := defNetKey(info) + "|" + string(class) + "|" + strconv.FormatBool(on) + "|" + strconv.FormatBool(env.DHCPProbe)
 	d.def.mu.Lock()
 	same := cur == d.def.lastEnv
 	d.def.lastEnv = cur

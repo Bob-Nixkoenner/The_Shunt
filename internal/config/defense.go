@@ -12,8 +12,7 @@ import (
 // value of defense.Config has Enabled false).
 func (c *Config) DefenseConfig() defense.Config {
 	if c.Defense == nil {
-		d := defense.DefaultConfig()
-		return d
+		return defense.DefaultConfig()
 	}
 	d := *c.Defense
 	// Features the file does not mention keep their default (watch on, block
@@ -30,6 +29,9 @@ func (c *Config) DefenseConfig() defense.Config {
 	if d.BanSeconds <= 0 {
 		d.BanSeconds = 3600
 	}
+	if d.DHCPProbe == "" {
+		d.DHCPProbe = defense.ProbeAuto
+	}
 	return d
 }
 
@@ -37,6 +39,9 @@ func (c *Config) validateDefense() error {
 	d := c.Defense
 	if d == nil {
 		return nil
+	}
+	if !defense.ValidProbeMode(d.DHCPProbe) {
+		return fmt.Errorf("defense.dhcp_probe %q (auto, on or off)", d.DHCPProbe)
 	}
 	known := map[string]bool{}
 	for _, n := range defense.AllFeatures {

@@ -34,10 +34,16 @@ profile, counts as `public`.
   The captive portal check of the daemon is reported as an observation.
   Timing: the gateway's neighbour entry is compared on every netlink event and also every 5 s (events
   can be missed); the DNS comparison runs 3 s after joining, every 5 min, and right after a gateway MAC
-  change (a finding is reported once until a clean run). The DHCP watch also sends a DHCP DISCOVER
+  change (a finding is reported once until a clean run). The DHCP watch can also send a DHCP DISCOVER
   (random hardware address, broadcast flag, no host name, never a REQUEST) 4 s after joining and every
-  5 min, so every server answers with a broadcast OFFER the listener sees; before, it only saw replies
+  5 min, so every server answers with a broadcast OFFER the listener sees; without it, it only sees replies
   to this machine's own requests. A second server ID raises `rogue_dhcp`.
+  This probe sends into the network, so it is switchable with `defense.dhcp_probe`: `auto` (default) =
+  only in public networks and never while the quiet mode (`daemon.quiet`, `quiet_out`) is on for the
+  network; `on` = always (also in quiet mode, counts as explicit permission; not for trusted or managed
+  networks you would rather keep silent); `off` = never, listen only. The Defense tab has the same choice.
+  The daemon decides at network join and when the config changes (`defense.ProbeAllowed`); the nft
+  `quiet_out` chain itself is not consulted, as AF_PACKET frames bypass it.
   Features missing from `[defense.features.*]` keep their default (watch on, block off).
 - Reputation lists (abuse.ch, CC0) are fetched twice a day while the `reputation` feature is on;
   the cache is `<cache dir>/defense`.

@@ -24,6 +24,7 @@ enabled = true
 enabled = true
 decoy_ports = [23, 80, 445, 3389]
 ban_seconds = 300
+dhcp_probe = "on"
 
 [defense.features.decoy]
 watch = true

@@ -163,6 +163,34 @@ type Config struct {
 	// feature checks (host names, at most 16). Empty = api.github.com and
 	// www.wikipedia.org.
 	TLSTargets []string `json:"tls_targets,omitempty" toml:"tls_targets,omitempty"`
+	// DHCPProbe says whether the dhcp feature may send its active DISCOVER
+	// probe: "auto" (default, "" too) = only in public networks and never
+	// while the quiet mode is on, "on" = always, "off" = never (listen only).
+	DHCPProbe string `json:"dhcp_probe,omitempty" toml:"dhcp_probe,omitempty"`
+}
+
+// DHCP probe modes.
+const (
+	ProbeAuto = "auto"
+	ProbeOn   = "on"
+	ProbeOff  = "off"
+)
+
+// ValidProbeMode reports whether m is a known dhcp_probe value ("" = auto).
+func ValidProbeMode(m string) bool {
+	return m == "" || m == ProbeAuto || m == ProbeOn || m == ProbeOff
+}
+
+// ProbeAllowed decides whether the active DHCP probe may be sent: auto only
+// in public networks and not while the quiet mode is on, on always, off never.
+func ProbeAllowed(mode string, class Class, quiet bool) bool {
+	switch mode {
+	case ProbeOn:
+		return true
+	case ProbeOff:
+		return false
+	}
+	return class.Normalize() == ClassPublic && !quiet
 }
 
 // DefaultConfig: detection on, blocking off, decoys on common ports. Off
@@ -176,6 +204,7 @@ func DefaultConfig() Config {
 		Features:   f,
 		DecoyPorts: []int{22, 23, 80, 443, 445, 3389},
 		BanSeconds: 3600,
+		DHCPProbe:  ProbeAuto,
 	}
 }
 

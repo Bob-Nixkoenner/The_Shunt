@@ -210,7 +210,7 @@ function renderDefense() {
     const block = el("input", { type: "checkbox", "aria-label": T("Block") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: f.watch, block: block.checked }) });
     watch.checked = !!f.watch; block.checked = !!f.block && !!f.watch; block.disabled = !f.watch || !on;
     watch.disabled = !on;
-    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1])), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
+    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
   }));
   renderDefSources(on);
   // bans
@@ -319,6 +319,20 @@ function defLiveFeed(fresh) {
   $("#def-live-list").replaceChildren(...defLive.slice().reverse().map((e) => defEventRow(e)));
 }
 $("#def-live-close").addEventListener("click", () => { $("#def-live").hidden = true; defLive = []; defMuteUntil = Date.now() + 5 * 60 * 1000; });
+
+// defProbeChoice: the active DHCP probe sends a request into the network, so
+// it has its own choice (auto = public networks only, never in quiet mode)
+function defProbeChoice(on) {
+  const cur = (defSt.config && defSt.config.dhcp_probe) || "auto";
+  const sel = el("select", { "aria-label": T("Active DHCP check"), onchange: () => {
+    const cfg = JSON.parse(JSON.stringify(defSt.config));
+    cfg.dhcp_probe = sel.value;
+    defSend(cfg);
+  } }, ...[["auto", T("Automatic")], ["on", T("On")], ["off", T("Off")]].map(([v, t]) => el("option", { value: v }, t)));
+  sel.value = cur; sel.disabled = !on;
+  return el("div", { class: "d defprobe" }, T("Active DHCP check"), ": ", sel, " ",
+    T("sends a request into the network, so by default only in public networks"));
+}
 
 async function defSend(cfg) {
   try { await api("POST", "/api/defense/config", cfg); } catch (e) { toast(T("Nothing was changed: {error}", { error: e.message })); }

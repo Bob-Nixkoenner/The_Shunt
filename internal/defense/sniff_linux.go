@@ -283,9 +283,10 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 // name) after joining and every dhcpRepeat, so every server on the segment
 // answers with a broadcast OFFER the passive listener sees, even when this
 // machine does not renew its own lease during the watch. It never sends a
-// REQUEST, so no address is taken. Needs CAP_NET_RAW.
+// REQUEST, so no address is taken. Only runs when env.DHCPProbe is set (config
+// dhcp_probe, network class, quiet mode). Needs CAP_NET_RAW.
 func (s *Sensors) dhcpProbe(ctx context.Context, env Env) {
-	if !s.M.Watching(FeatDHCP) {
+	if !s.M.Watching(FeatDHCP) || !env.DHCPProbe {
 		return
 	}
 	link, err := netlink.LinkByName(env.Iface)

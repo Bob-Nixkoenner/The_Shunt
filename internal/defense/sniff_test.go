@@ -257,3 +257,26 @@ func TestGWWatchPollBaselineAndChange(t *testing.T) {
 		t.Fatal("report once")
 	}
 }
+
+func TestProbeAllowed(t *testing.T) {
+	cases := []struct {
+		mode  string
+		class Class
+		quiet bool
+		want  bool
+	}{
+		{"", ClassPublic, false, true},
+		{"auto", ClassPublic, false, true},
+		{"auto", ClassPublic, true, false},
+		{"auto", ClassTrusted, false, false},
+		{"auto", ClassManaged, false, false},
+		{"on", ClassTrusted, true, true},
+		{"on", ClassManaged, false, true},
+		{"off", ClassPublic, false, false},
+	}
+	for _, c := range cases {
+		if got := ProbeAllowed(c.mode, c.class, c.quiet); got != c.want {
+			t.Errorf("mode %q class %s quiet %v: got %v", c.mode, c.class, c.quiet, got)
+		}
+	}
+}

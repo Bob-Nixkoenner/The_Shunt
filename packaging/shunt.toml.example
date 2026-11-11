@@ -83,6 +83,8 @@ route = "tunnel:vps"
 # ban_seconds = 3600              # how long a hostile source stays blocked
 # never       = ["192.0.2.0/24"]  # never blocked (gateway, DNS and login page are added by themselves)
 # tls_targets = ["api.github.com", "www.wikipedia.org"]  # public sites for the tls feature (the default)
+# dhcp_probe  = "auto"            # active DHCP DISCOVER to find rogue servers: auto (public networks, not in
+#                                 # quiet mode) | on (always) | off (listen only, send nothing)
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 # block = true                    # block = also drop the source (nft table shunt_defense)
