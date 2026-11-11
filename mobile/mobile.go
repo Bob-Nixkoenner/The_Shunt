@@ -16,6 +16,7 @@ package mobile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -33,6 +34,10 @@ type Platform interface {
 	// or -1 if unknown.
 	OwnerUid(proto int, srcIP string, srcPort int, dstIP string, dstPort int) int
 	Log(msg string)
+	// AppName returns the package name for a UID (first package that uses
+	// it), "" if unknown. Called only from the defense worker, never from
+	// the packet path.
+	AppName(uid int) string
 }
 
 // DNSAddr is the DNS server the VPN announces (VpnService.Builder
@@ -40,7 +45,10 @@ type Platform interface {
 const DNSAddr = splitstack.DNSAddr
 
 // Engine runs while the VPN is up.
-type Engine struct{ e *splitstack.Engine }
+type Engine struct {
+	e   *splitstack.Engine
+	def *defenseState
+}
 
 // Start takes over the TUN file descriptor; the app closes it after Stop.
 func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
@@ -56,6 +64,16 @@ func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
 		return nil, fmt.Errorf("tun endpoint: %v", err)
 	}
 	o := splitstack.Options{Link: ep}
+	var ds *defenseState
+	{
+		var c struct {
+			DefenseDir string `json:"defense_dir"`
+		}
+		_ = json.Unmarshal([]byte(configJSON), &c)
+		var obs *defObs
+		ds, obs = newDefense(c.DefenseDir, p)
+		o.Observer = obs
+	}
 	if p != nil {
 		o.Log = p.Log
 		o.Owner = func(proto int, src, dst netip.AddrPort) string {
@@ -68,9 +86,10 @@ func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
 	}
 	e, err := splitstack.New(o, configJSON)
 	if err != nil {
+		ds.m.Close()
 		return nil, err
 	}
-	return &Engine{e}, nil
+	return &Engine{e: e, def: ds}, nil
 }
 
 // SetRules swaps default route, app rules and DNS filter without restarting
@@ -78,7 +97,14 @@ func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
 func (e *Engine) SetRules(configJSON string) error { return e.e.SetRules(configJSON) }
 
 // Status returns the state as JSON.
-func (e *Engine) Status() string { return e.e.Status() }
+func (e *Engine) Status() string {
+	s := e.e.Status()
+	// "defense": see defense.go (spliced in, the core's JSON stays as it is)
+	if n := len(s); n > 1 && s[n-1] == '}' {
+		return s[:n-1] + `,"defense":` + e.defenseJSON() + "}"
+	}
+	return s
+}
 
 // History returns the traffic and DNS-block history as JSON for a range
 // ("1h", "24h", "7d" or "30d"): points of traffic and blocked names, per-tunnel
@@ -154,7 +180,10 @@ func (e *Engine) TorStart(name string) string { return e.e.TorStart(name) }
 func (e *Engine) ResetStats() error { return e.e.ResetStats() }
 
 // Stop ends everything; the Engine cannot be started again.
-func (e *Engine) Stop() { e.e.Stop() }
+func (e *Engine) Stop() {
+	e.e.Stop()
+	e.def.m.Close()
+}
 
 // CheckWireGuard validates a wg-quick file (import) and returns a short JSON
 // summary: addresses, DNS, endpoints.
