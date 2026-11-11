@@ -1,0 +1,32 @@
+# Lab: inbound protection closed, defense on with blocking for scans.
+# Unknown network (the lab LAN) = class public: decoy ports listen.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[inbound]
+enabled = true
+
+[defense]
+enabled = true
+decoy_ports = [23, 80, 445, 3389]
+ban_seconds = 300
+
+[defense.features.decoy]
+watch = true
+[defense.features.scan]
+watch = true
+block = true
