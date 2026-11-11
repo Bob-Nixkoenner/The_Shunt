@@ -27,8 +27,9 @@ func JA3(rec []byte) (str, hash string, ok bool) {
 	if n := int(binary.BigEndian.Uint16(rec[3:5])); n < len(body) {
 		body = body[:n]
 	}
-	// handshake header: type 1 (ClientHello), 3-byte length
-	if body[0] != 1 {
+	// handshake header: type 1 (ClientHello), 3-byte length. The record
+	// length comes from the peer and can be smaller than what was read.
+	if len(body) < 4 || body[0] != 1 {
 		return
 	}
 	hl := int(body[1])<<16 | int(body[2])<<8 | int(body[3])

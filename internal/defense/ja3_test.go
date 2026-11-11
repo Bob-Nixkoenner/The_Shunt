@@ -289,3 +289,38 @@ func TestSourceInfoExpired(t *testing.T) {
 		t.Fatalf("%+v %+v %+v", feodo, sslbl, drop)
 	}
 }
+
+// A record whose length field is shorter than the handshake header must not
+// panic (one short packet to the TLS decoy used to crash the daemon).
+func TestJA3ShortRecordLength(t *testing.T) {
+	for _, rec := range [][]byte{
+		{22, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+		{22, 3, 1, 0, 1, 1, 0, 0, 0, 0, 0},
+		{22, 3, 1, 0, 3, 1, 0, 0, 0, 0, 0},
+	} {
+		if _, _, ok := JA3(rec); ok {
+			t.Fatalf("% x: accepted", rec)
+		}
+	}
+}
+
+func FuzzJA3(f *testing.F) {
+	f.Add([]byte{22, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0})
+	f.Add([]byte{22, 3, 1, 0, 4, 1, 0, 0, 0})
+	for _, h := range ja3Seeds() {
+		f.Add(h)
+	}
+	f.Fuzz(func(t *testing.T, b []byte) {
+		s, h, ok := JA3(b)
+		if ok && (len(h) != 32 || s == "") {
+			t.Fatalf("ok with str=%q hash=%q", s, h)
+		}
+	})
+}
+
+func ja3Seeds() [][]byte {
+	return [][]byte{
+		buildHello(0x0303, []uint16{0x1301, 0x0a0a}, [][2]any{{uint16(10), []byte{0, 4, 0, 29, 0x1a, 0x1a}}, {uint16(11), []byte{1, 0}}}),
+		buildHello(0x0301, nil, nil),
+	}
+}
