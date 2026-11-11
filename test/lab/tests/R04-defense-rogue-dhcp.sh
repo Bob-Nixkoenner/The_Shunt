@@ -13,13 +13,16 @@ during() {
 	kali_sync || true
 	kali attacker/observer.sh start || true
 	: "${DEFENSE_POOL_START:?set DEFENSE_POOL_START/END/ROUTER in local.env (pool outside the real one)}"
-	kali env "POOL_START=$DEFENSE_POOL_START" "POOL_END=${DEFENSE_POOL_END:?}" "POOL_ROUTER=${DEFENSE_POOL_ROUTER:?}" DURATION=15 attacker/rogue-dhcp.sh || true
+	kali env "POOL_START=$DEFENSE_POOL_START" "POOL_END=${DEFENSE_POOL_END:?}" "POOL_ROUTER=${DEFENSE_POOL_ROUTER:?}" DURATION=45 attacker/rogue-dhcp.sh || true
 	sleep 2
 	kali attacker/observer.sh stop >/tmp/r04-observer.$$ 2>&1 || true
 }
 CLIENT='
 api() { curl -s --unix-socket /run/shunt/shuntd.sock "http://shunt$1"; }
-sleep 25
+sleep 20
+# the one-off 4 s probe after joining came before the rogue server: restart shuntd now,
+# so the probe runs again while the rogue server answers (it runs for 45 s)
+sudo -n systemctl restart shuntd; sleep 12
 api "/v1/defense/events?since=0" | grep -q "\"kind\":\"rogue_dhcp\"" || echo "FAIL kein DHCP-Ereignis"
 echo "Beobachter sah: $(cat /tmp/r04-observer.* 2>/dev/null | tail -5)"
 true

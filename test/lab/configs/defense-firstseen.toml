@@ -11,7 +11,7 @@ enabled = true
 
 [defense]
 enabled = true
-decoy_ports = [23, 80, 445, 3389]
+decoy_ports = [23, 80, 445, 2222, 2323, 3389]
 dhcp_probe = "off"
 dns_probe = "off"
 
