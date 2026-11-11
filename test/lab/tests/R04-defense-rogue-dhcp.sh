@@ -9,14 +9,15 @@ dieser Datei. Braucht kali()-Helfer (TODO). Nicht in der Lab-VM gelaufen (Stand 
 during() {
 	sleep 8
 	kali attacker/observer.sh start || true
-	kali "POOL_START=\${DEFENSE_POOL_START:?} POOL_END=\${DEFENSE_POOL_END:?} POOL_ROUTER=\${DEFENSE_POOL_ROUTER:?} DURATION=15 attacker/rogue-dhcp.sh" || true
+	: "${DEFENSE_POOL_START:?set DEFENSE_POOL_START/END/ROUTER in local.env (pool outside the real one)}"
+	kali env "POOL_START=$DEFENSE_POOL_START" "POOL_END=${DEFENSE_POOL_END:?}" "POOL_ROUTER=${DEFENSE_POOL_ROUTER:?}" DURATION=15 attacker/rogue-dhcp.sh || true
 	sleep 2
 	kali attacker/observer.sh stop >/tmp/r04-observer.$$ 2>&1 || true
 }
 CLIENT='
 api() { curl -s --unix-socket /run/shunt/shuntd.sock "http://shunt$1"; }
 sleep 25
-api "/v1/defense/events?since=0" | grep -q "\"kind\":\"dhcp\"" || echo "FAIL kein DHCP-Ereignis"
+api "/v1/defense/events?since=0" | grep -q "\"kind\":\"rogue_dhcp\"" || echo "FAIL kein DHCP-Ereignis"
 echo "Beobachter sah: $(cat /tmp/r04-observer.* 2>/dev/null | tail -5)"
 true
 '

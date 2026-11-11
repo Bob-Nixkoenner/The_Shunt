@@ -12,9 +12,16 @@ SURIDIR="$LOGDIR/suricata"
 start() {
 	need suricata
 	sudo mkdir -p "$SURIDIR"
+	# an old instance or a stale pid file must not hang the caller (ssh waits for open fds)
+	if pgrep -x suricata >/dev/null; then
+		echo "suricata already running: stopping the old instance first"
+		sudo pkill -x suricata 2>/dev/null || true
+		sleep 2
+	fi
+	sudo rm -f "$LOGDIR/suricata.pid"
 	echo "starting suricata on $IFACE (passive, logs under $LOGDIR)"
-	sudo suricata -i "$IFACE" -l "$SURIDIR" -D --pidfile "$LOGDIR/suricata.pid" 2>/dev/null \
-		|| sudo suricata -i "$IFACE" -l "$SURIDIR" >/dev/null 2>&1 &
+	sudo suricata -i "$IFACE" -l "$SURIDIR" -D --pidfile "$LOGDIR/suricata.pid" </dev/null >/dev/null 2>&1 \
+		|| { setsid nohup sudo suricata -i "$IFACE" -l "$SURIDIR" </dev/null >/dev/null 2>&1 & }
 	echo "observer started"
 }
 

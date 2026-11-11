@@ -32,6 +32,13 @@ profile, counts as `public`.
   resolvers and a public resolver on port 53 against DoH over the default route), evil twin (a known
   SSID with a new gateway MAC; the memory is a hashed file in the state directory).
   The captive portal check of the daemon is reported as an observation.
+  Timing: the gateway's neighbour entry is compared on every netlink event and also every 5 s (events
+  can be missed); the DNS comparison runs 3 s after joining, every 5 min, and right after a gateway MAC
+  change (a finding is reported once until a clean run). The DHCP watch also sends a DHCP DISCOVER
+  (random hardware address, broadcast flag, no host name, never a REQUEST) 4 s after joining and every
+  5 min, so every server answers with a broadcast OFFER the listener sees; before, it only saw replies
+  to this machine's own requests. A second server ID raises `rogue_dhcp`.
+  Features missing from `[defense.features.*]` keep their default (watch on, block off).
 - Reputation lists (abuse.ch, CC0) are fetched twice a day while the `reputation` feature is on;
   the cache is `<cache dir>/defense`.
 

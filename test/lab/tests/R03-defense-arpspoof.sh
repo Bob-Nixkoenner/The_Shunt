@@ -9,7 +9,7 @@ zu trusted. Braucht kali()-Helfer (TODO). Nicht in der Lab-VM gelaufen (Stand 11
 during() {
 	sleep 8
 	kali attacker/observer.sh start || true
-	kali "TARGET=\$(gw labctl client | awk '{print \$2}') DURATION=15 attacker/arpspoof.sh" || true
+	kali env "TARGET=$(client_ip)" DURATION=15 attacker/arpspoof.sh || true
 	sleep 2
 	kali attacker/observer.sh stop >/tmp/r03-observer.$$ 2>&1 || true
 }

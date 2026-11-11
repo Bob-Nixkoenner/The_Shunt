@@ -12,7 +12,7 @@ Ausgabe. Nicht in der Lab-VM gelaufen (Stand 11.11., Kali-Installation lief noch
 during() {
 	sleep 8
 	kali attacker/observer.sh start || true
-	kali "TARGET=\$(gw labctl client | awk '{print \$2}') PORTS=1-1024 attacker/portscan.sh" || true
+	kali env "TARGET=$(client_ip)" PORTS=1-1024 attacker/portscan.sh || true
 	sleep 2
 	kali attacker/observer.sh stop >/tmp/r01-observer.$$ 2>&1 || true
 }
