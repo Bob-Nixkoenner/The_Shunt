@@ -5,7 +5,7 @@ EXPECT_CANARY=any
 # the defense's active DNS check (dns_probe = on in configs/defense.toml) asks these two fixed names
 ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 EXPECT_OPEN=("23/tcp" "80/tcp" "445/tcp" "3389/tcp")
-NOTE="Der Scan kommt von einer zweiten Adresse der Gateway-VM (die Gateway-Adresse selbst steht auf der Nie-sperren-Liste, sonst wuerde das Lab sich aussperren). Erwartet: Ereignis scan, Eintrag in /v1/defense bans, Adresse im nft-Set ban4. Endadresse .${DEFENSE_ALT_LAST:-250} im LAN-/24 der VM, aus local.env anpassbar. Nicht in der Lab-VM gelaufen (Stand 11.11.)."
+NOTE="Der Scan kommt von einer zweiten Adresse der Gateway-VM (die Gateway-Adresse selbst steht auf der Nie-sperren-Liste, sonst wuerde das Lab sich aussperren). Erwartet: Ereignis scan (block=waits_for_handshake), nach der einen echten Verbindung zum Koeder 80 Eintrag in /v1/defense bans (confirmed=handshake), Adresse im nft-Set ban4. Endadresse .${DEFENSE_ALT_LAST:-250} im LAN-/24 der VM, aus local.env anpassbar. Nicht in der Lab-VM gelaufen (Stand 11.11.)."
 during() {
 	sleep 8
 	local gwaddr alt
@@ -13,7 +13,14 @@ during() {
 	alt=${gwaddr%.*}.${DEFENSE_ALT_LAST:-250}
 	gw ip addr add "$alt/${gwaddr#*/}" dev enp0s8 2>/dev/null || true
 	echo "scan source: secondary address of the gateway VM"
-	gw nmap -Pn -sS -S "$alt" -e enp0s8 -p 1-40,80,445,3389 --min-rate 500 "$(gw labctl client | awk '{print $2}')" >/dev/null 2>&1 || true
+	local target
+	target=$(gw labctl client | awk '{print $2}')
+	gw nmap -Pn -sS -S "$alt" -e enp0s8 -p 1-40,80,445,3389 --min-rate 500 "$target" >/dev/null 2>&1 || true
+	# A block waits for a finished TCP handshake with a decoy (a lone SYN can
+	# carry a forged source): connect once from the same address to decoy 80.
+	sleep 1
+	gw curl -s -m 4 --interface "$alt" -o /dev/null "http://$target:80/" 2>/dev/null ||
+		gw nc -z -w 3 -s "$alt" "$target" 80 2>/dev/null || echo "note: connect from the scan source failed (curl/nc on the gateway VM?)"
 	echo "$alt" >/tmp/q02-alt.$$
 }
 CLIENT='

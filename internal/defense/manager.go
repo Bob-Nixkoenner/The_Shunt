@@ -20,6 +20,7 @@ type Manager struct {
 	rep   *Reputation
 	det   *Detector
 	never *NeverSet
+	ver   verifier
 	dec   *Decoys
 	rpts  *Reports
 	dns   dnsState
@@ -151,6 +152,7 @@ func (m *Manager) tick() {
 		m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "expired"})
 	}
 	m.rep.Prune()
+	m.ver.prune(m.now())
 	m.flushAgg(false)
 	if err := m.rpts.Flush(); err != nil {
 		m.log.Debug("defense: report file", "err", err)
@@ -292,6 +294,13 @@ func (m *Manager) CheckPeer(a netip.Addr, port int, proto string) bool {
 }
 
 func (m *Manager) decoyHit(h Hit) {
+	// every decoy hit comes from an accepted connection: the source
+	// finished a TCP handshake, so its address is not forged (see verify.go)
+	if src := h.Src.Unmap(); src.IsValid() {
+		if reason, waited := m.ver.confirm(src, m.now()); waited {
+			m.banNow(src, reason, "confirmed=handshake")
+		}
+	}
 	if h.JA3 != "" {
 		m.ja3Seen(h)
 		return
@@ -324,8 +333,23 @@ func (m *Manager) found(f Finding) {
 	if f.Kind == KindBruteForce {
 		sev, feat = SevMedium, FeatBrute
 	}
-	m.Report(Event{Kind: f.Kind, Severity: sev, Src: f.Src.String(), Detail: f.Detail})
+	detail := f.Detail
+	if m.banWaits(f.Src, feat) {
+		detail += " block=waits_for_handshake"
+	}
+	m.Report(Event{Kind: f.Kind, Severity: sev, Src: f.Src.String(), Detail: detail})
 	m.maybeBan(f.Src, f.Kind, feat)
+}
+
+// banWaits reports whether a block of src for feat would be held back
+// because the source address is not confirmed by a handshake.
+func (m *Manager) banWaits(src netip.Addr, feat string) bool {
+	m.mu.Lock()
+	f := featureOf(m.cfg, feat)
+	unverified := m.cfg.BanUnverified
+	m.mu.Unlock()
+	src = src.Unmap()
+	return f.Watch && f.Block && !unverified && m.Bannable(src) && !m.ver.confirmed(src, m.now())
 }
 
 // maybeBan blocks src if the feature's Block switch is on and src is not on
@@ -334,16 +358,40 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	m.mu.Lock()
 	f := featureOf(m.cfg, feat)
 	secs := m.cfg.BanSeconds
+	unverified := m.cfg.BanUnverified
 	m.mu.Unlock()
 	src = src.Unmap()
 	if !f.Watch || !f.Block || !m.Bannable(src) {
 		return
 	}
-	m.addBan(src, reason, time.Duration(secs)*time.Second)
+	// Findings built from packets alone (scan, brute force) wait for a
+	// handshake: the source address may be forged. A reputation hit names
+	// an address that is on a bad list anyway, so it is not held back.
+	if reason != KindReputation && !unverified && !m.ver.confirmed(src, m.now()) {
+		m.ver.hold(src, reason, m.now())
+		return
+	}
+	m.addBan(src, reason, time.Duration(secs)*time.Second, "")
+}
+
+// banNow carries out a block that waited for the handshake.
+func (m *Manager) banNow(src netip.Addr, reason Kind, note string) {
+	feat := FeatScan
+	if reason == KindBruteForce {
+		feat = FeatBrute
+	}
+	m.mu.Lock()
+	f := featureOf(m.cfg, feat)
+	secs := m.cfg.BanSeconds
+	m.mu.Unlock()
+	if !f.Watch || !f.Block || !m.Bannable(src) {
+		return
+	}
+	m.addBan(src, reason, time.Duration(secs)*time.Second, note)
 }
 
 // addBan blocks src, or its whole range while exposed (see banTarget).
-func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration) {
+func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration, note string) {
 	target := m.banTarget(src)
 	if target == "" {
 		return
@@ -354,7 +402,11 @@ func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration) {
 		}
 	}
 	if b, isNew := m.bans.Add(target, reason, d); isNew {
-		m.Report(Event{Kind: KindBan, Severity: SevLow, Src: b.Src, Detail: "reason=" + string(reason)})
+		detail := "reason=" + string(reason)
+		if note != "" {
+			detail += " " + note
+		}
+		m.Report(Event{Kind: KindBan, Severity: SevLow, Src: b.Src, Detail: detail})
 	}
 }
 
@@ -384,7 +436,7 @@ func (m *Manager) Ban(src string) error {
 	if !m.Bannable(a) {
 		return ErrNotBannable
 	}
-	m.addBan(a, KindManual, time.Duration(secs)*time.Second)
+	m.addBan(a, KindManual, time.Duration(secs)*time.Second, "")
 	return nil
 }
 

@@ -653,6 +653,7 @@ func TestManagerBanExpiry(t *testing.T) {
 	cfg.BanSeconds = 60
 	cfg.Features[FeatBrute] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
+	m.ver.confirm(mustAddr("203.0.113.9"), m.now()) // the source finished a handshake with a decoy
 	for i := 0; i < 10; i++ {
 		m.Observe(mustAddr("203.0.113.9"), 22, "tcp", false)
 	}

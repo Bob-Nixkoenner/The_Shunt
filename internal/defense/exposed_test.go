@@ -19,6 +19,13 @@ func expoManager(t *testing.T) (*Manager, *fakeClock, *portMap) {
 	return m, clk, pm
 }
 
+// banConfirmed is maybeBan for a source that finished a handshake with a
+// decoy (automatic blocks wait for that, see verify.go).
+func banConfirmed(m *Manager, a netip.Addr, reason Kind, feat string) {
+	m.ver.confirm(a.Unmap(), m.now())
+	m.maybeBan(a, reason, feat)
+}
+
 func count(m *Manager, k Kind) (n int) {
 	for _, e := range m.Events(0).Events {
 		if e.Kind == k {
@@ -155,17 +162,17 @@ func TestRangeBan(t *testing.T) {
 	m, _, _ := expoManager(t)
 	m.SetExposure(Exposure{V4: true, Inbound: "closed"})
 	for i := 1; i <= 3; i++ {
-		m.maybeBan(netip.MustParseAddr(fmt.Sprintf("203.0.113.%d", i)), KindScan, FeatScan)
+		banConfirmed(m, netip.MustParseAddr(fmt.Sprintf("203.0.113.%d", i)), KindScan, FeatScan)
 	}
 	if got := len(m.Status().Bans); got != 3 {
 		t.Fatalf("below threshold: singles, got %d", got)
 	}
-	m.maybeBan(netip.MustParseAddr("203.0.113.4"), KindScan, FeatScan)
+	banConfirmed(m, netip.MustParseAddr("203.0.113.4"), KindScan, FeatScan)
 	bans := m.Status().Bans
 	if len(bans) != 1 || bans[0].Src != "203.0.113.0/24" {
 		t.Fatalf("range ban: %+v", bans)
 	}
-	m.maybeBan(netip.MustParseAddr("203.0.113.99"), KindScan, FeatScan) // covered
+	banConfirmed(m, netip.MustParseAddr("203.0.113.99"), KindScan, FeatScan) // covered
 	if len(m.Status().Bans) != 1 {
 		t.Fatal("covered address adds nothing")
 	}
@@ -175,7 +182,7 @@ func TestRangeBan(t *testing.T) {
 	}
 	// IPv6: /64
 	for i := 1; i <= 4; i++ {
-		m.maybeBan(netip.MustParseAddr(fmt.Sprintf("2001:db8:1:2::%x", i)), KindScan, FeatScan)
+		banConfirmed(m, netip.MustParseAddr(fmt.Sprintf("2001:db8:1:2::%x", i)), KindScan, FeatScan)
 	}
 	if b := m.Status().Bans; len(b) != 1 || b[0].Src != "2001:db8:1:2::/64" {
 		t.Fatalf("v6 range: %+v", b)
@@ -187,7 +194,7 @@ func TestRangeBanSkipsNeverRange(t *testing.T) {
 	m.SetExposure(Exposure{V4: true, Inbound: "closed"})
 	m.SetNever([]netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")}) // the gateway sits in the same /24
 	for i := 10; i < 20; i++ {
-		m.maybeBan(netip.MustParseAddr(fmt.Sprintf("192.0.2.%d", i)), KindScan, FeatScan)
+		banConfirmed(m, netip.MustParseAddr(fmt.Sprintf("192.0.2.%d", i)), KindScan, FeatScan)
 	}
 	for _, b := range m.Status().Bans {
 		if strings.Contains(b.Src, "/") {
@@ -199,7 +206,7 @@ func TestRangeBanSkipsNeverRange(t *testing.T) {
 func TestNoRangeBanWhenNotExposed(t *testing.T) {
 	m, _, _ := expoManager(t)
 	for i := 1; i <= 6; i++ {
-		m.maybeBan(netip.MustParseAddr(fmt.Sprintf("203.0.113.%d", i)), KindScan, FeatScan)
+		banConfirmed(m, netip.MustParseAddr(fmt.Sprintf("203.0.113.%d", i)), KindScan, FeatScan)
 	}
 	if len(m.Status().Bans) != 6 {
 		t.Fatal("singles outside exposed networks")

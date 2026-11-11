@@ -160,6 +160,11 @@ type Config struct {
 	DecoyPorts []int `json:"decoy_ports" toml:"decoy_ports"`
 	// BanSeconds is how long a source stays blocked (default 3600).
 	BanSeconds int `json:"ban_seconds" toml:"ban_seconds"`
+	// BanUnverified blocks on scan and brute-force findings at once, also
+	// when the source never finished a TCP handshake (default false: the
+	// block then waits for the first real connection to a decoy, because a
+	// source address in a lone SYN can be forged; see verify.go).
+	BanUnverified bool `json:"ban_unverified,omitempty" toml:"ban_unverified,omitempty"`
 	// Never lists addresses/CIDRs that are never blocked (gateway, DNS and
 	// captive portal are added automatically at runtime).
 	Never []string `json:"never" toml:"never"`

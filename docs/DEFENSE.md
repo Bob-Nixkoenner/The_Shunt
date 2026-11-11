@@ -104,6 +104,17 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   ban stops only what a source starts, never the tunnel or another own connection to that address.
   This machine's own addresses, multicast, broadcast, unspecified and 0.0.0.0/8 are never banned
   (`Manager.Bannable`; a manual ban answers 409).
+  An automatic block for a scan or brute-force finding also **waits for a finished TCP handshake**
+  with a decoy (`verify.go`): the finding is reported at once (detail `block=waits_for_handshake`),
+  the block is carried out by the source's first real connection to a decoy within 10 minutes (ban
+  detail `confirmed=handshake`); a handshake counts for 30 minutes. So a pure SYN scan (`nmap -sS`)
+  is reported but not blocked until the scanner connects to a port it found open. Reputation hits
+  and manual blocks are not held back. `defense.ban_unverified = true` restores blocking on packets
+  alone. Limit: someone who can read our SYN-ACK (same open Wi-Fi, on the path) can still finish a
+  handshake under a forged address; the reply rule above then limits the damage.
+  Internal errors: a panic in a decoy handler, sensor or packet reader is caught, counted and logged
+  (`defense.Guard`, log line "internal error caught"); it costs one connection or one sensor round,
+  not the daemon. The defense status shows a note when that happened.
   Limits against floods: at most 64 decoy handlers, 8 of them per source address; tarpit 32 traps,
   4 per source; ban table 4096 entries; scan detector 4096 sources with at most 1024 ports and
   256 failures each; event ring 1000. A decoy port survives accept errors (out of descriptors).

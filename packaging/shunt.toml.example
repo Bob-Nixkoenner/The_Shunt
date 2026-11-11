@@ -81,6 +81,9 @@ route = "tunnel:vps"
 # enabled     = true
 # decoy_ports = [22, 23, 2222, 2323, 80, 443, 445, 3389]  # 2222 = ssh decoy, 2323 = telnet decoy (for hosts where 22/23 are taken)
 # ban_seconds = 3600              # how long a hostile source stays blocked
+# ban_unverified = false          # false (default): a scan/brute-force block waits until the source finished a
+#                                 # TCP handshake with a decoy (a lone SYN can carry a forged source address);
+#                                 # true: block on packets alone
 # never       = ["192.0.2.0/24"]  # never blocked (gateway, DNS and login page are added by themselves)
 # tls_targets = ["api.github.com", "www.wikipedia.org"]  # public sites for the tls feature (the default)
 # dhcp_probe  = "auto"            # active DHCP DISCOVER to find rogue servers: auto (public networks, not in
