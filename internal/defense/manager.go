@@ -257,3 +257,7 @@ func (m *Manager) Close() {
 }
 
 var _ Engine = (*Manager)(nil)
+
+// Watching reports whether feature name is switched on for detection (and
+// the defense as a whole is enabled).
+func (m *Manager) Watching(name string) bool { return m.feature(name).Watch }

@@ -1,0 +1,167 @@
+package defense
+
+import (
+	"context"
+	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/miekg/dns"
+)
+
+func TestGWWatch(t *testing.T) {
+	gw := netip.MustParseAddr("192.0.2.1")
+	w := newGWWatch("192.0.2.1", "02:00:00:00:00:01")
+	if _, hit := w.Feed(gw, "02:00:00:00:00:01"); hit {
+		t.Fatal("same mac")
+	}
+	if _, hit := w.Feed(netip.MustParseAddr("192.0.2.77"), "02:00:00:00:00:99"); hit {
+		t.Fatal("other host")
+	}
+	ev, hit := w.Feed(gw, "02:00:00:00:00:99")
+	if !hit || ev.Kind != KindARP || ev.Severity != SevHigh {
+		t.Fatalf("%+v", ev)
+	}
+	if _, hit := w.Feed(gw, "02:00:00:00:00:99"); hit {
+		t.Fatal("must say it once")
+	}
+	w.Feed(gw, "02:00:00:00:00:01") // back to normal re-arms
+	if _, hit := w.Feed(gw, "02:00:00:00:00:98"); !hit {
+		t.Fatal("re-armed")
+	}
+	// no baseline: first MAC is learned, no alarm
+	n := newGWWatch("192.0.2.1", "")
+	if _, hit := n.Feed(gw, "02:00:00:00:00:05"); hit {
+		t.Fatal("learn")
+	}
+	if _, hit := n.Feed(gw, "02:00:00:00:00:06"); !hit {
+		t.Fatal("change after learning")
+	}
+}
+
+func dhcpPacket(typ byte, server [4]byte) []byte {
+	p := make([]byte, 240)
+	p[0] = 2
+	copy(p[236:], []byte{0x63, 0x82, 0x53, 0x63})
+	p = append(p, 53, 1, typ, 54, 4)
+	p = append(p, server[:]...)
+	return append(p, 255)
+}
+
+func TestParseDHCPReplyAndWatch(t *testing.T) {
+	a, ok := ParseDHCPReply(dhcpPacket(2, [4]byte{192, 0, 2, 1}))
+	if !ok || a != netip.MustParseAddr("192.0.2.1") {
+		t.Fatal(a, ok)
+	}
+	if _, ok := ParseDHCPReply(dhcpPacket(1, [4]byte{192, 0, 2, 1})); ok {
+		t.Fatal("DISCOVER is not a reply")
+	}
+	if _, ok := ParseDHCPReply([]byte{1, 2, 3}); ok {
+		t.Fatal("short")
+	}
+	bad := dhcpPacket(2, [4]byte{192, 0, 2, 1})
+	bad[len(bad)-6] = 200 // option length beyond the packet
+	if _, ok := ParseDHCPReply(bad); ok {
+		t.Fatal("truncated option")
+	}
+	w := newDHCPWatch()
+	if _, hit := w.Feed(a); hit {
+		t.Fatal("one server")
+	}
+	if _, hit := w.Feed(a); hit {
+		t.Fatal("same server")
+	}
+	ev, hit := w.Feed(netip.MustParseAddr("198.51.100.5"))
+	if !hit || ev.Kind != KindRogueDHCP || ev.Src != "198.51.100.5" {
+		t.Fatalf("%+v", ev)
+	}
+	if _, hit := w.Feed(netip.MustParseAddr("203.0.113.5")); hit {
+		t.Fatal("once")
+	}
+}
+
+// fakeDNS answers every A question with ip on a loopback UDP port.
+func fakeDNS(t *testing.T, ip string) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback udp:", err)
+	}
+	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.ParseIP(ip)})
+		_ = w.WriteMsg(m)
+	})}
+	go srv.ActivateAndServe()
+	t.Cleanup(func() { srv.Shutdown() })
+	return pc.LocalAddr().String()
+}
+
+func TestDNSCheck(t *testing.T) {
+	ref := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.53")}, nil
+	}
+	good, evil := fakeDNS(t, "192.0.2.53"), fakeDNS(t, "198.51.100.66")
+	ctx := context.Background()
+	c := &DNSCheck{Reference: ref, Names: []string{"example.test"}, Public: good}
+	if ev := c.Run(ctx, Env{DNS: []string{good}}); len(ev) != 0 {
+		t.Fatalf("honest resolver: %+v", ev)
+	}
+	ev := c.Run(ctx, Env{DNS: []string{evil}})
+	if len(ev) != 1 || ev[0].Kind != KindDNSHijack {
+		t.Fatalf("lying local resolver: %+v", ev)
+	}
+	c.Public = evil // port 53 diverted
+	if ev := c.Run(ctx, Env{DNS: []string{good}}); len(ev) != 1 {
+		t.Fatalf("diverted: %+v", ev)
+	}
+	// dead resolver and failing reference are no findings
+	c.Public = "127.0.0.1:1"
+	if ev := c.Run(ctx, Env{DNS: []string{"127.0.0.1:1"}}); len(ev) != 0 {
+		t.Fatalf("dead: %+v", ev)
+	}
+	if ev := (&DNSCheck{}).Run(ctx, Env{DNS: []string{evil}}); ev != nil {
+		t.Fatal("no reference, no check")
+	}
+}
+
+func TestTwinStore(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "twins.json")
+	s := &TwinStore{Path: p}
+	if s.Check("TestNet", "02:00:00:00:00:01") {
+		t.Fatal("first sight")
+	}
+	if s.Check("TestNet", "02:00:00:00:00:01") {
+		t.Fatal("same gateway")
+	}
+	if !s.Check("TestNet", "02:00:00:00:00:02") {
+		t.Fatal("twin")
+	}
+	if s.Check("", "02:00:00:00:00:02") || s.Check("x", "") {
+		t.Fatal("empty values")
+	}
+	// survives a restart; the file holds no readable name or MAC
+	s2 := &TwinStore{Path: p}
+	if s2.Check("TestNet", "02:00:00:00:00:01") {
+		t.Fatal("known after reload")
+	}
+	raw, _ := readFile(p)
+	for _, bad := range []string{"TestNet", "02:00:00"} {
+		if contains(raw, bad) {
+			t.Fatalf("plain %q in store", bad)
+		}
+	}
+	_ = time.Now
+}
+
+func readFile(p string) (string, error) {
+	b, err := os.ReadFile(p)
+	return string(b), err
+}
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
