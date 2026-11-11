@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,8 @@ type defenseState struct {
 	portsSet []int // decoy ports last pushed to the nft set
 	needPush bool  // main table was replaced: push the ports again
 	never    []netip.Prefix
+	neverNet []netip.Prefix // never-block entries of the network (gateway, DNS)
+	neverTun []netip.Prefix // never-block entries of the tunnels (peer endpoints)
 	logStop  func()         // stops the packet log readers
 	logWG    sync.WaitGroup // the readers have returned
 	lastEnv  string         // class/key/enabled the sensors run for
@@ -165,8 +168,7 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 	mode := cfg.DefenseConfig().DHCPProbe
 	env.DHCPProbe = defense.ProbeAllowed(mode, class, quiet)
 	env.DNSProbe = defense.ProbeAllowed(cfg.DefenseConfig().DNSProbe, class, quiet)
-	d.def.m.SetNever(never)
-	d.defenseNever(never)
+	d.defenseNeverPart(&d.def.neverNet, never)
 	on := cfg.DefenseConfig().Enabled
 	cur := defNetKey(info) + "|" + string(class) + "|" + strconv.FormatBool(on) + "|" + strconv.FormatBool(env.DHCPProbe) + strconv.FormatBool(env.DNSProbe)
 	d.def.mu.Lock()
@@ -427,4 +429,69 @@ func ownAddr(a netip.Addr) bool {
 		}
 	}
 	return false
+}
+
+// defenseNeverPart replaces one part of the automatic never-block list (the
+// network's or the tunnels') and, if the whole list changed, hands it to the
+// manager and the nft sets.
+func (d *Daemon) defenseNeverPart(part *[]netip.Prefix, p []netip.Prefix) {
+	if d.def.m == nil {
+		return
+	}
+	d.def.mu.Lock()
+	old := neverKey(d.def.neverNet, d.def.neverTun)
+	*part = p
+	all := append(append([]netip.Prefix{}, d.def.neverNet...), d.def.neverTun...)
+	changed := neverKey(d.def.neverNet, d.def.neverTun) != old
+	d.def.mu.Unlock()
+	if !changed {
+		return
+	}
+	d.def.m.SetNever(all)
+	d.defenseNever(all)
+}
+
+func neverKey(a, b []netip.Prefix) string { return fmt.Sprint(a, "|", b) }
+
+// defenseTunnelPeers puts the addresses the tunnels talk to (WireGuard and
+// OpenVPN peers, Tailscale peers with a direct path) on the never-block
+// list: a block must never cut a tunnel, whatever a scan with a forged
+// source claims. Called from the health check, which reads the peers anyway.
+func (d *Daemon) defenseTunnelPeers(endpoints []string) {
+	d.defenseNeverPart(&d.def.neverTun, endpointPrefixes(endpoints))
+}
+
+// maxTunnelNever bounds the tunnel part of the never list (a Tailscale net
+// can have many peers).
+const maxTunnelNever = 64
+
+// endpointPrefixes turns peer endpoints ("192.0.2.1:51820",
+// "[2001:db8::1]:51820", a bare address) into single-address prefixes,
+// sorted and without duplicates. Names and texts like "relay xyz" are
+// skipped.
+func endpointPrefixes(endpoints []string) []netip.Prefix {
+	seen := map[netip.Addr]bool{}
+	var out []netip.Prefix
+	for _, e := range endpoints {
+		e = strings.TrimSpace(e)
+		var a netip.Addr
+		if ap, err := netip.ParseAddrPort(e); err == nil {
+			a = ap.Addr()
+		} else if x, err := netip.ParseAddr(e); err == nil {
+			a = x
+		} else {
+			continue
+		}
+		a = a.Unmap().WithZone("")
+		if !a.IsValid() || a.IsUnspecified() || a.IsLoopback() || seen[a] {
+			continue
+		}
+		seen[a] = true
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Addr().Less(out[j].Addr()) })
+	if len(out) > maxTunnelNever {
+		out = out[:maxTunnelNever]
+	}
+	return out
 }

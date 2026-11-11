@@ -98,7 +98,9 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   file is moved to `.bad` and replaced). 2222/2323 exist so there are decoys where a real sshd/telnetd
   holds 22/23 (a busy port is skipped); all listening decoy ports go into the nft set `decoy_ports`.
 - Blocking: nft table `shunt_defense` (sets `ban4`/`ban6` with timeout, `never4`/`never6`,
-  input chain at priority -10). Gateway and system DNS servers are on the never list automatically.
+  input chain at priority -10). Gateway, system DNS servers and the addresses the tunnels talk to
+  (WireGuard/OpenVPN peer endpoints, Tailscale peers with a direct path; read with the health check,
+  at most 64) are on the never list automatically. Tor guards are not known and not listed.
   Ban spoofing: a scan ban needs only SYNs, and their source address can be forged. So replies to
   connections this machine opened always pass (`ct direction reply return` before the ban drop): a
   ban stops only what a source starts, never the tunnel or another own connection to that address.

@@ -3,10 +3,13 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -167,5 +170,56 @@ func TestDefNetKeyIgnoresGatewayMAC(t *testing.T) {
 	}
 	if enters != 1 || st.Counts[defense.KindNetEnter] != 1 || st.Counts[defense.KindARP] != 5 || st.Heat == 0 {
 		t.Fatalf("enters=%d counts=%v heat=%d", enters, st.Counts, st.Heat)
+	}
+}
+
+func TestEndpointPrefixes(t *testing.T) {
+	got := endpointPrefixes([]string{"203.0.113.9:51820", "[2001:db8::1]:51820", "203.0.113.9:1194", " 198.51.100.4 ",
+		"relay fra", "vpn.example.net:1194", "", "127.0.0.1:9050", "0.0.0.0:0", "[::ffff:192.0.2.77]:443"})
+	want := "[192.0.2.77/32 198.51.100.4/32 203.0.113.9/32 2001:db8::1/128]"
+	if fmt.Sprint(got) != want {
+		t.Fatalf("got %v, want %s", got, want)
+	}
+	var many []string
+	for i := 0; i < 300; i++ {
+		many = append(many, fmt.Sprintf("198.51.%d.%d:51820", i/250, i%250+1))
+	}
+	if n := len(endpointPrefixes(many)); n != maxTunnelNever {
+		t.Fatalf("cap: %d", n)
+	}
+}
+
+// Tunnel peers join gateway and DNS on the never-block list: neither a
+// manual block nor a finding can cut the tunnel.
+func TestTunnelPeersNeverBlocked(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	d := &Daemon{Log: log}
+	d.def.m = defense.NewManager(log)
+	defer d.def.m.Close()
+	cfg := defense.DefaultConfig()
+	cfg.Enabled = true
+	d.def.m.Configure(cfg)
+
+	d.defenseNeverPart(&d.def.neverNet, []netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")})
+	d.defenseTunnelPeers([]string{"203.0.113.9:51820"})
+	for _, a := range []string{"192.0.2.1", "203.0.113.9"} {
+		if err := d.def.m.Ban(a); !errors.Is(err, defense.ErrNeverBan) {
+			t.Fatalf("%s: %v", a, err)
+		}
+	}
+	// the peer moved: the old address is free again, the gateway stays
+	d.defenseTunnelPeers([]string{"198.51.100.4:51820"})
+	if err := d.def.m.Ban("203.0.113.9"); err != nil {
+		t.Fatalf("old endpoint still protected: %v", err)
+	}
+	for _, a := range []string{"192.0.2.1", "198.51.100.4"} {
+		if err := d.def.m.Ban(a); !errors.Is(err, defense.ErrNeverBan) {
+			t.Fatalf("%s: %v", a, err)
+		}
+	}
+	// tunnels gone: only the network part is left
+	d.defenseTunnelPeers(nil)
+	if err := d.def.m.Ban("198.51.100.4"); err != nil {
+		t.Fatalf("endpoint of a removed tunnel still protected: %v", err)
 	}
 }

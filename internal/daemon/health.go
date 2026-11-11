@@ -44,6 +44,7 @@ func (d *Daemon) checkHealth() {
 	}
 	book, proxy := d.book, d.proxy
 	var jobs []job
+	var endpoints []string // of all tunnel peers, for the defense's never-block list
 	for name, t := range d.tunnels {
 		if _, isTor := t.(tunnel.TorStatus); isTor {
 			continue // no peers to look at; its status is the bootstrap
@@ -57,6 +58,9 @@ func (d *Daemon) checkHealth() {
 		if peers, err := t.Status(); err == nil {
 			j.ok = true
 			for _, p := range peers {
+				if p.Endpoint != "" {
+					endpoints = append(endpoints, p.Endpoint)
+				}
 				if p.LastHandshake.After(j.hs) {
 					j.hs = p.LastHandshake
 				}
@@ -79,6 +83,7 @@ func (d *Daemon) checkHealth() {
 		d.mu.Unlock()
 	}()
 
+	d.defenseTunnelPeers(endpoints)
 	if proxy != nil {
 		book.ObserveDNS(int64(proxy.FilterStats().Blocked), time.Now())
 	}
