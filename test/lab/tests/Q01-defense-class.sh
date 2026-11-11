@@ -2,6 +2,8 @@ ID=Q01
 TITLE="Abwehr: Koeder lauschen im oeffentlichen Netz, nicht im vertrauten"
 CONFIG=defense
 EXPECT_CANARY=any
+# the defense's active DNS check (dns_probe = on in configs/defense.toml) asks these two fixed names
+ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 # the decoys are meant to be found
 EXPECT_OPEN=("23/tcp" "80/tcp" "445/tcp" "3389/tcp")
 NOTE="Unbekanntes Netz = public: shuntd lauscht auf den Koederports. Danach wird das Netz per [[network]] class=trusted (Gateway-MAC zur Laufzeit aus der Nachbartabelle, nichts davon in der Datei) vertraut: die Koeder muessen weg, ein Zugriff auf sie darf nicht mehr antworten. Nicht in der Lab-VM gelaufen (Stand 11.11.)."

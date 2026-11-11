@@ -34,7 +34,9 @@ elif [[ $1 == pacman ]]; then
 	curl -fsSLo /tmp/install.sh https://raw.githubusercontent.com/Bob-Nixkoenner/The_Shunt/HEAD/install.sh
 	bash /tmp/install.sh "${@:2}"
 else
-	apt-get update -q
+	# the lab LAN has no internet: apt-get update would hang. Bound it and carry on with what is installed/cached.
+	timeout "${PREP_APT_TIMEOUT:-60}" apt-get -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 -o Acquire::Retries=0 update -q ||
+		echo "prep: apt-get update failed or timed out (no internet in the lab LAN?): using the existing package lists" >&2
 	apt-get install -yq --no-install-recommends bpftrace dnsutils netcat-openbsd curl libglib2.0-bin
 	apt-get install -yq "$1"
 fi

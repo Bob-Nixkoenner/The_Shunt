@@ -1,6 +1,8 @@
 ID=R06
 TITLE="Abwehr: Fester Beacon + DNS-Tunnel-Muster -> Ereignisse beacon/dns_tunnel"
 CONFIG=defense
+# the defense's active DNS check (dns_probe = on in configs/defense.toml) asks these two fixed names
+ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 EXPECT_CANARY=none
 NOTE="Client faehrt (inline, wie attacker/beacon.sh) (festes Intervall zu einer Adresse ausserhalb des
 Tunnels) und (wie attacker/dnstunnel.sh) (lange, zufaellige Subdomains) selbst aus, um die

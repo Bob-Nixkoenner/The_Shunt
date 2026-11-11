@@ -58,10 +58,33 @@ git). The rogue DHCP/RA modes only ever run on the internal network `shuntlab`.
 
 ## Machine-specific files (not in git)
 
-`local.env` holds the account (`USER_VM`), the test server (`CT130=user@address`) and `LAB_VPN_DIR`: the folder with the
+`local.env.example` lists every variable (placeholders only). `local.env` holds the account (`USER_VM`), the test server (`CT130=user@address`) and `LAB_VPN_DIR`: the folder with the
 VPN client configs of the test server (`wg-intern-linux-test.conf`, `ovpn-intern-linux-test.ovpn`, `wg-hop-*.conf`, test
 keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). The tests take the server's address from
 `CT130` (`$CT130_IP`), none carries an address of its own.
+
+### Attack tests (Q/R) and the attacker VM
+
+- `lab.sh kali-sync` copies `attacker/` to `~/attacker/` on Kali and makes the scripts executable; the R tests call
+  `kali_sync` themselves before they start an attack (a stale or non-executable copy was a cause of silent R-test failures).
+- Kali gets a fixed address outside the DHCP pool: set `KALI_IP` (see `local.env.example`) and run `lab.sh kali-net`.
+  `gw-setup` writes it to `/etc/shuntlab/kali_ip`, and `labctl client` never returns Kali (by address or host name `kali*`).
+- `PREP` and `CLIENT` of a test run in the client VM, not on the laptop: laptop functions and variables are not there.
+  A CLIENT script that ends with a non-zero exit code without printing a `FAIL` line (e.g. a missing `${VAR:?}`) counts as FAIL;
+  set `CLIENT_RC_OK=1` in a test that ends non-zero on purpose.
+- Before `lab.sh run` the build check compares the commit embedded in the client's `shuntd` (`vcs.revision`) with
+  `git rev-parse --short HEAD` and warns about a mismatch (`BUILD_CHECK=strict` stops, `off` skips): rebuild after every commit.
+- `dnsname:<name>` in `ALLOW` allows DNS queries for exactly that name. The defense's active DNS check asks `dns.google` and
+  `one.one.one.one` (at the network's resolver and at 9.9.9.9), so Q01/Q02/R01-R06 allow them; Q03 runs with
+  `defense.dns_probe = off` and must NOT see them.
+
+### No internet in the lab LAN (apt)
+
+The lab LAN has no internet, so `apt-get update` in `client-prep` used to hang. `prep.sh` now bounds it
+(`PREP_APT_TIMEOUT`, default 60 s) and goes on with the existing package lists; packages that are not installed or cached
+then fail at `apt-get install`. The Debian run used an `apt-get` wrapper that ignored `update`; either install the tools
+(bpftrace, dnsutils, netcat-openbsd, curl) first while the VM has NAT (`lab.sh detach`) or point apt at a local mirror,
+then run `client-prep`. A real offline mode (local package cache) is still missing.
 
 ## Running
 

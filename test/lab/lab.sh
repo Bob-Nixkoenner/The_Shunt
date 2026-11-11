@@ -12,6 +12,7 @@
 #   lab.sh down                 power both off
 #   lab.sh detach               client back to plain VirtualBox NAT (ssh :2224)
 #   lab.sh client-prep <deb>    install Shunt + lab tools in the client, snapshot "lab-basis"
+#   lab.sh kali-sync | kali-net  copy attacker/ to Kali (~/attacker) | set Kali's fixed lab address KALI_IP
 #   lab.sh mode <m> | netem … | status    passed to labctl on the gateway
 #   lab.sh ssh <cmd>            command in the client (guest control, no network)
 #   lab.sh gw [cmd]             shell/command on the gateway (root)
@@ -60,6 +61,42 @@ kali() { ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "sudo $(
 gw_cp_from() { scp "${SSHO[@]}" -P "$GW_PORT" -r "$USER_VM@127.0.0.1:$1" "$2"; }
 gw_cp_to() { scp "${SSHO[@]}" -P "$GW_PORT" -r "$1" "$USER_VM@127.0.0.1:$2"; }
 client_ip() { gw labctl client | awk '{print $2}'; }
+# Kali (attacker VM) gets a fixed address outside the DHCP pool (100-199); `gw labctl client` skips it.
+# KALI_IP is a placeholder in the repo: the value is the lab network's own private range, set it in local.env.
+KALI_IP=${KALI_IP:-10.77.0.222}
+KALI_DIR=${KALI_DIR:-attacker} # target folder in Kali's home
+kali_sync() { # copy attacker/ to Kali (~/attacker/) and make the scripts executable; run before every attack test
+	ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "mkdir -p ~/$KALI_DIR" &&
+		scp "${SSHO[@]}" -P "$KALI_PORT" "$HERE"/attacker/* "${KALI_USER:-lab}@127.0.0.1:$KALI_DIR/" &&
+		ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "chmod +x ~/$KALI_DIR/*.sh" ||
+		{ echo "kali_sync: could not copy attacker/ to Kali (KALI_PORT=$KALI_PORT)" >&2; return 1; }
+}
+kali_net() { # fixed lab address on Kali's lab NIC (the one without the default route)
+	ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "sudo env KALI_IP=$KALI_IP bash -s" <<'EOS'
+for n in $(ls /sys/class/net | grep -v '^lo$'); do
+	ip route show default dev "$n" | grep -q . && continue
+	ip addr replace "$KALI_IP/24" dev "$n" && echo "kali $n $KALI_IP" && exit 0
+done
+echo "kali_net: no NIC without default route found" >&2; exit 1
+EOS
+}
+# Warn when the client's shuntd was built from another commit than this checkout (lesson: build predated a commit).
+# Needs the vcs.revision Go embeds (not with -buildvcs=false); BUILD_CHECK=strict makes a mismatch fatal, off skips.
+build_check() {
+	[[ ${BUILD_CHECK:-warn} == off || ${CLIENT_OS:-linux} == windows ]] && return 0
+	local head built dirty=''
+	head=$(git -C "$HERE" rev-parse --short=7 HEAD 2>/dev/null) || return 0
+	[[ -z $(git -C "$HERE" status --porcelain -uno 2>/dev/null) ]] || dirty=" (+ uncommitted changes)"
+	built=$(client 'grep -a -o "vcs.revision=[0-9a-f]*" /usr/bin/shuntd /usr/local/bin/shuntd 2>/dev/null | head -1 | cut -d= -f2' 2>/dev/null | tr -d '\r' | head -c 7) || true
+	if [[ -z $built ]]; then
+		echo "WARNING build check: no commit in the client's shuntd (checkout is at $head$dirty); is it the package you mean?" >&2
+	elif [[ $built != "$head" ]]; then
+		echo "WARNING build check: client shuntd was built at $built, checkout is at $head$dirty: rebuild before testing" >&2
+		[[ ${BUILD_CHECK:-warn} != strict ]] || return 1
+	elif [[ -n $dirty ]]; then
+		echo "WARNING build check: client matches $head but the checkout has$dirty" >&2
+	fi
+}
 # The client is driven through VirtualBox guest control, never over the
 # network: no management traffic in the captures, and Shunt cannot cut us off.
 # CLIENT_USER: the guest account if it differs from the gateway user (Kali: kali)
@@ -147,6 +184,8 @@ gw-setup)
 	# tunnel endpoints for the tunnelkill mode (ip:port/proto, space separated)
 	[[ -z ${LAB_ENDPOINTS:-} ]] || gw bash -c "printf '%s\\n' $LAB_ENDPOINTS >/etc/shuntlab/endpoints"
 	gw install -m 755 /tmp/shuntlab-gw/analyze.py /usr/local/lib/analyze.py
+	# labctl client must not mistake Kali for the client
+	gw bash -c "echo $KALI_IP >/etc/shuntlab/kali_ip"
 	gw sync ;; # "down" powers off hard: unsynced files come back empty
 up) cmd_up "${2:-}" ;;
 down) poweroff "$CLIENT_VM"; poweroff "$GW_VM" ;;
@@ -158,6 +197,7 @@ detach)
 	echo "client on NAT again (ssh -p 2224)" ;;
 client-prep)
 	deb=${2:?the-shunt_*.deb}
+	# no internet in the lab LAN: prep.sh bounds apt-get update (PREP_APT_TIMEOUT, default 60 s)
 	client_cp_to "$deb" "$HERE/client/"* "$HERE/configs/base.toml" /tmp/shuntlab
 	VBoxManage "${GC[@]}" copyto "$TUNNEL_CONF" /tmp/shuntlab/intern.conf
 	if [[ $deb == *.tar ]]; then client "sudo -n bash /tmp/shuntlab/prep.sh tarball /tmp/shuntlab/$(basename "$deb")"
@@ -166,6 +206,8 @@ client-prep)
 	wait_for "client poweroff" 120 bash -c "[[ \$(VBoxManage showvminfo $CLIENT_VM --machinereadable | grep ^VMState=) == *poweroff* ]]"
 	VBoxManage snapshot "$CLIENT_VM" take "${SNAPNAME:-lab-basis}" --description "lab client: Shunt $(basename "$deb"), bpftrace, lab apps" >/dev/null
 	echo "snapshot lab-basis taken" ;;
+kali-sync) kali_sync ;;
+kali-net) kali_net ;;
 mode | netem | status) gw labctl "$@" ;;
 ssh) shift; client "${*:-bash -l}" ;;
 gw) shift; if (($#)); then gw "$@"; else ssh -t "${SSHO[@]}" -p "$GW_PORT" "$USER_VM@127.0.0.1"; fi ;;
@@ -176,6 +218,7 @@ run)
 	shift
 	# shellcheck source=run-test.sh
 	source "$HERE/run-test.sh"
+	build_check || exit 1
 	(($#)) || set -- "${TESTS_DIR:-$HERE/tests}"/*."${TEST_EXT:-sh}"
 	for t in "$@"; do run_test "$t" || FOUND+=("$t(error)"); done
 	summary ;;

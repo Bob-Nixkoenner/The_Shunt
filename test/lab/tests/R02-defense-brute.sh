@@ -2,6 +2,8 @@ ID=R02
 TITLE="Abwehr: Brute-Force auf Koeder-SSH/Telnet -> Ereignis + Sperre"
 CONFIG=defense
 EXPECT_CANARY=any
+# the defense's active DNS check (dns_probe = on in configs/defense.toml) asks these two fixed names
+ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 EXPECT_OPEN=("23/tcp" "2222/tcp" "2323/tcp" "80/tcp" "445/tcp" "3389/tcp")
 NOTE="shunt-kali faehrt attacker/brute-telnet-ssh.sh gegen die Koederports des Clients
 (ssh 2222 bzw. 22, telnet 23 bzw. 2323; Port 22 gehoert auf dem Testclient einem echten sshd).
@@ -11,6 +13,7 @@ lab.sh). Nicht in der Lab-VM gelaufen (Stand 11.11.). Koeder-Ports 2222/2323 ste
 (der Daemon traegt alle lauschenden Koeder ein, defensePushPorts)."
 during() {
 	sleep 8
+	kali_sync || true
 	kali attacker/observer.sh start || true
 	kali env "TARGET=$(client_ip)" DURATION=20 attacker/brute-telnet-ssh.sh || true
 	sleep 2

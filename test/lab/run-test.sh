@@ -8,7 +8,8 @@
 #   ALLOW=()                  extra things the café network may see:
 #                             comm:<name> (packets of that process), dst:ip:port/proto,
 #                             net:<cidr>:port/proto (rotating addresses), dns,
-#                             host:<name or .suffix>:port/proto (CDN hosts, via DNS answers)
+#                             host:<name or .suffix>:port/proto (CDN hosts, via DNS answers),
+#                             dnsname:<name> (DNS queries for exactly that name, any server)
 #   CHECKS=()                 fingerprint = DHCP name, EUI-64, real MAC … count as findings
 #   RENEW [0]                 1 = reconnect the client's network while capturing
 #   SCAN [0]                  1 = nmap the client from the gateway while it runs
@@ -17,10 +18,14 @@
 #                             e.g. a TCP server only this test uses
 #   NETEM                     tc netem args on the lab LAN during the test
 #   SETTLE [3]                seconds to wait after setup before the client script
-#   PREP                      bash run in the client before the config is applied (extra files)
+#   PREP                      bash run IN THE CLIENT (VM guest, as $USER_VM; not on the laptop: laptop
+#                             functions like client_cp_to, gw, kali and laptop variables are NOT there,
+#                             expand values into the text first) before the config is applied (extra files)
 #   NOTE                      extra text for the report
 #   CLIENT                    bash script run in the client as $USER_VM; $1 = canary
-#                             name; print "FAIL <text>" for a failed client-side check
+#                             name; print "FAIL <text>" for a failed client-side check. Runs in the CLIENT
+#                             too. A non-zero exit code (e.g. a missing `${VAR:?}`) without a FAIL line
+#                             is counted as FAIL (CLIENT_RC_OK=1 in the test file turns that off)
 #   during()                  optional function run on the laptop alongside CLIENT
 #                             (e.g. `sleep 5; gw labctl mode tunnelkill`)
 
@@ -159,7 +164,7 @@ run_test() {
 	[[ -n $file ]] || { echo "no test $1" >&2; return 1; }
 	# defaults, then the test file
 	ID='' TITLE='' MODE=normal CONFIG=base EXPECT_CANARY=tunnel HOP_BADKEY=0 RENEW=0 SCAN=0 NETEM='' SETTLE=3 NOTE='' CLIENT=''
-	ALLOW=() CHECKS=() EXPECT_OPEN=() ENDPOINTS=() PREP='' EXIT_IF='' EXIT_NET=''
+	ALLOW=() CHECKS=() EXPECT_OPEN=() ENDPOINTS=() CLIENT_RC_OK='' PREP='' EXIT_IF='' EXIT_NET=''
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
@@ -229,7 +234,12 @@ run_test() {
 	fi
 	((SCAN)) && gw labctl scan "$run" >/dev/null 2>&1 &
 	local spid=$!
-	printf '%s\n' "$CLIENT" | client_script "$canary" >"$out/client.out" 2>&1 || true
+	local crc=0
+	printf '%s\n' "$CLIENT" | client_script "$canary" >"$out/client.out" 2>&1 || crc=$?
+	# a client script that dies (`${VAR:?}`, syntax error, command not found at the end) must not look like a pass
+	if ((crc != 0)) && [[ -z ${CLIENT_RC_OK:-} ]] && ! grep -q '^FAIL' "$out/client.out" 2>/dev/null; then
+		echo "FAIL Client-Skript endete mit Exit-Code $crc ohne FAIL-Zeile (Skriptfehler?)" >>"$out/client.out"
+	fi
 	# the VirtualBox guest service can die (after P01's clock jump on Debian): then nothing ran
 	# in the client and a "pass" would mean nothing, so the test fails instead
 	if grep -q "guest execution service is not ready" "$out/client.out" 2>/dev/null; then

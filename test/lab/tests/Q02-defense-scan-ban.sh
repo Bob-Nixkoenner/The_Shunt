@@ -2,6 +2,8 @@ ID=Q02
 TITLE="Abwehr: Portscan aus dem Netz -> Ereignis + Sperre (nft shunt_defense)"
 CONFIG=defense
 EXPECT_CANARY=any
+# the defense's active DNS check (dns_probe = on in configs/defense.toml) asks these two fixed names
+ALLOW=(dnsname:dns.google dnsname:one.one.one.one)
 EXPECT_OPEN=("23/tcp" "80/tcp" "445/tcp" "3389/tcp")
 NOTE="Der Scan kommt von einer zweiten Adresse der Gateway-VM (die Gateway-Adresse selbst steht auf der Nie-sperren-Liste, sonst wuerde das Lab sich aussperren). Erwartet: Ereignis scan, Eintrag in /v1/defense bans, Adresse im nft-Set ban4. Endadresse .${DEFENSE_ALT_LAST:-250} im LAN-/24 der VM, aus local.env anpassbar. Nicht in der Lab-VM gelaufen (Stand 11.11.)."
 during() {

@@ -226,8 +226,10 @@ scan)
 client)
 	# newest lease; v6 link-local from the neighbour table
 	# IPv4 lines only (expiry mac ip host id); DHCPv6 leases (mode dhcpv6) have an IAID there
-	read -r _ mac ip4 _ < <(awk '$2 ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/' "$RUN/leases" 2>/dev/null | sort -rn | head -1) ||
-		read -r ip4 _ mac _ < <(ip -4 neigh show dev "$LAN" | grep lladdr | head -1) ||
+	# the attacker VM (kali_ip file, host name kali*) is never the client
+	kip=$(cat "$ETC/kali_ip" 2>/dev/null || true)
+	read -r _ mac ip4 _ < <(awk -v k="${kip:-none}" '$2 ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/ && $3 != k && tolower($4) !~ /^kali/' "$RUN/leases" 2>/dev/null | sort -rn | head -1) ||
+		read -r ip4 _ mac _ < <(ip -4 neigh show dev "$LAN" | grep lladdr | grep -v -w -e "${kip:-none}" -e "$GW4" | head -1) ||
 		die "no client seen yet"
 	ll=$(ip -6 neigh show dev "$LAN" | awk -v m="$mac" '$3==m && $1 ~ /^fe80/ {print $1; exit}')
 	if [[ -z $ll ]]; then

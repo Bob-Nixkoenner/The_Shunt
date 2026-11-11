@@ -85,6 +85,9 @@ def allowed_host(dst, dport, proto):
 
 
 allow_dns = "dns" in allow
+# dnsname:<name>: queries for exactly this name are allowed (the defense's active DNS check asks fixed names
+# at the network's resolver and at a public one; with defense.dns_probe off they must NOT show up)
+allow_qnames = {a[8:].lower().rstrip(".") for a in allow if a.startswith("dnsname:")}
 # LABMARK tor_end: tor was ended on purpose; what follows within TOR_REST seconds (FIN/RST/ACK without payload to a
 # relay's OR port, e.g. 9001/9003, FIN or RST only, no process) is the teardown of its relay connections, not user traffic
 tor_end = meta.get("tor_end")
@@ -400,7 +403,7 @@ for (dst, what), n in replies_lan.items():
 for d, n in captive_checks.items():
     find("info", "Portal-Prüfung von shuntd", f"HTTP an {d}: {n} Pakete (direkt, gewollt)")
 for q, dst, w in gw_dns:
-    if allow_dns or allowed_comm(w):
+    if allow_dns or allowed_comm(w) or q in allow_qnames:
         continue
     # name of the portal check: the portal sits in front of any tunnel, the check is on by default (decided
     # 08.11.: info, not a finding). Without systemd-resolved (Debian) shuntd resolves on its own and the
