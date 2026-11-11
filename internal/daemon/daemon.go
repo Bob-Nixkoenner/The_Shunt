@@ -1732,6 +1732,10 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// TODO(paket B): /v1/defense (GET status), /v1/defense/events?since=N (GET),
+	// /v1/defense/config (POST defense.Config), /v1/defense/unban (POST
+	// api.DefenseUnban) and api.Status.Defense. The UI (paket C) and the mock
+	// daemon (test/mockd) already speak them; types: internal/defense/types.go.
 	mux.HandleFunc("GET /v1/listening", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.listening())
 	})

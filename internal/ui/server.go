@@ -27,11 +27,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/desktop"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/firewall"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/probe"
@@ -403,6 +405,49 @@ func (s *Server) handler() http.Handler {
 			return
 		}
 		writeJSON(w, l)
+	})
+	// defense ("Abwehr" tab): status, live events, settings, lift a block
+	mux.HandleFunc("GET /api/defense", func(w http.ResponseWriter, r *http.Request) {
+		st, err := s.Client.DefenseStatus()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, st)
+	})
+	mux.HandleFunc("GET /api/defense/events", func(w http.ResponseWriter, r *http.Request) {
+		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+		ev, err := s.Client.DefenseEvents(since)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		if ev.Events == nil {
+			ev.Events = []defense.Event{}
+		}
+		writeJSON(w, ev)
+	})
+	mux.HandleFunc("POST /api/defense/config", func(w http.ResponseWriter, r *http.Request) {
+		var cfg defense.Config
+		if !decode(w, r, &cfg) {
+			return
+		}
+		if err := s.Client.DefenseConfigure(cfg); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/defense/unban", func(w http.ResponseWriter, r *http.Request) {
+		var req api.DefenseUnban
+		if !decode(w, r, &req) {
+			return
+		}
+		if err := s.Client.DefenseUnban(req.Src); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
 		var ps []api.ProcRoute
