@@ -21,6 +21,17 @@ profile, counts as `public`.
   with the bypass mark, started only in `public` networks. A port that something else uses is
   skipped; ports below 1024 need `CAP_NET_BIND_SERVICE` (set in `shuntd.service`).
   With `[inbound]` on, the decoy ports are let through by the set `decoy_ports` in the main nft table.
+- Login decoys (feature `cowrie`): ports 23 and 2323 speak real telnet (RFC 854/857: the server sends
+  IAC WILL ECHO and WILL SUPPRESS-GO-AHEAD, refuses other options, reads CR LF / CR NUL, asks
+  `login:` / `Password:`, always answers `Login incorrect`, hangs up after 3 tries). Ports 22 and 2222 run a
+  real SSH server (`golang.org/x/crypto/ssh`, BSD-3-Clause, now a direct dependency) with the banner
+  `SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5` (`Decoys.SSHBanner`). Password and keyboard-interactive
+  logins always fail; there is no public-key method, no shell, no exec, no channel. Limits: 16
+  connections at once, 10 s per step, 6 tries per connection, 1 s pause after each refused try.
+  Every try is one `cowrie` event with user name, password length and a 4-byte SHA-256 prefix, never
+  the password. The ed25519 host key is created on first start in the defense directory
+  (`ssh_host_ed25519_key`, mode 0600). 2222/2323 exist so there are decoys where a real sshd/telnetd
+  holds 22/23 (a busy port is skipped); all listening decoy ports go into the nft set `decoy_ports`.
 - Blocking: nft table `shunt_defense` (sets `ban4`/`ban6` with timeout, `never4`/`never6`,
   input chain at priority -10). Gateway and system DNS servers are on the never list automatically.
   Removed again when the defense is switched off or shuntd stops.
