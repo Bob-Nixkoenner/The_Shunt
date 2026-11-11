@@ -67,6 +67,20 @@ type Proxy struct {
 	// Owner names the program that sent a query ("tcp"/"udp", its source
 	// address); asked only for blocked queries. nil = not counted per app.
 	Owner func(proto string, from netip.AddrPort) string
+
+	// Observer, if set, sees every query and every answered address (the
+	// defense uses it for DNS tunnel and first-contact detection). It must
+	// be cheap and must not block. nil = the proxy behaves as without it.
+	Observer Observer
+}
+
+// Observer is the narrow, optional view of the proxy for monitoring code.
+// Implemented by the defense manager; this package does not import it.
+type Observer interface {
+	// Query is called once per question, with the client's source address.
+	Query(client netip.Addr, name, qtype string)
+	// Answer is called with the A/AAAA addresses an upstream returned.
+	Answer(name string, addrs []netip.Addr)
 }
 
 // FilterStats counts what the DNS filter blocked since the daemon started.
@@ -338,6 +352,11 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 		}
 		return p.Owner(proto, from)
 	}
+	if o := p.Observer; o != nil && len(r.Question) == 1 {
+		if from, err := netip.ParseAddrPort(w.RemoteAddr().String()); err == nil {
+			o.Query(from.Addr(), strings.TrimSuffix(strings.ToLower(r.Question[0].Name), "."), dns.TypeToString[r.Question[0].Qtype])
+		}
+	}
 	resp := p.handle(port, r, queryMark(w), who)
 	resp.Id = r.Id
 	if err := w.WriteMsg(resp); err != nil {
@@ -443,6 +462,24 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	if resp == nil {
 		// No fallback to another route: failing is the safe outcome.
 		return fail(r, dns.RcodeServerFailure)
+	}
+	if o := p.Observer; o != nil {
+		var addrs []netip.Addr
+		for _, rr := range resp.Answer {
+			switch v := rr.(type) {
+			case *dns.A:
+				if ip, ok := netip.AddrFromSlice(v.A); ok {
+					addrs = append(addrs, ip.Unmap())
+				}
+			case *dns.AAAA:
+				if ip, ok := netip.AddrFromSlice(v.AAAA); ok {
+					addrs = append(addrs, ip)
+				}
+			}
+		}
+		if len(addrs) > 0 {
+			o.Answer(name, addrs)
+		}
 	}
 	if rule != nil {
 		if err := p.recordAnswer(rule, resp); err != nil {

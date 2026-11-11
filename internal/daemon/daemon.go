@@ -825,6 +825,9 @@ func (d *Daemon) reload(selfCgroup string) error {
 			o, _ := d.sockets.Of(proto, from)
 			return o.Name
 		}
+		if d.def.m != nil {
+			d.proxy.Observer = d.def.m
+		}
 	}
 	ups := d.upstreams(p)
 	if err := d.proxy.Update(p.Plan, ups); err != nil {

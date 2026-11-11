@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
@@ -204,5 +205,52 @@ func TestDeadTunnelQueryStaysOffDefault(t *testing.T) {
 		if got := ask(c.port, c.mark); got != c.got {
 			t.Errorf("%s: got %s, want %s", c.name, got, c.got)
 		}
+	}
+}
+
+type obsRec struct {
+	qs []string
+}
+
+func (o *obsRec) Query(c netip.Addr, name, qt string) {
+	o.qs = append(o.qs, c.String()+" "+name+" "+qt)
+}
+func (o *obsRec) Answer(name string, addrs []netip.Addr) {}
+
+type fakeRW struct{ got *dns.Msg }
+
+func (f *fakeRW) LocalAddr() net.Addr         { return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 53} }
+func (f *fakeRW) RemoteAddr() net.Addr        { return &net.UDPAddr{IP: net.ParseIP("192.0.2.7"), Port: 4000} }
+func (f *fakeRW) WriteMsg(m *dns.Msg) error   { f.got = m; return nil }
+func (f *fakeRW) Write(b []byte) (int, error) { return len(b), nil }
+func (f *fakeRW) Close() error                { return nil }
+func (f *fakeRW) TsigStatus() error           { return nil }
+func (f *fakeRW) TsigTimersOnly(bool)         {}
+func (f *fakeRW) Hijack()                     {}
+
+// The optional observer sees each question; without one the proxy answers
+// the same.
+func TestObserver(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 1}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct}
+	p.upstreams = RouteUpstreams{"direct": {tagUpstream("dns.direct")}}
+	q := new(dns.Msg)
+	q.SetQuestion("Sub.Example.Test.", dns.TypeTXT)
+	w := &fakeRW{}
+	p.serve(1, w, q)
+	if w.got == nil || len(w.got.Answer) != 1 {
+		t.Fatal("no answer without observer")
+	}
+	o := &obsRec{}
+	p.Observer = o
+	w = &fakeRW{}
+	p.serve(1, w, q)
+	if w.got == nil || len(w.got.Answer) != 1 {
+		t.Fatal("no answer with observer")
+	}
+	if len(o.qs) != 1 || o.qs[0] != "192.0.2.7 sub.example.test TXT" {
+		t.Fatalf("observer saw %v", o.qs)
 	}
 }

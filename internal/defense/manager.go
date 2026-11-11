@@ -21,6 +21,7 @@ type Manager struct {
 	never *NeverSet
 	dec   *Decoys
 	rpts  *Reports
+	dns   dnsState
 	now   func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -154,6 +155,9 @@ func (m *Manager) SetNetwork(key string, class Class) {
 		m.rpts.Enter(key, class, m.now(), watchDNS)
 	}
 	m.syncDecoys()
+	if changed {
+		m.forgetDNS()
+	}
 	if changed && enabled {
 		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class)})
 	}
