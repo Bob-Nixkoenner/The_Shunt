@@ -176,7 +176,7 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
     val passLeft = ov?.optLong("pass_left") ?: 0L
     Column(Modifier.background(c.bg).statusBarsPadding()) {
         if (band) Text(
-            "MAX SECURITY", Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
+            T(Level.Opsec.label).uppercase(), Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
                 .semantics { contentDescription = T("Max Security level") },
             color = c.accentInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
