@@ -52,6 +52,7 @@ func (s *Sensors) SetEnv(env Env) {
 	run(func() { s.neighbours(ctx, env, recheck) })
 	run(func() { s.dhcp(ctx, env) })
 	run(func() { s.dhcpProbe(ctx, env) })
+	run(func() { s.routerAdverts(ctx, env) })
 	run(func() { s.once(ctx, env, recheck) })
 }
 
