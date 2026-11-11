@@ -2,6 +2,7 @@ package defense
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -49,6 +50,7 @@ type Decoys struct {
 	SSHDelay    time.Duration // pause after every refused ssh login (tarpit)
 	MaxConns    int           // simultaneous handlers over all ports (default 64)
 	Timeout     time.Duration // per-connection limit for normal decoys (default 15 s)
+	PerSource   int           // simultaneous handlers for one source address (default 8)
 
 	mu      sync.Mutex
 	lns     map[int]net.Listener
@@ -56,6 +58,8 @@ type Decoys struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	sem     chan struct{}
+	srcMu   sync.Mutex
+	perSrc  map[netip.Addr]int
 
 	keyMu  sync.Mutex
 	signer ssh.Signer
@@ -86,6 +90,9 @@ func (d *Decoys) Start(ports []int, opt DecoyOptions) {
 	}
 	d.sem = make(chan struct{}, n)
 	d.sshSem = make(chan struct{}, sshMaxConc)
+	d.srcMu.Lock()
+	d.perSrc = map[netip.Addr]int{}
+	d.srcMu.Unlock()
 	for _, p := range ports {
 		if p <= 0 || p > 65535 || d.lns[p] != nil {
 			continue
@@ -147,29 +154,69 @@ func (d *Decoys) hit(h Hit) {
 
 func (d *Decoys) accept(ctx context.Context, ln net.Listener, port int, opt DecoyOptions) {
 	defer d.wg.Done()
+	var backoff time.Duration
 	for {
 		c, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return
 			}
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
+			// out of file descriptors, aborted handshake, ...: wait and go
+			// on instead of leaving the port dead until the next restart
+			if backoff == 0 {
+				backoff = 5 * time.Millisecond
+			} else if backoff *= 2; backoff > time.Second {
+				backoff = time.Second
 			}
-			return
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			continue
 		}
+		backoff = 0
 		select {
 		case d.sem <- struct{}{}:
 		default:
 			c.Close() // too many at once
 			continue
 		}
+		src := addrOf(c.RemoteAddr())
+		if !d.takeSource(src) {
+			<-d.sem
+			c.Close() // one source must not take every slot
+			continue
+		}
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
 			defer func() { <-d.sem }()
+			defer d.dropSource(src)
 			d.handle(ctx, c, port, opt)
 		}()
+	}
+}
+
+func (d *Decoys) takeSource(a netip.Addr) bool {
+	max := d.PerSource
+	if max <= 0 {
+		max = 8
+	}
+	d.srcMu.Lock()
+	defer d.srcMu.Unlock()
+	if d.perSrc[a] >= max {
+		return false
+	}
+	d.perSrc[a]++
+	return true
+}
+
+func (d *Decoys) dropSource(a netip.Addr) {
+	d.srcMu.Lock()
+	defer d.srcMu.Unlock()
+	if d.perSrc[a]--; d.perSrc[a] <= 0 {
+		delete(d.perSrc, a)
 	}
 }
 
