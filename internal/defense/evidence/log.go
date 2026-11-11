@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -181,7 +180,7 @@ func SafeDir(dir string) error {
 	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
 		return fmt.Errorf("%s is not a plain directory", dir)
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Geteuid() {
+	if !ownedByUs(fi) {
 		return fmt.Errorf("%s belongs to another user", dir)
 	}
 	return os.Chmod(dir, 0o700)
@@ -311,7 +310,7 @@ func (l *Log) openFile(day string, now time.Time) error {
 			return errors.New("too many log files for one day")
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(l.dir, l.name), os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := os.OpenFile(filepath.Join(l.dir, l.name), os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
 	if err != nil {
 		return err
 	}
@@ -348,7 +347,7 @@ func (l *Log) writeManifest() error {
 func writeFileAtomic(path string, b []byte) error {
 	tmp := path + ".tmp"
 	_ = os.Remove(tmp)
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
 	if err != nil {
 		return err
 	}

@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -144,7 +143,7 @@ func (c *Capture) Trigger(seq uint64) error {
 		}
 		PrunePcap(c.Dir, mb-mb/10, c.Protect) // make room before a new file
 		name := fmt.Sprintf("%s-%d.pcapng", now.UTC().Format("20060102T150405Z"), seq)
-		f, err := os.OpenFile(filepath.Join(c.Dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+		f, err := os.OpenFile(filepath.Join(c.Dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL|oNoFollow, 0o600)
 		if err != nil {
 			return err
 		}
