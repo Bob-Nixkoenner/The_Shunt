@@ -94,10 +94,19 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   connections at once, 10 s per step, 6 tries per connection, 1 s pause after each refused try.
   Every try is one `cowrie` event with user name, password length and a 4-byte SHA-256 prefix, never
   the password. The ed25519 host key is created on first start in the defense directory
-  (`ssh_host_ed25519_key`, mode 0600). 2222/2323 exist so there are decoys where a real sshd/telnetd
+  (`ssh_host_ed25519_key`, mode 0600, never through a link; looser rights are cut back, a damaged
+  file is moved to `.bad` and replaced). 2222/2323 exist so there are decoys where a real sshd/telnetd
   holds 22/23 (a busy port is skipped); all listening decoy ports go into the nft set `decoy_ports`.
 - Blocking: nft table `shunt_defense` (sets `ban4`/`ban6` with timeout, `never4`/`never6`,
   input chain at priority -10). Gateway and system DNS servers are on the never list automatically.
+  Ban spoofing: a scan ban needs only SYNs, and their source address can be forged. So replies to
+  connections this machine opened always pass (`ct direction reply return` before the ban drop): a
+  ban stops only what a source starts, never the tunnel or another own connection to that address.
+  This machine's own addresses, multicast, broadcast, unspecified and 0.0.0.0/8 are never banned
+  (`Manager.Bannable`; a manual ban answers 409).
+  Limits against floods: at most 64 decoy handlers, 8 of them per source address; tarpit 32 traps,
+  4 per source; ban table 4096 entries; scan detector 4096 sources with at most 1024 ports and
+  256 failures each; event ring 1000. A decoy port survives accept errors (out of descriptors).
   Removed again when the defense is switched off or shuntd stops.
 - Scan/brute-force observation: the same table logs new inbound connections (rate limited) to
   NFLOG group 5302; shuntd counts connections to ports nothing listens on per source
