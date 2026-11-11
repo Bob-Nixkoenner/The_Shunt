@@ -32,8 +32,8 @@ func RenderDefense(o DefenseOpts) string {
 	w := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	replaceHeader(&b, DefenseTable)
 	w("table inet %s {", DefenseTable)
-	w("\tset ban4 {\n\t\ttype ipv4_addr; flags timeout;\n\t}")
-	w("\tset ban6 {\n\t\ttype ipv6_addr; flags timeout;\n\t}")
+	w("\tset ban4 {\n\t\ttype ipv4_addr; flags interval, timeout;\n\t}")
+	w("\tset ban6 {\n\t\ttype ipv6_addr; flags interval, timeout;\n\t}")
 	w("\tset never4 {\n\t\ttype ipv4_addr; flags interval;\n\t}")
 	w("\tset never6 {\n\t\ttype ipv6_addr; flags interval;\n\t}")
 	w("\tchain input {")
@@ -138,4 +138,20 @@ func DecoyPortsScript(ports []int) string {
 		fmt.Fprintf(&b, "add element inet %s %s { %s }\n", Table, DecoySet, strings.Join(l, ", "))
 	}
 	return b.String()
+}
+
+// BanRangeScript blocks a whole range (a /24 or /64 the defense collected
+// single sources into) for d. The ban sets are interval sets.
+func BanRangeScript(p netip.Prefix, d time.Duration) string {
+	secs := int(d / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return fmt.Sprintf("add element inet %s %s { %s timeout %ds }\n", DefenseTable, setFor(p.Addr()), p.Masked(), secs)
+}
+
+// UnbanRangeScript lifts the block on a range.
+func UnbanRangeScript(p netip.Prefix) string {
+	return fmt.Sprintf("add element inet %s %s { %s timeout 1s }\ndelete element inet %s %s { %s }\n",
+		DefenseTable, setFor(p.Addr()), p.Masked(), DefenseTable, setFor(p.Addr()), p.Masked())
 }

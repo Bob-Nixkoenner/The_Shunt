@@ -30,6 +30,11 @@ type Manager struct {
 	cfg    Config
 	key    string
 	class  Class
+	expo   Exposure
+
+	aggMu      sync.Mutex
+	agg        map[aggKey]*aggEntry
+	aggDropped int
 
 	stop     context.CancelFunc
 	done     chan struct{}
@@ -72,7 +77,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 		log = slog.Default()
 	}
 	m := &Manager{log: log, ring: NewRing(1000), therm: NewThermo(), bans: NewBans(),
-		rpts: NewReports(""), rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassPublic, cfg: DefaultConfig()}
+		rpts: NewReports(""), agg: map[aggKey]*aggEntry{}, rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassPublic, cfg: DefaultConfig()}
 	m.cfg.Enabled = false
 	m.det = NewDetector(DetectConfig{}, m.never)
 	m.det.OnFound = m.found
@@ -106,6 +111,7 @@ func (m *Manager) loop(ctx context.Context) {
 				m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "expired"})
 			}
 			m.rep.Prune()
+			m.flushAgg(false)
 			if err := m.rpts.Flush(); err != nil {
 				m.log.Debug("defense: report file", "err", err)
 			}
@@ -179,9 +185,9 @@ func (m *Manager) syncDecoys() {
 	m.syncMu.Lock()
 	defer m.syncMu.Unlock()
 	m.mu.Lock()
-	cfg, class := m.cfg, m.class
+	cfg, class, expo := m.cfg, m.class, m.expo
 	m.mu.Unlock()
-	if f := featureOf(cfg, FeatDecoy); !f.Watch || !class.Decoys() {
+	if f := featureOf(cfg, FeatDecoy); !f.Watch || !class.Decoys() || (expo.Any() && !cfg.DecoysWhenExposed) {
 		m.dec.Stop()
 		return
 	}
@@ -197,6 +203,13 @@ func (m *Manager) Report(ev Event) {
 	enabled := m.cfg.Enabled
 	m.mu.Unlock()
 	if !enabled {
+		return
+	}
+	if m.fold(ev) {
+		// folded: counts for heat and the report, but takes no ring slot
+		ev.Time = m.now()
+		m.therm.Add(ev)
+		m.rpts.Note(ev, m.therm.Heat())
 		return
 	}
 	ev = m.ring.Add(ev)
@@ -287,7 +300,21 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	if !f.Watch || !f.Block || !src.IsValid() || m.never.Contains(src) {
 		return
 	}
-	if b, isNew := m.bans.Add(src.String(), reason, time.Duration(secs)*time.Second); isNew {
+	m.addBan(src, reason, time.Duration(secs)*time.Second)
+}
+
+// addBan blocks src, or its whole range while exposed (see banTarget).
+func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration) {
+	target := m.banTarget(src)
+	if target == "" {
+		return
+	}
+	if p, err := netip.ParsePrefix(target); err == nil {
+		for _, s := range m.bans.InRange(p) { // the range replaces its single entries
+			m.bans.Remove(s)
+		}
+	}
+	if b, isNew := m.bans.Add(target, reason, d); isNew {
 		m.Report(Event{Kind: KindBan, Severity: SevLow, Src: b.Src, Detail: "reason=" + string(reason)})
 	}
 }
@@ -311,9 +338,7 @@ func (m *Manager) Ban(src string) error {
 	if m.never.Contains(a) {
 		return ErrNeverBan
 	}
-	if b, isNew := m.bans.Add(a.String(), KindManual, time.Duration(secs)*time.Second); isNew {
-		m.Report(Event{Kind: KindBan, Severity: SevLow, Src: b.Src, Detail: "reason=" + string(KindManual)})
-	}
+	m.addBan(a, KindManual, time.Duration(secs)*time.Second)
 	return nil
 }
 
@@ -344,10 +369,10 @@ func (m *Manager) Reports(export bool) ReportsResponse { return m.rpts.List(expo
 // Status returns the current state.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
-	cfg, class := m.cfg, m.class
+	cfg, class, expo := m.cfg, m.class, m.expo
 	m.mu.Unlock()
 	heat := m.therm.Heat()
-	return Status{Enabled: cfg.Enabled, Class: class, Heat: heat, Level: LevelFor(heat),
+	return Status{Enabled: cfg.Enabled, Class: class, Exposed: expo, Heat: heat, Level: LevelFor(heat),
 		Decoys: m.dec.Ports(), Bans: m.bans.List(), Counts: m.therm.Counts(),
 		LastSeq: m.ring.LastSeq(), Config: cfg, Sources: m.sourceInfo(cfg)}
 }

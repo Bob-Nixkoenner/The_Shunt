@@ -35,6 +35,14 @@ func (d *Daemon) defenseOptions() []defense.Option {
 }
 
 func (d *Daemon) nftBan(b defense.Ban) {
+	if p, err := netip.ParsePrefix(b.Src); err == nil { // a whole range (exposed networks)
+		if d.defTableOn() {
+			if err := nft.Apply(nft.BanRangeScript(p, time.Until(b.Expires))); err != nil {
+				d.Log.Warn("defense: could not block a range", "err", err)
+			}
+		}
+		return
+	}
 	a, err := netip.ParseAddr(b.Src)
 	if err != nil || !d.defTableOn() {
 		return
@@ -45,6 +53,14 @@ func (d *Daemon) nftBan(b defense.Ban) {
 }
 
 func (d *Daemon) nftUnban(b defense.Ban) {
+	if p, err := netip.ParsePrefix(b.Src); err == nil {
+		if d.defTableOn() {
+			if err := nft.Apply(nft.UnbanRangeScript(p)); err != nil {
+				d.Log.Debug("defense: unblock range", "err", err)
+			}
+		}
+		return
+	}
 	a, err := netip.ParseAddr(b.Src)
 	if err != nil || !d.defTableOn() {
 		return
