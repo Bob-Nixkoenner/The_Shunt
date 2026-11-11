@@ -263,6 +263,33 @@ $ADB shell svc wifi disable; sleep 8
 check "on mobile data: the profile's route (work)" "tunnel=work" "$(get || true)"
 $ADB shell svc wifi enable; sleep 8
 check "back on Wi-Fi: home again" "tunnel=home" "$(get || true)"
+echo "== defense watcher (Max Security): a DNS tunnel pattern shows up as an event on the status screen"
+python3 - "$W/settings.json" <<'PY7'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+c["defense"] = True; c["level"] = "opsec"
+c["apps"] = {}; c["default"] = "tunnel:home"; c["networks"] = []
+json.dump(c, open(p, "w"))
+PY7
+$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 1
+toggle; wait_vpn down || true
+$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+toggle; wait_vpn up || true
+sleep 6
+# 40 long random names under one base domain, all through the Shunt's DNS proxy (what a DNS tunnel looks like)
+for _ in $(seq 40); do
+	label=$(head -c 60 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 44)
+	$ADB shell "ping -c1 -W1 $label.exfil.test >/dev/null 2>&1" || true
+done
+sleep 10 # the status screen asks the core for events every few seconds
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+dump_ui
+shown=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"' | tr '\n' ' ')
+check "defense: the event names the base domain" "exfil.test" "$shown"
+[[ $shown != *"$(ui_text "No events yet. The first minutes of an app are learning only.")"* ]] && echo "  ok   defense: the list is no longer empty" || { echo "  FAIL defense: still 'no events yet'"; fails=$((fails + 1)); }
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
