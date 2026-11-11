@@ -194,3 +194,66 @@ func TestParseLoggedPacket(t *testing.T) {
 		}
 	}
 }
+
+func TestDHCPDiscoverBuilders(t *testing.T) {
+	d := BuildDHCPDiscover(0x01020304, [6]byte{0x02, 1, 2, 3, 4, 5})
+	if d[0] != 1 || d[10] != 0x80 || d[4] != 1 || d[7] != 4 || d[239] != 0x63 {
+		t.Fatalf("bad discover % x", d[:12])
+	}
+	if _, ok := ParseDHCPReply(d); ok {
+		t.Fatal("a request is no reply")
+	}
+	ip := BuildDHCPIPv4(d)
+	if len(ip) != 28+len(d) || ip[9] != 17 || ipChecksum(ip[:20]) != 0 {
+		t.Fatalf("bad ip header, checksum %x", ipChecksum(ip[:20]))
+	}
+	if ip[22] != 0 || ip[23] != 67 || ip[20] != 0 || ip[21] != 68 {
+		t.Fatal("ports")
+	}
+}
+
+func TestDHCPTwoServersViaOffers(t *testing.T) {
+	w := newDHCPWatch()
+	a, _ := ParseDHCPReply(dhcpPacket(2, [4]byte{192, 0, 2, 1}))
+	b, _ := ParseDHCPReply(dhcpPacket(2, [4]byte{192, 0, 2, 222}))
+	if _, hit := w.Feed(a); hit {
+		t.Fatal("one server is normal")
+	}
+	if _, hit := w.Feed(a); hit {
+		t.Fatal("same server again")
+	}
+	if ev, hit := w.Feed(b); !hit || ev.Kind != KindRogueDHCP || ev.Src != "192.0.2.222" {
+		t.Fatalf("second server not reported: %+v", ev)
+	}
+}
+
+func TestDNSOnceFilter(t *testing.T) {
+	var d dnsOnce
+	e := []Event{{Detail: "x"}}
+	if len(d.Filter(e)) != 1 || len(d.Filter(e)) != 0 {
+		t.Fatal("report once")
+	}
+	d.Filter(nil)
+	if len(d.Filter(e)) != 1 {
+		t.Fatal("report again after clean run")
+	}
+}
+
+func TestGWWatchPollBaselineAndChange(t *testing.T) {
+	g := newGWWatch("192.0.2.1", "")
+	gw, _ := netip.ParseAddr("192.0.2.1")
+	if _, hit := g.Feed(gw, "02:00:00:00:00:01"); hit {
+		t.Fatal("first MAC is the baseline")
+	}
+	for i := 0; i < 3; i++ { // periodic polling repeats the same entry
+		if _, hit := g.Feed(gw, "02:00:00:00:00:01"); hit {
+			t.Fatal("same MAC")
+		}
+	}
+	if _, hit := g.Feed(gw, "02:00:00:00:00:99"); !hit {
+		t.Fatal("changed MAC must report")
+	}
+	if _, hit := g.Feed(gw, "02:00:00:00:00:99"); hit {
+		t.Fatal("report once")
+	}
+}

@@ -3,6 +3,7 @@ package defense
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -132,6 +133,70 @@ func ParseDHCPReply(p []byte) (server netip.Addr, ok bool) {
 		return netip.Addr{}, false
 	}
 	return id, true
+}
+
+// BuildDHCPDiscover returns a BOOTP/DHCP DISCOVER payload with the broadcast
+// flag set (so every server's OFFER is a broadcast the passive listener
+// sees), a random-looking client hardware address (chaddr), and only the
+// message-type and parameter-request options: no host name, no vendor class.
+func BuildDHCPDiscover(xid uint32, chaddr [6]byte) []byte {
+	p := make([]byte, 240, 260)
+	p[0], p[1], p[2] = 1, 1, 6 // BOOTREQUEST, Ethernet, hlen 6
+	binary.BigEndian.PutUint32(p[4:], xid)
+	p[10] = 0x80 // broadcast flag
+	copy(p[28:], chaddr[:])
+	p[236], p[237], p[238], p[239] = 0x63, 0x82, 0x53, 0x63
+	return append(p, 53, 1, 1, 55, 3, 1, 3, 6, 255)
+}
+
+func ipChecksum(h []byte) uint16 {
+	var sum uint32
+	for i := 0; i+1 < len(h); i += 2 {
+		sum += uint32(h[i])<<8 | uint32(h[i+1])
+	}
+	for sum>>16 != 0 {
+		sum = sum&0xffff + sum>>16
+	}
+	return ^uint16(sum)
+}
+
+// BuildDHCPIPv4 wraps a DHCP payload in an IPv4+UDP header (0.0.0.0:68 ->
+// 255.255.255.255:67, UDP checksum 0 = none) for a SOCK_DGRAM packet socket.
+func BuildDHCPIPv4(payload []byte) []byte {
+	n := 28 + len(payload)
+	b := make([]byte, n)
+	b[0], b[8], b[9] = 0x45, 64, 17
+	binary.BigEndian.PutUint16(b[2:], uint16(n))
+	copy(b[16:20], []byte{255, 255, 255, 255})
+	binary.BigEndian.PutUint16(b[10:], ipChecksum(b[:20]))
+	binary.BigEndian.PutUint16(b[20:], 68)
+	binary.BigEndian.PutUint16(b[22:], 67)
+	binary.BigEndian.PutUint16(b[24:], uint16(8+len(payload)))
+	copy(b[28:], payload)
+	return b
+}
+
+// dnsOnce lets a repeated check report a finding once until it comes back clean.
+type dnsOnce struct {
+	mu   sync.Mutex
+	said map[string]bool
+}
+
+// Filter returns the events not reported since the last clean run and
+// forgets findings that are gone.
+func (d *dnsOnce) Filter(evs []Event) []Event {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := map[string]bool{}
+	var out []Event
+	for _, e := range evs {
+		now[e.Detail] = true
+		if !d.said[e.Detail] {
+			out = append(out, e)
+		}
+	}
+	d.said = now
+	return out
 }
 
 // DNSCheck compares what the network's resolvers say with a reference

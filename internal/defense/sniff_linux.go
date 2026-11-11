@@ -2,6 +2,7 @@ package defense
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"log/slog"
@@ -47,9 +48,11 @@ func (s *Sensors) SetEnv(env Env) {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); f() }()
 	}
-	run(func() { s.neighbours(ctx, env) })
+	recheck := make(chan struct{}, 1) // gateway MAC changed: ask the DNS question again now
+	run(func() { s.neighbours(ctx, env, recheck) })
 	run(func() { s.dhcp(ctx, env) })
-	run(func() { s.once(ctx, env) })
+	run(func() { s.dhcpProbe(ctx, env) })
+	run(func() { s.once(ctx, env, recheck) })
 }
 
 // Stop ends all sensors and waits for them.
@@ -77,8 +80,16 @@ func (s *Sensors) emit(feat string, ev Event) {
 	}
 }
 
-// once runs the checks that happen when a network is joined.
-func (s *Sensors) once(ctx context.Context, env Env) {
+// Intervals of the repeated checks.
+const (
+	neighbourPoll = 5 * time.Second
+	dnsRepeat     = 5 * time.Minute
+	dhcpRepeat    = 5 * time.Minute
+)
+
+// once runs the checks that happen when a network is joined, then repeats
+// the DNS comparison every dnsRepeat and whenever the gateway's MAC changed.
+func (s *Sensors) once(ctx context.Context, env Env, recheck <-chan struct{}) {
 	if s.Twins != nil && s.Twins.Check(env.SSID, env.GatewayMAC) {
 		s.emit(FeatEvilTwin, TwinEvent())
 	}
@@ -87,6 +98,27 @@ func (s *Sensors) once(ctx context.Context, env Env) {
 		return
 	case <-time.After(3 * time.Second):
 	}
+	var once dnsOnce
+	t := time.NewTicker(dnsRepeat)
+	defer t.Stop()
+	for {
+		s.dnsRound(ctx, env, &once)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-recheck:
+			select { // let the new path settle
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+}
+
+// dnsRound runs the DNS comparison once and reports new findings.
+func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce) {
 	if !s.M.Watching(FeatDNS) {
 		return
 	}
@@ -109,14 +141,14 @@ func (s *Sensors) once(ctx context.Context, env Env) {
 	}
 	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	for _, ev := range c.Run(qctx, env) {
+	for _, ev := range once.Filter(c.Run(qctx, env)) {
 		s.emit(FeatDNS, ev)
 	}
 }
 
 // neighbours follows ARP/NDP entries of the interface and watches the
 // gateway's MAC.
-func (s *Sensors) neighbours(ctx context.Context, env Env) {
+func (s *Sensors) neighbours(ctx context.Context, env Env, recheck chan<- struct{}) {
 	if env.GatewayIP == "" {
 		return
 	}
@@ -136,6 +168,17 @@ func (s *Sensors) neighbours(ctx context.Context, env Env) {
 		}
 		if ev, hit := gw.Feed(a, mac.String()); hit {
 			s.emit(FeatARP, ev)
+			select {
+			case recheck <- struct{}{}:
+			default:
+			}
+		}
+	}
+	poll := func() {
+		if ns, err := netlink.NeighList(idx, netlink.FAMILY_ALL); err == nil {
+			for _, n := range ns {
+				feed(n.IP, n.HardwareAddr, n.State)
+			}
 		}
 	}
 	ch := make(chan netlink.NeighUpdate, 64)
@@ -147,15 +190,17 @@ func (s *Sensors) neighbours(ctx context.Context, env Env) {
 		s.log().Debug("defense: no neighbour events", "err", err)
 		return
 	}
-	if ns, err := netlink.NeighList(idx, netlink.FAMILY_ALL); err == nil {
-		for _, n := range ns {
-			feed(n.IP, n.HardwareAddr, n.State)
-		}
-	}
+	poll()
+	// Events can be missed (full channel, entry rewritten without an event
+	// we filter on), so the table is also compared every few seconds.
+	tick := time.NewTicker(neighbourPoll)
+	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-tick.C:
+			poll()
 		case u, ok := <-ch:
 			if !ok {
 				return
@@ -230,6 +275,54 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 		}
 		if ev, hit := w.Feed(srv); hit {
 			s.emit(FeatDHCP, ev)
+		}
+	}
+}
+
+// dhcpProbe broadcasts a DHCP DISCOVER (random hardware address, no host
+// name) after joining and every dhcpRepeat, so every server on the segment
+// answers with a broadcast OFFER the passive listener sees, even when this
+// machine does not renew its own lease during the watch. It never sends a
+// REQUEST, so no address is taken. Needs CAP_NET_RAW.
+func (s *Sensors) dhcpProbe(ctx context.Context, env Env) {
+	if !s.M.Watching(FeatDHCP) {
+		return
+	}
+	link, err := netlink.LinkByName(env.Iface)
+	if err != nil {
+		return
+	}
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, int(htons(unix.ETH_P_IP)))
+	if err != nil {
+		return
+	}
+	defer unix.Close(fd)
+	to := &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_IP), Ifindex: link.Attrs().Index, Halen: 6,
+		Addr: [8]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}
+	send := func() {
+		var mac [6]byte
+		var x [4]byte
+		_, _ = rand.Read(mac[:])
+		_, _ = rand.Read(x[:])
+		mac[0] = mac[0]&0xfe | 0x02 // unicast, locally administered
+		pkt := BuildDHCPIPv4(BuildDHCPDiscover(binary.BigEndian.Uint32(x[:]), mac))
+		if err := unix.Sendto(fd, pkt, 0, to); err != nil {
+			s.log().Debug("defense: DHCP probe not sent", "err", err)
+		}
+	}
+	select { // after the listener is up and the link has settled
+	case <-ctx.Done():
+		return
+	case <-time.After(4 * time.Second):
+	}
+	t := time.NewTicker(dhcpRepeat)
+	defer t.Stop()
+	for {
+		send()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
 		}
 	}
 }
