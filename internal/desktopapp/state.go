@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 )
 
@@ -46,6 +47,9 @@ type View struct {
 	Pending     int             // programs the app firewall holds, waiting for a route
 	Unreachable bool            // the service does not answer (Title is then text for people, not a key)
 	Warn        []string
+	// DefHeat and DefLevel: the defense gauge ("" level = defense off).
+	DefHeat  int
+	DefLevel defense.Level
 }
 
 // Compute derives the view from a status (err != nil: daemon unreachable).
@@ -56,6 +60,12 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: warnTexts(st)}
 	v.Captive = st.Captive == "portal"
 	v.Pending = st.Pending
+	if st.Defense != nil {
+		v.DefHeat, v.DefLevel = st.Defense.Heat, st.Defense.Level
+		if !defRank(v.DefLevel).known() { // an unknown word: trust the number
+			v.DefLevel = defense.LevelFor(v.DefHeat)
+		}
+	}
 	for r := range st.DNSFailing {
 		v.DNSDown[r] = true
 	}
@@ -120,6 +130,44 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	return v
 }
 
+type rank int
+
+func (r rank) known() bool { return r >= 0 }
+
+// defRank orders the levels; "" (off) and unknown words are -1.
+func defRank(l defense.Level) rank {
+	switch l {
+	case defense.LevelQuiet:
+		return 0
+	case defense.LevelNoticed:
+		return 1
+	case defense.LevelHot:
+		return 2
+	case defense.LevelAttack:
+		return 3
+	}
+	return -1
+}
+
+// defenseNote: the notification for a rise of the defense level, only
+// upwards and only from "noticed" on; falling back is not reported.
+func defenseNote(prev, cur View) []Notification {
+	pr, cr := defRank(prev.DefLevel), defRank(cur.DefLevel)
+	if pr < 0 {
+		pr = 0 // off or unknown before: counts as quiet
+	}
+	if cr <= pr || cr < 1 {
+		return nil
+	}
+	switch cur.DefLevel {
+	case defense.LevelAttack:
+		return []Notification{{i18n.T("Defense: network under attack"), i18n.T("Heat {heat}. Open the Defense tab to see who is knocking and what was blocked.", "heat", fmt.Sprint(cur.DefHeat)), true}}
+	case defense.LevelHot:
+		return []Notification{{i18n.T("Defense: network is hot"), i18n.T("Heat {heat}. Several hostile events in this network.", "heat", fmt.Sprint(cur.DefHeat)), false}}
+	}
+	return []Notification{{i18n.T("Defense: something unusual in this network"), i18n.T("Heat {heat}. Details in the Defense tab.", "heat", fmt.Sprint(cur.DefHeat)), false}}
+}
+
 // Notification is a desktop notification to show.
 type Notification struct {
 	Summary, Body string
@@ -181,6 +229,7 @@ func Diff(prev, cur View, first bool) []Notification {
 			out = append(out, Notification{i18n.T("Tunnel {name} is back", "name", n), "", false})
 		}
 	}
+	out = append(out, defenseNote(prev, cur)...)
 	return out
 }
 

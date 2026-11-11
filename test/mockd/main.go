@@ -95,6 +95,7 @@ func main() {
 	sock := flag.String("s", "/tmp/shunt-mock.sock", "socket to listen on")
 	flag.StringVar(&platform, "platform", "", `platform the UI shows ("" = Linux, "windows")`)
 	flag.StringVar(&version, "version", "v0.7.1", "version the daemon reports (the app warns when it differs from its own)")
+	flag.IntVar(&fixedHeat, "heat", -1, "pin the defense heat (0-100); default: swings through all levels")
 	flag.Parse()
 	cfg, err := config.Parse(raw)
 	if err != nil {
@@ -159,6 +160,7 @@ func main() {
 		}
 		js(w, res)
 	})
+	dfn.handle(mux)
 	mux.HandleFunc("GET /v1/pending", func(w http.ResponseWriter, r *http.Request) { js(w, []any{}) })
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { js(w, map[string]any{}) })
 	log.Fatal((&http.Server{Handler: mux}).Serve(ln))
@@ -234,6 +236,7 @@ func status(cfg *config.Config) api.Status {
 		Network:    "Home",
 		Firewall:   "off",
 		Platform:   platform,
+		Defense:    dfn.brief(),
 		Version:    version,
 		NetInfo:    netdetect.Info{Iface: "wlan0", SSID: "HomeWiFi", GatewayIP: "192.168.1.1", GatewayMAC: "02:00:00:00:00:01"},
 		DNSFilter: &api.DNSFilterStatus{
