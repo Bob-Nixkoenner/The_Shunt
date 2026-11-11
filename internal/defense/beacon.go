@@ -75,7 +75,15 @@ func (b *BeaconTracker) Add(target string, t time.Time, minEvents int) (float64,
 	defer b.mu.Unlock()
 	l, ok := b.m[target]
 	if !ok && len(b.m) >= b.MaxTargets {
-		return 0, 0
+		// make room: targets not contacted for two hours are stale
+		for k, v := range b.m {
+			if len(v) == 0 || t.Sub(v[len(v)-1]) > 2*time.Hour {
+				delete(b.m, k)
+			}
+		}
+		if len(b.m) >= b.MaxTargets {
+			return 0, 0
+		}
 	}
 	l = append(l, t)
 	if len(l) > b.Keep {

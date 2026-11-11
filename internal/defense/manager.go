@@ -22,6 +22,7 @@ type Manager struct {
 	dec   *Decoys
 	rpts  *Reports
 	dns   dnsState
+	conn  connState
 	now   func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -103,6 +104,9 @@ func (m *Manager) loop(ctx context.Context) {
 			if err := m.rpts.Flush(); err != nil {
 				m.log.Debug("defense: report file", "err", err)
 			}
+			if err := m.flushFirstSeen(); err != nil {
+				m.log.Debug("defense: first-contact file", "err", err)
+			}
 		}
 	}
 }
@@ -157,6 +161,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	m.syncDecoys()
 	if changed {
 		m.forgetDNS()
+		m.forgetConns()
 	}
 	if changed && enabled {
 		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class)})
@@ -376,6 +381,7 @@ func (m *Manager) Close() {
 		<-m.done
 		m.dec.Stop()
 		_ = m.rpts.Flush()
+		_ = m.flushFirstSeen()
 	})
 }
 

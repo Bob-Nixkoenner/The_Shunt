@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"net/netip"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
@@ -16,3 +17,7 @@ func (d *Daemon) defenseTable(bool)                {}
 func (d *Daemon) defenseNever([]netip.Prefix)      {}
 
 func (d *Daemon) defensePushPorts() {}
+
+// defenseConnLoop: no socket listing on this platform, so no beacon or
+// first-contact detection (DNS tunnel detection works everywhere).
+func (d *Daemon) defenseConnLoop(context.Context) {}

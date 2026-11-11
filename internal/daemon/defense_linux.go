@@ -243,3 +243,72 @@ func (d *Daemon) defensePushPorts() {
 	d.def.portsSet, d.def.needPush = ports, false
 	d.def.mu.Unlock()
 }
+
+// connPoll is how often the socket list is read for beacon and first-contact
+// detection. Connections shorter than this can be missed, and a beacon
+// faster than about twice this interval is not scored reliably.
+const connPoll = 10 * time.Second
+
+// defenseConnLoop reads the established and connecting TCP sockets every
+// connPoll and hands new outgoing connections (with the owning app, from the
+// socket's cgroup) to the defense. Connections whose local port a program
+// listens on are inbound and skipped. It only reads while beacon or
+// first_seen is on.
+func (d *Daemon) defenseConnLoop(ctx context.Context) {
+	tk := time.NewTicker(connPoll)
+	defer tk.Stop()
+	prev := map[string]bool{}
+	first := true
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+		}
+		if d.def.m == nil || !(d.def.m.Watching(defense.FeatBeacon) || d.def.m.Watching(defense.FeatFirstSeen)) {
+			prev, first = map[string]bool{}, true
+			continue
+		}
+		ss, err := sockets.Dump("tcp", 1<<sockets.StateEstablished|1<<synSent)
+		if err != nil {
+			d.Log.Debug("defense: socket list", "err", err)
+			continue
+		}
+		listen := map[uint16]bool{}
+		if l, err := sockets.ListListening(); err == nil {
+			for _, s := range l {
+				listen[s.Local.Port()] = true
+			}
+		}
+		cur := make(map[string]bool, len(ss))
+		for _, s := range ss {
+			dst := netip.AddrPortFrom(s.Remote.Addr().Unmap(), s.Remote.Port())
+			if !dst.IsValid() || dst.Port() == 0 || listen[s.Local.Port()] {
+				continue
+			}
+			key := fmt.Sprint(s.Inode, "/", s.Local, ">", dst)
+			cur[key] = true
+			if prev[key] {
+				continue
+			}
+			d.def.m.NoteConn(d.connApp(s), dst, !first)
+		}
+		prev, first = cur, false
+	}
+}
+
+// synSent is the kernel's TCP_SYN_SENT state number.
+const synSent = 2
+
+// connApp names the program behind a socket: the cgroup's app, or the single
+// program of a shared cgroup; "" when that cannot be told.
+func (d *Daemon) connApp(s sockets.Socket) string {
+	o := d.sockets.Owner(s.Cgroup)
+	if !o.Shared {
+		return o.Name
+	}
+	if len(o.Procs) == 1 {
+		return o.Procs[0]
+	}
+	return ""
+}

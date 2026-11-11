@@ -47,7 +47,8 @@ func (d *Daemon) defIface() string {
 
 // startDefense creates the manager; the config is applied by reload.
 func (d *Daemon) startDefense(ctx context.Context) {
-	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")))
+	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
+		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")))
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")
@@ -56,6 +57,7 @@ func (d *Daemon) startDefense(ctx context.Context) {
 		d.stopDefense()
 	}()
 	go d.defenseLoops(ctx)
+	go d.defenseConnLoop(ctx)
 }
 
 // defenseNet starts defenseNetwork in the background (it takes d.mu).
