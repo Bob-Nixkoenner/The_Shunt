@@ -225,6 +225,8 @@ type Options struct {
 	// who asked; arrived is when the query came in. nil, or no askers: the
 	// query takes the route of app itself (see askedRoute).
 	DNSAskers func(app, name string, arrived time.Time) []string
+	// Observer watches DNS and new connections (observe.go); nil: nothing.
+	Observer Observer
 }
 
 // Engine runs while the VPN is up.
@@ -279,6 +281,13 @@ type Engine struct {
 	stopHealth context.CancelFunc
 	healthDone chan struct{}
 	book       *stats.Book
+
+	// observer queue (observe.go)
+	obs        chan obsItem
+	obsDone    chan struct{}
+	obsMu      sync.RWMutex // guards close(obs) against late sends
+	obsClosed  bool
+	obsDropped atomic.Int64
 }
 
 // New starts the tunnels and takes over the TUN (o.Link; the platform
@@ -359,8 +368,10 @@ func New(o Options, configJSON string) (*Engine, error) {
 		// a new userspace tunnel starts at zero: count from the first byte
 		e.book.Observe(t.Name, 0, 0, time.Now())
 	}
+	e.startObserver() // before the stack: its flows read e.obs
 	s, err := newStack(o.Link, e)
 	if err != nil {
+		e.stopObserver()
 		e.closeTunnels()
 		return nil, err
 	}
@@ -723,6 +734,7 @@ func (e *Engine) Stop() {
 			e.stack.Wait()
 		}
 		e.closeTunnels()
+		e.stopObserver()
 		if err := e.book.Close(); err != nil {
 			e.logf("traffic statistics: %v", err)
 		}
