@@ -191,6 +191,40 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		m.mu.Unlock()
 		js(w, map[string]bool{"ok": true})
 	})
+	mux.HandleFunc("GET /v1/defense/reports", func(w http.ResponseWriter, r *http.Request) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.advance(time.Now())
+		export := r.URL.Query().Get("export") == "1"
+		cur := defense.NetReport{Key: "9f3c1a07d2e45b68", Class: defense.ClassPublic, Counts: map[defense.Kind]int{},
+			FirstSeen: m.start, LastSeen: time.Now(), PeakHeat: m.heat(time.Now()), DNSRedirect: defense.PropNoneSeen,
+			Captive: defense.PropYes, Isolation: defense.PropUnknown, Sources: map[string]int{}}
+		for _, e := range m.events {
+			cur.Counts[e.Kind]++
+			if c := defense.CutSource(e.Src); c != "" {
+				cur.Sources[c]++
+			}
+		}
+		old := defense.NetReport{Key: "41b8e6d0a97c3f25", Class: defense.ClassTrusted,
+			Counts:    map[defense.Kind]int{defense.KindFirstSeen: 12, defense.KindObservation: 3},
+			FirstSeen: m.start.Add(-72 * time.Hour), LastSeen: m.start.Add(-70 * time.Hour), PeakHeat: 18,
+			DNSRedirect: defense.PropNoneSeen, Captive: defense.PropNoneSeen, Isolation: defense.PropUnknown,
+			Sources: map[string]int{"198.51.100.0/24": 3}}
+		hot := defense.NetReport{Key: "c07d55e19a3b8642", Class: defense.ClassPublic,
+			Counts:    map[defense.Kind]int{defense.KindScan: 4, defense.KindDecoyHit: 31, defense.KindDNSHijack: 1, defense.KindCowrie: 6},
+			FirstSeen: m.start.Add(-30 * time.Hour), LastSeen: m.start.Add(-28 * time.Hour), PeakHeat: 91,
+			DNSRedirect: defense.PropYes, Captive: defense.PropUnknown, Isolation: defense.PropUnknown,
+			Sources: map[string]int{"203.0.113.0/24": 38, "2001:db8:5::/48": 4}}
+		rs := []defense.NetReport{cur, old, hot}
+		curKey := cur.Key
+		if export {
+			for i := range rs {
+				rs[i].Key = rs[i].Key[:8]
+			}
+			curKey = ""
+		}
+		js(w, defense.ReportsResponse{Reports: rs, Current: curKey, Export: export})
+	})
 	mux.HandleFunc("POST /v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
 		var u api.DefenseUnban
 		_ = json.NewDecoder(r.Body).Decode(&u)

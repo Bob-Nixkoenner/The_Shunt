@@ -82,6 +82,7 @@ func (t *Thermo) SetNetwork(key string, class Class) {
 	if key != t.key {
 		t.key = key
 		t.counts = map[Kind]int{}
+		t.raw = 0 // a new network starts cool (its report keeps its own peak)
 	}
 }
 

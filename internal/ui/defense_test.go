@@ -44,6 +44,12 @@ func fakeDaemon(t *testing.T) (sock string, got *[]string) {
 		rec = append(rec, "config "+strings.Join(c.Never, ","))
 		mu.Unlock()
 	})
+	mux.HandleFunc("/v1/defense/reports", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		rec = append(rec, "reports "+r.URL.RawQuery)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(defense.ReportsResponse{Export: r.URL.Query().Get("export") == "1"})
+	})
 	mux.HandleFunc("/v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
 		var u api.DefenseUnban
 		json.NewDecoder(r.Body).Decode(&u)
@@ -98,6 +104,14 @@ func TestDefenseRoutes(t *testing.T) {
 	if w = do("POST", "/api/defense/config", `{"enabled":true,"never":["192.0.2.1"]}`); w.Code != 200 {
 		t.Fatalf("config: %d %s", w.Code, w.Body)
 	}
+	w = do("GET", "/api/defense/reports", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"reports":[]`) || w.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("reports: %d %s", w.Code, w.Body)
+	}
+	w = do("GET", "/api/defense/reports?export=1", "")
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("export: %d %v", w.Code, w.Header())
+	}
 	if w = do("POST", "/api/defense/ban", `{"src":"203.0.113.4"}`); w.Code != 200 {
 		t.Fatalf("ban: %d %s", w.Code, w.Body)
 	}
@@ -107,7 +121,7 @@ func TestDefenseRoutes(t *testing.T) {
 	if w = do("POST", "/api/defense/unban", `{"src":"198.51.100.9"}`); w.Code != 200 {
 		t.Fatalf("unban: %d %s", w.Code, w.Body)
 	}
-	want := []string{"events since=5", "events src=192.0.2.5", "config 192.0.2.1", "ban 203.0.113.4", "unban 198.51.100.9"}
+	want := []string{"events since=5", "events src=192.0.2.5", "config 192.0.2.1", "reports ", "reports export=1", "ban 203.0.113.4", "unban 198.51.100.9"}
 	if strings.Join(*got, "|") != strings.Join(want, "|") {
 		t.Fatalf("daemon got %v, want %v", *got, want)
 	}

@@ -20,6 +20,7 @@ type Manager struct {
 	det   *Detector
 	never *NeverSet
 	dec   *Decoys
+	rpts  *Reports
 	now   func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -44,6 +45,10 @@ func WithBanHooks(onBan, onUnban func(Ban)) Option {
 	return func(m *Manager) { m.bans.OnBan, m.bans.OnUnban = onBan, onUnban }
 }
 
+// WithReportFile keeps the per-network reports in this file (mode 0600).
+// Without it they stay in memory.
+func WithReportFile(path string) Option { return func(m *Manager) { m.rpts = NewReports(path) } }
+
 // WithClock replaces the clock (tests).
 func WithClock(now func() time.Time) Option {
 	return func(m *Manager) {
@@ -61,7 +66,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 		log = slog.Default()
 	}
 	m := &Manager{log: log, ring: NewRing(1000), therm: NewThermo(), bans: NewBans(),
-		rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassPublic, cfg: DefaultConfig()}
+		rpts: NewReports(""), rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassPublic, cfg: DefaultConfig()}
 	m.cfg.Enabled = false
 	m.det = NewDetector(DetectConfig{}, m.never)
 	m.det.OnFound = m.found
@@ -94,6 +99,9 @@ func (m *Manager) loop(ctx context.Context) {
 				m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "expired"})
 			}
 			m.rep.Prune()
+			if err := m.rpts.Flush(); err != nil {
+				m.log.Debug("defense: report file", "err", err)
+			}
 		}
 	}
 }
@@ -123,7 +131,12 @@ func (m *Manager) Configure(cfg Config) {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.never.SetConfig(ParsePrefixes(cfg.Never))
+	key, class := m.key, m.class
+	watchDNS := featureOf(cfg, FeatDNS).Watch
 	m.mu.Unlock()
+	if cfg.Enabled && key != "" {
+		m.rpts.Enter(key, class, m.now(), watchDNS)
+	}
 	m.syncDecoys()
 }
 
@@ -135,7 +148,11 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	m.key, m.class = key, class
 	m.therm.SetNetwork(key, class)
 	enabled := m.cfg.Enabled
+	watchDNS := featureOf(m.cfg, FeatDNS).Watch
 	m.mu.Unlock()
+	if enabled {
+		m.rpts.Enter(key, class, m.now(), watchDNS)
+	}
 	m.syncDecoys()
 	if changed && enabled {
 		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class)})
@@ -170,6 +187,7 @@ func (m *Manager) Report(ev Event) {
 	}
 	ev = m.ring.Add(ev)
 	m.therm.Add(ev)
+	m.rpts.Note(ev, m.therm.Heat())
 }
 
 // Observe feeds one connection attempt into scan/brute detection and the
@@ -302,6 +320,9 @@ func (m *Manager) EventsFor(src string) EventsResponse {
 	return m.ring.EventsFor(a.Unmap().String())
 }
 
+// Reports returns the per-network reports (export = redacted copy).
+func (m *Manager) Reports(export bool) ReportsResponse { return m.rpts.List(export) }
+
 // Status returns the current state.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
@@ -319,6 +340,7 @@ func (m *Manager) Close() {
 		m.stop()
 		<-m.done
 		m.dec.Stop()
+		_ = m.rpts.Flush()
 	})
 }
 

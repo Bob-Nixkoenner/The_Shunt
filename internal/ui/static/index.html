@@ -262,6 +262,9 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 #def-live[hidden] { display: none; }
 #def-live .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 700; font-size: 13px; }
 #def-live .evlist { max-height: 180px; }
+.repcard { display: grid; gap: 4px; padding: 8px 10px; border-radius: 8px; background: var(--panel2); font-size: 13px; }
+.pill[class*="heat-"] { color: var(--heat); background: color-mix(in srgb, var(--heat) 18%, transparent); }
+.repcard .hd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .srclink { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline dotted; }
 .srclink:hover { text-decoration: underline; }
 #def-src { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -580,6 +583,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <section data-fold>
     <h2>Blocked addresses <span class="spacer"></span><button id="def-unban-all">Unblock all</button></h2>
     <div data-rows="4"><table class="deftable"><tbody id="def-bans"></tbody></table></div>
+  </section>
+  <section data-fold>
+    <h2>Network reports <span class="spacer"></span><button id="def-rep-export">Save as file</button></h2>
+    <div id="def-reports" class="evlist" style="max-height:none"></div>
+    <div class="hint">One report per network, kept on this computer only (the network is a code, never its name). Source addresses are cut to /24 (IPv4) or /48 (IPv6). Nothing is sent anywhere; the file you save is a copy for you.</div>
   </section>
   <section data-fold>
     <h2>Events <span class="muted" style="text-transform:none;letter-spacing:0" id="def-evsum"></span></h2>

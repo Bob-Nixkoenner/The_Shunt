@@ -213,6 +213,8 @@ type Engine interface {
 	Events(since uint64) EventsResponse
 	// EventsFor returns every kept event of one source address.
 	EventsFor(src string) EventsResponse
+	// Reports returns the local per-network reports (export = redacted).
+	Reports(export bool) ReportsResponse
 	// Unban lifts one block ("" = all).
 	Unban(src string)
 	// Ban blocks one address by hand (refused for the never-list and when

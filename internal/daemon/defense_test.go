@@ -60,6 +60,16 @@ func TestDefenseRoutes(t *testing.T) {
 	if len(ev.Events) != 2 {
 		t.Fatalf("mapped src: %+v", ev)
 	}
+	var rp defense.ReportsResponse
+	get("/v1/defense/reports", &rp)
+	if len(rp.Reports) != 1 || rp.Reports[0].Counts[defense.KindDecoyHit] != 3 {
+		t.Fatalf("reports: %+v", rp)
+	}
+	rp = defense.ReportsResponse{}
+	get("/v1/defense/reports?export=1", &rp)
+	if !rp.Export || rp.Current != "" {
+		t.Fatalf("export: %+v", rp)
+	}
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/v1/defense/events?src=x", nil))
 	if rec.Code != http.StatusBadRequest {

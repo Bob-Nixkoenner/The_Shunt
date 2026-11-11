@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Defense:** scan detection counts refused/unanswered attempts (Zeek's S0/REJ) next to the port count: scan over many ports, scan by refusals and failures on few ports are told apart. JA3 fingerprint of clients that talk to the TLS decoy. Optional lists (`defense.reputation_sources`, off by default): abuse.ch SSLBL JA3 and Emerging Threats compromised IPs. Click an address in the Defense tab to see everything from that source and block or unblock it; per-network reports (kept locally, addresses cut to /24 and /48) with an export button.
+
 ## v0.7.1-rc24
 
 - **Android:** the app now warns when Android's Private DNS is not "Off". It reads the setting itself ("Automatic", Android's default, or a provider) and shows the banner before the VPN is switched on and again after you come back from the settings; before, it only warned when Private DNS was really in use while the VPN ran. With "Automatic" Android probes encrypted DNS (port 853) on the real network when the VPN switches on, even if the DNS server knows no DoT (lab AN08): only SYN packets without content to the tunnel's DNS address and the network's DNS server, UID 0, no app traffic. **We recommend setting Private DNS to "Off"** (Android settings → Network & internet → Private DNS). An app cannot switch the probe off.

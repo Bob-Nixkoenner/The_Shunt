@@ -271,3 +271,46 @@ function defCloseSource() { $("#def-src").hidden = true; defSrcCur = ""; }
 $("#def-src-close").addEventListener("click", defCloseSource);
 $("#def-src").addEventListener("click", (e) => { if (e.target.id === "def-src") defCloseSource(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#def-src").hidden) defCloseSource(); });
+
+// Network reports (one per network, kept by the service)
+let defReports = [];
+const defPropText = () => ({ yes: T("yes"), none_seen: T("none seen so far"), unknown: T("unknown") });
+function defRenderReports() {
+  const box = $("#def-reports");
+  if (!defReports.length) { box.replaceChildren(el("div", { class: "muted" }, T("No network report yet."))); return; }
+  const kinds = defKindText(), pr = defPropText();
+  const day = (t) => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" }); };
+  box.replaceChildren(...defReports.map((r) => {
+    const counts = Object.keys(r.counts || {}).filter((k) => r.counts[k] && k !== "net_enter").sort((a, b) => r.counts[b] - r.counts[a]);
+    const srcs = Object.entries(r.sources || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const lv = DEF_LEVELS.includes(LevelOf(r.peak_heat)) ? LevelOf(r.peak_heat) : "quiet";
+    return el("div", { class: "repcard" },
+      el("div", { class: "hd" }, el("b", { class: "mono" }, r.key.slice(0, 8)), el("span", { class: "pill" }, defClassText()[r.class] || defClassText().public),
+        r.key === defRepCur ? el("span", { class: "pill ok" }, T("now")) : "", el("span", { class: "spacer" }),
+        el("span", { class: "pill heat-" + lv, title: T("Highest heat") }, T("Peak {n}", { n: r.peak_heat | 0 }))),
+      el("div", { class: "muted" }, T("First seen {a}, last seen {b}", { a: day(r.first_seen), b: day(r.last_seen) })),
+      el("div", { class: "chips" }, ...(counts.length ? counts.map((k) => el("span", { class: "pill" }, (kinds[k] || k) + " × " + r.counts[k])) : [el("span", { class: "muted" }, T("Nothing seen yet."))])),
+      el("div", {}, el("span", { class: "muted" }, T("DNS redirected") + ": "), pr[r.dns_redirect] || pr.unknown, "  ·  ",
+        el("span", { class: "muted" }, T("Login page (captive)") + ": "), pr[r.captive] || pr.unknown, "  ·  ",
+        el("span", { class: "muted" }, T("Isolation between devices") + ": "), pr[r.isolation] || pr.unknown),
+      srcs.length ? el("div", {}, el("span", { class: "muted" }, T("Sources") + ": "), el("span", { class: "mono" }, srcs.map(([k, n]) => k + " (" + n + ")").join(", "))) : "");
+  }));
+}
+function LevelOf(h) { h |= 0; return h >= 80 ? "attack" : h >= 50 ? "hot" : h >= 25 ? "noticed" : "quiet"; }
+let defRepCur = "";
+async function loadDefReports() {
+  try {
+    const r = await api("GET", "/api/defense/reports");
+    defReports = r.reports || []; defRepCur = r.current || "";
+  } catch { defReports = []; }
+  defRenderReports();
+}
+$("#def-rep-export").addEventListener("click", async () => {
+  try {
+    const r = await api("GET", "/api/defense/reports?export=1");
+    const a = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" })), download: "shunt-network-report.json" });
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { toast(e.message); }
+});
+setInterval(() => { if (!document.hidden && level() === "opsec" && defSt) loadDefReports(); }, 15000);
+setTimeout(() => { if (level() === "opsec") loadDefReports(); }, 900);

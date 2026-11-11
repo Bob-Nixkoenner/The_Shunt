@@ -364,6 +364,7 @@ func (c *Client) SpeedStep(ctx context.Context, route string, s speedtest.Step) 
 //	GET  /v1/defense                 -> defense.Status
 //	GET  /v1/defense/events?since=N  -> defense.EventsResponse
 //	GET  /v1/defense/events?src=IP   -> all kept events of that source
+//	GET  /v1/defense/reports[?export=1] -> defense.ReportsResponse
 //	POST /v1/defense/config          <- defense.Config
 //	POST /v1/defense/unban           <- DefenseUnban ("" = all)
 //	POST /v1/defense/ban             <- DefenseUnban (one address, by hand)
@@ -405,6 +406,17 @@ func (c *Client) DefenseEventsFor(src string) (defense.EventsResponse, error) {
 // DefenseConfigure sends the [defense] settings (POST /v1/defense/config).
 func (c *Client) DefenseConfigure(cfg defense.Config) error {
 	return c.Do("POST", "/v1/defense/config", cfg, nil)
+}
+
+// DefenseReports asks GET /v1/defense/reports (export: redacted copy).
+func (c *Client) DefenseReports(export bool) (defense.ReportsResponse, error) {
+	var r defense.ReportsResponse
+	p := "/v1/defense/reports"
+	if export {
+		p += "?export=1"
+	}
+	err := c.Do("GET", p, nil, &r)
+	return r, err
 }
 
 // DefenseBan blocks one address (POST /v1/defense/ban).

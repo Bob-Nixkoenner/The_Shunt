@@ -47,7 +47,7 @@ func (d *Daemon) defIface() string {
 
 // startDefense creates the manager; the config is applied by reload.
 func (d *Daemon) startDefense(ctx context.Context) {
-	opts := d.defenseOptions()
+	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")))
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")
@@ -214,6 +214,13 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/defense/reports", func(w http.ResponseWriter, r *http.Request) {
+		if d.def.m == nil {
+			writeJSON(w, http.StatusOK, defense.ReportsResponse{Reports: []defense.NetReport{}})
+			return
+		}
+		writeJSON(w, http.StatusOK, d.def.m.Reports(r.URL.Query().Get("export") == "1"))
 	})
 	mux.HandleFunc("POST /v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {

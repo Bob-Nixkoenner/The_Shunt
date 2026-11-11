@@ -438,6 +438,20 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, ev)
 	})
+	mux.HandleFunc("GET /api/defense/reports", func(w http.ResponseWriter, r *http.Request) {
+		rep, err := s.Client.DefenseReports(r.URL.Query().Get("export") == "1")
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		if rep.Reports == nil {
+			rep.Reports = []defense.NetReport{}
+		}
+		if rep.Export {
+			w.Header().Set("Content-Disposition", `attachment; filename="shunt-network-report.json"`)
+		}
+		writeJSON(w, rep)
+	})
 	mux.HandleFunc("POST /api/defense/config", func(w http.ResponseWriter, r *http.Request) {
 		var cfg defense.Config
 		if !decode(w, r, &cfg) {
