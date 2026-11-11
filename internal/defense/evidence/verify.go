@@ -185,3 +185,31 @@ func (l *Log) Status() Status {
 	st.PcapSize = dirSize(filepath.Join(l.dir, PcapDir))
 	return st
 }
+
+// StatusOfDir is Status for a directory without an open Log (evidence off).
+func StatusOfDir(dir string) Status {
+	r := Verify(dir)
+	st := Status{Files: r.Files, Lines: r.Lines, ChainOK: r.OK, FirstBad: r.FirstBad, Notes: r.Notes}
+	if m, err := ReadManifest(dir); err == nil {
+		st.HeadSeq, st.HeadHash = m.HeadSeq, m.HeadHash
+	} else if r.Lines == 0 && len(r.Problems) > 0 {
+		st.ChainOK = true // no log yet
+		st.FirstBad = ""
+	}
+	names, _ := listLogFiles(dir)
+	for _, n := range names {
+		st.Bytes += fileSize(filepath.Join(dir, n))
+	}
+	st.PcapSize = dirSize(filepath.Join(dir, PcapDir))
+	return st
+}
+
+// Sync flushes the open file to disk (before an export reads it).
+func (l *Log) Sync() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.f != nil {
+		return l.f.Sync()
+	}
+	return nil
+}

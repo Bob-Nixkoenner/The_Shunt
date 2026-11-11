@@ -195,6 +195,9 @@ type Config struct {
 	DecoysWhenExposed bool `json:"decoys_when_exposed,omitempty" toml:"decoys_when_exposed,omitempty"`
 	// OutsideScan configures the check from outside against your own server.
 	OutsideScan OutsideScanConfig `json:"outside_scan" toml:"outside_scan"`
+	// Evidence is the evidence log and capture ([defense.evidence], off by
+	// default; see evidence.go and docs/DEFENSE.md).
+	Evidence EvidenceConfig `json:"evidence" toml:"evidence"`
 }
 
 // OutsideScanConfig is [defense.outside_scan]: a server of your own (see

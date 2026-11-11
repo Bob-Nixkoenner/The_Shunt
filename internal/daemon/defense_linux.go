@@ -212,6 +212,7 @@ func (d *Daemon) defenseLog(ctx context.Context) {
 		if time.Since(at) > 5*time.Second || listen == nil {
 			listen, at = listeningPorts(), time.Now()
 		}
+		d.evidencePacket(*a.Payload, proto, port, listen)
 		for _, p := range d.def.m.Status().Decoys {
 			if p == port && proto == "tcp" {
 				return 0

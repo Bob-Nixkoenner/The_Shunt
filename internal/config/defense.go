@@ -35,6 +35,7 @@ func (c *Config) DefenseConfig() defense.Config {
 	if d.DNSProbe == "" {
 		d.DNSProbe = defense.ProbeAuto
 	}
+	d.Evidence = d.Evidence.Normalized()
 	return d
 }
 
@@ -50,6 +51,9 @@ func (c *Config) validateDefense() error {
 		return fmt.Errorf("defense.dns_probe %q (auto, on or off)", d.DNSProbe)
 	}
 	if err := defense.ValidateOutsideScan(d.OutsideScan); err != nil {
+		return err
+	}
+	if err := defense.ValidateEvidence(d.Evidence); err != nil {
 		return err
 	}
 	known := map[string]bool{}
