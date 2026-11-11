@@ -80,9 +80,10 @@ func (d *Daemon) startDefenseLoops(ctx context.Context) {
 	if !d.def.loops.CompareAndSwap(false, true) {
 		return
 	}
-	go d.defenseLoops(ctx)
-	go d.defenseConnLoop(ctx)
-	go d.defenseTLSLoop(ctx)
+	// a bug in one of them must not end the daemon (tunnel control, kill switch)
+	go defense.GuardLoop(ctx, d.Log, "reputation updater", func() { d.defenseLoops(ctx) })
+	go defense.GuardLoop(ctx, d.Log, "connection poll", func() { d.defenseConnLoop(ctx) })
+	go defense.GuardLoop(ctx, d.Log, "certificate check", func() { d.defenseTLSLoop(ctx) })
 }
 
 // defenseNet starts defenseNetwork in the background (it takes d.mu).
@@ -218,6 +219,9 @@ func (d *Daemon) defenseStatus() defense.Status {
 	s := d.def.m.Status()
 	s.Unsupported = defenseUnsupported
 	s.Notes = d.defenseNotes()
+	if n := defense.Faults(); n > 0 {
+		s.Notes = append(s.Notes, fmt.Sprintf("%d internal error(s) were caught and logged (the defense kept running; please report the log lines \"internal error caught\")", n))
+	}
 	return s
 }
 

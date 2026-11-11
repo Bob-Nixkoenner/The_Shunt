@@ -114,6 +114,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 	m.det.OnFound = m.found
 	m.dec = NewDecoys(nil, m.decoyHit)
 	m.dec.SSHDelay = sshDefaultDelay
+	m.dec.Log = log
 	for _, o := range opts {
 		o(m)
 	}
@@ -138,18 +139,24 @@ func (m *Manager) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			for _, b := range m.bans.Prune() {
-				m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "expired"})
-			}
-			m.rep.Prune()
-			m.flushAgg(false)
-			if err := m.rpts.Flush(); err != nil {
-				m.log.Debug("defense: report file", "err", err)
-			}
-			if err := m.flushFirstSeen(); err != nil {
-				m.log.Debug("defense: first-contact file", "err", err)
-			}
+			Guard(m.log, "defense housekeeping", m.tick)
 		}
+	}
+}
+
+// tick is the 30 s housekeeping: expired bans, old list entries, folded
+// events, report files.
+func (m *Manager) tick() {
+	for _, b := range m.bans.Prune() {
+		m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "expired"})
+	}
+	m.rep.Prune()
+	m.flushAgg(false)
+	if err := m.rpts.Flush(); err != nil {
+		m.log.Debug("defense: report file", "err", err)
+	}
+	if err := m.flushFirstSeen(); err != nil {
+		m.log.Debug("defense: first-contact file", "err", err)
 	}
 }
 

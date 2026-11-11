@@ -47,10 +47,12 @@ func (t *Tarpit) TryHold(ctx context.Context, conn net.Conn, done func(held time
 		defer t.drop(src)
 		defer t.active.Add(-1)
 		defer conn.Close()
-		t.hold(ctx, conn)
-		if done != nil {
-			done(time.Since(start))
-		}
+		Guard(nil, "tarpit", func() {
+			t.hold(ctx, conn)
+			if done != nil {
+				done(time.Since(start))
+			}
+		})
 	}()
 	return true
 }
@@ -96,13 +98,15 @@ func (t *Tarpit) hold(ctx context.Context, conn net.Conn) {
 	// Notice when the peer hangs up.
 	gone := make(chan struct{})
 	go func() {
-		buf := make([]byte, 256)
-		for {
-			if _, err := conn.Read(buf); err != nil {
-				close(gone)
-				return
+		defer close(gone)
+		Guard(nil, "tarpit reader", func() {
+			buf := make([]byte, 256)
+			for {
+				if _, err := conn.Read(buf); err != nil {
+					return
+				}
 			}
-		}
+		})
 	}()
 	for {
 		select {

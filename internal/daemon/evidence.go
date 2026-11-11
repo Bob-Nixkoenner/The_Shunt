@@ -127,7 +127,7 @@ func (d *Daemon) evidenceApply(cfg defense.EvidenceConfig, defenseOn bool) {
 		e.log, e.watch = l, w
 		ctx, cancel := context.WithCancel(context.Background())
 		e.stopRun = cancel
-		go d.evidenceRun(ctx)
+		go defense.GuardLoop(ctx, d.Log, "evidence housekeeping", func() { d.evidenceRun(ctx) })
 		d.Log.Info("evidence: log on")
 	}
 	if cfg.Capture && evidence.CaptureSupported {
@@ -194,11 +194,11 @@ func (d *Daemon) evidenceRun(ctx context.Context) {
 				}
 				cctx, cancel := context.WithCancel(context.Background())
 				e.capStop, e.capIf = cancel, ifc
-				go func() {
+				go defense.GuardLoop(cctx, d.Log, "evidence frame capture", func() {
 					if err := evidence.RunControl(cctx, ifc, c); err != nil && cctx.Err() == nil {
 						d.Log.Debug("evidence: control frame capture", "err", err)
 					}
-				}()
+				})
 			}
 		}
 		e.mu.Unlock()

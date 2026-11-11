@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/netip"
 	"sort"
@@ -51,6 +52,7 @@ type Decoys struct {
 	MaxConns    int           // simultaneous handlers over all ports (default 64)
 	Timeout     time.Duration // per-connection limit for normal decoys (default 15 s)
 	PerSource   int           // simultaneous handlers for one source address (default 8)
+	Log         *slog.Logger  // for caught internal errors (nil = default)
 
 	mu      sync.Mutex
 	lns     map[int]net.Listener
@@ -104,7 +106,10 @@ func (d *Decoys) Start(ports []int, opt DecoyOptions) {
 		}
 		d.lns[p] = ln
 		d.wg.Add(1)
-		go d.accept(ctx, ln, p, opt)
+		go func() {
+			defer d.wg.Done()
+			GuardLoop(ctx, d.Log, "decoy accept loop", func() { d.accept(ctx, ln, p, opt) })
+		}()
 	}
 }
 
@@ -153,7 +158,6 @@ func (d *Decoys) hit(h Hit) {
 }
 
 func (d *Decoys) accept(ctx context.Context, ln net.Listener, port int, opt DecoyOptions) {
-	defer d.wg.Done()
 	var backoff time.Duration
 	for {
 		c, err := ln.Accept()
@@ -193,7 +197,9 @@ func (d *Decoys) accept(ctx context.Context, ln net.Listener, port int, opt Deco
 			defer d.wg.Done()
 			defer func() { <-d.sem }()
 			defer d.dropSource(src)
-			d.handle(ctx, c, port, opt)
+			if Guard(d.Log, "decoy handler", func() { d.handle(ctx, c, port, opt) }) {
+				c.Close() // a bug must cost this connection, not the daemon
+			}
 		}()
 	}
 }

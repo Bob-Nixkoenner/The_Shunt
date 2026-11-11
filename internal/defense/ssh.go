@@ -159,11 +159,11 @@ func (d *Decoys) sshTrap(ctx context.Context, c net.Conn, src netip.Addr, port i
 		return
 	}
 	// cannot happen (all logins fail); never serve anything anyway
-	go ssh.DiscardRequests(reqs)
-	go func() {
+	go Guard(d.Log, "ssh decoy requests", func() { ssh.DiscardRequests(reqs) })
+	go Guard(d.Log, "ssh decoy channels", func() {
 		for nc := range chans {
 			_ = nc.Reject(ssh.Prohibited, "no")
 		}
-	}()
+	})
 	sc.Close()
 }

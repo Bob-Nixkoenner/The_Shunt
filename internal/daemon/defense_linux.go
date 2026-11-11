@@ -204,36 +204,49 @@ func (d *Daemon) defenseLog(ctx context.Context) {
 	defer nf.Close()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var listen map[string]bool
-	var at time.Time
+	st := &logState{}
 	err = nf.RegisterWithErrorFunc(ctx, func(a nflog.Attribute) int {
-		if a.Payload == nil {
-			return 0
-		}
-		src, proto, port, ok := defense.ParseLoggedPacket(*a.Payload)
-		if !ok {
-			return 0
-		}
-		if time.Since(at) > 5*time.Second || listen == nil {
-			listen, at = listeningPorts(), time.Now()
-		}
-		d.evidencePacket(*a.Payload, proto, port, listen)
-		for _, p := range d.def.m.DecoyPorts() {
-			if p == port && proto == "tcp" {
-				return 0
-			}
-		}
-		if listen[proto+"/"+fmt.Sprint(port)] {
-			d.def.m.CheckPeer(src, port, proto)
-		} else {
-			d.def.m.ObserveState(src, port, proto, defense.StateS0) // logged before the drop: nothing answered
-		}
+		// runs in the NFLOG reader's goroutine on packets from strangers:
+		// a bug here must cost one packet, not the daemon
+		defense.Guard(d.Log, "inbound packet log", func() { d.defenseLogPacket(st, a) })
 		return 0
 	}, func(error) int { return 0 })
 	if err != nil {
 		return
 	}
 	<-ctx.Done()
+}
+
+// logState is the listening-port list defenseLogPacket keeps between
+// packets (read again every 5 s). Only the NFLOG reader goroutine uses it.
+type logState struct {
+	listen map[string]bool
+	at     time.Time
+}
+
+// defenseLogPacket handles one logged inbound packet (see defenseLog).
+func (d *Daemon) defenseLogPacket(st *logState, a nflog.Attribute) {
+	if a.Payload == nil {
+		return
+	}
+	src, proto, port, ok := defense.ParseLoggedPacket(*a.Payload)
+	if !ok {
+		return
+	}
+	if time.Since(st.at) > 5*time.Second || st.listen == nil {
+		st.listen, st.at = listeningPorts(), time.Now()
+	}
+	d.evidencePacket(*a.Payload, proto, port, st.listen)
+	for _, p := range d.def.m.DecoyPorts() {
+		if p == port && proto == "tcp" {
+			return
+		}
+	}
+	if st.listen[proto+"/"+fmt.Sprint(port)] {
+		d.def.m.CheckPeer(src, port, proto)
+	} else {
+		d.def.m.ObserveState(src, port, proto, defense.StateS0) // logged before the drop: nothing answered
+	}
 }
 
 func listeningPorts() map[string]bool {
@@ -305,13 +318,13 @@ func (d *Daemon) defenseConnLog(ctx context.Context) {
 	defer cancel()
 	var slot time.Time
 	used := 0
-	err = nf.RegisterWithErrorFunc(ctx, func(a nflog.Attribute) int {
+	one := func(a nflog.Attribute) {
 		if a.Payload == nil || d.def.m == nil || !(d.def.m.Watching(defense.FeatBeacon) || d.def.m.Watching(defense.FeatFirstSeen)) {
-			return 0
+			return
 		}
 		src, dst, ok := defense.ParseConnPacket(*a.Payload)
 		if !ok || dst.Port() == 0 {
-			return 0
+			return
 		}
 		if now := time.Now(); now.Sub(slot) >= time.Second {
 			slot, used = now, 0
@@ -324,6 +337,9 @@ func (d *Daemon) defenseConnLog(ctx context.Context) {
 			}
 		}
 		d.def.m.NoteConn(app, netip.AddrPortFrom(dst.Addr().Unmap(), dst.Port()), true)
+	}
+	err = nf.RegisterWithErrorFunc(ctx, func(a nflog.Attribute) int {
+		defense.Guard(d.Log, "connection log", func() { one(a) })
 		return 0
 	}, func(error) int { return 0 })
 	if err != nil {

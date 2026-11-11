@@ -86,7 +86,7 @@ func (s *Sensors) SetEnv(env Env) {
 	s.mu.Unlock()
 	run := func(f func()) {
 		s.wg.Add(1)
-		go func() { defer s.wg.Done(); f() }()
+		go func() { defer s.wg.Done(); GuardLoop(ctx, s.log(), "sensor", f) }()
 	}
 	run(func() { s.newIface(ctx) })
 	if env.Iface == "" {
