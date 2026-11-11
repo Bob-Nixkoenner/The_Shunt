@@ -103,4 +103,6 @@ dependencies {
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     testImplementation("junit:junit:4.13.2")
+    // JVM unit tests only get stubs of org.json from android.jar (Defense.configJson uses JSONObject)
+    testImplementation("org.json:json:20240303")
 }
