@@ -12,6 +12,10 @@ SURIDIR="$LOGDIR/suricata"
 start() {
 	need suricata
 	sudo mkdir -p "$SURIDIR"
+	local rules=/var/lib/suricata/rules/suricata.rules
+	if [[ ! -s $rules ]] || [[ $(sudo grep -c '^alert' "$rules" 2>/dev/null || echo 0) -eq 0 ]]; then
+		echo "WARNING: 0 Regeln geladen (0 rules): run 'sudo suricata-update' once on Kali (needs internet), otherwise there are flows but no alerts" >&2
+	fi
 	# an old instance or a stale pid file must not hang the caller (ssh waits for open fds)
 	if pgrep -x suricata >/dev/null; then
 		echo "suricata already running: stopping the old instance first"

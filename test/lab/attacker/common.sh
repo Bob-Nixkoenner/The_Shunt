@@ -1,9 +1,25 @@
 # Shared helpers for the attacker scripts. Runs inside shunt-kali on the lab LAN (shuntlab).
 # Every address comes from the environment or from the running system, never from this file.
-#   IFACE   lab interface (default: the interface with the default route, else eth0)
+#   IFACE   lab interface (default: the NIC in the KALI_IP subnet, see lab_iface; else eth0)
 #   TARGET  victim address (the Shunt client), required by most scripts
 #   GW      gateway address (default: read from the routing table)
-IFACE=${IFACE:-$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')}
+# lab.env (written by lab.sh kali-sync) carries KALI_IP, the fixed address on the lab LAN
+[[ -f $(dirname "${BASH_SOURCE[0]}")/lab.env ]] && . "$(dirname "${BASH_SOURCE[0]}")/lab.env"
+# The lab NIC is the one with an address in KALI_IP's /24, not the one with the default route
+# (that is the NAT NIC used for ssh). Without KALI_IP: the first NIC with an IPv4 address and no default route.
+lab_iface() {
+	local n
+	if [[ -n ${KALI_IP:-} ]]; then
+		n=$(ip -4 -o addr show 2>/dev/null | awk -v p="${KALI_IP%.*}." 'index($4, p) == 1 {print $2; exit}')
+		[[ -n $n ]] && { echo "$n"; return; }
+	fi
+	for n in $(ls /sys/class/net | grep -v '^lo$'); do
+		ip -4 route show default dev "$n" 2>/dev/null | grep -q . && continue
+		ip -4 -o addr show dev "$n" 2>/dev/null | grep -q . && { echo "$n"; return; }
+	done
+	ip -4 route show default 2>/dev/null | awk '{print $5; exit}'
+}
+IFACE=${IFACE:-$(lab_iface)}
 IFACE=${IFACE:-eth0}
 GW=${GW:-$(ip -4 route show default dev "$IFACE" 2>/dev/null | awk '{print $3; exit}')}
 DURATION=${DURATION:-20}

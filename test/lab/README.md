@@ -77,6 +77,17 @@ keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). 
   when none of the candidates answer, so a caller that does not check the exit code is a bug, not a feature.
 - Kali gets a fixed address outside the DHCP pool: set `KALI_IP` (see `local.env.example`) and run `lab.sh kali-net`.
   `gw-setup` writes it to `/etc/shuntlab/kali_ip`, and `labctl client` never returns Kali (by address or host name `kali*`).
+  `kali-net` also sets the NIC `up` (it can come up as link DOWN). `kali-sync` writes `~/attacker/lab.env` with `KALI_IP`;
+  `attacker/common.sh` picks the lab interface as the NIC in that subnet, not the one with the default route (the NAT NIC for ssh).
+- Observer (`attacker/observer.sh`): run `sudo suricata-update` once on Kali (needs internet), otherwise Suricata has no rules
+  and the observer prints only flows; `observer.sh start` warns "0 Regeln geladen" in that case. The observer's summary
+  is collected on the laptop by the test's `during()` (the CLIENT script runs in the VM and cannot read laptop files) and appears in
+  the report under "Prüfung nebenher" ("Beobachter sah:"), also as `observer.txt` in the result folder.
+- `gw-setup` runs `dpkg --configure -a` first (180 s timeout) and only warns when it fails or hangs, e.g. kernel modules
+  installed without their image; if `apt-get install` then fails too, repair dpkg in the gateway by hand.
+- Packages built from a git worktree carry no commit: Go embeds VCS data only for the main checkout, so the build check
+  warns "no commit in the client's shuntd". That is expected there; compare by package file name or version (e.g. `abwehrN` in the
+  version string) instead, or build with `BUILD_CHECK=off`.
 - `PREP` and `CLIENT` of a test run in the client VM, not on the laptop: laptop functions and variables are not there.
   A CLIENT script that ends with a non-zero exit code without printing a `FAIL` line (e.g. a missing `${VAR:?}`) counts as FAIL;
   set `CLIENT_RC_OK=1` in a test that ends non-zero on purpose.

@@ -68,6 +68,7 @@ KALI_DIR=${KALI_DIR:-attacker} # target folder in Kali's home
 kali_sync() { # copy attacker/ to Kali (~/attacker/) and make the scripts executable; run before every attack test
 	ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "mkdir -p ~/$KALI_DIR" &&
 		scp "${SSHO[@]}" -P "$KALI_PORT" "$HERE"/attacker/* "${KALI_USER:-lab}@127.0.0.1:$KALI_DIR/" &&
+		ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "echo KALI_IP=$KALI_IP >~/$KALI_DIR/lab.env" &&
 		ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "chmod +x ~/$KALI_DIR/*.sh" ||
 		{ echo "kali_sync: could not copy attacker/ to Kali (KALI_PORT=$KALI_PORT)" >&2; return 1; }
 }
@@ -75,13 +76,17 @@ kali_net() { # fixed lab address on Kali's lab NIC (the one without the default 
 	ssh "${SSHO[@]}" -p "$KALI_PORT" "${KALI_USER:-lab}@127.0.0.1" "sudo env KALI_IP=$KALI_IP bash -s" <<'EOS'
 for n in $(ls /sys/class/net | grep -v '^lo$'); do
 	ip route show default dev "$n" | grep -q . && continue
-	ip addr replace "$KALI_IP/24" dev "$n" && echo "kali $n $KALI_IP" && exit 0
+	ip addr replace "$KALI_IP/24" dev "$n" || continue
+	ip link set dev "$n" up # the lab NIC can come up as link DOWN (no NetworkManager profile for it)
+	echo "kali $n $KALI_IP (up)" && exit 0
 done
 echo "kali_net: no NIC without default route found" >&2; exit 1
 EOS
 }
 # Warn when the client's shuntd was built from another commit than this checkout (lesson: build predated a commit).
-# Needs the vcs.revision Go embeds (not with -buildvcs=false); BUILD_CHECK=strict makes a mismatch fatal, off skips.
+# Needs the vcs.revision Go embeds (not with -buildvcs=false, and Go embeds nothing in a git worktree: then the
+# warning "no commit" is expected, compare by package file name/version instead, see README); BUILD_CHECK=strict
+# makes a mismatch fatal, off skips.
 build_check() {
 	[[ ${BUILD_CHECK:-warn} == off || ${CLIENT_OS:-linux} == windows ]] && return 0
 	local head built dirty=''

@@ -12,6 +12,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 export DEBIAN_FRONTEND=noninteractive
 
 echo "wireshark-common wireshark-common/install-setuid boolean false" | debconf-set-selections
+# a half configured dpkg (e.g. kernel modules without their image) must not stop the setup
+timeout 180 dpkg --configure -a || echo "WARNING: dpkg --configure -a failed or timed out, continuing (apt install below may fail: fix dpkg by hand)" >&2
 apt-get update -q
 apt-get install -yq --no-install-recommends \
 	dnsmasq unbound tcpdump tshark nmap p0f python3-scapy nftables iproute2 iputils-ping iputils-arping
