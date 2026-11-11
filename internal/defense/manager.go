@@ -173,8 +173,17 @@ func (m *Manager) Report(ev Event) {
 // Observe feeds one connection attempt into scan/brute detection and the
 // reputation check.
 func (m *Manager) Observe(src netip.Addr, port int, proto string, ok bool) {
+	st := StateOK
+	if !ok {
+		st = StateREJ
+	}
+	m.ObserveState(src, port, proto, st)
+}
+
+// ObserveState is Observe with a Zeek-style outcome (S0/REJ/OK).
+func (m *Manager) ObserveState(src netip.Addr, port int, proto string, st ConnState) {
 	if m.feature(FeatScan).Watch || m.feature(FeatBrute).Watch {
-		m.det.Observe(src, port, proto, ok)
+		m.det.ObserveState(src, port, proto, st)
 	}
 	m.CheckPeer(src, port, proto)
 }

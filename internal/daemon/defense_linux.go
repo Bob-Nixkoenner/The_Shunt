@@ -199,7 +199,7 @@ func (d *Daemon) defenseLog(ctx context.Context) {
 		if listen[proto+"/"+fmt.Sprint(port)] {
 			d.def.m.CheckPeer(src, port, proto)
 		} else {
-			d.def.m.Observe(src, port, proto, false)
+			d.def.m.ObserveState(src, port, proto, defense.StateS0) // logged before the drop: nothing answered
 		}
 		return 0
 	}, func(error) int { return 0 })

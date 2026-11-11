@@ -709,3 +709,61 @@ func TestManagerCloseTwiceAndRace(t *testing.T) {
 	m.Close()
 	m.Close()
 }
+
+func TestDetectorStates(t *testing.T) {
+	type att struct {
+		port  int
+		state ConnState
+	}
+	rep := func(port int, st ConnState, n int) []att {
+		var a []att
+		for i := 0; i < n; i++ {
+			a = append(a, att{port, st})
+		}
+		return a
+	}
+	cases := []struct {
+		name  string
+		in    []att
+		kinds []Kind
+		mode  string
+	}{
+		{"few successes", rep(80, StateOK, 20), nil, ""},
+		{"many ports all ok", []att{{1, 0}, {2, 0}, {3, 0}, {4, 0}, {5, 0}, {6, 0}, {7, 0}, {8, 0}}, []Kind{KindScan}, "many_ports"},
+		{"refused on 4 ports", []att{{1, StateREJ}, {2, StateREJ}, {3, StateS0}, {4, StateS0}}, []Kind{KindScan}, "failed_ports"},
+		{"3 failing ports is quiet", []att{{1, StateREJ}, {2, StateREJ}, {3, StateS0}}, nil, ""},
+		{"guessing one port", rep(22, StateREJ, 10), []Kind{KindBruteForce}, "few_ports"},
+		{"unanswered on one port", rep(22, StateS0, 10), []Kind{KindBruteForce}, "few_ports"},
+		{"mixed ok does not count", append(rep(22, StateOK, 30), rep(22, StateREJ, 3)...), nil, ""},
+	}
+	for _, c := range cases {
+		d := NewDetector(DetectConfig{ScanPorts: 8}, nil)
+		var got []Finding
+		d.OnFound = func(f Finding) { got = append(got, f) }
+		for _, a := range c.in {
+			d.ObserveState(mustAddr("192.0.2.50"), a.port, "tcp", a.state)
+		}
+		if len(got) != len(c.kinds) {
+			t.Fatalf("%s: got %+v", c.name, got)
+		}
+		for i, k := range c.kinds {
+			if got[i].Kind != k || !strings.Contains(got[i].Detail, "mode="+c.mode) {
+				t.Errorf("%s: %+v", c.name, got[i])
+			}
+		}
+	}
+	// s0/rej split is reported
+	d := NewDetector(DetectConfig{}, nil)
+	var got []Finding
+	d.OnFound = func(f Finding) { got = append(got, f) }
+	for p := 1; p <= 4; p++ {
+		st := StateS0
+		if p%2 == 0 {
+			st = StateREJ
+		}
+		d.ObserveState(mustAddr("2001:db8::7"), p, "tcp", st)
+	}
+	if len(got) != 1 || !strings.Contains(got[0].Detail, "s0=2 rej=2") {
+		t.Fatalf("split: %+v", got)
+	}
+}

@@ -61,8 +61,11 @@ func (n *NeverSet) Contains(a netip.Addr) bool {
 type DetectConfig struct {
 	Window     time.Duration // sliding window (default 60 s)
 	ScanPorts  int           // distinct ports from one source (default 6)
-	BruteConns int           // failed connections from one source (default 10)
-	MaxSources int           // memory cap (default 4096)
+	BruteConns int           // failed connections on few ports from one source (default 10)
+	// FailPorts is the number of distinct ports with S0/REJ outcomes that
+	// counts as a scan even when the total port count stays low (default 4).
+	FailPorts  int
+	MaxSources int // memory cap (default 4096)
 }
 
 func (c DetectConfig) withDefaults() DetectConfig {
@@ -74,6 +77,9 @@ func (c DetectConfig) withDefaults() DetectConfig {
 	}
 	if c.BruteConns <= 0 {
 		c.BruteConns = 10
+	}
+	if c.FailPorts <= 0 {
+		c.FailPorts = 4
 	}
 	if c.MaxSources <= 0 {
 		c.MaxSources = 4096
@@ -88,9 +94,28 @@ type Finding struct {
 	Detail string
 }
 
+// ConnState is the outcome of one connection attempt, after Zeek's conn
+// states: S0 = SYN seen and never answered, REJ = refused (RST), OK = it
+// worked. Only S0 and REJ count as failures.
+type ConnState int
+
+const (
+	StateOK  ConnState = iota
+	StateS0            // no answer
+	StateREJ           // refused
+)
+
+func (s ConnState) failed() bool { return s == StateS0 || s == StateREJ }
+
+type failRec struct {
+	t     time.Time
+	port  int
+	state ConnState
+}
+
 type srcState struct {
 	ports     map[int]time.Time
-	fails     []time.Time
+	fails     []failRec
 	scanFired time.Time
 	bfFired   time.Time
 	last      time.Time
@@ -118,9 +143,23 @@ func NewDetector(cfg DetectConfig, never *NeverSet) *Detector {
 func (d *Detector) SetConfig(c DetectConfig) { d.mu.Lock(); d.cfg = c.withDefaults(); d.mu.Unlock() }
 
 // Observe records one connection attempt from src to a local port. ok=false
-// means it failed or hit a closed/decoy port. Addresses on the never-list
-// are ignored. A finding fires at most once per window and source.
+// means it failed or hit a closed/decoy port (counted as REJ).
 func (d *Detector) Observe(src netip.Addr, port int, proto string, ok bool) {
+	st := StateOK
+	if !ok {
+		st = StateREJ
+	}
+	d.ObserveState(src, port, proto, st)
+}
+
+// ObserveState records one attempt with its Zeek-style outcome. Addresses on
+// the never-list are ignored. Each finding fires at most once per window and
+// source. Three separate checks:
+//   - scan over many ports: distinct ports (any outcome) >= ScanPorts
+//   - scan by refusals: distinct ports with S0/REJ >= FailPorts
+//   - failures on few ports: S0/REJ count >= BruteConns while the distinct
+//     port count is below ScanPorts (brute force, guessing a service)
+func (d *Detector) ObserveState(src netip.Addr, port int, proto string, state ConnState) {
 	src = src.Unmap()
 	if !src.IsValid() || d.never.Contains(src) {
 		return
@@ -148,21 +187,36 @@ func (d *Detector) Observe(src netip.Addr, port int, proto string, ok bool) {
 			delete(st.ports, p)
 		}
 	}
-	if len(st.ports) >= d.cfg.ScanPorts && now.Sub(st.scanFired) > w {
-		st.scanFired = now
-		found = append(found, Finding{KindScan, src, "distinct ports in window: " + itoa(len(st.ports)) + " (" + proto + ")"})
+	if state.failed() {
+		st.fails = append(st.fails, failRec{now, port, state})
 	}
-	if !ok {
-		st.fails = append(st.fails, now)
-		i := 0
-		for i < len(st.fails) && now.Sub(st.fails[i]) > w {
-			i++
+	i := 0
+	for i < len(st.fails) && now.Sub(st.fails[i].t) > w {
+		i++
+	}
+	st.fails = st.fails[i:]
+	var s0, rej int
+	failPorts := map[int]struct{}{}
+	for _, f := range st.fails {
+		failPorts[f.port] = struct{}{}
+		if f.state == StateS0 {
+			s0++
+		} else {
+			rej++
 		}
-		st.fails = st.fails[i:]
-		if len(st.fails) >= d.cfg.BruteConns && now.Sub(st.bfFired) > w {
-			st.bfFired = now
-			found = append(found, Finding{KindBruteForce, src, "failed attempts in window: " + itoa(len(st.fails))})
-		}
+	}
+	counts := " s0=" + itoa(s0) + " rej=" + itoa(rej) + " (" + proto + ")"
+	switch {
+	case len(st.ports) >= d.cfg.ScanPorts && now.Sub(st.scanFired) > w:
+		st.scanFired = now
+		found = append(found, Finding{KindScan, src, "mode=many_ports distinct ports in window: " + itoa(len(st.ports)) + counts})
+	case len(failPorts) >= d.cfg.FailPorts && now.Sub(st.scanFired) > w:
+		st.scanFired = now
+		found = append(found, Finding{KindScan, src, "mode=failed_ports ports with refused/unanswered attempts: " + itoa(len(failPorts)) + counts})
+	}
+	if len(st.fails) >= d.cfg.BruteConns && len(st.ports) < d.cfg.ScanPorts && now.Sub(st.bfFired) > w {
+		st.bfFired = now
+		found = append(found, Finding{KindBruteForce, src, "mode=few_ports failed attempts in window: " + itoa(len(st.fails)) + " on " + itoa(len(failPorts)) + " ports" + counts})
 	}
 	cb := d.OnFound
 	d.mu.Unlock()
