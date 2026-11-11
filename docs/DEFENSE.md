@@ -250,3 +250,51 @@ DNS proxy runs with the defense.
 `GET /v1/defense`, `GET /v1/defense/events?since=N` (or `?src=<ip>`), `GET /v1/defense/reports[?export=1]`,
 `POST /v1/defense/config`, `POST /v1/defense/ban`, `POST /v1/defense/unban` (config, ban and unban need the manage permission). `GET /v1/status` carries
 `defense: {heat, level, class, exposed, exposed_inbound}` while the defense is on. `POST /v1/defense/outside-scan` runs the outside check (manage permission; 409 when off or no public address, 429 while one runs).
+
+## Windows and Android: Android (the watcher)
+
+On Android the defense is a watcher, not a trap: no root, no decoy listeners, no packet sockets, no firewall (the phone
+sits behind NAT and the VPN anyway). The sentence "Windows and Android: Linux-only" above no longer holds for Android.
+It lives in the Max Security level only (internal identifier `opsec`; Levels key `defense.ui`), the switch **Watch for
+attacks** (Settings) is **off by default**, and hidden settings keep working like all others.
+
+**Where it hooks in.** The userspace netstack (`internal/splitstack`) calls a narrow `Observer` (`observe.go`) from four
+places: every DNS query (`relayDNS`), every DNS answer (`relayDNS` and `resolveOn`) and every new TCP/UDP flow that is not
+blocked and not DNS (`handleTCP`, `handleUDP`). The hot path only puts a small item into a bounded channel (512) and
+**drops it when the channel is full** (`Engine.ObserveDropped`, shown as `defense.dropped` in the status); one worker
+goroutine does the rest, so a slow observer costs events, never throughput. Answers are copied (about 512 bytes) and parsed in
+the worker. `mobile/defense.go` turns this into calls on `defense.Manager`, created without a listen function. The
+Manager is configured with the features that work here and nothing else.
+
+| Feature | On Android | Notes |
+|---|---|---|
+| `dns_tunnel` | yes | Fed from the netstack's DNS, keyed per app (a synthetic key from the UID, not an address of any network). |
+| `beacon` | yes | New outgoing TCP flows per app and destination; NTP/DNS/DHCP ports exempt, like on Linux. Better than Linux: the UID comes from `getConnectionOwnerUid`, no cgroup guessing. The Shunt itself is outside its own VPN and never appears. |
+| `first_seen` | yes | Same 10 minute learning phase and 6 notes per minute as on the PC. Memory in `files/defense/first-seen.json` (mode 0600, hashed targets). The app is the package name (`PackageManager.getPackagesForUid`, looked up in the worker, not in the packet path). |
+| `reputation` | yes, report only | Feodo and SSLBL (`defense.reputation_sources` and `reputation_off` as on the PC). Go has no system resolver on Android, so Kotlin downloads the list files like the filter lists (by the app itself, outside its VPN, a copy older than 12 h is fetched again) into `files/defense/rep-<name>.txt` and the core loads them (`DefenseSources`, `DefenseReload`, expiry from the file age as on the PC). A hit is one `reputation` event (high) that names the app. |
+| decoys, tarpit, cowrie, scan, brute | no | Need listeners; forced off. |
+| `arp`, `dhcp`, `dhcp_option`, `rogue_ra`, `new_iface` | no | Need packet sockets or netlink, which apps may not use without root. The app says so. |
+| `tls`, `dns_rebind` | not built | The TLS check would have to dial through the direct route and pin per network; left out. Rebind needs an answer hook that can drop; this one only watches. |
+| `evil_twin` | not built, open | The BSSID needs `ACCESS_FINE_LOCATION` (and a location switch); no new permission is requested for it. A later version could ask in the user's own time. |
+
+**Blocking.** The Block switches are ignored on Android (`mobile.DefenseConfig` clamps every feature to watch only): the
+netstack has no deny list for destinations, and a false alarm that cuts a banking app is worse than a message. Open.
+
+**Network class.** The class (trusted, public, managed; unknown = public) is stored per kind of network (`wifi`,
+`mobile`) in `Store.kt` and passed with `DefenseNetwork(key, class)` on every network change. The key is a hash of the
+kind (a Wi-Fi name is not read: that would need the location permission), and it is never logged or sent.
+
+**Status and events.** `Status()` gets a `defense` object (`enabled`, `heat`, `level`, `class`, `exposed`, `last_seq`,
+`dropped`, `sources`); `DefenseEvents(since)` returns the events as on the PC. The Status tab shows a thermometer and the
+last events (German and English via `internal/i18n/lang/de.json`).
+
+**Privacy.** Everything stays on the phone: events in memory (1000), first-contact memory hashed in the private app
+directory, list files from public URLs. No SSID, BSSID, MAC or address of the user's own network goes into an event or a
+log (private and link-local destinations are not tracked; only public destinations and package names appear). No new
+permission and no `QUERY_ALL_PACKAGES`: the package name of a UID comes from `getPackagesForUid`, which works for apps
+that hold a connection through the VPN. Known: the core's existing log line for a network change still prints the
+Wi-Fi name that the app passes; the app passes an empty one today.
+
+**Not tested here.** The Kotlin side was written but not built (no `shunt-core.aar` and no Android NDK on this
+machine); the Go side has unit tests and runs under `go vet` with `GOOS=android`. Netstack hooks (hot path, concurrency)
+need a review before release.

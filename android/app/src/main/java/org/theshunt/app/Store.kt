@@ -85,6 +85,10 @@ data class Settings(
     val strictCheck: Boolean = false,
     /** What Opsec switched on, with the value from before (offered back when leaving Opsec). */
     val opsecUndo: Map<String, Boolean> = emptyMap(),
+    /** The defense watcher (Max Security): off by default, see Defense.kt. */
+    val defense: Boolean = false,
+    /** Network class per kind of network ("wifi", "mobile"): trusted, public or managed; unknown = public. */
+    val netClasses: Map<String, String> = emptyMap(),
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
     fun shows(key: String) = Levels.shows(key, level)
@@ -109,6 +113,8 @@ data class Settings(
         put("pro", level != Level.Simple)
         put("strict_check", strictCheck)
         put("opsec_undo", JSONObject(opsecUndo))
+        put("defense", defense)
+        put("net_classes", JSONObject(netClasses))
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -170,6 +176,7 @@ data class Settings(
 
     /** The programs the app brings (Android runs programs only from lib/<abi>/lib….so). */
     private fun JSONObject.engineExes(ctx: Context) {
+        put("defense_dir", Defense.dir(ctx).path) // cache of the defense lists and first-contact memory (local only)
         val dir = ctx.applicationInfo.nativeLibraryDir
         val ovpn = File(dir, "libopenvpn.so")
         if (ovpn.exists()) put("openvpn", ovpn.path).put("work_dir", ctx.filesDir.path)
@@ -204,6 +211,8 @@ data class Settings(
                 torAll = o.optBoolean("tor_all", false),
                 level = Level.from(o.optString("level").ifEmpty { null }, if (o.has("pro")) o.optBoolean("pro") else null),
                 strictCheck = o.optBoolean("strict_check", false),
+                defense = o.optBoolean("defense", false),
+                netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { u.optString(it) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }

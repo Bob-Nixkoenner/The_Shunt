@@ -15,7 +15,7 @@ import (
 
 type namePlatform struct{ fakePlatform }
 
-func (namePlatform) AppName(uid int) string {
+func (*namePlatform) AppName(uid int) string {
 	if uid == 10123 {
 		return "org.example.app"
 	}
