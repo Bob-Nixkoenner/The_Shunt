@@ -44,6 +44,22 @@ func newMockDefense() *mockDefense {
 	}
 	m.add(time.Now().Add(-20*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=feodo"})
 	m.add(time.Now().Add(-10*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=sslbl_ja3 ja3=e7d705a3286e19ea42f587b344ee6865"})
+	// one example of every remaining kind, so the visual check shows all of them
+	for i, ev := range []defense.Event{
+		{Kind: defense.KindRogueDHCP, Severity: defense.SevHigh, Detail: "a second DHCP server answered on this network"},
+		{Kind: defense.KindEvilTwin, Severity: defense.SevHigh, Detail: "a known Wi-Fi name appears with a different gateway (possible evil twin)"},
+		{Kind: defense.KindDNSHijack, Severity: defense.SevHigh, Detail: "port 53 to a public resolver is answered with other data (diverted)"},
+		{Kind: defense.KindBeacon, Severity: defense.SevLow, Src: "203.0.113.41", Port: 8443, Proto: "tcp", Detail: "app=sync-client interval=1m0s score=0.93"},
+		{Kind: defense.KindCowrie, Severity: defense.SevMedium, Src: "192.0.2.44", Port: 22, Proto: "tcp", Detail: "ssh client SSH-2.0-libssh_0.9"},
+		{Kind: defense.KindScan, Severity: defense.SevMedium, Src: "192.0.2.44", Proto: "tcp", Detail: "mode=failed_ports ports with refused/unanswered attempts: 12 s0=9 rej=3 (tcp)"},
+		{Kind: defense.KindObservation, Severity: defense.SevInfo, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "ja3=e7d705a3286e19ea42f587b344ee6865"},
+		{Kind: defense.KindBan, Severity: defense.SevLow, Src: "192.0.2.17", Detail: "reason=cowrie"},
+		{Kind: defense.KindUnban, Severity: defense.SevInfo, Src: "192.0.2.17", Detail: "expired"},
+		{Kind: defense.KindUnban, Severity: defense.SevInfo, Src: "192.0.2.44", Detail: "manual"},
+		{Kind: defense.KindNetEnter, Severity: defense.SevInfo, Detail: "class=public"},
+	} {
+		m.add(time.Now().Add(-time.Duration(40+i)*time.Second), ev)
+	}
 	return m
 }
 
@@ -65,27 +81,27 @@ func (m *mockDefense) pick() defense.Event {
 	case 8:
 		return defense.Event{Kind: defense.KindFirstSeen, Severity: defense.SevInfo, Src: "198.51.100.77", Port: 443, Proto: "tcp", Detail: "app=firefox target=example.org"}
 	case 9:
-		return defense.Event{Kind: defense.KindBeacon, Severity: defense.SevLow, Src: "203.0.113.40", Port: 8443, Proto: "tcp", Detail: "app=sync-client interval=1m0s score=0.93"}
+		return defense.Event{Kind: defense.KindBeacon, Severity: defense.SevLow, Src: "203.0.113.40", Port: 8443, Proto: "tcp", Detail: "app=sync-client interval=45s score=0.93"}
 	case 10:
 		return defense.Event{Kind: defense.KindDNSTunnel, Severity: defense.SevMedium, Detail: "domain=tunnel.example score=0.81 queries=24 window=60s"}
 	case 11:
 		return defense.Event{Kind: defense.KindTLS, Severity: defense.SevHigh, Port: 443, Proto: "tcp", Detail: "target=api.github.com issuer chain differs from the remembered one"}
 	case 0:
-		return defense.Event{Kind: defense.KindTarpit, Severity: defense.SevMedium, Src: src, Port: 22, Proto: "tcp", Detail: "held in the tarpit"}
+		return defense.Event{Kind: defense.KindTarpit, Severity: defense.SevMedium, Src: src, Port: 22, Proto: "tcp", Detail: "held 30s"}
 	case 1:
-		return defense.Event{Kind: defense.KindCowrie, Severity: defense.SevHigh, Src: src, Port: 23, Proto: "tcp", Detail: "login attempt: admin / admin"}
+		return defense.Event{Kind: defense.KindCowrie, Severity: defense.SevHigh, Src: src, Port: 23, Proto: "tcp", Detail: "telnet login user=admin len=5 h=8c6976e5"}
 	case 2:
-		return defense.Event{Kind: defense.KindScan, Severity: defense.SevMedium, Src: src, Proto: "tcp", Detail: "41 ports in 3 s"}
+		return defense.Event{Kind: defense.KindScan, Severity: defense.SevMedium, Src: src, Proto: "tcp", Detail: "mode=many_ports distinct ports in window: 41 s0=38 rej=3 (tcp)"}
 	case 3:
-		return defense.Event{Kind: defense.KindARP, Severity: defense.SevHigh, Src: "192.0.2.1", Detail: "gateway address changed hands"}
+		return defense.Event{Kind: defense.KindARP, Severity: defense.SevHigh, Src: "192.0.2.1", Detail: "the gateway's hardware address changed (possible ARP/NDP spoofing)"}
 	case 4:
-		return defense.Event{Kind: defense.KindDNSHijack, Severity: defense.SevHigh, Detail: "answers differ from the encrypted resolver"}
+		return defense.Event{Kind: defense.KindDNSHijack, Severity: defense.SevHigh, Detail: "the network's resolver answers differently from the reference for a fixed name"}
 	case 5:
-		return defense.Event{Kind: defense.KindDecoyHit, Severity: defense.SevLow, Src: src, Port: 445, Proto: "tcp", Detail: "connection to a decoy port"}
+		return defense.Event{Kind: defense.KindDecoyHit, Severity: defense.SevLow, Src: src, Port: 445, Proto: "tcp", Detail: "tcp connect"}
 	case 6:
-		return defense.Event{Kind: defense.KindObservation, Severity: defense.SevInfo, Detail: "broadcast chatter from a neighbour"}
+		return defense.Event{Kind: defense.KindObservation, Severity: defense.SevInfo, Detail: "captive portal: the network wants a login before it is open"}
 	}
-	return defense.Event{Kind: defense.KindBruteForce, Severity: defense.SevMedium, Src: src, Port: 22, Proto: "tcp", Detail: "37 failed connections in a minute"}
+	return defense.Event{Kind: defense.KindBruteForce, Severity: defense.SevMedium, Src: src, Port: 22, Proto: "tcp", Detail: "mode=few_ports failed attempts in window: 37 on 2 ports s0=30 rej=7 (tcp)"}
 }
 
 func (m *mockDefense) add(t time.Time, ev defense.Event) {
@@ -126,7 +142,7 @@ func (m *mockDefense) advance(now time.Time) {
 			m.add(t, m.pick())
 		}
 		if h >= 80 && m.rand(100) < 30 {
-			m.add(t, defense.Event{Kind: defense.KindCowrie, Severity: defense.SevHigh, Src: mockSrc[m.rand(len(mockSrc))], Port: 23, Proto: "tcp", Detail: "login attempt: root / 123456"})
+			m.add(t, defense.Event{Kind: defense.KindCowrie, Severity: defense.SevHigh, Src: mockSrc[m.rand(len(mockSrc))], Port: 23, Proto: "tcp", Detail: "ssh client SSH-2.0-libssh_0.9"})
 		}
 	}
 	m.last = now

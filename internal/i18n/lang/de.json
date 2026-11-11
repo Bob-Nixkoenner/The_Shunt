@@ -1524,6 +1524,27 @@
   "The certificate chain of {target} is not trusted by this system": "Die Zertifikatskette von {target} wird von diesem System nicht als vertrauenswürdig angesehen",
   "{n} new destination noted in this network": "{n} neues Ziel in diesem Netz vermerkt",
   "{n} new destinations noted in this network": "{n} neue Ziele in diesem Netz vermerkt",
-  "{n} entries": "{n} Einträge"
+  "{n} entries": "{n} Einträge",
+  "Held in the tarpit for {n} s": "{n} s im Teergrubenköder festgehalten",
+  "Connected to a decoy port": "Hat sich mit einem Köder-Port verbunden",
+  "Tried to log in on the fake telnet service as {user} (password of {n} characters)": "Hat versucht, sich am falschen Telnet-Dienst als {user} anzumelden (Passwort mit {n} Zeichen)",
+  "Connected to the fake SSH service, client: {client}": "Hat sich mit dem falschen SSH-Dienst verbunden, Programm: {client}",
+  "Probed {n} different ports in a short time": "Hat in kurzer Zeit {n} verschiedene Ports abgeklopft",
+  "Tried {n} ports that refused or did not answer": "Hat {n} Ports probiert, die abgelehnt oder nicht geantwortet haben",
+  "{n} failed connection attempts on {p} ports in a short time": "{n} gescheiterte Verbindungsversuche auf {p} Ports in kurzer Zeit",
+  "The hardware address of the gateway changed (possible ARP/NDP spoofing)": "Die Hardware-Adresse des Gateways hat sich geändert (möglicherweise ARP/NDP-Fälschung)",
+  "A second DHCP server answered on this network": "Ein zweiter DHCP-Server hat in diesem Netz geantwortet",
+  "The network's resolver answers differently from the reference for a fixed name": "Der Namensserver des Netzes antwortet bei einem festen Namen anders als die Vergleichsquelle",
+  "Port 53 to a public resolver is answered with other data (diverted)": "Port 53 zu einem öffentlichen Namensserver wird mit anderen Daten beantwortet (umgeleitet)",
+  "A known Wi-Fi name appears with a different gateway (possible evil twin)": "Ein bekannter WLAN-Name taucht mit einem anderen Gateway auf (möglicherweise Evil Twin)",
+  "Captive portal: the network wants a login before it is open": "Anmeldeseite: das Netz verlangt eine Anmeldung, bevor es offen ist",
+  "TLS fingerprint of a visitor: {ja3}": "TLS-Fingerabdruck eines Besuchers: {ja3}",
+  "Blocked because of: {reason}": "Gesperrt wegen: {reason}",
+  "The block ran out": "Die Sperre ist abgelaufen",
+  "The block was lifted by hand": "Die Sperre wurde von Hand aufgehoben",
+  "Joined a network, treated as: {class}": "Netz betreten, behandelt als: {class}",
+  "{n} h": "{n} Std.",
+  "{n} min": "{n} Min.",
+  "{n} s": "{n} Sek."
  }
 }

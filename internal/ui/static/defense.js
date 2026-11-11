@@ -91,7 +91,7 @@ function defDetail(e) {
       (kv.more ? " " + T("(+{n} more not listed)", { n: kv.more }) : "");
   }
   if (e.kind === "beacon" && kv.app && kv.interval) {
-    return T("{app} connects here about every {interval} (regularity {score})", { app: kv.app, interval: kv.interval, score: kv.score || "?" });
+    return T("{app} connects here about every {interval} (regularity {score})", { app: kv.app, interval: defInterval(kv.interval), score: kv.score || "?" });
   }
   if (e.kind === "dns_tunnel" && kv.domain) {
     return T("Unusual lookups under {domain}: long random names (score {score}, {n} queries in {w} s)", { domain: kv.domain, score: kv.score || "?", n: kv.queries || "?", w: parseInt(kv.window) || 60 });
@@ -105,7 +105,65 @@ function defDetail(e) {
     const nm = (defSrcText()[kv.list] || [kv.list])[0];
     return kv.ja3 ? T("TLS fingerprint {ja3} is on the list {list}", { ja3: kv.ja3, list: nm }) : T("On the list {list}", { list: nm });
   }
+  let m;
+  switch (e.kind) {
+    case "tarpit":
+      if ((m = /^held (\d+)s$/.exec(d))) return T("Held in the tarpit for {n} s", { n: m[1] });
+      break;
+    case "decoy_hit":
+      if (d === "tcp connect") return T("Connected to a decoy port");
+      break;
+    case "cowrie":
+      if ((m = /^telnet login user=(\S*) len=(\d+) h=\w+$/.exec(d))) return T("Tried to log in on the fake telnet service as {user} (password of {n} characters)", { user: m[1], n: m[2] });
+      if ((m = /^ssh client (.*)$/.exec(d))) return T("Connected to the fake SSH service, client: {client}", { client: m[1] });
+      break;
+    case "scan":
+      if ((m = /^mode=many_ports .*: (\d+)/.exec(d))) return T("Probed {n} different ports in a short time", { n: m[1] });
+      if ((m = /^mode=failed_ports .*: (\d+)/.exec(d))) return T("Tried {n} ports that refused or did not answer", { n: m[1] });
+      break;
+    case "brute_force":
+      if ((m = /^mode=few_ports failed attempts in window: (\d+) on (\d+) ports/.exec(d))) return T("{n} failed connection attempts on {p} ports in a short time", { n: m[1], p: m[2] });
+      break;
+    case "arp":
+      if (d.startsWith("the gateway's hardware address changed")) return T("The hardware address of the gateway changed (possible ARP/NDP spoofing)");
+      break;
+    case "rogue_dhcp":
+      if (d.startsWith("a second DHCP server")) return T("A second DHCP server answered on this network");
+      break;
+    case "dns_hijack":
+      if (d.startsWith("the network's resolver answers differently")) return T("The network's resolver answers differently from the reference for a fixed name");
+      if (d.startsWith("port 53 to a public resolver")) return T("Port 53 to a public resolver is answered with other data (diverted)");
+      break;
+    case "evil_twin":
+      if (d.startsWith("a known Wi-Fi name appears")) return T("A known Wi-Fi name appears with a different gateway (possible evil twin)");
+      break;
+    case "observation":
+      if (d.startsWith("captive portal")) return T("Captive portal: the network wants a login before it is open");
+      if ((m = /^ja3=(\w+)$/.exec(d))) return T("TLS fingerprint of a visitor: {ja3}", { ja3: m[1] });
+      break;
+    case "ban":
+      if ((m = /^reason=(\w+)$/.exec(d))) return T("Blocked because of: {reason}", { reason: defKindText()[m[1]] || m[1] });
+      break;
+    case "unban":
+      if (d === "expired") return T("The block ran out");
+      if (d === "manual") return T("The block was lifted by hand");
+      break;
+    case "net_enter":
+      if ((m = /^class=(\w+)$/.exec(d))) return T("Joined a network, treated as: {class}", { class: defClassText()[m[1]] || m[1] });
+      break;
+  }
   return d;
+}
+
+// defInterval shows a Go duration ("1m0s", "45s", "1h0m0s") as "1 min" / "45 s".
+function defInterval(v) {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/.exec(v);
+  if (!m || !v) return v;
+  const sec = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0);
+  if (sec >= 3600 && sec % 3600 === 0) return T("{n} h", { n: sec / 3600 });
+  if (sec >= 60 && sec % 60 === 0) return T("{n} min", { n: sec / 60 });
+  if (sec >= 60) return T("{n} min", { n: Math.floor(sec / 60) }) + " " + T("{n} s", { n: Math.round(sec % 60) });
+  return T("{n} s", { n: Math.round(sec) });
 }
 
 function defEventRow(e, compact) {
