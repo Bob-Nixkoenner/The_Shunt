@@ -21,7 +21,7 @@ default_route = "direct"    # direct | block | tunnel:<name>
 #                            # inbound = "lan"/"open", dhcp_hostname = "send" or mac = "permanent"
 #                            # counts as trusted and is not quiet unless it says quiet = true.
 # config_check = "normal"    # security check (`shunt check`, UI): normal | strict. strict (the
-#                            # opsec level sets it) raises every finding one level; no tls-crypt
+#                            # Max Security level sets it) raises every finding one level; no tls-crypt
 #                            # in an OpenVPN file, DoH/DoT allowed and default_route = "direct"
 #                            # become "bad", rules with route = "direct" become warnings.
 #                            # Linux, strict only: a starting program whose rule cannot be told

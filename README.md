@@ -186,7 +186,7 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 - **Hotel/train Wi-Fi**: login pages are detected after every network change; the app
   asks whether to open it in a throwaway browser that goes direct (also `shunt captive`
   or the tray). The check is a plain-HTTP request to nmcheck.gnome.org past the tunnels: on
-  by default, off with `daemon.config_check = "strict"` (opsec level); an explicit
+  by default, off with `daemon.config_check = "strict"` (Max Security level); an explicit
   `daemon.captive_check = true|false` always wins. Without it, open the login browser yourself
 - Disguise in foreign networks (Linux, NetworkManager), **on by default**: a new MAC address
   on every connection (Wi-Fi and cable), no host name in DHCP, device IDs (DHCPv6 DUID,
@@ -239,7 +239,7 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 - **Leak test**: public IP and DNS resolver of every route, with verdicts
 - **Security check** (`shunt check`, banners and notes in the UI): weak OpenVPN files, DNS
   that can go past the tunnels, a disabled kill switch … (exit status 1 when something is
-  bad). `daemon.config_check = "strict"` (set by the opsec level) raises every finding one
+  bad). `daemon.config_check = "strict"` (set by the Max Security level) raises every finding one
   level and makes OpenVPN without tls-crypt, allowed DoH/DoT and everything-else-direct "bad"
   and direct rules warnings
 - **Configure in the UI**: rules (apps, profiles, domains, IPs, ports), DNS servers, default

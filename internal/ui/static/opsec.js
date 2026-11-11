@@ -1,14 +1,14 @@
 "use strict";
-// Opsec assistant. Switching to Opsec lists the strict settings it stands
+// Max Security assistant. Switching to Max Security lists the strict settings it stands
 // for, each with a switch (on by default); nothing changes until the user
 // confirms. What it changed is remembered (ui-state "shunt-opsec-undo"), and
-// switching away from Opsec offers to put those settings back.
+// switching away from Max Security offers to put those settings back.
 //
 // Item fields: sets = config fields [path, value] written when on (os: where
 // the service has them), builtin = systems
 // where it is always on anyway, na = systems where it does not exist (with
 // the reason), isOn = own test of "already set", custom = written by its own
-// code after the others. Opsec is about what the network and others see, not about
+// code after the others. Max Security is about what the network and others see, not about
 // what stays on this computer: statistics and the speed test history are
 // kept.
 
@@ -157,12 +157,12 @@ async function opsecOn() {
     if (st === "set" && on) box.disabled = true;
     return lvRow(it, box, note);
   });
-  const note = [el("div", {}, el("b", {}, T("Opsec is no guarantee.")), " ",
+  const note = [el("div", {}, el("b", {}, T("Max Security is no guarantee.")), " ",
     T("These settings close common leaks of this computer; they do not make you anonymous. Your VPN provider still sees your traffic, and websites still recognise you by logins, cookies and your browser."))];
   if ((model.daemon.default_route || "direct") === "direct") note.push(el("div", { style: "color:var(--warn);margin-top:6px" },
-    T("Everything else goes direct, past every tunnel. Opsec does not change that for you: choose a tunnel under “Everything else goes”.")));
-  const r = await lvDialog({ title: T("What Opsec sets"), intro: T("Each switch is one setting. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it."),
-    rows, note, ok: T("Switch to Opsec") });
+    T("Everything else goes direct, past every tunnel. Max Security does not change that for you: choose a tunnel under “Everything else goes”.")));
+  const r = await lvDialog({ title: T("What Max Security sets"), intro: T("Each switch is one setting. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it."),
+    rows, note, ok: T("Switch to Max Security") });
   if (r !== "ok") return false;
   const recs = {};
   let cfgChanged = false;
@@ -178,7 +178,7 @@ async function opsecOn() {
     if (rec) { recs.captive = rec; cfgChanged = true; }
   }
   if (cfgChanged && !(await opsecSave())) return false; // nothing changed, the level stays
-  // an earlier, kept Opsec change keeps its value from before that time
+  // an earlier, kept Max Security change keeps its value from before that time
   const undo = opsecUndo();
   for (const [id, rec] of Object.entries(recs)) if (!undo[id]) undo[id] = rec;
   lvSet("shunt-opsec-undo", JSON.stringify(undo));
@@ -193,9 +193,9 @@ async function opsecOff() {
   const rows = items.map((it) => {
     const box = el("input", { type: "checkbox", checked: "" });
     boxes[it.id] = box;
-    return lvRow(it, box, T("Set by Opsec. Ticked: back to how it was before."));
+    return lvRow(it, box, T("Set by Max Security. Ticked: back to how it was before."));
   });
-  const r = await lvDialog({ title: T("Undo the Opsec settings?"), intro: T("Opsec changed these settings. Ticked ones go back to how they were before; the others stay as they are."),
+  const r = await lvDialog({ title: T("Undo the Max Security settings?"), intro: T("Max Security changed these settings. Ticked ones go back to how they were before; the others stay as they are."),
     rows, note: [], ok: T("Undo ticked ones"), keep: T("Keep all") });
   if (r === null) return false;
   if (r === "keep") { lvSet("shunt-opsec-undo", "{}"); return true; }

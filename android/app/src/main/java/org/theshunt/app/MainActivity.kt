@@ -175,8 +175,8 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
     val passLeft = ov?.optLong("pass_left") ?: 0L
     Column(Modifier.background(c.bg).statusBarsPadding()) {
         if (band) Text(
-            "OPSEC", Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
-                .semantics { contentDescription = T("Opsec level") },
+            "MAX SECURITY", Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
+                .semantics { contentDescription = T("Max Security level") },
             color = c.accentInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
@@ -1115,7 +1115,7 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
                 when (settings.level) {
                     Level.Simple -> T("Simple shows the basics. Tor (adding it, bridges, New identity, Everything through Tor), tunnels through other tunnels, routes per network and the DNS server list are hidden. Tor tunnels you already have stay on their cards. Hidden settings keep working.")
                     Level.Pro -> T("Pro shows everything.")
-                    Level.Opsec -> T("Opsec shows everything, marks the app violet, puts the emergency switch on the Status tab and switches on strict settings you confirmed once (switching back offers to undo them).")
+                    Level.Opsec -> T("Max Security shows everything, marks the app violet, puts the emergency switch on the Status tab and switches on strict settings you confirmed once (switching back offers to undo them).")
                 }
             )
         }
@@ -1138,7 +1138,7 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
     val ticked = remember { mutableStateMapOf<String, Boolean>().apply { for (it in Opsec.ITEMS) if (it.kind == OpsecItem.Kind.SET) put(it.id, true) } }
     AlertDialog(
         onDismissRequest = { onDone(null) },
-        title = { Text(T("What Opsec sets")) },
+        title = { Text(T("What Max Security sets")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(T("Each switch is one setting of this app. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it. Some things only Android can do: they show their state and where to set them."), color = c.text, fontSize = 13.sp)
@@ -1181,14 +1181,14 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                         }
                     }
                 }
-                Text(T("Opsec is no guarantee."), color = c.text, fontWeight = FontWeight.Bold)
+                Text(T("Max Security is no guarantee."), color = c.text, fontWeight = FontWeight.Bold)
                 Text(T("These settings close common leaks of this phone; they do not make you anonymous. Your VPN provider still sees your traffic, and websites still recognise you by logins, cookies and your browser."), color = c.text, fontSize = 13.sp)
                 if (settings.defaultRoute.startsWith("direct") || settings.defaultRoute.startsWith("link:")) {
-                    Text(T("All other apps go direct, past every tunnel. Opsec does not change that for you: choose a tunnel under Apps → “All other apps”."), color = c.warn, fontSize = 13.sp)
+                    Text(T("All other apps go direct, past every tunnel. Max Security does not change that for you: choose a tunnel under Apps → “All other apps”."), color = c.warn, fontSize = 13.sp)
                 }
             }
         },
-        confirmButton = { TextButton({ onDone(Opsec.switchOn(settings, ticked.filterValues { it }.keys)) }) { Text(T("Switch to Opsec")) } },
+        confirmButton = { TextButton({ onDone(Opsec.switchOn(settings, ticked.filterValues { it }.keys)) }) { Text(T("Switch to Max Security")) } },
         dismissButton = { TextButton({ onDone(null) }) { Text(T("Cancel")) } },
     )
 }
@@ -1204,13 +1204,13 @@ private fun OpsecOffDialog(settings: Settings, to: Level, onDone: (Settings?) ->
     BasicAlertDialog(onDismissRequest = { onDone(null) }) {
         Surface(shape = AlertDialogDefaults.shape, color = AlertDialogDefaults.containerColor, tonalElevation = AlertDialogDefaults.TonalElevation) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(T("Undo the Opsec settings?"), style = MaterialTheme.typography.headlineSmall, color = AlertDialogDefaults.titleContentColor)
+                Text(T("Undo the Max Security settings?"), style = MaterialTheme.typography.headlineSmall, color = AlertDialogDefaults.titleContentColor)
                 Spacer(Modifier.height(8.dp))
-                Text(T("Opsec changed these settings. Ticked ones go back to how they were before; the others stay as they are."), color = c.text, fontSize = 13.sp)
+                Text(T("Max Security changed these settings. Ticked ones go back to how they were before; the others stay as they are."), color = c.text, fontSize = 13.sp)
                 for (it in items) CheckRow(ticked[it.id] == true, { on -> ticked[it.id] = on }, top = true) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(T(it.text), color = c.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(T("Set by Opsec. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
+                        Text(T("Set by Max Security. Ticked: back to how it was before."), color = c.muted, fontSize = 12.sp)
                     }
                 }
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {

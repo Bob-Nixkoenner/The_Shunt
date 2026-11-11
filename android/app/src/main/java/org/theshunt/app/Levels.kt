@@ -10,7 +10,7 @@ package org.theshunt.app
  * The same levels as the desktop window (internal/ui/static/levels.js).
  */
 enum class Level(val key: String, val label: String) {
-    Simple("simple", "Simple"), Pro("pro", "Pro"), Opsec("opsec", "Opsec");
+    Simple("simple", "Simple"), Pro("pro", "Pro"), Opsec("opsec", "Max Security");
 
     companion object {
         fun of(key: String?): Level? = entries.firstOrNull { it.key == key }

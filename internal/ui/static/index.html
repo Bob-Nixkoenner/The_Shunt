@@ -13,7 +13,7 @@
 :root {
   --bg: #0d1117; --panel: #151b23; --panel2: #1b2330; --line: #263040;
   --text: #e6edf3; --muted: #8b98a8; --accent: #34d399; --accent-ink: #052e1f;
-  /* status colours: --ok stays green in every level (--accent turns violet in Opsec) */
+  /* status colours: --ok stays green in every level (--accent turns violet in Max Security) */
   --ok: #34d399;
   --warn: #f5b942; --bad: #f2555a; --info: #6aa8ff;
   --r: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -215,7 +215,7 @@ body.windows .linux-only, .win-only { display: none !important; }
 body.windows .win-only { display: block !important; }
 .lv-off { display: none !important; }
 #lv-hint a { margin-left: 6px; }
-/* Opsec: violet accent (text contrast at least 4.5:1 on every background:
+/* Max Security: violet accent (text contrast at least 4.5:1 on every background:
    dark #b794f6 on #1b2330 6.4:1, light #6d28d9 on #eef2f6 6.3:1, ink on
    accent 7:1 or more). Status colours (--ok, --bad, --warn) stay as they are. */
 body.lv-opsec { --accent: #b794f6; --accent-ink: #1e0b3a; }
@@ -290,7 +290,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 </head>
 <body>
 <header>
-  <div id="opsec-band" data-lv="opsec.band" role="note" aria-label="Opsec level">OPSEC</div>
+  <div id="opsec-band" data-lv="opsec.band" role="note" aria-label="Max Security level">MAX SECURITY</div>
   <div class="brand">
     <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 24h8l10-16h8M11 24h18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"/></svg>
     The Shunt
@@ -703,7 +703,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
         <div class="muted">KDE Connect, Syncthing, mDNS, LLMNR, NetBIOS and SSDP announcements stay inside this computer; IP addresses (DHCP) and IPv6 neighbour discovery keep working. Trusted network profiles (incoming = LAN, real MAC or host name sent) are not quiet, so local names and devices work there.</div></div>
       <div class="linux-only" data-lv="privacy.stealth"><label class="t" for="c-captive">Wi-Fi login pages</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-captive"> check for them after every network change</label>
-        <div class="muted">Asks nmcheck.gnome.org over plain HTTP, directly, past the tunnels (a login page sits in front of every tunnel). On by default, off in the opsec level. Without the check The Shunt does not notice Wi-Fi login pages: open the login browser yourself (tray → “Wi-Fi login page…”).</div></div>
+        <div class="muted">Asks nmcheck.gnome.org over plain HTTP, directly, past the tunnels (a login page sits in front of every tunnel). On by default, off in the Max Security level. Without the check The Shunt does not notice Wi-Fi login pages: open the login browser yourself (tray → “Wi-Fi login page…”).</div></div>
       <div data-lv="inbound"><label class="t" for="c-inbound">Incoming connections</label>
         <label class="row" style="color:var(--text)"><input type="checkbox" id="c-inbound"> block them on networks you have not trusted</label>
         <input id="c-inallow" placeholder="ports open in trusted networks, e.g. tcp/1716 udp/1716 udp/4242">
@@ -763,11 +763,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 <main id="page-view" hidden>
   <section data-fold class="half">
     <h2>Settings shown</h2>
-    <div class="seg" id="v-level" role="group" aria-label="Settings shown"><button data-l="simple">Simple</button><button data-l="pro">Pro</button><button data-l="opsec">Opsec</button></div>
+    <div class="seg" id="v-level" role="group" aria-label="Settings shown"><button data-l="simple">Simple</button><button data-l="pro">Pro</button><button data-l="opsec">Max Security</button></div>
     <div class="hint lvhelp" data-for="simple">Simple shows what you need every day: overview, VPN, apps, DNS and the speed test. Tor, ports, rules, network profiles, incoming protection and the fine-tuning are hidden. Hidden settings keep working.</div>
     <div class="hint lvhelp" data-for="pro">Pro shows everything.</div>
-    <div class="hint lvhelp" data-for="opsec">Opsec shows everything, marks the window violet and switches on strict settings you confirm once (switching back offers to undo them).</div>
-    <div class="hint lvhelp" data-for="opsec" data-i18n="html"><b>Opsec is no guarantee.</b> It closes common leaks of this computer; it does not make you anonymous. The VPN provider still sees your traffic, websites still recognise you by logins, cookies and the browser, and Tor hides where you are but not what you type into a page. For anonymous browsing use the Tor Browser.</div>
+    <div class="hint lvhelp" data-for="opsec">Max Security shows everything, marks the window violet and switches on strict settings you confirm once (switching back offers to undo them).</div>
+    <div class="hint lvhelp" data-for="opsec" data-i18n="html"><b>Max Security is no guarantee.</b> It closes common leaks of this computer; it does not make you anonymous. The VPN provider still sees your traffic, websites still recognise you by logins, cookies and the browser, and Tor hides where you are but not what you type into a page. For anonymous browsing use the Tor Browser.</div>
   </section>
   <section data-fold class="half">
     <h2>Look</h2>
@@ -791,7 +791,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <label class="row" style="color:var(--text)"><input type="checkbox" id="fw-remember" checked> remember for this program</label>
   <div class="row" style="justify-content:space-between;margin-top:10px"><span id="fw-count" class="muted"></span><button id="fw-later">Later</button></div>
 </div></div>
-<!-- opsec assistant: what switching to (or away from) Opsec changes -->
+<!-- opsec assistant: what switching to (or away from) Max Security changes -->
 <div id="lvmodal" hidden><div class="box" role="dialog" aria-modal="true" aria-labelledby="lv-title">
   <p id="lv-title"></p>
   <div id="lv-intro" class="muted"></div>

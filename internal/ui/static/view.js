@@ -1,12 +1,12 @@
 "use strict";
-// View tab: the level (Simple/Pro/Opsec, see levels.js), the tab to open
+// View tab: the level (Simple/Pro/Max Security, see levels.js), the tab to open
 // with, the language. Simple hides the fine-tuning; hidden settings keep
 // working, and a banner says which of them are in use.
 
 const viewGet = (k) => { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } };
 const viewSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private window */ } };
 
-// setLevel stores the level and redraws. Switching to or away from Opsec
+// setLevel stores the level and redraws. Switching to or away from Max Security
 // goes through the opsec assistant (opsec.js) first: it may change settings,
 // and only with the user's consent.
 function setLevel(l) {

@@ -107,7 +107,7 @@ Aufwand: ~1 Sitzung.
 2. Proton: reicht geführter Import (empfohlen), oder Versuch einer inoffiziellen
    Login-Automatik (fragil, 2FA, Nutzungsbedingungen – rate ich ab)?
 3. Soll die API-Kommunikation (Relay-Liste, Geräte-Anmeldung) über einen bestehenden
-   Tunnel laufen dürfen (Opsec) oder direkt?
+   Tunnel laufen dürfen (Max Security) oder direkt?
 
 ### Grenzen
 - Mullvad-API ist von der Cloud-Sitzung aus nicht erreichbar → Tests mit nachgebautem

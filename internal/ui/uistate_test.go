@@ -52,3 +52,21 @@ func TestLevelMigration(t *testing.T) {
 		t.Fatalf("chosen level overwritten: %v", st)
 	}
 }
+
+// The level "Max Security" is shown under that name only; its stored
+// identifier stays "opsec" and must still be accepted and kept.
+func TestOpsecIdentifierStillAccepted(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	l := "opsec"
+	if _, err := mergeUIState(map[string]*string{"shunt-level": &l}); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUIState()["shunt-level"]; got != "opsec" {
+		t.Fatalf("stored level = %q", got)
+	}
+	if got := migrateUIState()["shunt-level"]; got != "opsec" {
+		t.Fatalf("migrate changed the level: %q", got)
+	}
+}
