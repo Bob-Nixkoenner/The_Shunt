@@ -134,7 +134,11 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   change (a finding is reported once until a clean run). The DHCP watch can also send a DHCP DISCOVER
   (random hardware address, broadcast flag, no host name, never a REQUEST) 4 s after joining and every
   5 min, so every server answers with a broadcast OFFER the listener sees; without it, it only sees replies
-  to this machine's own requests. A second server ID raises `rogue_dhcp`.
+  to this machine's own requests. After a gateway MAC change or a reconnect it is sent once more, 5 s
+  after the trigger and at most once per 20 s. The wait is on purpose: the probe makes the gateway's
+  DHCP server send ARP requests, which put the true gateway MAC back into the neighbour table for a
+  few seconds; sent at once, that hid a DNS redirection from the DNS check that starts 2 s after the
+  same trigger (lab R05). A second server ID raises `rogue_dhcp`.
   Known servers are the gateway address, the server of this client's own lease (read without root from
   NetworkManager `nmcli`, systemd-networkd or dhclient lease files; skipped when unreadable) and the first
   server that answers within 10 s after joining while no known one has answered. Only a different server

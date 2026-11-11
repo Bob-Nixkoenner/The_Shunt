@@ -36,7 +36,8 @@ type Sensors struct {
 	kick   chan struct{} // ProbeSoon requests for the running dhcpProbe
 }
 
-// ProbeSoon asks the DHCP probe to run now (gateway MAC change, route or
+// ProbeSoon asks the DHCP probe to run soon (probeKickDelay after the
+// request, so it does not disturb the DNS check; gateway MAC change, route or
 // gateway change, reconnect). It is throttled to one send per probeGap and
 // does nothing when the probe is not allowed or not running.
 func (s *Sensors) ProbeSoon() {
@@ -380,7 +381,22 @@ func (s *Sensors) dhcpProbe(ctx context.Context, env Env, kick <-chan struct{}) 
 	}
 	t := time.NewTicker(dhcpRepeat)
 	defer t.Stop()
-	gate := &probeGate{gap: probeGap}
+	probeLoop(ctx, send, kick, t.C, &probeGate{gap: probeGap}, probeKickDelay)
+}
+
+// probeKickDelay is how long a requested probe (ProbeSoon: the gateway's
+// MAC changed, reconnect) waits before it is sent. The DNS check starts 2 s
+// after the same trigger and must see the network as it is then: the probe
+// makes the DHCP server on the gateway send ARP requests (it tests the
+// address it offers), and those put the true gateway MAC back into our
+// neighbour table for some seconds, which hid a DNS redirection from the
+// check (lab R05, 2026-11-11).
+const probeKickDelay = 5 * time.Second
+
+// probeLoop sends one probe at once, then one on every tick and one
+// kickDelay after every kick that the gate lets through (at most one per
+// gap). It returns when ctx ends.
+func probeLoop(ctx context.Context, send func(), kick <-chan struct{}, tick <-chan time.Time, gate *probeGate, kickDelay time.Duration) {
 	gate.Allow()
 	for {
 		send()
@@ -388,11 +404,21 @@ func (s *Sensors) dhcpProbe(ctx context.Context, env Env, kick <-chan struct{}) 
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
+			case <-tick:
 				gate.Allow()
 				wait = false
 			case <-kick:
-				wait = !gate.Allow() // too soon after the last probe: keep waiting
+				if !gate.Allow() { // too soon after the last probe: keep waiting
+					continue
+				}
+				d := time.NewTimer(kickDelay)
+				select {
+				case <-ctx.Done():
+					d.Stop()
+					return
+				case <-d.C:
+				}
+				wait = false
 			}
 		}
 	}
