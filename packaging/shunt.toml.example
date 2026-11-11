@@ -87,6 +87,10 @@ route = "tunnel:vps"
 #                                 # quiet mode) | on (always) | off (listen only, send nothing)
 # dns_probe   = "auto"            # same switch for the active DNS check (asks the network resolver and a
 #                                 # public resolver directly, outside the tunnel)
+# rebind_protect = false          # DNS rebind check in the DNS proxy: public names answered with private
+#                                 # addresses are reported (dropped only with block = true on dns_rebind)
+# rebind_allow   = ["home.example.org"]  # names (and sub-domains) that may resolve to private addresses
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
+#                                 #   dhcp_option rogue_ra dns_rebind new_iface (these four only report)
 # block = true                    # block = also drop the source (nft table shunt_defense)
