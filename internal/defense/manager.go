@@ -38,6 +38,8 @@ type Manager struct {
 	agg        map[aggKey]*aggEntry
 	aggDropped int
 
+	onEvent func(Event, Class) // evidence log hook (WithEventHook)
+
 	stop     context.CancelFunc
 	done     chan struct{}
 	closeOne sync.Once
@@ -217,6 +219,7 @@ func (m *Manager) Report(ev Event) {
 	ev = m.ring.Add(ev)
 	m.therm.Add(ev)
 	m.rpts.Note(ev, m.therm.Heat())
+	m.emitEvent(ev)
 }
 
 // Observe feeds one connection attempt into scan/brute detection and the

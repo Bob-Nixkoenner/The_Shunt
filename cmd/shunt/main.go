@@ -57,6 +57,7 @@ var usageEntries = []struct {
 	{`  firewall apps | forget KEY`, "stored firewall decisions / forget one (asked again next time)"},
 	{`  ports [--all] [--json]`, "open ports: who listens, reachable from where (--all: also the ones only this machine can reach)"},
 	{`  blocks`, "which programs asked for names the DNS filter blocked"},
+	{`  evidence verify ARCHIVE|DIR`, "check a case archive (.tar.gz) or the evidence log: hash chain and manifest; reads files only, needs no service"},
 	{`  gateway [status]`, "devices behind this computer (gateway mode): groups, interfaces, routes"},
 	{`  inbound [trust [NAME] | keep-closed]`, "incoming protection on this network; on an unknown one: trust it as your LAN (adds a network profile, inbound = \"lan\") or keep it closed and stop asking"},
 	{`  which NAME`, "show running processes named like NAME and the route each one takes"},
@@ -153,6 +154,8 @@ func main() {
 		err = ports(c, args[1:])
 	case "blocks":
 		err = blocks(c)
+	case "evidence":
+		err = evidenceCmd(args[1:])
 	case "gateway":
 		err = gatewayCmd(c, args[1:])
 	case "inbound":

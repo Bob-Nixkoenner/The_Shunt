@@ -46,6 +46,8 @@ type defenseState struct {
 	tlsBusy     atomic.Bool   // a certificate check is running
 	outsideBusy atomic.Bool   // an outside check is running
 	tlsSoon     chan struct{} // a new network: check again soon
+
+	ev evState // evidence log and capture (evidence.go)
 }
 
 func (d *Daemon) defIface() string {
@@ -57,7 +59,8 @@ func (d *Daemon) defIface() string {
 func (d *Daemon) startDefense(ctx context.Context) {
 	opts := append(d.defenseOptions(), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
 		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")),
-		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")))
+		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")),
+		defense.WithEventHook(d.evidenceEvent))
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")
@@ -86,6 +89,7 @@ func (d *Daemon) startDefenseLoops(ctx context.Context) {
 func (d *Daemon) defenseNet(info netdetect.Info) { go d.defenseNetwork(info) }
 
 func (d *Daemon) stopDefense() {
+	d.stopEvidence()
 	if d.def.sensors != nil {
 		d.def.sensors.Stop()
 	}
@@ -103,6 +107,7 @@ func (d *Daemon) defenseApply(c *config.Config) {
 	}
 	cfg := c.DefenseConfig()
 	d.def.m.Configure(cfg)
+	d.evidenceApply(cfg.Evidence, cfg.Enabled)
 	d.defenseTable(cfg.Enabled)
 	d.def.mu.Lock()
 	d.def.needPush = true
@@ -232,6 +237,7 @@ func (d *Daemon) saveDefenseConfig(cfg defense.Config) error {
 }
 
 func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
+	d.evidenceRoutes(mux)
 	mux.HandleFunc("GET /v1/defense", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, d.defenseStatus())
 	})

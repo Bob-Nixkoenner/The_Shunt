@@ -57,7 +57,7 @@ func RenderDefense(o DefenseOpts) string {
 	w("\t\tip saddr @ban4 counter drop")
 	w("\t\tip6 saddr @ban6 counter drop")
 	if o.Log {
-		w("\t\tct state new meta l4proto { tcp, udp } limit rate 300/second burst 100 packets log group %d snaplen 64", DefenseLogGroup)
+		w("\t\tct state new meta l4proto { tcp, udp } limit rate 300/second burst 100 packets log group %d snaplen 128", DefenseLogGroup)
 	}
 	w("\t}")
 	if o.ConnLog {

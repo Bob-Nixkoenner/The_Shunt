@@ -498,6 +498,7 @@ func (s *Server) handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	s.evidenceRoutes(mux)
 	mux.HandleFunc("GET /api/procs", func(w http.ResponseWriter, r *http.Request) {
 		var ps []api.ProcRoute
 		if err := s.Client.Do("GET", "/v1/procs?name="+url.QueryEscape(r.URL.Query().Get("name")), nil, &ps); err != nil {

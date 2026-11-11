@@ -96,6 +96,13 @@ route = "tunnel:vps"
 # enabled = false
 # host    = "https://scan.example.net/outside-scan"
 # token   = ""                    # shared secret (header X-Shunt-Token)
+# [defense.evidence]              # Evidence: local tamper-evident log of attacks (off by default; see docs/DEFENSE.md)
+# enabled        = false          # write events to <state>/defense/evidence (0600, hash chain); other people's addresses = personal data
+# retention_days = 90             # older log files are deleted; a kept case stays until you delete it
+# max_mb         = 512            # size limit of the log (oldest first, kept cases exempt)
+# capture        = false          # Linux: unsolicited inbound packets + ARP/DHCP/RA frames, RAM until an event >= medium, then to disk
+# capture_max_mb = 100
+# tsa_url        = ""             # optional RFC 3161 time stamp authority (https); only a hash is sent, only on export
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 #                                 #   dhcp_option rogue_ra dns_rebind new_iface (these four only report)

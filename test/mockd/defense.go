@@ -203,6 +203,7 @@ func (m *mockDefense) brief() *api.DefenseBrief {
 }
 
 func (m *mockDefense) handle(mux *http.ServeMux) {
+	m.handleEvidence(mux)
 	mux.HandleFunc("GET /v1/defense", func(w http.ResponseWriter, r *http.Request) { js(w, m.status()) })
 	mux.HandleFunc("GET /v1/defense/events", func(w http.ResponseWriter, r *http.Request) {
 		since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
