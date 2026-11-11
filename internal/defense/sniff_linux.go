@@ -30,6 +30,7 @@ type Sensors struct {
 	Mark uint32
 
 	mu     sync.Mutex
+	ifw    *ifaceWatch // interfaces present at the first start
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -41,12 +42,13 @@ func (s *Sensors) SetEnv(env Env) {
 	s.mu.Lock()
 	s.cancel = cancel
 	s.mu.Unlock()
-	if env.Iface == "" {
-		return
-	}
 	run := func(f func()) {
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); f() }()
+	}
+	run(func() { s.newIface(ctx) })
+	if env.Iface == "" {
+		return
 	}
 	recheck := make(chan struct{}, 1) // gateway MAC changed: ask the DNS question again now
 	run(func() { s.neighbours(ctx, env, recheck) })
