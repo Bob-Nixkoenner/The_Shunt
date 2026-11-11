@@ -28,16 +28,31 @@ const (
 )
 
 // LoadOrCreateHostKey reads an ed25519 host key from path (PEM, PKCS#8). If it
-// does not exist a new one is created with mode 0600. An empty path keeps the
-// key in memory only.
+// does not exist a new one is created with mode 0600 (never through a
+// symbolic link). A key file that is a link or no regular file is refused;
+// one that cannot be parsed is moved aside (".bad") and replaced, so a
+// damaged file does not switch the ssh decoy off for good. Looser rights on
+// an existing key are cut back to 0600. An empty path keeps the key in
+// memory only.
 func LoadOrCreateHostKey(path string) (ssh.Signer, error) {
 	if path != "" {
-		if b, err := os.ReadFile(path); err == nil {
-			s, err := ssh.ParsePrivateKey(b)
-			if err != nil {
-				return nil, fmt.Errorf("ssh decoy host key %s: %w", path, err)
+		if fi, err := os.Lstat(path); err == nil {
+			if !fi.Mode().IsRegular() {
+				return nil, fmt.Errorf("ssh decoy host key %s: not a regular file", path)
 			}
-			return s, nil
+			if fi.Mode().Perm()&0o077 != 0 {
+				_ = os.Chmod(path, 0o600)
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			if s, err := ssh.ParsePrivateKey(b); err == nil {
+				return s, nil
+			}
+			if err := os.Rename(path, path+".bad"); err != nil {
+				return nil, fmt.Errorf("ssh decoy host key %s: unreadable and cannot be moved aside: %w", path, err)
+			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -55,7 +70,17 @@ func LoadOrCreateHostKey(path string) (ssh.Signer, error) {
 			return nil, err
 		}
 		pemb := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
-		if err := os.WriteFile(path, pemb, 0o600); err != nil {
+		// O_EXCL: fails on any existing name, a (dangling) symlink included
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := f.Write(pemb); err != nil {
+			f.Close()
+			os.Remove(path)
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
 			return nil, err
 		}
 	}

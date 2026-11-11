@@ -2,6 +2,8 @@ package defense
 
 import (
 	"net/netip"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -59,5 +61,47 @@ func TestBannable(t *testing.T) {
 	}
 	if err := m.Ban("198.51.100.10"); err != ErrNotBannable {
 		t.Fatalf("manual ban of own address: %v", err)
+	}
+}
+
+func TestHostKeyHardening(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "k")
+	s1, err := LoadOrCreateHostKey(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode())
+	}
+	// looser rights are cut back, the key stays the same
+	_ = os.Chmod(p, 0o644)
+	s2, err := LoadOrCreateHostKey(p)
+	if err != nil || string(s2.PublicKey().Marshal()) != string(s1.PublicKey().Marshal()) {
+		t.Fatalf("reload: %v", err)
+	}
+	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode after reload %v", fi.Mode())
+	}
+	// a damaged file is moved aside and replaced
+	_ = os.WriteFile(p, []byte("garbage"), 0o600)
+	if _, err := LoadOrCreateHostKey(p); err != nil {
+		t.Fatalf("damaged key: %v", err)
+	}
+	if _, err := os.Stat(p + ".bad"); err != nil {
+		t.Fatal("damaged key not kept aside")
+	}
+	// a symbolic link is refused, its target untouched
+	target := filepath.Join(dir, "target")
+	_ = os.WriteFile(target, []byte("x"), 0o644)
+	l := filepath.Join(dir, "link")
+	if err := os.Symlink(target, l); err != nil {
+		t.Skip("no symlinks")
+	}
+	if _, err := LoadOrCreateHostKey(l); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	if b, _ := os.ReadFile(target); string(b) != "x" {
+		t.Fatal("target changed")
 	}
 }
