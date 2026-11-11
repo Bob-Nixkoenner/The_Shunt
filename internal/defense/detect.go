@@ -133,6 +133,7 @@ type srcState struct {
 	scanFired time.Time
 	bfFired   time.Time
 	last      time.Time
+	pruned    time.Time // last cleaning of ports
 }
 
 // Detector spots port scans and brute force from observed connections.
@@ -195,10 +196,16 @@ func (d *Detector) ObserveState(src netip.Addr, port int, proto string, state Co
 		d.src[src] = st
 	}
 	st.last = now
-	st.ports[port] = now
-	for p, t := range st.ports {
-		if now.Sub(t) > w {
-			delete(st.ports, p)
+	if _, has := st.ports[port]; has || len(st.ports) < maxTrackedPorts {
+		st.ports[port] = now
+	}
+	if len(st.ports) < 64 || now.Sub(st.pruned) >= time.Second {
+		// big maps (a flood) are only cleaned once a second
+		st.pruned = now
+		for p, t := range st.ports {
+			if now.Sub(t) > w {
+				delete(st.ports, p)
+			}
 		}
 	}
 	if state.failed() {
@@ -209,28 +216,37 @@ func (d *Detector) ObserveState(src netip.Addr, port int, proto string, state Co
 		i++
 	}
 	st.fails = st.fails[i:]
-	var s0, rej int
-	failPorts := map[int]struct{}{}
-	for _, f := range st.fails {
-		failPorts[f.port] = struct{}{}
-		if f.state == StateS0 {
-			s0++
-		} else {
-			rej++
+	if n := len(st.fails); n > maxTrackedFails {
+		// one source flooding SYNs must not grow memory or make every
+		// further packet walk a huge list: keep the newest
+		st.fails = append(st.fails[:0], st.fails[n-maxTrackedFails:]...)
+	}
+	canScan := now.Sub(st.scanFired) > w
+	canBF := now.Sub(st.bfFired) > w && len(st.ports) < d.cfg.ScanPorts
+	if canScan || canBF { // after both fired, a flood costs no more counting
+		var s0, rej int
+		failPorts := map[int]struct{}{}
+		for _, f := range st.fails {
+			failPorts[f.port] = struct{}{}
+			if f.state == StateS0 {
+				s0++
+			} else {
+				rej++
+			}
 		}
-	}
-	counts := " s0=" + itoa(s0) + " rej=" + itoa(rej) + " (" + proto + ")"
-	switch {
-	case len(st.ports) >= d.cfg.ScanPorts && now.Sub(st.scanFired) > w:
-		st.scanFired = now
-		found = append(found, Finding{KindScan, src, "mode=many_ports distinct ports in window: " + itoa(len(st.ports)) + counts})
-	case len(failPorts) >= d.cfg.FailPorts && now.Sub(st.scanFired) > w:
-		st.scanFired = now
-		found = append(found, Finding{KindScan, src, "mode=failed_ports ports with refused/unanswered attempts: " + itoa(len(failPorts)) + counts})
-	}
-	if len(st.fails) >= d.cfg.BruteConns && len(st.ports) < d.cfg.ScanPorts && now.Sub(st.bfFired) > w {
-		st.bfFired = now
-		found = append(found, Finding{KindBruteForce, src, "mode=few_ports failed attempts in window: " + itoa(len(st.fails)) + " on " + itoa(len(failPorts)) + " ports" + counts})
+		counts := " s0=" + itoa(s0) + " rej=" + itoa(rej) + " (" + proto + ")"
+		switch {
+		case canScan && len(st.ports) >= d.cfg.ScanPorts:
+			st.scanFired = now
+			found = append(found, Finding{KindScan, src, "mode=many_ports distinct ports in window: " + itoa(len(st.ports)) + counts})
+		case canScan && len(failPorts) >= d.cfg.FailPorts:
+			st.scanFired = now
+			found = append(found, Finding{KindScan, src, "mode=failed_ports ports with refused/unanswered attempts: " + itoa(len(failPorts)) + counts})
+		}
+		if canBF && len(st.fails) >= d.cfg.BruteConns {
+			st.bfFired = now
+			found = append(found, Finding{KindBruteForce, src, "mode=few_ports failed attempts in window: " + itoa(len(st.fails)) + " on " + itoa(len(failPorts)) + " ports" + counts})
+		}
 	}
 	cb := d.OnFound
 	d.mu.Unlock()
@@ -240,6 +256,13 @@ func (d *Detector) ObserveState(src netip.Addr, port int, proto string, state Co
 		}
 	}
 }
+
+// Per-source memory caps. Both are far above every threshold, so findings
+// are not changed by them.
+const (
+	maxTrackedPorts = 1024
+	maxTrackedFails = 256
+)
 
 func (d *Detector) evict(now time.Time) {
 	for a, s := range d.src {
