@@ -135,3 +135,12 @@ func TestSessionsIndependent(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteJSONNilSliceIsEmptyList(t *testing.T) {
+	var none []string
+	rec := httptest.NewRecorder()
+	writeJSON(rec, none)
+	if got := rec.Body.String(); got != "[]\n" {
+		t.Fatalf("nil slice sent as %q", got)
+	}
+}

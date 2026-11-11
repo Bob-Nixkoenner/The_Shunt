@@ -506,7 +506,7 @@ $("#lcreate").addEventListener("click", () => {
 });
 
 async function loadApps() {
-  try { apps = await api("GET", "/api/apps"); } catch { apps = []; }
+  try { apps = (await api("GET", "/api/apps")) || []; } catch { apps = []; }
   await loadAppRules();
   renderApps();
   renderLaunchers();
@@ -638,8 +638,8 @@ $("#allapps").addEventListener("change", renderApps);
 
 (async () => {
   await refresh();
-  try { ffProfiles = await api("GET", "/api/firefox-profiles"); } catch { ffProfiles = []; }
-  try { crProfiles = await api("GET", "/api/chromium-profiles"); } catch { crProfiles = []; }
+  try { ffProfiles = (await api("GET", "/api/firefox-profiles")) || []; } catch { ffProfiles = []; }
+  try { crProfiles = (await api("GET", "/api/chromium-profiles")) || []; } catch { crProfiles = []; }
   await loadApps();
   setInterval(refresh, 2000);
 })();
