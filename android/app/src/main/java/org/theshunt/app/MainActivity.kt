@@ -1109,8 +1109,8 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
     }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("Settings shown") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
-                for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
+            ButtonRow { m ->
+                for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = m)
             }
             Hint(
                 when (settings.level) {
