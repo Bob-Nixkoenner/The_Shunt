@@ -108,8 +108,10 @@ func (d *Daemon) defenseApply(c *config.Config) {
 }
 
 // defNetKey is the local network identifier: a hash, only ever kept in memory.
+// It uses interface, SSID and gateway address but NOT the gateway's MAC: a
+// new MAC behind the same address is a finding (arp), not a new network.
 func defNetKey(info netdetect.Info) string {
-	h := sha256.Sum256([]byte(info.Key()))
+	h := sha256.Sum256([]byte(info.Iface + "|" + info.SSID + "|" + info.GatewayIP))
 	return hex.EncodeToString(h[:8])
 }
 

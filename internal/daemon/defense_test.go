@@ -134,3 +134,38 @@ func TestInvalidDefenseConfigRejected(t *testing.T) {
 		}
 	}
 }
+
+// A new gateway MAC behind the same address is no network change: no new
+// net_enter, no counter reset; interface, SSID or gateway address do change it.
+func TestDefNetKeyIgnoresGatewayMAC(t *testing.T) {
+	a := netdetect.Info{Iface: "eth0", SSID: "net", GatewayIP: "192.0.2.1", GatewayMAC: "02:00:00:00:00:01"}
+	b := a
+	b.GatewayMAC = "02:00:00:00:00:02"
+	if defNetKey(a) != defNetKey(b) {
+		t.Fatal("gateway MAC changes the key")
+	}
+	for _, c := range []netdetect.Info{{Iface: "wlan0", SSID: "net", GatewayIP: "192.0.2.1"}, {Iface: "eth0", SSID: "other", GatewayIP: "192.0.2.1"}, {Iface: "eth0", SSID: "net", GatewayIP: "192.0.2.254"}} {
+		if defNetKey(a) == defNetKey(c) {
+			t.Fatalf("key unchanged for %+v", c)
+		}
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := defense.NewManager(log)
+	defer m.Close()
+	m.Configure(defense.Config{Enabled: true, Features: map[string]defense.Feature{}, BanSeconds: 60})
+	for i := 0; i < 5; i++ {
+		m.SetNetwork(defNetKey(a), defense.ClassPublic)
+		m.Report(defense.Event{Kind: defense.KindARP, Severity: defense.SevHigh, Detail: "x"})
+		m.SetNetwork(defNetKey(b), defense.ClassPublic)
+	}
+	st := m.Status()
+	enters := 0
+	for _, e := range m.Events(0).Events {
+		if e.Kind == defense.KindNetEnter {
+			enters++
+		}
+	}
+	if enters != 1 || st.Counts[defense.KindNetEnter] != 1 || st.Counts[defense.KindARP] != 5 || st.Heat == 0 {
+		t.Fatalf("enters=%d counts=%v heat=%d", enters, st.Counts, st.Heat)
+	}
+}
