@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // With the DNS probe off, the active comparison must not run at all.
@@ -20,11 +21,13 @@ func TestDNSRoundNeedsProbe(t *testing.T) {
 		return nil, context.Canceled
 	}}}
 	var once dnsOnce
-	s.dnsRound(context.Background(), Env{DNSProbe: false}, &once)
+	var noted bool
+	fast := func(context.Context, time.Duration) bool { return true }
+	s.dnsRound(context.Background(), Env{DNSProbe: false}, &once, &noted, fast)
 	if calls.Load() != 0 {
 		t.Fatal("probe ran while off")
 	}
-	s.dnsRound(context.Background(), Env{DNSProbe: true}, &once)
+	s.dnsRound(context.Background(), Env{DNSProbe: true}, &once, &noted, fast)
 	if calls.Load() == 0 {
 		t.Fatal("probe did not run while on")
 	}

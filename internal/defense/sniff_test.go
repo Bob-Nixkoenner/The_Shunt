@@ -372,3 +372,76 @@ func FuzzParseDHCPOptions(f *testing.F) {
 	f.Add(dhcpWithOpts(opt(121, 1, 0, 192, 0, 2, 99)))
 	f.Fuzz(func(t *testing.T, b []byte) { ParseDHCPOptions(b) })
 }
+
+func TestDNSRebindWithoutReference(t *testing.T) {
+	ctx := context.Background()
+	for _, addr := range []string{"198.18.0.7", "198.19.255.1", "10.0.0.9", "127.0.0.1"} {
+		bad := fakeDNS(t, addr)
+		c := &DNSCheck{Names: []string{"example.test"}, Public: "127.0.0.1:1"}
+		ev, ok := c.RunStatus(ctx, Env{DNS: []string{bad}})
+		if !ok || len(ev) != 1 || ev[0].Kind != KindDNSHijack {
+			t.Fatalf("%s: %+v ok=%v", addr, ev, ok)
+		}
+	}
+	// reference unreachable: still caught, but refOK=false
+	failing := func(context.Context, string) ([]netip.Addr, error) { return nil, context.DeadlineExceeded }
+	c := &DNSCheck{Reference: failing, Names: []string{"example.test"}, Public: "127.0.0.1:1"}
+	ev, ok := c.RunStatus(ctx, Env{DNS: []string{fakeDNS(t, "198.18.0.7")}})
+	if ok || len(ev) != 1 {
+		t.Fatalf("failing ref: %+v ok=%v", ev, ok)
+	}
+	// a normal public answer without a reference is no finding
+	if ev, _ := (&DNSCheck{Names: []string{"example.test"}, Public: "127.0.0.1:1"}).RunStatus(ctx, Env{DNS: []string{fakeDNS(t, "192.0.2.53")}}); len(ev) != 0 {
+		t.Fatalf("honest: %+v", ev)
+	}
+}
+
+func TestDNSSeriesRetry(t *testing.T) {
+	var slept []time.Duration
+	sleep := func(_ context.Context, d time.Duration) bool { slept = append(slept, d); return true }
+	var got []Event
+	emit := func(e Event) { got = append(got, e) }
+	hit := Event{Kind: KindDNSHijack, Severity: SevHigh, Detail: "x"}
+
+	// reference unreachable twice, then back and a hijack is found
+	var once dnsOnce
+	var noted bool
+	n := 0
+	dnsSeries(context.Background(), func() ([]Event, bool) {
+		n++
+		if n < 3 {
+			return nil, false
+		}
+		return []Event{hit}, true
+	}, sleep, emit, &once, &noted)
+	if n != 3 || len(got) != 1 || got[0].Kind != KindDNSHijack || len(slept) != 2 || slept[0] != 2*time.Second || slept[1] != 5*time.Second {
+		t.Fatalf("n=%d got=%+v slept=%v", n, got, slept)
+	}
+
+	// never reachable: one info observation per series, none on the second
+	got, slept, n = nil, nil, 0
+	run := func() ([]Event, bool) { n++; return nil, false }
+	dnsSeries(context.Background(), run, sleep, emit, &once, &noted)
+	if n != len(dnsBackoff)+1 || len(got) != 1 || got[0].Kind != KindObservation || got[0].Severity != SevInfo || got[0].Detail != DNSRetryNote {
+		t.Fatalf("n=%d got=%+v", n, got)
+	}
+	dnsSeries(context.Background(), run, sleep, emit, &once, &noted)
+	if len(got) != 1 {
+		t.Fatalf("note repeated: %+v", got)
+	}
+	var total time.Duration
+	for _, d := range dnsBackoff {
+		total += d
+	}
+	if total > 60*time.Second {
+		t.Fatal("series longer than 60 s")
+	}
+
+	// context ends during backoff: stop, no note
+	got = nil
+	noted = false
+	dnsSeries(context.Background(), run, func(context.Context, time.Duration) bool { return false }, emit, &once, &noted)
+	if len(got) != 0 {
+		t.Fatalf("aborted series noted: %+v", got)
+	}
+}

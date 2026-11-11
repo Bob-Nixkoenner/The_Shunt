@@ -268,9 +268,32 @@ func overlap(a, b []netip.Addr) bool {
 // Run asks the question and returns one event per finding. Resolvers that
 // do not answer produce no event (no answer is not an attack).
 func (c *DNSCheck) Run(ctx context.Context, env Env) []Event {
-	if c.Reference == nil {
-		return nil
+	evs, _ := c.RunStatus(ctx, env)
+	return evs
+}
+
+// reservedAnswer reports an address that a fixed public name never has:
+// private, loopback, link-local or the benchmark range 198.18.0.0/15 (a
+// typical rebind / sinkhole target).
+func reservedAnswer(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsUnspecified() ||
+		netip.MustParsePrefix("198.18.0.0/15").Contains(a)
+}
+
+func anyReserved(as []netip.Addr) bool {
+	for _, a := range as {
+		if reservedAnswer(a) {
+			return true
+		}
 	}
+	return false
+}
+
+// RunStatus is Run plus refOK: whether the reference answered for at least
+// one name. A nil Reference never reports failure. Without a reference only the rebind pattern (a reserved or
+// private answer for a fixed public name) can be judged.
+func (c *DNSCheck) RunStatus(ctx context.Context, env Env) (evs []Event, refOK bool) {
 	names := c.Names
 	if len(names) == 0 {
 		names = defaultDNSNames
@@ -279,25 +302,38 @@ func (c *DNSCheck) Run(ctx context.Context, env Env) []Event {
 	if pub == "" {
 		pub = "9.9.9.9:53"
 	}
-	var evs []Event
-	var divertedAny, localDiff bool
+	var divertedAny, localDiff, rebind bool
 	for _, name := range names {
-		ref, err := c.Reference(ctx, name)
-		if err != nil || len(ref) == 0 {
-			continue
+		var ref []netip.Addr
+		var err error
+		if c.Reference != nil {
+			ref, err = c.Reference(ctx, name)
+		}
+		have := c.Reference != nil && err == nil && len(ref) > 0
+		if have {
+			refOK = true
 		}
 		for _, s := range env.DNS {
 			if _, _, err := net.SplitHostPort(s); err != nil {
 				s = net.JoinHostPort(s, "53")
 			}
 			got, err := c.ask(ctx, s, name)
-			if err == nil && len(got) > 0 && !overlap(got, ref) {
+			if err != nil || len(got) == 0 {
+				continue
+			}
+			if anyReserved(got) {
+				rebind = true
+			} else if have && !overlap(got, ref) {
 				localDiff = true
 			}
 		}
 		got, err := c.ask(ctx, pub, name)
-		if err == nil && len(got) > 0 && !overlap(got, ref) {
-			divertedAny = true
+		if err == nil && len(got) > 0 {
+			if anyReserved(got) {
+				rebind = true
+			} else if have && !overlap(got, ref) {
+				divertedAny = true
+			}
 		}
 	}
 	if localDiff {
@@ -308,7 +344,51 @@ func (c *DNSCheck) Run(ctx context.Context, env Env) []Event {
 		evs = append(evs, Event{Kind: KindDNSHijack, Severity: SevHigh, Proto: "udp", Port: 53,
 			Detail: "port 53 to a public resolver is answered with other data (diverted)"})
 	}
-	return evs
+	if rebind {
+		evs = append(evs, Event{Kind: KindDNSHijack, Severity: SevHigh, Proto: "udp", Port: 53,
+			Detail: "a fixed public name is answered with a private or reserved address (rebind pattern)"})
+	}
+	if c.Reference == nil {
+		refOK = true
+	}
+	return evs, refOK
+}
+
+// dnsBackoff are the waits between attempts after a trigger when the
+// reference could not be reached (about 50 s in all).
+var dnsBackoff = []time.Duration{2 * time.Second, 5 * time.Second, 15 * time.Second, 30 * time.Second}
+
+// DNSRetryNote is the observation reported when the reference stayed out of
+// reach for a whole retry series.
+const DNSRetryNote = "DNS reference not reachable, check not possible"
+
+// dnsSeries runs the check until the reference answered or the backoff list
+// is used up. A series is never cut short by new triggers (they only wait in
+// the caller's channel). run reports findings and whether the reference
+// answered; sleep returns false when ctx ended. The info observation is
+// emitted once per failed series and not again until a series worked.
+func dnsSeries(ctx context.Context, run func() ([]Event, bool), sleep func(context.Context, time.Duration) bool,
+	emit func(Event), once *dnsOnce, noted *bool) {
+	for i := 0; ; i++ {
+		evs, ok := run()
+		for _, ev := range once.Filter(evs) {
+			emit(ev)
+		}
+		if ok {
+			*noted = false
+			return
+		}
+		if i >= len(dnsBackoff) {
+			break
+		}
+		if !sleep(ctx, dnsBackoff[i]) {
+			return
+		}
+	}
+	if !*noted {
+		*noted = true
+		emit(Event{Kind: KindObservation, Severity: SevInfo, Proto: "udp", Port: 53, Detail: DNSRetryNote})
+	}
 }
 
 // TwinStore remembers which gateway MACs belong to which Wi-Fi name, so a

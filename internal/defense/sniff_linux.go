@@ -92,6 +92,7 @@ const (
 
 // once runs the checks that happen when a network is joined, then repeats
 // the DNS comparison every dnsRepeat and whenever the gateway's MAC changed.
+// A series that is running is never aborted by a new trigger.
 func (s *Sensors) once(ctx context.Context, env Env, recheck <-chan struct{}) {
 	if s.Twins != nil && s.Twins.Check(env.SSID, env.GatewayMAC) {
 		s.emit(FeatEvilTwin, TwinEvent())
@@ -102,26 +103,34 @@ func (s *Sensors) once(ctx context.Context, env Env, recheck <-chan struct{}) {
 	case <-time.After(3 * time.Second):
 	}
 	var once dnsOnce
+	var noted bool
 	t := time.NewTicker(dnsRepeat)
 	defer t.Stop()
+	sleep := func(ctx context.Context, d time.Duration) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
 	for {
-		s.dnsRound(ctx, env, &once)
+		s.dnsRound(ctx, env, &once, &noted, sleep)
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		case <-recheck:
-			select { // let the new path settle
-			case <-ctx.Done():
+			if !sleep(ctx, 2*time.Second) { // let the new path settle
 				return
-			case <-time.After(2 * time.Second):
 			}
 		}
 	}
 }
 
-// dnsRound runs the DNS comparison once and reports new findings.
-func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce) {
+// dnsRound runs one series of the DNS comparison and reports new findings.
+func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce, noted *bool,
+	sleep func(context.Context, time.Duration) bool) {
 	if !s.M.Watching(FeatDNS) || !env.DNSProbe {
 		return
 	}
@@ -142,11 +151,12 @@ func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce) {
 			return d.DialContext(ctx, network, addr)
 		}
 	}
-	qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	for _, ev := range once.Filter(c.Run(qctx, env)) {
-		s.emit(FeatDNS, ev)
+	run := func() ([]Event, bool) {
+		qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		return c.RunStatus(qctx, env)
 	}
+	dnsSeries(ctx, run, sleep, func(ev Event) { s.emit(FeatDNS, ev) }, once, noted)
 }
 
 // neighbours follows ARP/NDP entries of the interface and watches the
