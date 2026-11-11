@@ -71,3 +71,21 @@ func TestInboundLetsDecoysThrough(t *testing.T) {
 		t.Fatal(l)
 	}
 }
+
+func TestRenderDefenseConnLogGolden(t *testing.T) {
+	s := RenderDefense(DefenseOpts{ConnLog: true})
+	want := `	chain output {
+		type filter hook output priority -10; policy accept;
+		oifname "lo" return
+		ip daddr @never4 return
+		ip6 daddr @never6 return
+		tcp flags & (syn | ack) == syn tcp dport != { 53, 67, 68, 123, 546, 547 } limit rate 100/second burst 50 packets log group 5303 snaplen 64
+	}
+`
+	if !strings.Contains(s, want) {
+		t.Fatalf("output chain differs:\n%s", s)
+	}
+	if strings.Contains(RenderDefense(DefenseOpts{Log: true}), "chain output") {
+		t.Error("output chain without ConnLog")
+	}
+}

@@ -38,3 +38,6 @@ func (d *Daemon) outsideHTTP(network string) *http.Client {
 		DisableKeepAlives: true,
 	}}
 }
+
+// defenseNotes: nothing to add on this platform.
+func (d *Daemon) defenseNotes() []string { return nil }

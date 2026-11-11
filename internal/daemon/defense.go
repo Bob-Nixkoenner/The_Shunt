@@ -37,9 +37,11 @@ type defenseState struct {
 	portsSet []int // decoy ports last pushed to the nft set
 	needPush bool  // main table was replaced: push the ports again
 	never    []netip.Prefix
-	logStop  func() // stops the packet log reader
-	lastEnv  string // class/key/enabled the sensors run for
+	logStop  func()         // stops the packet log readers
+	logWG    sync.WaitGroup // the readers have returned
+	lastEnv  string         // class/key/enabled the sensors run for
 
+	connLogOK   atomic.Bool   // the outgoing-connection log is being read (else: socket poll only)
 	loops       atomic.Bool   // background loops were started
 	tlsBusy     atomic.Bool   // a certificate check is running
 	outsideBusy atomic.Bool   // an outside check is running
@@ -210,6 +212,7 @@ func (d *Daemon) defenseStatus() defense.Status {
 	}
 	s := d.def.m.Status()
 	s.Unsupported = defenseUnsupported
+	s.Notes = d.defenseNotes()
 	return s
 }
 

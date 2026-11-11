@@ -167,3 +167,46 @@ func TestFirstSeenOff(t *testing.T) {
 		t.Fatal("feature off")
 	}
 }
+
+// Short connections (a few seconds, reported when they start) every 20-30 s
+// are a beacon even though no socket poll could ever see them.
+func TestBeaconShortConnectionsFixedPace(t *testing.T) {
+	for _, gap := range []time.Duration{20 * time.Second, 25 * time.Second, 30 * time.Second} {
+		m, clk := enabledManager(t)
+		dst := ap("203.0.113.9:80")
+		for i := 0; i < 10; i++ {
+			m.NoteConn("", dst, true) // owner unknown: not blocked, still scored
+			clk.Add(gap)
+		}
+		n, ev := countKind(m, KindBeacon)
+		if n != 1 || ev.Port != 80 {
+			t.Fatalf("gap %s: beacon events %d (%+v)", gap, n, ev)
+		}
+	}
+}
+
+func TestParseConnPacket(t *testing.T) {
+	v4 := []byte{0x45, 0, 0, 40, 0, 0, 0x40, 0, 64, 6, 0, 0, 192, 0, 2, 10, 203, 0, 113, 9, 0xc0, 0x01, 0, 80, 0, 0, 0, 0}
+	src, dst, ok := ParseConnPacket(v4)
+	if !ok || src != ap("192.0.2.10:49153") || dst != ap("203.0.113.9:80") {
+		t.Fatal(src, dst, ok)
+	}
+	v6 := make([]byte, 48)
+	v6[0], v6[6] = 0x60, 6
+	copy(v6[8:], netip.MustParseAddr("2001:db8::1").AsSlice())
+	copy(v6[24:], netip.MustParseAddr("2001:db8::2").AsSlice())
+	v6[40], v6[41], v6[42], v6[43] = 0x9c, 0x40, 0x01, 0xbb
+	src, dst, ok = ParseConnPacket(v6)
+	if !ok || src != ap("[2001:db8::1]:40000") || dst != ap("[2001:db8::2]:443") {
+		t.Fatal(src, dst, ok)
+	}
+	udp := append([]byte(nil), v4...)
+	udp[9] = 17
+	frag := append([]byte(nil), v4...)
+	frag[6], frag[7] = 0, 8
+	for name, p := range map[string][]byte{"udp": udp, "fragment": frag, "short": v4[:10], "empty": nil, "v6short": v6[:30]} {
+		if _, _, ok := ParseConnPacket(p); ok {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

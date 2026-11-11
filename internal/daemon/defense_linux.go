@@ -89,7 +89,7 @@ func (d *Daemon) defenseTable(on bool) {
 	}
 	script := nft.DeleteDefenseScript()
 	if on {
-		script = nft.RenderDefense(nft.DefenseOpts{Log: true})
+		script = nft.RenderDefense(nft.DefenseOpts{Log: true, ConnLog: true})
 	}
 	if err := nft.Apply(script); err != nil {
 		d.Log.Warn("defense: nft table", "on", on, "err", err)
@@ -100,9 +100,14 @@ func (d *Daemon) defenseTable(on bool) {
 		if len(d.def.never) > 0 {
 			_ = nft.Apply(nft.NeverScript(d.def.never))
 		}
+		// a reader of an earlier table must have closed its NFLOG socket
+		// before a new one binds the same group
+		d.def.logWG.Wait()
 		lctx, cancel := context.WithCancel(context.Background())
 		d.def.logStop = cancel
-		go d.defenseLog(lctx)
+		d.def.logWG.Add(2)
+		go func() { defer d.def.logWG.Done(); d.defenseLog(lctx) }()
+		go func() { defer d.def.logWG.Done(); d.defenseConnLog(lctx) }()
 	} else if d.def.logStop != nil {
 		d.def.logStop()
 		d.def.logStop = nil
@@ -265,6 +270,78 @@ func (d *Daemon) defensePushPorts() {
 	d.def.mu.Unlock()
 }
 
+// connLogRate caps the socket lookups for the owner of a logged connection
+// per second (the nft rule already limits the packets; a flood past this
+// still counts, just with the owner "unknown").
+const connLogRate = 20
+
+// defenseConnLog reads the NFLOG group of the output chain: the SYN of every
+// new outgoing TCP connection, however short it lives. The owning app comes
+// from the socket (sock_diag + cgroup) at that moment; "" when the socket is
+// already gone or the lookup budget is used up. The poll in defenseConnLoop
+// stays as the fallback: while this reader is not running, connLogOK is
+// false and the poll feeds the beacon detection itself. Runs until ctx ends.
+func (d *Daemon) defenseConnLog(ctx context.Context) {
+	var nf *nflog.Nflog
+	var err error
+	for try := 0; try < 2; try++ {
+		nf, err = nflog.Open(&nflog.Config{Group: nft.DefenseConnLogGroup, Copymode: nflog.CopyPacket, Bufsize: 128})
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
+	}
+	if err != nil {
+		d.Log.Warn("defense: no connection log, beacon detection falls back to the 10 s socket poll", "err", err)
+		return
+	}
+	defer nf.Close()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var slot time.Time
+	used := 0
+	err = nf.RegisterWithErrorFunc(ctx, func(a nflog.Attribute) int {
+		if a.Payload == nil || d.def.m == nil || !(d.def.m.Watching(defense.FeatBeacon) || d.def.m.Watching(defense.FeatFirstSeen)) {
+			return 0
+		}
+		src, dst, ok := defense.ParseConnPacket(*a.Payload)
+		if !ok || dst.Port() == 0 {
+			return 0
+		}
+		if now := time.Now(); now.Sub(slot) >= time.Second {
+			slot, used = now, 0
+		}
+		app := ""
+		if used < connLogRate {
+			used++
+			if o, found := d.sockets.Of("tcp", src); found {
+				app = ownerApp(o)
+			}
+		}
+		d.def.m.NoteConn(app, netip.AddrPortFrom(dst.Addr().Unmap(), dst.Port()), true)
+		return 0
+	}, func(error) int { return 0 })
+	if err != nil {
+		d.Log.Warn("defense: connection log not readable, beacon detection falls back to the 10 s socket poll", "err", err)
+		return
+	}
+	d.def.connLogOK.Store(true)
+	defer d.def.connLogOK.Store(false)
+	<-ctx.Done()
+}
+
+// defenseNotes lists limits that hold right now (shown in the defense status).
+func (d *Daemon) defenseNotes() []string {
+	if d.defTableOn() && !d.def.connLogOK.Load() {
+		return []string{"beacon detection: connection log not available, using the 10 s socket poll (short connections can be missed)"}
+	}
+	return nil
+}
+
 // connPoll is how often the socket list is read for beacon and first-contact
 // detection. Connections shorter than this can be missed, and a beacon
 // faster than about twice this interval is not scored reliably.
@@ -312,7 +389,10 @@ func (d *Daemon) defenseConnLoop(ctx context.Context) {
 			if prev[key] {
 				continue
 			}
-			d.def.m.NoteConn(d.connApp(s), dst, !first)
+			// with the connection log running, new connections were already
+			// reported when they started: the poll then only feeds first
+			// contact for what it finds
+			d.def.m.NoteConn(d.connApp(s), dst, !first && !d.def.connLogOK.Load())
 		}
 		prev, first = cur, false
 	}
@@ -323,8 +403,9 @@ const synSent = 2
 
 // connApp names the program behind a socket: the cgroup's app, or the single
 // program of a shared cgroup; "" when that cannot be told.
-func (d *Daemon) connApp(s sockets.Socket) string {
-	o := d.sockets.Owner(s.Cgroup)
+func (d *Daemon) connApp(s sockets.Socket) string { return ownerApp(d.sockets.Owner(s.Cgroup)) }
+
+func ownerApp(o sockets.Owner) string {
 	if !o.Shared {
 		return o.Name
 	}

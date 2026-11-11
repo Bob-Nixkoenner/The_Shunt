@@ -289,6 +289,9 @@ type Status struct {
 	Outside *OutsideResult `json:"outside,omitempty"`
 	// Unsupported is set when this platform lacks parts (reason text).
 	Unsupported string `json:"unsupported,omitempty"`
+	// Notes: limits that apply right now (e.g. a sensor fell back to a
+	// slower method).
+	Notes []string `json:"notes,omitempty"`
 }
 
 // SourceInfo is the status of one reputation list.

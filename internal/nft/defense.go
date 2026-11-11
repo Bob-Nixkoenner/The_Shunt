@@ -16,11 +16,24 @@ const DecoySet = "decoy_ports"
 // inbound connections (scan and brute-force observation).
 const DefenseLogGroup = 5302
 
+// DefenseConnLogGroup is the NFLOG group that gets the SYN of every new
+// outgoing TCP connection (beacon and first-contact detection without
+// polling the socket list).
+const DefenseConnLogGroup = 5303
+
+// connLogExemptPorts: NTP, DNS, DHCP/DHCPv6 (the same ports the beacon
+// detection skips anyway).
+const connLogExemptPorts = "53, 67, 68, 123, 546, 547"
+
 // DefenseOpts tunes RenderDefense.
 type DefenseOpts struct {
 	// Log sends new inbound TCP/UDP connections (rate limited) to
 	// DefenseLogGroup so shuntd can count them per source.
 	Log bool
+	// ConnLog sends the SYN of new outgoing TCP connections (rate limited,
+	// 64 bytes of each packet, never loopback, never to the never sets) to
+	// DefenseConnLogGroup.
+	ConnLog bool
 }
 
 // RenderDefense renders the defense table: timed block sets for IPv4 and
@@ -47,6 +60,15 @@ func RenderDefense(o DefenseOpts) string {
 		w("\t\tct state new meta l4proto { tcp, udp } limit rate 300/second burst 100 packets log group %d snaplen 64", DefenseLogGroup)
 	}
 	w("\t}")
+	if o.ConnLog {
+		w("\tchain output {")
+		w("\t\ttype filter hook output priority -10; policy accept;")
+		w("\t\toifname \"lo\" return")
+		w("\t\tip daddr @never4 return")
+		w("\t\tip6 daddr @never6 return")
+		w("\t\ttcp flags & (syn | ack) == syn tcp dport != { %s } limit rate 100/second burst 50 packets log group %d snaplen 64", connLogExemptPorts, DefenseConnLogGroup)
+		w("\t}")
+	}
 	w("}")
 	return b.String()
 }
