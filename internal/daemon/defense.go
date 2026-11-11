@@ -166,6 +166,9 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 	d.def.lastEnv = cur
 	d.def.mu.Unlock()
 	if same {
+		if on && env.DHCPProbe {
+			d.def.sensors.ProbeSoon() // reconnect, gateway MAC change: ask again (throttled)
+		}
 		return
 	}
 	if on {

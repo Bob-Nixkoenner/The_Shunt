@@ -18,3 +18,6 @@ func (s *Sensors) SetEnv(Env) {}
 
 // Stop does nothing on this platform.
 func (s *Sensors) Stop() {}
+
+// ProbeSoon does nothing on this platform.
+func (s *Sensors) ProbeSoon() {}

@@ -33,14 +33,56 @@ type Sensors struct {
 	ifw    *ifaceWatch // interfaces present at the first start
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	kick   chan struct{} // ProbeSoon requests for the running dhcpProbe
+}
+
+// ProbeSoon asks the DHCP probe to run now (gateway MAC change, route or
+// gateway change, reconnect). It is throttled to one send per probeGap and
+// does nothing when the probe is not allowed or not running.
+func (s *Sensors) ProbeSoon() {
+	s.mu.Lock()
+	k := s.kick
+	s.mu.Unlock()
+	if k == nil {
+		return
+	}
+	select {
+	case k <- struct{}{}:
+	default:
+	}
+}
+
+// probeGap is the shortest time between two DHCP probes.
+const probeGap = 20 * time.Second
+
+// probeGate throttles the probe: Allow is true at most once per gap.
+type probeGate struct {
+	gap  time.Duration
+	last time.Time
+	now  func() time.Time
+}
+
+func (g *probeGate) Allow() bool {
+	n := time.Now
+	if g.now != nil {
+		n = g.now
+	}
+	t := n()
+	if !g.last.IsZero() && t.Sub(g.last) < g.gap {
+		return false
+	}
+	g.last = t
+	return true
 }
 
 // SetEnv (re)starts the sensors for the network now in use.
 func (s *Sensors) SetEnv(env Env) {
 	s.Stop()
 	ctx, cancel := context.WithCancel(context.Background())
+	kick := make(chan struct{}, 1)
 	s.mu.Lock()
 	s.cancel = cancel
+	s.kick = kick
 	s.mu.Unlock()
 	run := func(f func()) {
 		s.wg.Add(1)
@@ -53,7 +95,7 @@ func (s *Sensors) SetEnv(env Env) {
 	recheck := make(chan struct{}, 1) // gateway MAC changed: ask the DNS question again now
 	run(func() { s.neighbours(ctx, env, recheck) })
 	run(func() { s.dhcp(ctx, env) })
-	run(func() { s.dhcpProbe(ctx, env) })
+	run(func() { s.dhcpProbe(ctx, env, kick) })
 	run(func() { s.routerAdverts(ctx, env) })
 	run(func() { s.once(ctx, env, recheck) })
 }
@@ -181,6 +223,7 @@ func (s *Sensors) neighbours(ctx context.Context, env Env, recheck chan<- struct
 		}
 		if ev, hit := gw.Feed(a, mac.String()); hit {
 			s.emit(FeatARP, ev)
+			s.ProbeSoon()
 			select {
 			case recheck <- struct{}{}:
 			default:
@@ -268,7 +311,7 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 	}
 	tv := unix.NsecToTimeval(int64(time.Second))
 	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
-	w := newDHCPWatch()
+	w := newDHCPWatchFor(env.GatewayIP)
 	ow := newDHCPOptWatch()
 	buf := make([]byte, 2048)
 	for ctx.Err() == nil {
@@ -304,7 +347,7 @@ func (s *Sensors) dhcp(ctx context.Context, env Env) {
 // machine does not renew its own lease during the watch. It never sends a
 // REQUEST, so no address is taken. Only runs when env.DHCPProbe is set (config
 // dhcp_probe, network class, quiet mode). Needs CAP_NET_RAW.
-func (s *Sensors) dhcpProbe(ctx context.Context, env Env) {
+func (s *Sensors) dhcpProbe(ctx context.Context, env Env, kick <-chan struct{}) {
 	if !s.M.Watching(FeatDHCP) || !env.DHCPProbe {
 		return
 	}
@@ -337,12 +380,20 @@ func (s *Sensors) dhcpProbe(ctx context.Context, env Env) {
 	}
 	t := time.NewTicker(dhcpRepeat)
 	defer t.Stop()
+	gate := &probeGate{gap: probeGap}
+	gate.Allow()
 	for {
 		send()
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
+		for wait := true; wait; {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				gate.Allow()
+				wait = false
+			case <-kick:
+				wait = !gate.Allow() // too soon after the last probe: keep waiting
+			}
 		}
 	}
 }

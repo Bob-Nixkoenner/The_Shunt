@@ -79,6 +79,18 @@ type dhcpWatch struct {
 
 func newDHCPWatch() *dhcpWatch { return &dhcpWatch{servers: map[netip.Addr]bool{}} }
 
+// newDHCPWatchFor starts with the gateway address as the known server, so a
+// single OFFER/ACK from any other address (also one sent to another client,
+// as long as the socket sees it) is already a second server. Without a
+// usable gateway address it behaves like newDHCPWatch.
+func newDHCPWatchFor(gateway string) *dhcpWatch {
+	d := newDHCPWatch()
+	if a, err := netip.ParseAddr(gateway); err == nil {
+		d.servers[a.Unmap()] = true
+	}
+	return d
+}
+
 // Feed takes the server address of one OFFER/ACK.
 func (d *dhcpWatch) Feed(server netip.Addr) (Event, bool) {
 	server = server.Unmap()

@@ -445,3 +445,19 @@ func TestDNSSeriesRetry(t *testing.T) {
 		t.Fatalf("aborted series noted: %+v", got)
 	}
 }
+
+func TestDHCPWatchKnowsGateway(t *testing.T) {
+	w := newDHCPWatchFor("192.0.2.1")
+	if _, hit := w.Feed(netip.MustParseAddr("192.0.2.1")); hit {
+		t.Fatal("gateway is the known server")
+	}
+	ev, hit := w.Feed(netip.MustParseAddr("192.0.2.66"))
+	if !hit || ev.Kind != KindRogueDHCP || ev.Src != "192.0.2.66" {
+		t.Fatalf("%+v %v", ev, hit)
+	}
+	// without a gateway: first server is the baseline
+	w = newDHCPWatchFor("")
+	if _, hit := w.Feed(netip.MustParseAddr("192.0.2.66")); hit {
+		t.Fatal("single server without gateway")
+	}
+}
