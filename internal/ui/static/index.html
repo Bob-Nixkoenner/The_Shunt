@@ -236,6 +236,33 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 .lvitem.na { opacity: .75; }
 .lvitem.na b { font-weight: 600; }
 #lvmodal .row { justify-content: flex-end; }
+/* defense: thermometer, switches, live window */
+.thermo { display: grid; gap: 6px; }
+.thermo .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.thermo .num { font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.thermo .lvl { font-weight: 700; }
+.thermo .track { position: relative; height: 14px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
+.thermo .fill { position: absolute; inset: 0 auto 0 0; border-radius: 7px; transition: width .6s ease, background .6s ease; }
+.thermo .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.thermo .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.thermo.small .num { font-size: 24px; } .thermo.small .track { height: 10px; }
+.heat-quiet { --heat: var(--ok); } .heat-noticed { --heat: var(--accent); } .heat-hot { --heat: var(--warn); } .heat-attack { --heat: var(--bad); }
+.thermo .fill { background: var(--heat); } .thermo .num, .thermo .lvl { color: var(--heat); }
+.deftable td, .deftable th { padding: 6px 8px; vertical-align: middle; }
+.deftable th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; }
+.deftable .sw { text-align: center; width: 76px; }
+.deftable .d { color: var(--muted); font-size: 12px; }
+.evlist { display: grid; gap: 4px; max-height: 340px; overflow-y: auto; }
+.ev { display: grid; grid-template-columns: 62px 10px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 13px; padding: 3px 6px; border-radius: 6px; background: var(--panel2); }
+.ev .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); align-self: center; }
+.ev.s1 .dot { background: var(--info); } .ev.s2 .dot { background: var(--warn); } .ev.s3 .dot { background: var(--bad); }
+.ev .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+.ev .x { overflow-wrap: anywhere; } .ev .x .muted { font-size: 12px; }
+#def-live { position: fixed; right: 16px; bottom: 16px; width: min(360px, calc(100vw - 32px)); z-index: 40; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+#def-live[hidden] { display: none; }
+#def-live .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 700; font-size: 13px; }
+#def-live .evlist { max-height: 180px; }
+.defnote { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 </style>
 </head>
 <body>
@@ -247,7 +274,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   </div>
   <span id="state" class="pill">connecting…</span>
   <span id="defroute" class="muted"></span><span id="leakpill" class="pill" hidden role="button" tabindex="0" title="Result of the last leak test (click: details)"></span>
-  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" data-lv="tab.ports">Ports</button><button id="tab-speed">Speedtest</button><button id="tab-config" data-lv="tab.config">Configure</button><button id="tab-view">View</button></nav>
+  <nav class="tabs"><button id="tab-overview" class="active">Overview</button><button id="tab-vpn">VPN</button><button id="tab-apps">Apps</button><button id="tab-dns">DNS</button><button id="tab-ports" data-lv="tab.ports">Ports</button><button id="tab-defense" data-lv="tab.defense">Defense</button><button id="tab-speed">Speedtest</button><button id="tab-config" data-lv="tab.config">Configure</button><button id="tab-view">View</button></nav>
   <div class="spacer"></div>
   <button id="torall" hidden title="Emergency switch: for when nothing may leave your device except through Tor. Every app goes through Tor, whatever its own route says. Calls and games stop. Turn it off and your routes come back.">All via Tor</button>
   <button id="pass" title="Let everything through (direct, past tunnels and blocks) for 5 minutes, then back by itself">Pass 5 min</button>
@@ -273,6 +300,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <section>
     <h2>Tunnels</h2>
     <div id="tunnels" class="cards"></div>
+  </section>
+
+  <section id="sec-defense" data-lv="tab.defense" hidden>
+    <h2>Defense <span class="muted" style="text-transform:none;letter-spacing:0" id="def-sum"></span><span class="spacer"></span><button id="def-open">Open</button></h2>
+    <div id="def-tile"></div>
   </section>
 
   <section data-fold id="traffic">
@@ -512,6 +544,41 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   </section>
 </main>
 
+<main id="page-defense" hidden>
+  <section>
+    <h2>Heat <span class="spacer"></span><span id="def-class"></span></h2>
+    <div id="def-thermo"></div>
+    <div id="def-notes" class="hint"></div>
+    <div class="row" style="margin-top:10px">
+      <label class="row" style="color:var(--text)"><input type="checkbox" id="def-on"> Defense on</label>
+      <span class="spacer"></span>
+      <label class="muted" for="def-popup">Live window</label>
+      <select id="def-popup"><option value="auto">from Hot upwards</option><option value="always">always on a hit</option><option value="never">never</option></select>
+    </div>
+  </section>
+  <section data-fold>
+    <h2>Switches <span class="muted" style="text-transform:none;letter-spacing:0">watch = notice and report · block = also shut the source out</span></h2>
+    <div data-rows="8"><table class="deftable">
+      <thead><tr><th>What</th><th class="sw">Watch</th><th class="sw">Block</th></tr></thead>
+      <tbody id="def-feats"></tbody>
+    </table></div>
+    <div class="hint">Blocking is off by default: a block can also hit a harmless device. Addresses of your gateway and DNS server are never blocked.</div>
+  </section>
+  <section data-fold>
+    <h2>Blocked addresses <span class="spacer"></span><button id="def-unban-all">Unblock all</button></h2>
+    <div data-rows="4"><table class="deftable"><tbody id="def-bans"></tbody></table></div>
+  </section>
+  <section data-fold>
+    <h2>Events <span class="muted" style="text-transform:none;letter-spacing:0" id="def-evsum"></span></h2>
+    <div id="def-events" class="evlist"></div>
+    <div class="hint">Events stay on this computer; nothing is sent anywhere.</div>
+  </section>
+</main>
+<div id="def-live" hidden role="status" aria-live="polite">
+  <div class="hd"><span id="def-live-title"></span><span class="spacer"></span><button id="def-live-close" aria-label="Close">×</button></div>
+  <div id="def-live-list" class="evlist"></div>
+</div>
+
 <main id="page-speed" hidden>
   <section data-fold>
     <h2>Speedtest <span class="spacer"></span><button id="sp-start">Start</button><button id="sp-cancel" hidden>Cancel</button></h2>
@@ -655,7 +722,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     <div class="form">
       <label for="v-lang">Language</label><select id="v-lang"></select>
       <label for="c-theme">Appearance</label><select id="c-theme"><option value="">follow the system</option><option value="light">light</option><option value="dark">dark</option></select>
-      <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" data-lv="tab.ports">Ports</option><option value="config" data-lv="tab.config">Configure</option><option value="view">View</option></select>
+      <label for="v-start">Open with</label><select id="v-start"><option value="overview">Overview</option><option value="vpn">VPN</option><option value="apps">Apps</option><option value="dns">DNS</option><option value="ports" data-lv="tab.ports">Ports</option><option value="defense" data-lv="tab.defense">Defense</option><option value="config" data-lv="tab.config">Configure</option><option value="view">View</option></select>
     </div>
     <div class="hint">Start at login: in the tray menu (“Start at login”).</div>
   </section>
@@ -694,6 +761,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 <script src="view.js"></script>
 <script src="opsec.js"></script>
 <script src="ports.js"></script>
+<script src="defense.js"></script>
 <script src="speed.js"></script>
 </body>
 </html>

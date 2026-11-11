@@ -18,6 +18,8 @@ const LEVEL_TABLE = {
   // level is chosen, so it must stay: the way back)
   "tab.ports": LV_PRO,
   "tab.config": LV_PRO,
+  // defense (decoys, scan detection, heat gauge): Opsec only
+  "tab.defense": ["opsec"],
   // Tor: existing Tor tunnels stay as a plain card; adding one, bridges,
   // new identity and the emergency switch are Pro (the switch stays visible
   // while it is on, see app.js)

@@ -37,6 +37,11 @@ const OPSEC_ITEMS = [
   { id: "inbound", text: "Incoming connections closed",
     help: "Nothing new reaches this computer from the network or through a tunnel; answers to your own connections pass. Network profiles you trust can open single ports.",
     os: ["linux", "windows"], sets: [[["inbound", "enabled"], true]] },
+  // needs a service with the defense module (the page asks it, defense.js)
+  { id: "defense", text: "Defense: watch for attacks, decoy ports in foreign networks",
+    help: "Watches for scans, spoofed gateways and tampered DNS, lets decoy ports and a fake login catch snoopers, and shows a heat gauge on the Defense tab. Blocking stays off until you switch it on there. Events stay on this computer.",
+    os: ["linux"], sets: [[["defense", "enabled"], true]], requires: () => typeof defSupported === "function" && defSupported(),
+    na: { windows: "Not available on Windows yet." } },
   { id: "clock", text: "Clock check through the tunnel",
     help: "A wrong clock makes tunnel handshakes and certificates fail. The time is asked from web servers through your default route.",
     os: ["windows"], sets: [[["daemon", "clock_check"], true]],
@@ -67,6 +72,7 @@ function cfgPut(m, path, v) {
 }
 // state of an item on this system: "set" (can be switched), "builtin", "na"
 function opsecState(it) {
+  if (it.requires && !it.requires()) return "na";
   if (it.na && it.na[opsecOS()]) return "na";
   if (it.os.includes(opsecOS())) return "set";
   return it.builtin && it.builtin[opsecOS()] ? "builtin" : "na";
@@ -145,7 +151,7 @@ async function opsecOn() {
     box.checked = st !== "na";
     box.disabled = st !== "set";
     if (st === "set" && !on) boxes[it.id] = box;
-    const note = st === "na" ? (it.na && it.na[opsecOS()] ? T(it.na[opsecOS()]) : T("Not available on this system.")) + " " + T(it.help)
+    const note = st === "na" ? (it.na && it.na[opsecOS()] ? T(it.na[opsecOS()]) : it.requires && !it.requires() ? T("Needs a newer service.") : T("Not available on this system.")) + " " + T(it.help)
       : st === "builtin" ? T(it.builtin[opsecOS()])
       : on ? T("Already set.") + " " + T(it.help) : T(it.help);
     if (st === "set" && on) box.disabled = true;
