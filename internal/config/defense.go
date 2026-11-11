@@ -32,6 +32,9 @@ func (c *Config) DefenseConfig() defense.Config {
 	if d.DHCPProbe == "" {
 		d.DHCPProbe = defense.ProbeAuto
 	}
+	if d.DNSProbe == "" {
+		d.DNSProbe = defense.ProbeAuto
+	}
 	return d
 }
 
@@ -42,6 +45,9 @@ func (c *Config) validateDefense() error {
 	}
 	if !defense.ValidProbeMode(d.DHCPProbe) {
 		return fmt.Errorf("defense.dhcp_probe %q (auto, on or off)", d.DHCPProbe)
+	}
+	if !defense.ValidProbeMode(d.DNSProbe) {
+		return fmt.Errorf("defense.dns_probe %q (auto, on or off)", d.DNSProbe)
 	}
 	known := map[string]bool{}
 	for _, n := range defense.AllFeatures {

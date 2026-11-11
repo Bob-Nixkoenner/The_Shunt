@@ -28,6 +28,8 @@ type Env struct {
 	DNS        []string // resolvers the network handed out
 	// DHCPProbe: the active DHCP DISCOVER probe may be sent (see ProbeAllowed).
 	DHCPProbe bool
+	// DNSProbe: the active DNS comparison may query resolvers directly.
+	DNSProbe bool
 }
 
 // gwWatch notices a new MAC for the gateway address (ARP or NDP spoofing).

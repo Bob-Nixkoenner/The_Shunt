@@ -167,6 +167,9 @@ type Config struct {
 	// probe: "auto" (default, "" too) = only in public networks and never
 	// while the quiet mode is on, "on" = always, "off" = never (listen only).
 	DHCPProbe string `json:"dhcp_probe,omitempty" toml:"dhcp_probe,omitempty"`
+	// DNSProbe is the same switch for the active DNS check (queries to the
+	// network's resolvers and to a public resolver outside the tunnel).
+	DNSProbe string `json:"dns_probe,omitempty" toml:"dns_probe,omitempty"`
 }
 
 // DHCP probe modes.
@@ -205,6 +208,7 @@ func DefaultConfig() Config {
 		DecoyPorts: []int{22, 23, 2222, 2323, 80, 443, 445, 3389},
 		BanSeconds: 3600,
 		DHCPProbe:  ProbeAuto,
+		DNSProbe:   ProbeAuto,
 	}
 }
 

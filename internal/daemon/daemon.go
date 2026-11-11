@@ -573,6 +573,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.reload(self); err != nil {
 		return err
 	}
+	d.startDefenseLoops(ctx)
 	go d.filter.Run(ctx)
 	go d.runClockCheck(ctx)
 	go d.applyNetPrivacy()
@@ -2163,9 +2164,13 @@ func (d *Daemon) filterDir() string {
 // downloadClient: blocklist downloads take the default route (and its DNS).
 func (d *Daemon) downloadClient() *http.Client {
 	d.mu.Lock()
-	r := d.plan.DefaultRoute
+	var mark uint32
+	var port int
+	if d.plan != nil && d.plan.DefaultRoute != nil {
+		mark, port = d.plan.DefaultRoute.Mark, d.plan.DefaultRoute.DNSPort
+	}
 	d.mu.Unlock()
-	return dnsproxy.RouteHTTPClient(r.Mark, r.DNSPort)
+	return dnsproxy.RouteHTTPClient(mark, port)
 }
 
 // ruleRoute names the route of rule r; a rule that only sets a DNS filter

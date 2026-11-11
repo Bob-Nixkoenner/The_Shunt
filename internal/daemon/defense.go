@@ -39,6 +39,7 @@ type defenseState struct {
 	logStop  func() // stops the packet log reader
 	lastEnv  string // class/key/enabled the sensors run for
 
+	loops   atomic.Bool   // background loops were started
 	tlsBusy atomic.Bool   // a certificate check is running
 	tlsSoon chan struct{} // a new network: check again soon
 }
@@ -61,6 +62,17 @@ func (d *Daemon) startDefense(ctx context.Context) {
 		<-ctx.Done()
 		d.stopDefense()
 	}()
+}
+
+// startDefenseLoops starts the background work; only called once the daemon
+// has started (config applied, plan in place).
+func (d *Daemon) startDefenseLoops(ctx context.Context) {
+	if d.def.m == nil {
+		return
+	}
+	if !d.def.loops.CompareAndSwap(false, true) {
+		return
+	}
 	go d.defenseLoops(ctx)
 	go d.defenseConnLoop(ctx)
 	go d.defenseTLSLoop(ctx)
@@ -131,10 +143,11 @@ func (d *Daemon) defenseNetwork(info netdetect.Info) {
 	}
 	mode := cfg.DefenseConfig().DHCPProbe
 	env.DHCPProbe = defense.ProbeAllowed(mode, class, quiet)
+	env.DNSProbe = defense.ProbeAllowed(cfg.DefenseConfig().DNSProbe, class, quiet)
 	d.def.m.SetNever(never)
 	d.defenseNever(never)
 	on := cfg.DefenseConfig().Enabled
-	cur := defNetKey(info) + "|" + string(class) + "|" + strconv.FormatBool(on) + "|" + strconv.FormatBool(env.DHCPProbe)
+	cur := defNetKey(info) + "|" + string(class) + "|" + strconv.FormatBool(on) + "|" + strconv.FormatBool(env.DHCPProbe) + strconv.FormatBool(env.DNSProbe)
 	d.def.mu.Lock()
 	same := cur == d.def.lastEnv
 	d.def.lastEnv = cur

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
@@ -100,5 +102,35 @@ func TestDefenseNetworkKeyAndClass(t *testing.T) {
 	c := &config.Config{Networks: []config.Network{{Name: "home", SSID: []string{"x"}, Class: "trusted"}}}
 	if c.NetClass(info) != defense.ClassTrusted || c.NetClass(netdetect.Info{SSID: "other"}) != defense.ClassPublic {
 		t.Fatal("class")
+	}
+}
+
+// A failed start (no plan yet, e.g. config error) must not start the loops
+// and must not crash downloadClient.
+func TestDefenseStartFailureNoLoops(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	d := &Daemon{Log: log, ConfigPath: t.TempDir() + "/shunt.toml", cfg: &config.Config{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	d.startDefense(ctx)
+	if d.downloadClient() == nil {
+		t.Fatal("nil client")
+	}
+	if d.def.loops.Load() {
+		t.Fatal("loops started before a successful start")
+	}
+	if st := d.defenseStatus(); st.Enabled {
+		t.Fatal("defense must stay off")
+	}
+	d.startDefenseLoops(ctx)
+	d.startDefenseLoops(ctx) // idempotent
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestInvalidDefenseConfigRejected(t *testing.T) {
+	for _, bad := range []string{"[defense]\nenabled = true\ndns_probe = \"x\"\n", "[defense]\nenabled = true\ndhcp_probe = \"x\"\n"} {
+		if _, err := config.Parse(bad); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
 	}
 }

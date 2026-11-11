@@ -85,6 +85,8 @@ route = "tunnel:vps"
 # tls_targets = ["api.github.com", "www.wikipedia.org"]  # public sites for the tls feature (the default)
 # dhcp_probe  = "auto"            # active DHCP DISCOVER to find rogue servers: auto (public networks, not in
 #                                 # quiet mode) | on (always) | off (listen only, send nothing)
+# dns_probe   = "auto"            # same switch for the active DNS check (asks the network resolver and a
+#                                 # public resolver directly, outside the tunnel)
 # [defense.features.scan]         # features: decoy tarpit cowrie scan brute reputation first_seen
 # watch = true                    #   arp dhcp dns tls beacon dns_tunnel evil_twin
 # block = true                    # block = also drop the source (nft table shunt_defense)

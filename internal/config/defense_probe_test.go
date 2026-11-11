@@ -23,3 +23,21 @@ func TestDefenseDHCPProbe(t *testing.T) {
 		t.Error("bad value accepted")
 	}
 }
+
+func TestDefenseDNSProbe(t *testing.T) {
+	c := &Config{Defense: &defense.Config{Enabled: true}}
+	if got := c.DefenseConfig().DNSProbe; got != defense.ProbeAuto {
+		t.Errorf("default %q", got)
+	}
+	c.Defense.DNSProbe = "off"
+	if got := c.DefenseConfig().DNSProbe; got != "off" {
+		t.Errorf("kept %q", got)
+	}
+	if err := c.validateDefense(); err != nil {
+		t.Error(err)
+	}
+	c.Defense.DNSProbe = "maybe"
+	if c.validateDefense() == nil {
+		t.Error("bad value accepted")
+	}
+}

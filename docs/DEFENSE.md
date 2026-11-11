@@ -55,6 +55,10 @@ profile, counts as `public`.
   networks you would rather keep silent); `off` = never, listen only. The Defense tab has the same choice.
   The daemon decides at network join and when the config changes (`defense.ProbeAllowed`); the nft
   `quiet_out` chain itself is not consulted, as AF_PACKET frames bypass it.
+  The DNS comparison is an active probe as well: it asks `dns.google` and `one.one.one.one` at the
+  network's resolver and at 9.9.9.9 directly (outside the tunnel). `defense.dns_probe` (`auto` / `on` /
+  `off`) works exactly like `dhcp_probe`; when it is not allowed, only the passive gateway-MAC watch
+  runs (the DoH reference over the default route is not sent into the local network).
   Features missing from `[defense.features.*]` keep their default (watch on, block off).
 - Reputation lists (abuse.ch, CC0) are fetched twice a day while the `reputation` feature is on;
   the cache is `<cache dir>/defense`.

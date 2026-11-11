@@ -119,7 +119,7 @@ func (s *Sensors) once(ctx context.Context, env Env, recheck <-chan struct{}) {
 
 // dnsRound runs the DNS comparison once and reports new findings.
 func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce) {
-	if !s.M.Watching(FeatDNS) {
+	if !s.M.Watching(FeatDNS) || !env.DNSProbe {
 		return
 	}
 	c := s.DNS

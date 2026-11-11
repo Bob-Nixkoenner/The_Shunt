@@ -210,7 +210,7 @@ function renderDefense() {
     const block = el("input", { type: "checkbox", "aria-label": T("Block") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: f.watch, block: block.checked }) });
     watch.checked = !!f.watch; block.checked = !!f.block && !!f.watch; block.disabled = !f.watch || !on;
     watch.disabled = !on;
-    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
+    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
   }));
   renderDefSources(on);
   // bans
@@ -322,15 +322,15 @@ $("#def-live-close").addEventListener("click", () => { $("#def-live").hidden = t
 
 // defProbeChoice: the active DHCP probe sends a request into the network, so
 // it has its own choice (auto = public networks only, never in quiet mode)
-function defProbeChoice(on) {
-  const cur = (defSt.config && defSt.config.dhcp_probe) || "auto";
-  const sel = el("select", { "aria-label": T("Active DHCP check"), onchange: () => {
+function defProbeChoice(on, key, label) {
+  const cur = (defSt.config && defSt.config[key]) || "auto";
+  const sel = el("select", { "aria-label": T(label), onchange: () => {
     const cfg = JSON.parse(JSON.stringify(defSt.config));
-    cfg.dhcp_probe = sel.value;
+    cfg[key] = sel.value;
     defSend(cfg);
   } }, ...[["auto", T("Automatic")], ["on", T("On")], ["off", T("Off")]].map(([v, t]) => el("option", { value: v }, t)));
   sel.value = cur; sel.disabled = !on;
-  return el("div", { class: "d defprobe" }, T("Active DHCP check"), ": ", sel, " ",
+  return el("div", { class: "d defprobe" }, T(label), ": ", sel, " ",
     T("sends a request into the network, so by default only in public networks"));
 }
 
