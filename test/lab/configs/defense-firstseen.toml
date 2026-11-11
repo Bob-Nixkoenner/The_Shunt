@@ -1,0 +1,19 @@
+# Lab: defense on, first-contact feature (first_seen) watching. Everything direct (R07 contacts unrouted test addresses).
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[inbound]
+enabled = true
+
+[defense]
+enabled = true
+decoy_ports = [23, 80, 445, 3389]
+dhcp_probe = "off"
+dns_probe = "off"
+
+[defense.features.first_seen]
+watch = true

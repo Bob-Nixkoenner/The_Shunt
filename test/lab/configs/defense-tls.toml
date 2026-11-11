@@ -1,0 +1,24 @@
+# Lab: defense on, certificate check (feature tls) against a lab name instead of the public default targets.
+# The name resolves via the client's /etc/hosts to the attacker VM (R08 sets that entry); no real names here.
+# Everything direct: the lab LAN is not reachable through the tunnel.
+[daemon]
+socket_group = "shunt"
+default_route = "direct"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[inbound]
+enabled = true
+
+[defense]
+enabled = true
+decoy_ports = [23, 80, 445, 3389]
+dhcp_probe = "off"
+dns_probe = "off"
+tls_targets = ["shunt-tls.lab.test"]
+
+[defense.features.tls]
+watch = true
+[defense.features.first_seen]
+watch = false

@@ -74,6 +74,11 @@ keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). 
   set `CLIENT_RC_OK=1` in a test that ends non-zero on purpose.
 - Before `lab.sh run` the build check compares the commit embedded in the client's `shuntd` (`vcs.revision`) with
   `git rev-parse --short HEAD` and warns about a mismatch (`BUILD_CHECK=strict` stops, `off` skips): rebuild after every commit.
+- R07 (first_seen): the learning phase (10 min) is a constant in `internal/defense`, no switch: the test waits
+  `FIRSTSEEN_LEARN_SECS` (default 660). Config `defense-firstseen.toml`.
+- R08 (tls): Kali serves a lab name with a certificate of test CA A, then of test CA B (`attacker/tlsmitm.sh`);
+  config `defense-tls.toml` (`shunt-tls.lab.test` via the client's `/etc/hosts`). The pin of CA A is written by the test;
+  the real first pin (trusted network / second path) is not covered.
 - `dnsname:<name>` in `ALLOW` allows DNS queries for exactly that name. The defense's active DNS check asks `dns.google` and
   `one.one.one.one` (at the network's resolver and at 9.9.9.9), so Q01/Q02/R01-R06 allow them; Q03 runs with
   `defense.dns_probe = off` and must NOT see them.
