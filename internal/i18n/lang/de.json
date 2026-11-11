@@ -1516,6 +1516,8 @@
   "{app} contacted {target} for the first time": "{app} hat {target} zum ersten Mal kontaktiert",
   "(+{n} more not listed)": "(+{n} weitere nicht aufgelistet)",
   "{app} connects here about every {interval} (regularity {score})": "{app} verbindet sich etwa alle {interval} hierhin (Gleichmäßigkeit {score})",
+  "TLS fingerprint {ja3} is on the list {list}": "Der TLS-Fingerabdruck {ja3} steht auf der Liste {list}",
+  "On the list {list}": "Steht auf der Liste {list}",
   "Unusual lookups under {domain}: long random names (score {score}, {n} queries in {w} s)": "Auffällige Abfragen unter {domain}: lange, zufällige Namen (Wert {score}, {n} Abfragen in {w} s)",
   "The certificate issuer of {target} differs from the one remembered earlier": "Der Zertifikat-Aussteller von {target} weicht vom früher gemerkten ab",
   "Two network paths to {target} show different certificate issuers": "Zwei Netzwege zu {target} zeigen verschiedene Zertifikat-Aussteller",

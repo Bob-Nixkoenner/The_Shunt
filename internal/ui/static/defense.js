@@ -101,6 +101,10 @@ function defDetail(e) {
     if (d.includes("two ways")) return T("Two network paths to {target} show different certificate issuers", { target: kv.target });
     if (d.includes("not trusted")) return T("The certificate chain of {target} is not trusted by this system", { target: kv.target });
   }
+  if (e.kind === "reputation" && kv.list) {
+    const nm = (defSrcText()[kv.list] || [kv.list])[0];
+    return kv.ja3 ? T("TLS fingerprint {ja3} is on the list {list}", { ja3: kv.ja3, list: nm }) : T("On the list {list}", { list: nm });
+  }
   return d;
 }
 

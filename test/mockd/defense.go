@@ -42,6 +42,8 @@ func newMockDefense() *mockDefense {
 	for i := 0; i < 6; i++ {
 		m.add(time.Now().Add(-time.Duration(90-i*12)*time.Second), m.pick())
 	}
+	m.add(time.Now().Add(-20*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=feodo"})
+	m.add(time.Now().Add(-10*time.Second), defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh, Src: "192.0.2.17", Port: 443, Proto: "tcp", Detail: "list=sslbl_ja3 ja3=e7d705a3286e19ea42f587b344ee6865"})
 	return m
 }
 
