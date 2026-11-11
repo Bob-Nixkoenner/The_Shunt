@@ -4,7 +4,10 @@ package daemon
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 )
@@ -24,3 +27,14 @@ func (d *Daemon) defenseConnLoop(context.Context) {}
 
 // defenseTLSLoop: the certificate check is Linux-only for now.
 func (d *Daemon) defenseTLSLoop(context.Context) {}
+
+// outsideHTTP: no packet marks here; the check goes out the normal way.
+func (d *Daemon) outsideHTTP(network string) *http.Client {
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	return &http.Client{Timeout: defense.OutsideTimeout, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
+		DisableKeepAlives: true,
+	}}
+}

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -12,10 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	nflog "github.com/florianl/go-nflog/v2"
 	"github.com/miekg/dns"
+	"golang.org/x/sys/unix"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
@@ -382,4 +385,27 @@ func (d *Daemon) defenseTLSLoop(ctx context.Context) {
 		d.tlsCheck(ctx)
 		t.Reset(defense.TLSInterval)
 	}
+}
+
+// outsideHTTP reaches the outside-check server over one address family,
+// directly on the physical link (bypass mark): the check must see this
+// machine's own public address, not a tunnel exit.
+func (d *Daemon) outsideHTTP(network string) *http.Client {
+	dialer := &net.Dialer{Timeout: 15 * time.Second, Control: func(_, _ string, c syscall.RawConn) error {
+		var serr error
+		if err := c.Control(func(fd uintptr) {
+			serr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, int(engine.MarkBypass))
+		}); err != nil {
+			return err
+		}
+		return serr
+	}}
+	return &http.Client{Timeout: defense.OutsideTimeout, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout: 15 * time.Second,
+		DisableKeepAlives:   true,
+	}}
 }

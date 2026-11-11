@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ type Manager struct {
 	key    string
 	class  Class
 	expo   Exposure
+	out    *OutsideResult
 
 	aggMu      sync.Mutex
 	agg        map[aggKey]*aggEntry
@@ -372,7 +374,7 @@ func (m *Manager) Status() Status {
 	cfg, class, expo := m.cfg, m.class, m.expo
 	m.mu.Unlock()
 	heat := m.therm.Heat()
-	return Status{Enabled: cfg.Enabled, Class: class, Exposed: expo, Heat: heat, Level: LevelFor(heat),
+	return Status{Enabled: cfg.Enabled, Class: class, Exposed: expo, Outside: m.outside(), Heat: heat, Level: LevelFor(heat),
 		Decoys: m.dec.Ports(), Bans: m.bans.List(), Counts: m.therm.Counts(),
 		LastSeq: m.ring.LastSeq(), Config: cfg, Sources: m.sourceInfo(cfg)}
 }
@@ -420,3 +422,41 @@ var _ Engine = (*Manager)(nil)
 // Watching reports whether feature name is switched on for detection (and
 // the defense as a whole is enabled).
 func (m *Manager) Watching(name string) bool { return m.feature(name).Watch }
+
+// SetOutside records the result of an outside check (shown in the status)
+// and reports it: severity high when ports answer from the internet.
+func (m *Manager) SetOutside(r OutsideResult) {
+	m.mu.Lock()
+	m.out = &r
+	m.mu.Unlock()
+	var parts []string
+	for _, c := range r.Checks {
+		switch {
+		case c.Error != "":
+			parts = append(parts, c.Family+"=error")
+		case len(c.Open) == 0:
+			parts = append(parts, c.Family+"=none")
+		default:
+			l := make([]string, len(c.Open))
+			for i, p := range c.Open {
+				l[i] = strconv.Itoa(p)
+			}
+			parts = append(parts, c.Family+"="+strings.Join(l, ","))
+		}
+	}
+	sev := SevInfo
+	if r.OpenCount() > 0 {
+		sev = SevHigh
+	}
+	m.Report(Event{Kind: KindOutside, Severity: sev, Detail: "open " + strings.Join(parts, " ")})
+}
+
+func (m *Manager) outside() *OutsideResult {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.out == nil {
+		return nil
+	}
+	c := *m.out
+	return &c
+}

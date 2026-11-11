@@ -267,6 +267,8 @@ type Status struct {
 	Config  Config       `json:"config"`
 	// Sources is the state of every list (also the ones that are off).
 	Sources []SourceInfo `json:"sources"`
+	// Outside is the last outside check (nil = none yet).
+	Outside *OutsideResult `json:"outside,omitempty"`
 	// Unsupported is set when this platform lacks parts (reason text).
 	Unsupported string `json:"unsupported,omitempty"`
 }
@@ -301,6 +303,8 @@ type Engine interface {
 	SetNetwork(key string, class Class)
 	// SetExposure tells the engine whether the uplink has a public address.
 	SetExposure(e Exposure)
+	// SetOutside records an outside-check result.
+	SetOutside(r OutsideResult)
 	Configure(cfg Config)
 	Status() Status
 	Events(since uint64) EventsResponse

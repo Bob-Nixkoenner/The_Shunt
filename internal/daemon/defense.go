@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"path/filepath"
@@ -39,9 +40,10 @@ type defenseState struct {
 	logStop  func() // stops the packet log reader
 	lastEnv  string // class/key/enabled the sensors run for
 
-	loops   atomic.Bool   // background loops were started
-	tlsBusy atomic.Bool   // a certificate check is running
-	tlsSoon chan struct{} // a new network: check again soon
+	loops       atomic.Bool   // background loops were started
+	tlsBusy     atomic.Bool   // a certificate check is running
+	outsideBusy atomic.Bool   // an outside check is running
+	tlsSoon     chan struct{} // a new network: check again soon
 }
 
 func (d *Daemon) defIface() string {
@@ -288,6 +290,23 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/defense/outside-scan", func(w http.ResponseWriter, r *http.Request) {
+		// asks a server of the user's own to connect back: managing
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		res, err := d.outsideScan(r.Context(), d.outsideHTTP)
+		if err != nil {
+			code := http.StatusConflict
+			if errors.Is(err, errOutsideBusy) {
+				code = http.StatusTooManyRequests
+			}
+			writeErr(w, code, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, res)
+	})
 	mux.HandleFunc("POST /v1/defense/unban", func(w http.ResponseWriter, r *http.Request) {
 		// lifting a block weakens the protection: managing
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
@@ -299,10 +318,13 @@ func (d *Daemon) defenseRoutes(mux *http.ServeMux) {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		if req.Src != "" {
-			if _, err := netip.ParseAddr(strings.TrimSpace(req.Src)); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
-				return
+		if req.Src != "" { // an address, or a range the defense blocked as a whole
+			src := strings.TrimSpace(req.Src)
+			if _, err := netip.ParseAddr(src); err != nil {
+				if _, err2 := netip.ParsePrefix(src); err2 != nil {
+					writeErr(w, http.StatusBadRequest, err)
+					return
+				}
 			}
 		}
 		if d.def.m != nil {
@@ -353,4 +375,38 @@ func (d *Daemon) defenseLoops(ctx context.Context) {
 			t.Reset(time.Minute)
 		}
 	}
+}
+
+var errOutsideBusy = errors.New("an outside check is already running")
+
+// outsideScan runs the outside check against the configured server (only
+// for the families the uplink has a public address in) and records it.
+func (d *Daemon) outsideScan(ctx context.Context, clientFor func(string) *http.Client) (defense.OutsideResult, error) {
+	if d.def.m == nil {
+		return defense.OutsideResult{}, errors.New("defense is not available")
+	}
+	if !d.def.outsideBusy.CompareAndSwap(false, true) {
+		return defense.OutsideResult{}, errOutsideBusy
+	}
+	defer d.def.outsideBusy.Store(false)
+	st := d.def.m.Status()
+	res, err := defense.OutsideScan(ctx, st.Config.OutsideScan, st.Exposed, clientFor, ownAddr)
+	if err != nil {
+		return res, err
+	}
+	d.def.m.SetOutside(res)
+	return res, nil
+}
+
+// ownAddr reports whether a is an address of one of this machine's interfaces.
+func ownAddr(a netip.Addr) bool {
+	as, _ := net.InterfaceAddrs()
+	for _, x := range as {
+		if n, ok := x.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap() == a.Unmap() {
+				return true
+			}
+		}
+	}
+	return false
 }
