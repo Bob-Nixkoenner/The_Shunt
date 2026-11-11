@@ -272,11 +272,12 @@ c["apps"] = {}; c["default"] = "tunnel:home"; c["networks"] = []
 json.dump(c, open(p, "w"))
 PY7
 $ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
-$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
-sleep 1
-toggle; wait_vpn down || true
+# the screen reads level and defense only when the app starts: swap the file while it is stopped
+$ADB shell am force-stop $PKG
 $ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
-toggle; wait_vpn up || true
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+vpn_up || { toggle; wait_vpn up || true; } # always-on usually has started it already
 sleep 6
 # 40 long random names under one base domain, all through the Shunt's DNS proxy (what a DNS tunnel looks like)
 for _ in $(seq 40); do
