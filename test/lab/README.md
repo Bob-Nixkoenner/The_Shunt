@@ -67,6 +67,14 @@ keys). Without `LAB_VPN_DIR` the lab looks in `test/lab/vpn/` (ignored by git). 
 
 - `lab.sh kali-sync` copies `attacker/` to `~/attacker/` on Kali and makes the scripts executable; the R tests call
   `kali_sync` themselves before they start an attack (a stale or non-executable copy was a cause of silent R-test failures).
+- R02 (`brute-telnet-ssh.sh`) uses `attacker/brute.py`, a small standard-library Python 3 script, instead of Hydra:
+  Hydra hangs against the telnet decoy's correct IAC option negotiation. The SSH part needs `python3-paramiko` on
+  Kali (`apt install python3-paramiko`); without it, `brute.py ssh` prints that and exits non-zero, but the telnet
+  part still runs. `brute.py selftest` runs a self-check against a local mini telnet server (and reports whether
+  paramiko is present) without touching the lab network.
+- `attacker/common.sh`'s `pick HOST PORT...` picks the first candidate port that actually accepts a TCP connect
+  (`nc -z` or `/dev/tcp`, short timeout), not just the first one in the list; it returns non-zero and prints nothing
+  when none of the candidates answer, so a caller that does not check the exit code is a bug, not a feature.
 - Kali gets a fixed address outside the DHCP pool: set `KALI_IP` (see `local.env.example`) and run `lab.sh kali-net`.
   `gw-setup` writes it to `/etc/shuntlab/kali_ip`, and `labctl client` never returns Kali (by address or host name `kali*`).
 - `PREP` and `CLIENT` of a test run in the client VM, not on the laptop: laptop functions and variables are not there.
