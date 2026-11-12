@@ -145,7 +145,7 @@ func TestManagerJA3Hit(t *testing.T) {
 	cfg.DecoyPorts = []int{443}
 	cfg.Features[FeatReputation] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.SetNetwork("k", ClassPublic)
+	m.SetNetwork("k", ClassUnknown)
 	hello := buildHello(0x0303, []uint16{0x1301}, [][2]any{{uint16(10), []byte{0, 2, 0, 29}}})
 	_, h, _ := JA3(hello)
 	for i := 0; i < 2; i++ {
@@ -207,7 +207,7 @@ func TestReportOnlyListDoesNotBan(t *testing.T) {
 	cfg.Enabled = true
 	cfg.Features[FeatReputation] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.SetNetwork("k", ClassPublic)
+	m.SetNetwork("k", ClassUnknown)
 	m.Reputation().SetList("et_compromised", ParseList(strings.NewReader("192.0.2.9\n")), time.Time{})
 	m.Reputation().SetList("feodo", ParseList(strings.NewReader("192.0.2.10\n")), time.Time{})
 	m.CheckPeer(netip.MustParseAddr("192.0.2.9"), 0, "tcp")

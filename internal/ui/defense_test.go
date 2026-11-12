@@ -29,7 +29,7 @@ func fakeDaemon(t *testing.T) (sock string, got *[]string) {
 	rec := []string{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/defense", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(defense.Status{Enabled: true, Class: defense.ClassPublic, Heat: 42, Level: defense.LevelNoticed})
+		json.NewEncoder(w).Encode(defense.Status{Enabled: true, Class: defense.ClassUnknown, Heat: 42, Level: defense.LevelNoticed})
 	})
 	mux.HandleFunc("/v1/defense/events", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()

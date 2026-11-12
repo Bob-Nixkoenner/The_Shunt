@@ -28,7 +28,7 @@ func enabledManager(t *testing.T, mods ...func(*Config)) (*Manager, *fakeClock) 
 		f(&cfg)
 	}
 	m.Configure(cfg)
-	m.SetNetwork("net-test", ClassPublic)
+	m.SetNetwork("net-test", ClassUnknown)
 	return m, clk
 }
 

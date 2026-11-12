@@ -87,7 +87,7 @@ data class Settings(
     val opsecUndo: Map<String, Boolean> = emptyMap(),
     /** The defense watcher (Max Security): off by default, see Defense.kt. */
     val defense: Boolean = false,
-    /** Network class per kind of network ("wifi", "mobile"): trusted, public or managed; unknown = public. */
+    /** Network class per kind of network ("wifi", "mobile"): unknown, unsafe or safe; not rated = unknown. */
     val netClasses: Map<String, String> = emptyMap(),
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
@@ -212,7 +212,7 @@ data class Settings(
                 level = Level.from(o.optString("level").ifEmpty { null }, if (o.has("pro")) o.optBoolean("pro") else null),
                 strictCheck = o.optBoolean("strict_check", false),
                 defense = o.optBoolean("defense", false),
-                netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { u.optString(it) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
+                netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { Defense.migrate(u.optString(it)) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }

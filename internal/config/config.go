@@ -120,18 +120,19 @@ type Network struct {
 	// InboundAllow the ports "lan" lets in (nil = inbound.allow).
 	Inbound      string   `toml:"inbound,omitempty" json:"inbound,omitempty"`
 	InboundAllow []string `toml:"inbound_allow,omitempty" json:"inbound_allow,omitempty"`
-	// Class tells the defense how far this network is trusted: trusted |
-	// public | managed ("" = public).
+	// Class tells the defense how far this network is trusted: unknown |
+	// unsafe | safe ("" = unknown). The old values still work: public =
+	// unknown, trusted and managed = safe.
 	Class string `toml:"class,omitempty" json:"class,omitempty"`
 }
 
 // NetClass returns the defense class of the network described by info: the
-// class of the matching [[network]] profile, public for an unknown network.
+// class of the matching [[network]] profile, unknown for an unrated network.
 func (c *Config) NetClass(info netdetect.Info) defense.Class {
 	if n := c.MatchNetwork(info.SSID, info.GatewayMAC); n != nil {
 		return defense.Class(n.Class).Normalize()
 	}
-	return defense.ClassPublic
+	return defense.ClassUnknown
 }
 
 // DNSSystem as a network's dns_direct: the network's own resolvers (DHCP).
@@ -638,7 +639,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%s: dhcp_hostname %q (none | send)", where, n.DHCPHostname)
 		}
 		if n.Class != "" && !defense.Class(n.Class).Valid() {
-			return fmt.Errorf("%s: class %q (trusted | public | managed)", where, n.Class)
+			return fmt.Errorf("%s: class %q (unknown | unsafe | safe; the old public | trusted | managed still work)", where, n.Class)
 		}
 		if !validMAC(n.MAC) {
 			return fmt.Errorf("%s: mac %q (random | stable | permanent)", where, n.MAC)

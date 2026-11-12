@@ -72,9 +72,11 @@ route = "tunnel:vps"
 
 # Defense (off by default): decoy ports, scan/brute-force detection, bad-IP
 # lists and a heat gauge. Events stay on this machine; nothing is sent anywhere.
-# Which networks get decoys is set per network: [[network]] class = "trusted"
-# (home: quiet) | "public" (default, also every unknown network: decoys on) |
-# "managed" (employer: watch only, no decoys). Ports below 1024 need
+# Which networks get decoys is set per network: [[network]] class = "safe"
+# (home or work: quiet, no decoys) | "unknown" (default, also every network
+# without a profile: decoys on, find out) | "unsafe" (cafe, hotel: decoys on and
+# blocks for scans, brute force and bad lists on; defense.unsafe_block = false
+# turns the blocks off). The old public | trusted | managed still work. Ports below 1024 need
 # CAP_NET_BIND_SERVICE (set in shuntd.service); a port that something else
 # already uses is skipped.
 # [defense]
@@ -86,7 +88,7 @@ route = "tunnel:vps"
 #                                 # true: block on packets alone
 # never       = ["192.0.2.0/24"]  # never blocked (gateway, DNS and login page are added by themselves)
 # tls_targets = ["api.github.com", "www.wikipedia.org"]  # public sites for the tls feature (the default)
-# dhcp_probe  = "auto"            # active DHCP DISCOVER to find rogue servers: auto (public networks, not in
+# dhcp_probe  = "auto"            # active DHCP DISCOVER to find rogue servers: auto (not in safe networks, not in
 #                                 # quiet mode) | on (always) | off (listen only, send nothing)
 # dns_probe   = "auto"            # same switch for the active DNS check (asks the network resolver and a
 #                                 # public resolver directly, outside the tunnel)

@@ -76,7 +76,7 @@ func TestFirstSeenLearnThenReport(t *testing.T) {
 		cfg := DefaultConfig()
 		cfg.Enabled = true
 		m.Configure(cfg)
-		m.SetNetwork("n", ClassPublic)
+		m.SetNetwork("n", ClassUnknown)
 		return m
 	}
 	m := mk()
@@ -218,7 +218,7 @@ func TestFirstSeenSkipsOwnApps(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
 	m.Configure(cfg)
-	m.SetNetwork("n", ClassPublic)
+	m.SetNetwork("n", ClassUnknown)
 	m.NoteConn("firefox", ap("198.51.100.10:443"), true)
 	clk.Add(firstSeenLearn + time.Second)
 	m.NoteConn("shuntd", ap("192.0.2.50:443"), true)

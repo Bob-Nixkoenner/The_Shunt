@@ -16,7 +16,9 @@ const DEF_LEVELS = ["quiet", "noticed", "hot", "attack"];
 function defSupported() { return !!defSt; }
 
 const defLevelText = () => ({ quiet: T("Quiet"), noticed: T("Noticed"), hot: T("Hot"), attack: T("Attack") });
-const defClassText = () => ({ trusted: T("Trusted network"), public: T("Public network"), managed: T("Managed network") });
+const defClassText = () => ({ unknown: T("Unclear network"), unsafe: T("Unsafe network"), safe: T("Safe network"),
+  public: T("Unclear network"), trusted: T("Safe network"), managed: T("Safe network") }); // the last three: lines of older versions
+const defClassId = (c) => ({ public: "unknown", trusted: "safe", managed: "safe" })[c] || (["unknown", "unsafe", "safe"].includes(c) ? c : "unknown");
 const defKindText = () => ({
   decoy_hit: T("Decoy port hit"), tarpit: T("Held in the tarpit"), cowrie: T("Login attempt on fake service"),
   scan: T("Port scan"), brute_force: T("Brute force"), reputation: T("Known bad address"), first_seen: T("New destination"),
@@ -29,7 +31,7 @@ const defKindText = () => ({
 // what each switch does: [name, one line]
 // [name, what it watches, what on/off means for a beginner]
 const defFeatText = () => ({
-  decoy: [T("Decoy ports"), T("Fake services on common ports (not in trusted or managed networks)."), T("On: fake services on common ports catch snoopers. Off: no fake ports open.")],
+  decoy: [T("Decoy ports"), T("Fake services on common ports (not in safe networks)."), T("On: fake services on common ports catch snoopers. Off: no fake ports open.")],
   tarpit: [T("Tarpit"), T("Holds scanners in slow connections."), T("On: scanners get stuck in very slow connections. Off: they are turned away at once.")],
   cowrie: [T("Fake login"), T("A fake service records login attempts."), T("On: a fake login records what intruders type. Off: no fake login.")],
   scan: [T("Port scans"), T("Many ports from one source."), T("On: you learn when someone probes many ports. Off: scans go unnoticed.")],
@@ -298,13 +300,15 @@ function renderDefense() {
   }
   $("#def-on").disabled = false;
   $("#def-on").checked = !!defSt.enabled;
-  $("#def-class").replaceChildren(el("span", { class: "pill " + (defSt.class === "trusted" ? "ok" : defSt.class === "managed" ? "" : "warn"), title: T("Set by the network profile; an unknown network counts as public") },
-    defClassText()[defSt.class] || defClassText().public));
+  $("#def-class").replaceChildren(el("span", { class: "pill " + (defClassId(defSt.class) === "safe" ? "ok" : defClassId(defSt.class) === "unsafe" ? "bad" : "warn"), title: T("Set by the network profile; a network without one is unclear") },
+    defClassText()[defSt.class] || defClassText().unknown), " ", defClassPicker());
   const notes = [];
   if (!on) notes.push(T("Defense is off: nothing is watched, no decoys run."));
-  else if (defSt.class === "trusted") notes.push(T("Trusted network: no decoys, quiet warnings only."));
-  else if (defSt.class === "managed") notes.push(T("Managed network: watching only, no decoys."));
-  else if ((defSt.decoys || []).length) notes.push(T("Decoys listen on: {ports}", { ports: defSt.decoys.join(", ") }));
+  else if (defClassId(defSt.class) === "safe") notes.push(T("Safe network: no decoys, quiet warnings only."));
+  else {
+    if (defClassId(defSt.class) === "unsafe" && (!defSt.config || defSt.config.unsafe_block !== false)) notes.push(T("Unsafe network: blocking of scans, brute force and bad lists is on while you are here."));
+    if ((defSt.decoys || []).length) notes.push(T("Decoys listen on: {ports}", { ports: defSt.decoys.join(", ") }));
+  }
   if (defSt.unsupported) notes.push(defSt.unsupported);
   // the switches, lists and blocks exist only where the defense runs
   // (Linux): elsewhere they are not shown at all, the note above says why
@@ -499,7 +503,7 @@ function defBanChoice(on, f) {
 }
 
 // defProbeChoice: the active DHCP probe sends a request into the network, so
-// it has its own choice (auto = public networks only, never in quiet mode)
+// it has its own choice (auto = not in safe networks, never in quiet mode)
 function defProbeChoice(on, key, label) {
   const cur = (defSt.config && defSt.config[key]) || "auto";
   const sel = el("select", { "aria-label": T(label), onchange: () => {
@@ -509,7 +513,7 @@ function defProbeChoice(on, key, label) {
   } }, ...[["auto", T("Automatic")], ["on", T("On")], ["off", T("Off")]].map(([v, t]) => el("option", { value: v }, t)));
   sel.value = cur; sel.disabled = !on;
   return el("div", { class: "d defprobe" }, T(label), ": ", sel, " ",
-    T("sends a request into the network, so by default only in public networks"));
+    T("sends a request into the network, so by default not in safe networks"));
 }
 
 async function defSend(cfg) {
@@ -649,7 +653,7 @@ function defRenderReports() {
     const srcs = Object.entries(r.sources || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const lv = DEF_LEVELS.includes(LevelOf(r.peak_heat)) ? LevelOf(r.peak_heat) : "quiet";
     return el("div", { class: "repcard" },
-      el("div", { class: "hd" }, el("b", { class: "mono" }, r.key.slice(0, 8)), el("span", { class: "pill" }, defClassText()[r.class] || defClassText().public),
+      el("div", { class: "hd" }, el("b", { class: "mono" }, r.key.slice(0, 8)), el("span", { class: "pill" }, defClassText()[r.class] || defClassText().unknown),
         r.key === defRepCur ? el("span", { class: "pill ok" }, T("now")) : "", el("span", { class: "spacer" }),
         el("span", { class: "pill heat-" + lv, title: T("Highest heat") }, T("Peak {n}", { n: r.peak_heat | 0 }))),
       el("div", { class: "muted" }, T("First seen {a}, last seen {b}", { a: day(r.first_seen), b: day(r.last_seen) })),
@@ -678,3 +682,37 @@ $("#def-rep-export").addEventListener("click", async () => {
 });
 setInterval(() => { if (!document.hidden && level() === "opsec" && defSt) loadDefReports(); }, 15000);
 setTimeout(() => { if (level() === "opsec") loadDefReports(); }, 900);
+
+// the class of the network you are in: unclear (new, find out), unsafe
+// (cafe, hotel: blocks ready) or safe (home, work: quiet). It is stored in
+// the network profile of this network; one is made when there is none.
+function defClassPicker() {
+  const now = typeof netNow === "function" ? netNow() : {};
+  const sel = el("select", { title: T("Rate this network"), onchange: () => defSetNetClass(sel.value) },
+    el("option", { value: "unknown" }, T("Unclear")), el("option", { value: "unsafe" }, T("Unsafe")), el("option", { value: "safe" }, T("Safe")));
+  sel.value = defClassId(defSt.class);
+  sel.disabled = !now.iface || (!now.ssid && !now.gateway_mac && !(status && status.network));
+  return sel;
+}
+async function defSetNetClass(cls) {
+  if (typeof loadConfig !== "function") return;
+  if ($("#savebar").classList.contains("dirty")) { toast(T("Save or discard your other changes first")); renderDefense(); return; }
+  if (!(await loadConfig(true))) { toast(T("Cannot load the config")); return; }
+  model.network = model.network || [];
+  const now = netNow();
+  let n = status && status.network ? model.network.find((x) => x.name === status.network) : null;
+  if (!n && cls === "unknown") return;
+  if (!n) {
+    if (!now.ssid && !now.gateway_mac) { toast(T("The current network can't be recognised")); return; }
+    const base = String(now.ssid || "net-" + String(now.gateway_mac).replace(/:/g, "")).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "network";
+    let name = base, i = 2;
+    while (model.network.some((x) => x.name === name)) name = base + "-" + i++;
+    n = { name, default_route: (model.daemon && model.daemon.default_route) || "direct" };
+    if (now.ssid) n.ssid = [now.ssid];
+    if (now.gateway_mac) n.gateway_mac = [now.gateway_mac];
+    model.network.push(n);
+  }
+  n.class = cls === "unknown" ? undefined : cls;
+  if (await checkOrSave(true, { config: model }, (t) => toast(t))) { await reloadConfig(); refresh(); }
+  renderDefense();
+}

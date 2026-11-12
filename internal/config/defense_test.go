@@ -9,13 +9,13 @@ import (
 
 func TestNetClassAndDefenseValidation(t *testing.T) {
 	c := &Config{Networks: []Network{{Name: "a", SSID: []string{"x"}, Class: "trusted"}, {Name: "b", SSID: []string{"y"}}}}
-	if g := c.NetClass(netdetect.Info{SSID: "x"}); g != defense.ClassTrusted {
+	if g := c.NetClass(netdetect.Info{SSID: "x"}); g != defense.ClassSafe {
 		t.Fatal(g)
 	}
-	if g := c.NetClass(netdetect.Info{SSID: "y"}); g != defense.ClassPublic {
+	if g := c.NetClass(netdetect.Info{SSID: "y"}); g != defense.ClassUnknown {
 		t.Fatal(g)
 	}
-	if g := c.NetClass(netdetect.Info{SSID: "zzz"}); g != defense.ClassPublic {
+	if g := c.NetClass(netdetect.Info{SSID: "zzz"}); g != defense.ClassUnknown {
 		t.Fatal(g)
 	}
 	if c.DefenseConfig().Enabled {

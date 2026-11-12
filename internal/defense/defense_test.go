@@ -3,6 +3,7 @@ package defense
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -84,7 +85,7 @@ func TestThermo(t *testing.T) {
 	for _, tc := range []struct {
 		class    Class
 		min, max int
-	}{{ClassPublic, 85, 100}, {ClassManaged, 70, 90}, {ClassTrusted, 50, 75}} {
+	}{{ClassUnknown, 85, 100}, {ClassUnsafe, 88, 100}, {ClassSafe, 50, 75}} {
 		th := NewThermo()
 		th.now = clk.Now
 		th.SetNetwork("n", tc.class)
@@ -97,7 +98,7 @@ func TestThermo(t *testing.T) {
 	}
 	th := NewThermo()
 	th.now = clk.Now
-	th.SetNetwork("a", ClassPublic)
+	th.SetNetwork("a", ClassUnknown)
 	for i := 0; i < 3; i++ {
 		th.Add(Event{Kind: KindScan, Severity: SevHigh})
 	}
@@ -121,11 +122,11 @@ func TestThermo(t *testing.T) {
 	if th.Counts()[KindScan] != 3 {
 		t.Error(th.Counts())
 	}
-	th.SetNetwork("a", ClassPublic) // same key: keep
+	th.SetNetwork("a", ClassUnknown) // same key: keep
 	if th.Counts()[KindScan] != 3 {
 		t.Error("same key must keep counters")
 	}
-	th.SetNetwork("b", ClassPublic)
+	th.SetNetwork("b", ClassUnknown)
 	if len(th.Counts()) != 0 {
 		t.Error("new key must reset counters")
 	}
@@ -539,21 +540,21 @@ func TestManagerDecoysByClass(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
 	m.Configure(cfg)
-	m.SetNetwork("net1", ClassTrusted)
+	m.SetNetwork("net1", ClassSafe)
 	if len(m.Status().Decoys) != 0 {
 		t.Fatal("trusted must have no decoys")
 	}
-	m.SetNetwork("net2", ClassPublic)
+	m.SetNetwork("net2", ClassUnknown)
 	st := m.Status()
 	if len(st.Decoys) != 7 { // 445 taken
 		t.Fatalf("decoys %v", st.Decoys)
 	}
-	m.SetNetwork("net3", ClassManaged)
+	m.SetNetwork("net3", ClassSafe)
 	if len(m.Status().Decoys) != 0 {
 		t.Fatal("managed: no decoys")
 	}
 	m.SetNetwork("net4", "weird") // normalised to public
-	if m.Status().Class != ClassPublic || len(m.Status().Decoys) == 0 {
+	if m.Status().Class != ClassUnknown || len(m.Status().Decoys) == 0 {
 		t.Fatal("unknown class must act public")
 	}
 	f := cfg.Features
@@ -573,7 +574,7 @@ func TestManagerHitToBanAndHeat(t *testing.T) {
 	cfg.DecoyPorts = []int{21, 22, 25, 80, 443, 3389, 8080}
 	cfg.Features[FeatScan] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.SetNetwork("k", ClassPublic)
+	m.SetNetwork("k", ClassUnknown)
 	for _, p := range cfg.DecoyPorts {
 		c := pm.dial(t, p)
 		c.Close()
@@ -634,7 +635,7 @@ func TestManagerNeverAndBlockSwitch(t *testing.T) {
 func TestManagerDisabled(t *testing.T) {
 	pm := &portMap{real: map[int]int{}}
 	m, _ := newTestManager(t, pm, nil)
-	m.SetNetwork("k", ClassPublic)
+	m.SetNetwork("k", ClassUnknown)
 	m.Report(Event{Kind: KindScan, Severity: SevHigh})
 	st := m.Status()
 	if st.Enabled || st.Heat != 0 || len(st.Decoys) != 0 || st.LastSeq != 0 {
@@ -679,7 +680,7 @@ func TestManagerCloseTwiceAndRace(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
-				m.SetNetwork("n"+itoa(j%3), ClassPublic)
+				m.SetNetwork("n"+itoa(j%3), ClassUnknown)
 				m.Configure(cfg)
 				m.Status()
 				m.Report(Event{Kind: KindObservation})
@@ -913,5 +914,68 @@ func TestBanConfigDefaults(t *testing.T) {
 	c.BanSeconds3 = 7200
 	if d, p := c.BanFor(9); d != 2*time.Hour || p {
 		t.Fatal(d, p)
+	}
+}
+
+func TestClassMigrationAndBehaviour(t *testing.T) {
+	for in, want := range map[Class]Class{"public": ClassUnknown, "trusted": ClassSafe, "managed": ClassSafe,
+		"": ClassUnknown, "bogus": ClassUnknown, "unknown": ClassUnknown, "unsafe": ClassUnsafe, "safe": ClassSafe} {
+		if got := in.Normalize(); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
+	}
+	var r NetReport
+	if err := json.Unmarshal([]byte(`{"key":"abcd","class":"trusted"}`), &r); err != nil || r.Class != ClassSafe {
+		t.Fatalf("%v %q", err, r.Class)
+	}
+	if !ClassUnknown.Decoys() || !ClassUnsafe.Decoys() || ClassSafe.Decoys() {
+		t.Fatal("decoys per class")
+	}
+	if !ProbeAllowed(ProbeAuto, ClassUnsafe, false) || ProbeAllowed(ProbeAuto, ClassSafe, false) || ProbeAllowed(ProbeAuto, ClassUnknown, true) {
+		t.Fatal("probe per class")
+	}
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	if effFeature(cfg, ClassUnknown, FeatScan).Block || effFeature(cfg, ClassSafe, FeatScan).Block {
+		t.Fatal("block on outside unsafe")
+	}
+	if !effFeature(cfg, ClassUnsafe, FeatScan).Block || !effFeature(cfg, ClassUnsafe, FeatBrute).Block {
+		t.Fatal("unsafe does not block")
+	}
+	if effFeature(cfg, ClassUnsafe, FeatARP).Block {
+		t.Fatal("a feature that cannot block got Block")
+	}
+	off := false
+	cfg.UnsafeBlock = &off
+	if effFeature(cfg, ClassUnsafe, FeatScan).Block {
+		t.Fatal("unsafe_block=false ignored")
+	}
+	f := cfg.Features[FeatScan]
+	f.Watch = false
+	cfg.Features[FeatScan] = f
+	cfg.UnsafeBlock = nil
+	if effFeature(cfg, ClassUnsafe, FeatScan).Block {
+		t.Fatal("a feature that does not watch must not block")
+	}
+}
+
+func TestUnsafeNetworkBlocksBruteForce(t *testing.T) {
+	src := mustAddr("203.0.113.9")
+	for _, tc := range []struct {
+		class Class
+		want  int
+	}{{ClassUnknown, 0}, {ClassSafe, 0}, {ClassUnsafe, 1}} {
+		m, _ := newTestManager(t, &portMap{real: map[int]int{}}, nil)
+		cfg := DefaultConfig()
+		cfg.Enabled = true // block switches stay off
+		m.Configure(cfg)
+		m.SetNetwork("n", tc.class)
+		m.ver.confirm(src, m.now())
+		for i := 0; i < 10; i++ {
+			m.Observe(src, 22, "tcp", false)
+		}
+		if n := len(m.Status().Bans); n != tc.want {
+			t.Errorf("%s: %d bans, want %d", tc.class, n, tc.want)
+		}
 	}
 }

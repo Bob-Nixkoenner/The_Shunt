@@ -61,7 +61,7 @@ func TestEvidenceOffWritesNothingThenOnWritesChain(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 	d.evidenceApply(defense.EvidenceConfig{Enabled: true}, true)
-	d.def.m.SetNetwork("k", defense.ClassPublic)
+	d.def.m.SetNetwork("k", defense.ClassUnknown)
 	for _, s := range []string{"192.0.2.7", "198.51.100.1", "192.0.2.7"} {
 		d.def.m.Report(defense.Event{Kind: defense.KindDecoyHit, Severity: defense.SevMedium, Src: s, Port: 22, Proto: "tcp", Detail: "gw 00:00:5e:00:53:01 ssid=Cafe"})
 	}

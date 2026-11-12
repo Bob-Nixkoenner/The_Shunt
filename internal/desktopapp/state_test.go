@@ -177,7 +177,7 @@ func defView(heat int) View {
 	now := time.Now()
 	st := status(false, time.Second, now)
 	if heat >= 0 {
-		st.Defense = &api.DefenseBrief{Heat: heat, Level: defense.LevelFor(heat), Class: defense.ClassPublic}
+		st.Defense = &api.DefenseBrief{Heat: heat, Level: defense.LevelFor(heat), Class: defense.ClassUnknown}
 	}
 	return Compute(st, nil, now)
 }
@@ -225,7 +225,7 @@ func TestExposedNotification(t *testing.T) {
 	mk := func(exposed bool, inbound string) View {
 		now := time.Now()
 		st := status(false, time.Second, now)
-		st.Defense = &api.DefenseBrief{Heat: 5, Level: defense.LevelQuiet, Class: defense.ClassTrusted, Exposed: exposed, ExposedInbound: inbound}
+		st.Defense = &api.DefenseBrief{Heat: 5, Level: defense.LevelQuiet, Class: defense.ClassSafe, Exposed: exposed, ExposedInbound: inbound}
 		return Compute(st, nil, now)
 	}
 	if n := Diff(mk(false, ""), mk(true, "closed"), false); len(n) != 1 || n[0].Urgent || n[0].Summary != "Directly reachable from the internet" {

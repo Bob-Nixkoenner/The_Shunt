@@ -111,7 +111,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 		log = slog.Default()
 	}
 	m := &Manager{log: log, ring: NewRing(1000), therm: NewThermo(), bans: NewBans(),
-		rpts: NewReports(""), agg: map[aggKey]*aggEntry{}, rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassPublic, cfg: DefaultConfig()}
+		rpts: NewReports(""), agg: map[aggKey]*aggEntry{}, rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassUnknown, cfg: DefaultConfig()}
 	m.cfg.Enabled = false
 	m.det = NewDetector(DetectConfig{}, m.never)
 	m.det.OnFound = m.found
@@ -167,7 +167,26 @@ func (m *Manager) tick() {
 func (m *Manager) feature(name string) Feature {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return featureOf(m.cfg, name)
+	return m.featureLocked(name)
+}
+
+// featureLocked is featureOf with the network class applied. Caller holds mu.
+func (m *Manager) featureLocked(name string) Feature { return effFeature(m.cfg, m.class, name) }
+
+// UnsafeBlockOn reports whether unsafe networks switch the blocks on.
+func (c Config) UnsafeBlockOn() bool { return c.UnsafeBlock == nil || *c.UnsafeBlock }
+
+// blockCapable are the features that can block at all.
+var blockCapable = map[string]bool{FeatScan: true, FeatBrute: true, FeatReputation: true, FeatDNSRebind: true}
+
+// effFeature is featureOf with the network class applied: in an unsafe
+// network the features that can block do (unless unsafe_block is off).
+func effFeature(c Config, class Class, name string) Feature {
+	f := featureOf(c, name)
+	if f.Watch && blockCapable[name] && class.Normalize() == ClassUnsafe && c.UnsafeBlockOn() {
+		f.Block = true
+	}
+	return f
 }
 
 func featureOf(c Config, name string) Feature {
@@ -363,7 +382,7 @@ func (m *Manager) found(f Finding) {
 // because the source address is not confirmed by a handshake.
 func (m *Manager) banWaits(src netip.Addr, feat string) bool {
 	m.mu.Lock()
-	f := featureOf(m.cfg, feat)
+	f := m.featureLocked(feat)
 	unverified := m.cfg.BanUnverified
 	m.mu.Unlock()
 	src = src.Unmap()
@@ -374,7 +393,7 @@ func (m *Manager) banWaits(src netip.Addr, feat string) bool {
 // the never-list.
 func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	m.mu.Lock()
-	f := featureOf(m.cfg, feat)
+	f := m.featureLocked(feat)
 	unverified := m.cfg.BanUnverified
 	m.mu.Unlock()
 	src = src.Unmap()
@@ -398,7 +417,7 @@ func (m *Manager) banNow(src netip.Addr, reason Kind, note string) {
 		feat = FeatBrute
 	}
 	m.mu.Lock()
-	f := featureOf(m.cfg, feat)
+	f := m.featureLocked(feat)
 	m.mu.Unlock()
 	if !f.Watch || !f.Block || !m.Bannable(src) {
 		return

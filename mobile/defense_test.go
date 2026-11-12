@@ -98,7 +98,7 @@ func TestDefenseStatusJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(e.defenseJSON()), &d); err != nil {
 		t.Fatal(err)
 	}
-	if !d.Enabled || d.Class != defense.ClassTrusted || d.Level != defense.LevelQuiet {
+	if !d.Enabled || d.Class != defense.ClassSafe || d.Level != defense.LevelQuiet {
 		t.Fatalf("%+v", d)
 	}
 }

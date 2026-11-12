@@ -46,11 +46,11 @@ func TestLoopbackDecoyScanBan(t *testing.T) {
 	cfg.DecoyPorts = ports
 	cfg.Features[FeatScan] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.SetNetwork("k", ClassTrusted)
+	m.SetNetwork("k", ClassSafe)
 	if len(m.Status().Decoys) != 0 {
 		t.Fatal("trusted network must not listen")
 	}
-	m.SetNetwork("k2", ClassPublic)
+	m.SetNetwork("k2", ClassUnknown)
 	if got := len(m.Status().Decoys); got != 7 {
 		t.Fatalf("decoys %v (want 7, one port was taken)", m.Status().Decoys)
 	}
@@ -69,7 +69,7 @@ func TestLoopbackDecoyScanBan(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("scan was not blocked")
 	}
-	m.SetNetwork("k3", ClassManaged)
+	m.SetNetwork("k3", ClassSafe)
 	if len(m.Status().Decoys) != 0 {
 		t.Fatal("managed network must not listen")
 	}

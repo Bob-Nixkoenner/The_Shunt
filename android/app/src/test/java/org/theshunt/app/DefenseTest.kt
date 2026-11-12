@@ -7,12 +7,15 @@ import org.junit.Test
 
 class DefenseTest {
     @Test
-    fun unknownNetworkIsPublic() {
+    fun oldClassesAreMigrated() {
         val s = Settings(netClasses = mapOf("wifi" to "trusted"))
-        assertEquals("trusted", Defense.classFor(s, "wifi"))
-        assertEquals("public", Defense.classFor(s, "mobile"))
-        assertEquals("public", Defense.classFor(s, ""))
-        assertEquals("public", Defense.classFor(Settings(netClasses = mapOf("wifi" to "bogus")), "wifi"))
+        assertEquals("safe", Defense.classFor(s, "wifi")) // old "trusted" is read as safe
+        assertEquals("safe", Defense.classFor(Settings(netClasses = mapOf("wifi" to "managed")), "wifi"))
+        assertEquals("unknown", Defense.classFor(Settings(netClasses = mapOf("wifi" to "public")), "wifi"))
+        assertEquals("unsafe", Defense.classFor(Settings(netClasses = mapOf("wifi" to "unsafe")), "wifi"))
+        assertEquals("unknown", Defense.classFor(s, "mobile"))
+        assertEquals("unknown", Defense.classFor(s, ""))
+        assertEquals("unknown", Defense.classFor(Settings(netClasses = mapOf("wifi" to "bogus")), "wifi"))
     }
 
     @Test

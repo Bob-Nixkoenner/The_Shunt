@@ -6,14 +6,33 @@ network class, never an SSID, MAC or address.
 
 ## Network classes
 
-`[[network]] class = "trusted" | "public" | "managed"`. No class, or a network without a
-profile, counts as `public`.
+`[[network]] class = "unknown" | "unsafe" | "safe"` (German: Unklar / Unsicher / Sicher). No class, or a
+network without a profile, counts as `unknown`: that is what a network you join for the first time is. The
+window shows the class on the Defense tab (next to the heat gauge, with a list to change it for the network you
+are in: the choice is stored in the [[network]] profile of this network, which is made when there is none)
+and per profile under Configure, Networks ("network class"). Android stores the class per kind of network
+(Wi-Fi, mobile).
 
-| class | decoys | watching |
-|---|---|---|
-| public | on | everything |
-| managed | off | everything |
-| trusted | off | everything (quiet) |
+| | Unknown (default) | Unsafe | Safe |
+|---|---|---|---|
+| meaning | new or not yet rated: find out | rated risky (cafe, hotel, guest) | home, workplace: calm |
+| decoy ports | on | on | off |
+| sensors (ARP, DHCP, DNS, TLS, ...) | on as the switches say | on as the switches say | on as the switches say |
+| TLS check | reports | reports | learns a new issuer silently, no report for a foreign chain |
+| active DHCP/DNS probe (`auto`) | yes (not in quiet mode) | yes (not in quiet mode) | no |
+| blocking of scans, brute force, bad lists, DNS rebind | as the switches say (default: report only) | **on** while here (`defense.unsafe_block`, default true; the feature must still watch) | as the switches say |
+| heat factor | 1.0 | 1.25 | 0.4 |
+| block time | as configured (see Block time) | same | same |
+
+Migration: the identifiers before 2026-11-12 are still read, in `shunt.toml`, in saved network reports, in the
+evidence log (old lines keep their text) and in the Android settings, and mapped on reading: `public` ->
+`unknown`, `trusted` -> `safe`, `managed` -> `safe`. A file is rewritten with the new names only when you save
+a profile. `managed` and `trusted` were merged because their behaviour was the same except for the heat factor
+(0.7 vs 0.4) and the TLS check: both ran no decoys and watched quietly. What changes for an old `managed`
+network: lower heat (0.4 instead of 0.7) and no TLS report for a chain the system roots do not trust (an
+employer's TLS inspection used to raise that report). The "watch only, no decoys" of `managed` is exactly
+what `safe` does. A network you want to keep strictly observed without decoys and quiet warnings does not
+exist as a class any more; use `safe` and switch the single sensors in the Defense tab.
 
 ### Exposed: a public address on the uplink
 
@@ -31,7 +50,7 @@ Behaviour while exposed (`Status.exposed = {v4, v6, inbound}`):
   `off` = The Shunt does not filter). `open`/`off` counts double for the heat and the text is stronger. The UI
   shows a red plaque "Directly reachable from the internet" on the overview tile and the Defense tab; the
   tray app notifies (urgent when nothing filters). The warning needs the defense to be on.
-- Decoys are **off**, also in a public class, unless `defense.decoys_when_exposed = true`: with a public
+- Decoys are **off**, also in a class that has them, unless `defense.decoys_when_exposed = true`: with a public
   address a decoy is real attack surface. (Hardening the decoys against exploits comes first.)
 - Limits: events of one kind and source within 30 s are folded into the first one plus a line
   `more=N` (rare important kinds like ARP, DNS, TLS are never folded; heat and report counts still see
@@ -178,8 +197,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   before the real server makes the report name the real one; a rogue that puts the gateway's address
   into its server ID is not seen (the sender of the packet is not compared).
   This probe sends into the network, so it is switchable with `defense.dhcp_probe`: `auto` (default) =
-  only in public networks and never while the quiet mode (`daemon.quiet`, `quiet_out`) is on for the
-  network; `on` = always (also in quiet mode, counts as explicit permission; not for trusted or managed
+  not in safe networks and never while the quiet mode (`daemon.quiet`, `quiet_out`) is on for the
+  network; `on` = always (also in quiet mode, counts as explicit permission; not for safe
   networks you would rather keep silent); `off` = never, listen only. The Defense tab has the same choice.
   The daemon decides at network join and when the config changes (`defense.ProbeAllowed`); the nft
   `quiet_out` chain itself is not consulted, as AF_PACKET frames bypass it.
@@ -388,7 +407,7 @@ Manager is configured with the features that work here and nothing else.
 **Blocking.** The Block switches are ignored on Android (`mobile.DefenseConfig` clamps every feature to watch only): the
 netstack has no deny list for destinations, and a false alarm that cuts a banking app is worse than a message. Open.
 
-**Network class.** The class (trusted, public, managed; unknown = public) is stored per kind of network (`wifi`,
+**Network class.** The class (unknown, unsafe, safe; not rated = unknown; the old trusted, public and managed are read as safe, unknown and safe) is stored per kind of network (`wifi`,
 `mobile`) in `Store.kt` and passed with `DefenseNetwork(key, class)` on every network change. The key is a hash of the
 kind (a Wi-Fi name is not read: that would need the location permission), and it is never logged or sent.
 

@@ -93,18 +93,18 @@ func TestTLSCheckPinAndChange(t *testing.T) {
 	ctx := context.Background()
 
 	// public network, no pin, second way agrees: pinned, no event
-	c.Run(ctx, []string{host}, ClassPublic)
+	c.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m, KindTLS); n != 0 || len(c.Pins()[host]) != 1 {
 		t.Fatalf("first sight: events=%d pins=%v", n, c.Pins())
 	}
 	// same issuer again (new leaf): quiet
-	c.Run(ctx, []string{host}, ClassPublic)
+	c.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m, KindTLS); n != 0 {
 		t.Fatal("same issuer reported")
 	}
 	// issuer chain changes: high
 	cur = addrB
-	c.Run(ctx, []string{host}, ClassPublic)
+	c.Run(ctx, []string{host}, ClassUnknown)
 	n, ev := countKind(m, KindTLS)
 	if n != 1 || ev.Severity != SevHigh || ev.Detail != "target="+host+" issuer chain differs from the remembered one" {
 		t.Fatalf("n=%d ev=%+v", n, ev)
@@ -118,12 +118,12 @@ func TestTLSCheckPinAndChange(t *testing.T) {
 		t.Fatalf("pin file %v %v", st, err)
 	}
 	// in a trusted network the new issuer is learned quietly
-	c.Run(ctx, []string{host}, ClassTrusted)
+	c.Run(ctx, []string{host}, ClassSafe)
 	if n, _ := countKind(m, KindTLS); n != 1 || len(c.Pins()[host]) != 2 {
 		t.Fatalf("trusted: events=%d pins=%v", n, c.Pins())
 	}
 	// and then it is known in public networks too
-	c.Run(ctx, []string{host}, ClassPublic)
+	c.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m, KindTLS); n != 1 {
 		t.Fatal("learned issuer reported")
 	}
@@ -141,7 +141,7 @@ func TestTLSCheckSecondWayAndUntrusted(t *testing.T) {
 	// the two ways disagree: event, nothing pinned
 	m, _ := enabledManager(t)
 	c := checkerFor(t, m, both, func() string { return addrA }, func() string { return addrB })
-	c.Run(ctx, []string{host}, ClassPublic)
+	c.Run(ctx, []string{host}, ClassUnknown)
 	n, ev := countKind(m, KindTLS)
 	if n != 1 || ev.Detail != "target="+host+" two ways to the target show different issuers" || len(c.Pins()) != 0 {
 		t.Fatalf("n=%d %+v pins=%v", n, ev, c.Pins())
@@ -149,31 +149,31 @@ func TestTLSCheckSecondWayAndUntrusted(t *testing.T) {
 	// no second way: silent, not pinned
 	m2, _ := enabledManager(t)
 	c2 := checkerFor(t, m2, both, func() string { return addrA }, nil)
-	c2.Run(ctx, []string{host}, ClassPublic)
+	c2.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m2, KindTLS); n != 0 || len(c2.Pins()) != 0 {
 		t.Fatal("no second way must stay silent")
 	}
 	// second way fails (error): silent
 	m3, _ := enabledManager(t)
 	c3 := checkerFor(t, m3, both, func() string { return addrA }, func() string { return "" })
-	c3.Run(ctx, []string{host}, ClassPublic)
+	c3.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m3, KindTLS); n != 0 {
 		t.Fatal("failed second way must stay silent")
 	}
 	// a chain the roots do not verify (unknown CA): high in public, quiet in trusted
 	m4, _ := enabledManager(t)
 	c4 := checkerFor(t, m4, caA.pool, func() string { return addrB }, nil)
-	c4.Run(ctx, []string{host}, ClassTrusted)
+	c4.Run(ctx, []string{host}, ClassSafe)
 	if n, _ := countKind(m4, KindTLS); n != 0 {
 		t.Fatal("trusted network must stay quiet")
 	}
-	c4.Run(ctx, []string{host}, ClassPublic)
+	c4.Run(ctx, []string{host}, ClassUnknown)
 	if n, ev := countKind(m4, KindTLS); n != 1 || ev.Detail != "target="+host+" chain not trusted by the system roots" {
 		t.Fatalf("untrusted: n=%d %+v", n, ev)
 	}
 	// unreachable target: nothing
 	c5 := checkerFor(t, m4, caA.pool, func() string { return "127.0.0.1:1" }, nil)
-	c5.Run(ctx, []string{host}, ClassPublic)
+	c5.Run(ctx, []string{host}, ClassUnknown)
 	if n, _ := countKind(m4, KindTLS); n != 1 {
 		t.Fatal("unreachable target produced an event")
 	}
@@ -183,7 +183,7 @@ func TestTLSCheckFeatureOffAndTargets(t *testing.T) {
 	m, _ := enabledManager(t, func(c *Config) { c.Features[FeatTLS] = Feature{} })
 	called := false
 	c := &TLSChecker{M: m, Fetch: func(context.Context, string) ([]*x509.Certificate, error) { called = true; return nil, errors.New("x") }}
-	c.Run(context.Background(), []string{"a.example.test"}, ClassPublic)
+	c.Run(context.Background(), []string{"a.example.test"}, ClassUnknown)
 	if called {
 		t.Fatal("feature off must not connect")
 	}

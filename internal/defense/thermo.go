@@ -16,10 +16,10 @@ const heatScale = 40.0
 // ClassFactor scales how much events count in a network class.
 func ClassFactor(c Class) float64 {
 	switch c.Normalize() {
-	case ClassTrusted:
+	case ClassSafe:
 		return 0.4
-	case ClassManaged:
-		return 0.7
+	case ClassUnsafe:
+		return 1.25
 	}
 	return 1.0
 }
@@ -64,7 +64,7 @@ type Thermo struct {
 
 // NewThermo returns a gauge for a public network.
 func NewThermo() *Thermo {
-	return &Thermo{class: ClassPublic, counts: map[Kind]int{}, now: time.Now}
+	return &Thermo{class: ClassUnknown, counts: map[Kind]int{}, now: time.Now}
 }
 
 func (t *Thermo) decay(now time.Time) {

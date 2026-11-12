@@ -191,7 +191,7 @@ func (c *TLSChecker) checkOne(ctx context.Context, host string, class Class) {
 		return
 	}
 	if err := verifyChain(chain, host, c.Roots, c.now()); err != nil {
-		if class != ClassTrusted {
+		if class.Normalize() != ClassSafe {
 			c.report(host, "chain not trusted by the system roots")
 		}
 		return
@@ -210,7 +210,7 @@ func (c *TLSChecker) checkOne(ctx context.Context, host string, class Class) {
 	switch {
 	case known:
 		return
-	case class == ClassTrusted:
+	case class.Normalize() == ClassSafe:
 		c.learn(host, fp) // the user trusts this network: a new issuer is learned, not reported
 	case len(pins) > 0:
 		c.report(host, "issuer chain differs from the remembered one")

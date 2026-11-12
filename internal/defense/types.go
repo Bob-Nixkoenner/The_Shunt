@@ -8,33 +8,76 @@
 // 203.0.113.0/24 and 2001:db8::/32).
 package defense
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
-// Class says how much the user trusts the network they are on.
+// Class says how much the user trusts the network they are on. Three
+// grades; the identifiers before 2026-11-12 (public, trusted, managed) are
+// still read and mapped by Normalize and UnmarshalJSON.
 type Class string
 
 const (
-	ClassTrusted Class = "trusted" // e.g. home: decoys off, quiet warnings only
-	ClassPublic  Class = "public"  // café, hotel, open guest wifi, unknown: decoys + watching on
-	ClassManaged Class = "managed" // employer's internal network: watch only, no decoys
+	// ClassUnknown: a new or not yet rated network, the default when joining
+	// one. Find out and watch: sensors, decoys and probes on, blocking only
+	// as the switches say.
+	ClassUnknown Class = "unknown"
+	// ClassUnsafe: rated risky by the user (cafe, hotel, guest network).
+	// Like unknown, and the blocks for scans, brute force, bad lists and DNS
+	// rebind are on while here (config unsafe_block).
+	ClassUnsafe Class = "unsafe"
+	// ClassSafe: home or a managed network of an employer. No decoys, quiet
+	// warnings, lower heat.
+	ClassSafe Class = "safe"
 )
 
-// Valid reports whether c is a known class.
+// Identifiers of the grades before 2026-11-12. public -> unknown, trusted ->
+// safe, managed -> safe (managed had no decoys and watched only: that is
+// what safe does as well).
+const (
+	legacyPublic  Class = "public"
+	legacyTrusted Class = "trusted"
+	legacyManaged Class = "managed"
+)
+
+// Valid reports whether c is a known class (old identifiers count).
 func (c Class) Valid() bool {
-	return c == ClassTrusted || c == ClassPublic || c == ClassManaged
+	switch c {
+	case ClassUnknown, ClassUnsafe, ClassSafe, legacyPublic, legacyTrusted, legacyManaged:
+		return true
+	}
+	return false
 }
 
-// Normalize turns an empty or unknown class into ClassPublic: only what the
-// user marked as trusted is trusted.
+// Normalize maps an old identifier to its new one and turns an empty or
+// unknown value into ClassUnknown: only what the user rated as safe is safe.
 func (c Class) Normalize() Class {
-	if c.Valid() {
-		return c
+	switch c {
+	case ClassUnsafe:
+		return ClassUnsafe
+	case ClassSafe, legacyTrusted, legacyManaged:
+		return ClassSafe
 	}
-	return ClassPublic
+	return ClassUnknown
+}
+
+// UnmarshalJSON migrates old identifiers in saved reports and API bodies.
+func (c *Class) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if Class(s).Valid() {
+		*c = Class(s).Normalize()
+	} else {
+		*c = Class(s)
+	}
+	return nil
 }
 
 // Decoys reports whether decoy listeners may run in this class.
-func (c Class) Decoys() bool { return c.Normalize() == ClassPublic }
+func (c Class) Decoys() bool { return c.Normalize() != ClassSafe }
 
 // Kind names what happened.
 type Kind string
@@ -171,6 +214,11 @@ type Config struct {
 	// block then waits for the first real connection to a decoy, because a
 	// source address in a lone SYN can be forged; see verify.go).
 	BanUnverified bool `json:"ban_unverified,omitempty" toml:"ban_unverified,omitempty"`
+	// UnsafeBlock (nil = on): while the network is rated unsafe, the blocks
+	// of scans, brute force, bad lists and DNS rebind are on, whatever their
+	// own switches say (the feature still has to watch). false = the
+	// switches decide in unsafe networks too.
+	UnsafeBlock *bool `json:"unsafe_block,omitempty" toml:"unsafe_block,omitempty"`
 	// Never lists addresses/CIDRs that are never blocked (gateway, DNS and
 	// captive portal are added automatically at runtime).
 	Never []string `json:"never" toml:"never"`
@@ -246,7 +294,7 @@ func ProbeAllowed(mode string, class Class, quiet bool) bool {
 	case ProbeOff:
 		return false
 	}
-	return class.Normalize() == ClassPublic && !quiet
+	return class.Normalize() != ClassSafe && !quiet
 }
 
 // DefaultConfig: detection on, blocking off, decoys on common ports. Off

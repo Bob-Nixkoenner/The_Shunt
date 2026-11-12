@@ -15,7 +15,7 @@ func expoManager(t *testing.T) (*Manager, *fakeClock, *portMap) {
 	cfg.Enabled = true
 	cfg.Features[FeatScan] = Feature{Watch: true, Block: true}
 	m.Configure(cfg)
-	m.SetNetwork("k", ClassPublic)
+	m.SetNetwork("k", ClassUnknown)
 	return m, clk, pm
 }
 

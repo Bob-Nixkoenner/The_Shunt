@@ -215,7 +215,7 @@ func (d *Daemon) defenseBrief() *api.DefenseBrief {
 // defenseStatus is GET /v1/defense.
 func (d *Daemon) defenseStatus() defense.Status {
 	if d.def.m == nil {
-		return defense.Status{Class: defense.ClassPublic, Level: defense.LevelQuiet, Config: defense.DefaultConfig(),
+		return defense.Status{Class: defense.ClassUnknown, Level: defense.LevelQuiet, Config: defense.DefaultConfig(),
 			Unsupported: "the defense is not running"}
 	}
 	s := d.def.m.Status()

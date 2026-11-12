@@ -404,14 +404,14 @@ func TestProbeAllowed(t *testing.T) {
 		quiet bool
 		want  bool
 	}{
-		{"", ClassPublic, false, true},
-		{"auto", ClassPublic, false, true},
-		{"auto", ClassPublic, true, false},
-		{"auto", ClassTrusted, false, false},
-		{"auto", ClassManaged, false, false},
-		{"on", ClassTrusted, true, true},
-		{"on", ClassManaged, false, true},
-		{"off", ClassPublic, false, false},
+		{"", ClassUnknown, false, true},
+		{"auto", ClassUnknown, false, true},
+		{"auto", ClassUnknown, true, false},
+		{"auto", ClassSafe, false, false},
+		{"auto", ClassSafe, false, false},
+		{"on", ClassSafe, true, true},
+		{"on", ClassSafe, false, true},
+		{"off", ClassUnknown, false, false},
 	}
 	for _, c := range cases {
 		if got := ProbeAllowed(c.mode, c.class, c.quiet); got != c.want {

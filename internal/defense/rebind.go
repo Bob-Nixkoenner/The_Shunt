@@ -74,7 +74,7 @@ func (m *Manager) Rebind(name string, addrs []netip.Addr) (drop bool) {
 	m.mu.Lock()
 	on := m.cfg.RebindProtect
 	allow := m.cfg.RebindAllow
-	f := featureOf(m.cfg, FeatDNSRebind)
+	f := m.featureLocked(FeatDNSRebind)
 	m.mu.Unlock()
 	if !on || !f.Watch {
 		return false

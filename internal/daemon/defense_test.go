@@ -40,14 +40,14 @@ func TestDefenseRoutes(t *testing.T) {
 	}
 	var st defense.Status
 	get("/v1/defense", &st)
-	if st.Enabled || st.Class != defense.ClassPublic {
+	if st.Enabled || st.Class != defense.ClassUnknown {
 		t.Fatalf("%+v", st)
 	}
 	d.def.m.Configure(defense.Config{Enabled: true, Features: map[string]defense.Feature{}, BanSeconds: 60})
-	d.def.m.SetNetwork("0123456789abcdef", defense.ClassTrusted)
+	d.def.m.SetNetwork("0123456789abcdef", defense.ClassSafe)
 	var ev defense.EventsResponse
 	get("/v1/defense/events?since=0", &ev)
-	if len(ev.Events) != 1 || ev.Events[0].Kind != defense.KindNetEnter || ev.Events[0].Detail != "class=trusted net=01234567" {
+	if len(ev.Events) != 1 || ev.Events[0].Kind != defense.KindNetEnter || ev.Events[0].Detail != "class=safe net=01234567" {
 		t.Fatalf("%+v", ev)
 	}
 	get("/v1/defense/events?since=1", &ev)
@@ -80,7 +80,7 @@ func TestDefenseRoutes(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad src: %d", rec.Code)
 	}
-	if b := d.defenseBrief(); b == nil || b.Class != defense.ClassTrusted {
+	if b := d.defenseBrief(); b == nil || b.Class != defense.ClassSafe {
 		t.Fatalf("%+v", b)
 	}
 	// changing things needs the manage permission: no peer, no change
@@ -103,7 +103,7 @@ func TestDefenseNetworkKeyAndClass(t *testing.T) {
 		t.Fatal("key must be stable and per network")
 	}
 	c := &config.Config{Networks: []config.Network{{Name: "home", SSID: []string{"x"}, Class: "trusted"}}}
-	if c.NetClass(info) != defense.ClassTrusted || c.NetClass(netdetect.Info{SSID: "other"}) != defense.ClassPublic {
+	if c.NetClass(info) != defense.ClassSafe || c.NetClass(netdetect.Info{SSID: "other"}) != defense.ClassUnknown {
 		t.Fatal("class")
 	}
 }
@@ -157,9 +157,9 @@ func TestDefNetKeyIgnoresGatewayMAC(t *testing.T) {
 	defer m.Close()
 	m.Configure(defense.Config{Enabled: true, Features: map[string]defense.Feature{}, BanSeconds: 60})
 	for i := 0; i < 5; i++ {
-		m.SetNetwork(defNetKey(a), defense.ClassPublic)
+		m.SetNetwork(defNetKey(a), defense.ClassUnknown)
 		m.Report(defense.Event{Kind: defense.KindARP, Severity: defense.SevHigh, Detail: "x"})
-		m.SetNetwork(defNetKey(b), defense.ClassPublic)
+		m.SetNetwork(defNetKey(b), defense.ClassUnknown)
 	}
 	st := m.Status()
 	enters := 0

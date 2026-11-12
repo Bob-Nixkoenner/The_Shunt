@@ -52,7 +52,7 @@ fun DefenseStatusSection(settings: Settings, status: JSONObject?) {
             }
             Text("$heat", color = c.muted, fontSize = 13.sp, modifier = Modifier.width(30.dp))
         }
-        Hint(T("Network class: {class}", "class" to T(Defense.classLabel(d?.optString("class").orEmpty().ifEmpty { "public" }))))
+        Hint(T("Network class: {class}", "class" to T(Defense.classLabel(d?.optString("class").orEmpty().ifEmpty { "unknown" }))))
         if (events.isEmpty()) Hint("No events yet. The first minutes of an app are learning only.")
         for (ev in events) Text(Defense.text(ev), color = if (ev.severity >= 3) c.bad else c.text, fontSize = 13.sp, lineHeight = 18.sp)
     }
@@ -69,7 +69,7 @@ fun DefenseSettingsSection(settings: Settings, update: (Settings) -> Unit) {
             "Reports DNS tunnelling, apps that connect at regular intervals, apps that contact something new and addresses on known bad lists. It only reports: it blocks nothing and sends nothing anywhere.",
         )
         Text(T("Network class"), color = c.text, fontWeight = FontWeight.SemiBold)
-        Hint("Public: strictest watching (default, also for unknown networks). Trusted: quiet warnings. Managed: for a workplace network.")
+        Hint("Unclear: watch and find out (default for a new network). Unsafe: for a cafe, hotel or guest network. Safe: home or a workplace network, quiet.")
         for ((link, label) in listOf("wifi" to "Wi-Fi", "mobile" to "Mobile data")) {
             // the name on its own line (a name column next to the buttons left too little width: "Öffentli/ch"); with a big system font the buttons stack
             val classButtons: @Composable (Modifier) -> Unit = { m ->

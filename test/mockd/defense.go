@@ -182,7 +182,7 @@ func (m *mockDefense) status() defense.Status {
 		counts[e.Kind]++
 	}
 	decoys := []int{}
-	if m.cfg.Enabled && defense.ClassPublic.Decoys() {
+	if m.cfg.Enabled && defense.ClassUnknown.Decoys() {
 		decoys = m.cfg.DecoyPorts
 	}
 	var expo defense.Exposure
@@ -190,7 +190,7 @@ func (m *mockDefense) status() defense.Status {
 		expo = defense.Exposure{V4: true, Inbound: exposedMode}
 		decoys = []int{}
 	}
-	return defense.Status{Enabled: m.cfg.Enabled, Class: defense.ClassPublic, Exposed: expo, Outside: m.outside, Heat: h, Level: defense.LevelFor(h),
+	return defense.Status{Enabled: m.cfg.Enabled, Class: defense.ClassUnknown, Exposed: expo, Outside: m.outside, Heat: h, Level: defense.LevelFor(h),
 		Decoys: decoys, Bans: append([]defense.Ban{}, m.bans...), Counts: counts, LastSeq: m.seq, Config: m.cfg, Sources: m.sources()}
 }
 
@@ -259,7 +259,7 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		defer m.mu.Unlock()
 		m.advance(time.Now())
 		export := r.URL.Query().Get("export") == "1"
-		cur := defense.NetReport{Key: "9f3c1a07d2e45b68", Class: defense.ClassPublic, Counts: map[defense.Kind]int{},
+		cur := defense.NetReport{Key: "9f3c1a07d2e45b68", Class: defense.ClassUnknown, Counts: map[defense.Kind]int{},
 			FirstSeen: m.start, LastSeen: time.Now(), PeakHeat: m.heat(time.Now()), DNSRedirect: defense.PropNoneSeen,
 			Captive: defense.PropYes, Isolation: defense.PropUnknown, Sources: map[string]int{}}
 		for _, e := range m.events {
@@ -268,12 +268,12 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 				cur.Sources[c]++
 			}
 		}
-		old := defense.NetReport{Key: "41b8e6d0a97c3f25", Class: defense.ClassTrusted,
+		old := defense.NetReport{Key: "41b8e6d0a97c3f25", Class: defense.ClassSafe,
 			Counts:    map[defense.Kind]int{defense.KindFirstSeen: 12, defense.KindObservation: 3},
 			FirstSeen: m.start.Add(-72 * time.Hour), LastSeen: m.start.Add(-70 * time.Hour), PeakHeat: 18,
 			DNSRedirect: defense.PropNoneSeen, Captive: defense.PropNoneSeen, Isolation: defense.PropUnknown,
 			Sources: map[string]int{"198.51.100.0/24": 3}}
-		hot := defense.NetReport{Key: "c07d55e19a3b8642", Class: defense.ClassPublic,
+		hot := defense.NetReport{Key: "c07d55e19a3b8642", Class: defense.ClassUnknown,
 			Counts:    map[defense.Kind]int{defense.KindScan: 4, defense.KindDecoyHit: 31, defense.KindDNSHijack: 1, defense.KindCowrie: 6},
 			FirstSeen: m.start.Add(-30 * time.Hour), LastSeen: m.start.Add(-28 * time.Hour), PeakHeat: 91,
 			DNSRedirect: defense.PropYes, Captive: defense.PropUnknown, Isolation: defense.PropUnknown,

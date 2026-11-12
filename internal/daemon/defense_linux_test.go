@@ -95,7 +95,7 @@ func TestFirstSeenInSharedSession(t *testing.T) {
 	cfg := defense.DefaultConfig()
 	cfg.Enabled = true
 	m.Configure(cfg)
-	m.SetNetwork("n", defense.ClassPublic)
+	m.SetNetwork("n", defense.ClassUnknown)
 	app := ownerApp(sockets.Owner{Name: "login session", Unit: "session-7.scope", Shared: true, Procs: []string{"sshd-session", "bash", "labfs-curl"}})
 	count := func() (n int, detail string) {
 		for _, e := range m.Events(0).Events {

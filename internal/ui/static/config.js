@@ -614,6 +614,8 @@ function renderNetworks() {
           [["", General], ["none", "don't send"], ["send", "send"]], () => n.dhcp_hostname || "", (v) => { n.dhcp_hostname = v || undefined; }, { linux: true }),
         netField("MAC address", "MAC address on this network (when set above); applies from the next connection",
           [["", General], ["random", "new each time"], ["stable", "own per network"], ["permanent", "the real one"]], () => n.mac || "", (v) => { n.mac = v || undefined; }, { linux: true }),
+        netField("network class", "How far you trust this network (Defense tab): unclear = find out, unsafe = blocks ready (cafe, hotel), safe = quiet (home, work)",
+          [["", "unclear"], ["unsafe", "unsafe"], ["safe", "safe"]], () => (typeof defClassId === "function" ? (defClassId(n.class || "") === "unknown" ? "" : defClassId(n.class)) : n.class || ""), (v) => { n.class = v || undefined; }),
         netField("quiet mode", "Quiet mode on this network: no discovery, multicast or broadcast out (a trusted network is not quiet unless set to on)",
           [["", General], ["on", "on"], ["off", "off"]], () => (n.quiet === true ? "on" : n.quiet === false ? "off" : ""), (v) => { n.quiet = v === "on" ? true : v === "off" ? false : undefined; }, { linux: true }),
         netField("incoming connections", "Incoming connections on this network (when switched on above)",

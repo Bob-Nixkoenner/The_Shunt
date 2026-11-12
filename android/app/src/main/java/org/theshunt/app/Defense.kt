@@ -24,13 +24,20 @@ import java.security.MessageDigest
  * built (see docs/DEFENSE.md).
  */
 object Defense {
-    val CLASSES = listOf("public", "trusted", "managed")
+    val CLASSES = listOf("unknown", "unsafe", "safe")
+
+    /** Old identifiers (before 2026-11-12) to the new ones: public = unknown, trusted and managed = safe. */
+    fun migrate(c: String) = when (c) {
+        "public" -> "unknown"
+        "trusted", "managed" -> "safe"
+        else -> c
+    }
     private const val MAX_AGE_MS = 12 * 3600 * 1000L
 
     fun dir(ctx: Context) = File(ctx.filesDir, "defense")
 
-    /** The class of the network kind ("wifi", "mobile", ...); unknown = public. */
-    fun classFor(s: Settings, link: String): String = s.netClasses[link]?.takeIf { it in CLASSES } ?: "public"
+    /** The class of the network kind ("wifi", "mobile", ...); not rated = unknown. */
+    fun classFor(s: Settings, link: String): String = s.netClasses[link]?.let { migrate(it) }?.takeIf { it in CLASSES } ?: "unknown"
 
     /**
      * The key the core keeps per network, only in memory: a hash of the kind of
@@ -114,15 +121,15 @@ object Defense {
             "first_seen" -> T("{app} contacted a new destination: {target}.", "app" to (f["app"] ?: "?"), "target" to (f["target"] ?: dst))
             "beacon" -> T("{app} connects to {dst} at regular intervals ({interval}).", "app" to (f["app"] ?: "?"), "dst" to dst, "interval" to (f["interval"] ?: "?"))
             "dns_tunnel" -> T("Unusual DNS queries for {domain} (possible DNS tunnel).", "domain" to (f["domain"] ?: "?"))
-            "net_enter" -> T("Network joined, class {class}.", "class" to T(classLabel(f["class"] ?: "public")))
+            "net_enter" -> T("Network joined, class {class}.", "class" to T(classLabel(migrate(f["class"] ?: "unknown"))))
             else -> ev.kind
         }
     }
 
     fun classLabel(c: String) = when (c) {
-        "trusted" -> "Trusted"
-        "managed" -> "Managed"
-        else -> "Public"
+        "safe" -> "Safe"
+        "unsafe" -> "Unsafe"
+        else -> "Unclear"
     }
 
     /** Thermometer reading of a level: label for the tile. */

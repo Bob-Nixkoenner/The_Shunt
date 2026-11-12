@@ -30,7 +30,7 @@ func TestReportsFlow(t *testing.T) {
 	cfg.Enabled = true
 	cfg.Features[FeatDecoy] = Feature{}
 	m.Configure(cfg)
-	m.SetNetwork("aaaaaaaaaaaaaaaa", ClassPublic)
+	m.SetNetwork("aaaaaaaaaaaaaaaa", ClassUnknown)
 	m.Report(Event{Kind: KindScan, Severity: SevHigh, Src: "192.0.2.77"})
 	m.Report(Event{Kind: KindScan, Severity: SevHigh, Src: "192.0.2.78"})
 	m.Report(Event{Kind: KindDNSHijack, Severity: SevHigh})
@@ -38,7 +38,7 @@ func TestReportsFlow(t *testing.T) {
 	clk.Add(time.Minute)
 	m.Report(Event{Kind: KindBruteForce, Severity: SevMedium, Src: "2001:db8:1:2::5"})
 	clk.Add(time.Second)
-	m.SetNetwork("bbbbbbbbbbbbbbbb", ClassTrusted)
+	m.SetNetwork("bbbbbbbbbbbbbbbb", ClassSafe)
 	m.Report(Event{Kind: KindFirstSeen, Severity: SevLow, Src: "203.0.113.5"})
 
 	r := m.Reports(false)
@@ -80,7 +80,7 @@ func TestReportsFlow(t *testing.T) {
 func TestReportsDisabledAndCap(t *testing.T) {
 	m := NewManager(nil)
 	defer m.Close()
-	m.SetNetwork("k", ClassPublic) // disabled: nothing recorded
+	m.SetNetwork("k", ClassUnknown) // disabled: nothing recorded
 	m.Report(Event{Kind: KindScan, Src: "192.0.2.1"})
 	if n := len(m.Reports(false).Reports); n != 0 {
 		t.Fatalf("disabled: %d", n)
@@ -88,7 +88,7 @@ func TestReportsDisabledAndCap(t *testing.T) {
 	r := NewReports("")
 	now := time.Now()
 	for i := 0; i < MaxReports+5; i++ {
-		r.Enter("key"+itoa(i), ClassPublic, now.Add(time.Duration(i)*time.Second), true)
+		r.Enter("key"+itoa(i), ClassUnknown, now.Add(time.Duration(i)*time.Second), true)
 	}
 	got := r.List(false).Reports
 	if len(got) != MaxReports || got[len(got)-1].Key == "key0" {

@@ -175,8 +175,9 @@ func (e *Engine) DefenseConfig(configJSON string) error {
 	return nil
 }
 
-// DefenseNetwork tells the defense which network class applies ("trusted",
-// "public" or "managed"; anything else = public). key identifies the network
+// DefenseNetwork tells the defense which network class applies ("unknown",
+// "unsafe" or "safe"; the old "public", "trusted" and "managed" still work;
+// anything else = unknown). key identifies the network
 // locally (the app passes a hash, never the name); it is never logged.
 func (e *Engine) DefenseNetwork(key, class string) { e.def.m.SetNetwork(key, defense.Class(class)) }
 
