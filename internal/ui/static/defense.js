@@ -86,6 +86,15 @@ function defThermo(st, small) {
     small ? "" : el("div", { class: "scale" }, el("span", {}, "0"), el("span", {}, "25"), el("span", {}, "50"), el("span", {}, "80"), el("span", {}, "100")));
 }
 
+// defApp words the name of a connection's owner. "group:…" stands for a cgroup
+// that several programs share (a login session, a Shunt route group): the
+// service only learns the group there, not which program it was.
+function defApp(a) {
+  if (!a.startsWith("group:")) return a;
+  const g = a.slice(6);
+  return g === "login-session" ? T("A program of the login session") : T("A program of the group {g}", { g });
+}
+
 // defDetail turns the machine detail of the connection-based findings into a
 // sentence (the service writes "key=value" pairs in English); anything else is shown as it is.
 function defDetail(e) {
@@ -93,11 +102,11 @@ function defDetail(e) {
   const kv = {};
   d.split(" ").forEach((x) => { const i = x.indexOf("="); if (i > 0) kv[x.slice(0, i)] = x.slice(i + 1); });
   if (e.kind === "first_seen" && kv.app && kv.target) {
-    return T("{app} contacted {target} for the first time", { app: kv.app, target: kv.target }) +
+    return T("{app} contacted {target} for the first time", { app: defApp(kv.app), target: kv.target }) +
       (kv.more ? " " + T("(+{n} more not listed)", { n: kv.more }) : "");
   }
   if (e.kind === "beacon" && kv.app && kv.interval) {
-    return T("{app} connects here about every {interval} (regularity {score})", { app: kv.app, interval: defInterval(kv.interval), score: kv.score || "?" });
+    return T("{app} connects here about every {interval} (regularity {score})", { app: defApp(kv.app), interval: defInterval(kv.interval), score: kv.score || "?" });
   }
   if (e.kind === "dns_tunnel" && kv.domain) {
     return T("Unusual lookups under {domain}: long random names (score {score}, {n} queries in {w} s)", { domain: kv.domain, score: kv.score || "?", n: kv.queries || "?", w: parseInt(kv.window) || 60 });

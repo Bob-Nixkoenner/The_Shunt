@@ -1532,6 +1532,8 @@
   "reports only": "meldet nur",
   "{n} entry": "{n} Eintrag",
   "An app contacts a destination for the first time (shown only, never blocks; each app learns for 10 minutes first).": "Eine App meldet sich zum ersten Mal bei einem Ziel (nur Anzeige, sperrt nie; jede App lernt zuerst 10 Minuten).",
+  "A program of the login session": "Ein Programm der Anmeldesitzung",
+  "A program of the group {g}": "Ein Programm der Gruppe {g}",
   "Checks the certificate issuer of a few public sites now and then (shown only).": "Prüft ab und zu den Zertifikat-Aussteller einiger öffentlicher Seiten (nur Anzeige).",
   "An app connects to one destination at clockwork intervals (Linux only).": "Eine App verbindet sich in gleichmäßigem Takt mit einem Ziel (nur Linux).",
   "{app} contacted {target} for the first time": "{app} hat {target} zum ersten Mal kontaktiert",

@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	nflog "github.com/florianl/go-nflog/v2"
 	"github.com/miekg/dns"
@@ -440,10 +442,21 @@ func (d *Daemon) defenseConnLoop(ctx context.Context) {
 // synSent is the kernel's TCP_SYN_SENT state number.
 const synSent = 2
 
-// connApp names the program behind a socket: the cgroup's app, or the single
-// program of a shared cgroup; "" when that cannot be told.
+// connApp names the program behind a socket for the defense (see ownerApp).
 func (d *Daemon) connApp(s sockets.Socket) string { return ownerApp(d.sockets.Owner(s.Cgroup)) }
 
+// ownerApp is the name the defense learns and reports connections under
+// (first contact, beacons): the cgroup's app, the single program of a shared
+// cgroup, or the group as a whole when several programs share it.
+//
+// A socket tells its cgroup, not its process: shuntd cannot read other
+// users' file descriptors and has no CAP_SYS_PTRACE, on purpose. So in a
+// shared cgroup with several programs only the group is known. Until
+// 2026-11-12 such a socket had no name and first contact skipped it without
+// a word (lab R07). That left out exactly what the Shunt routes itself (its
+// route groups; an app rule's cgroup as soon as the app's helpers carry
+// other names), every login, SSH and TTY session, the desktop's own
+// programs, and whole desktops that start apps without a scope each.
 func ownerApp(o sockets.Owner) string {
 	if !o.Shared {
 		return o.Name
@@ -451,7 +464,43 @@ func ownerApp(o sockets.Owner) string {
 	if len(o.Procs) == 1 {
 		return o.Procs[0]
 	}
-	return ""
+	return groupApp(o)
+}
+
+// groupPrefix marks a name that stands for a shared cgroup, not for one
+// program (the UI words it differently).
+const groupPrefix = "group:"
+
+// groupApp names a shared cgroup so that the name stays the same over
+// restarts and logins: a Shunt group by its path below apps/, a login
+// session without its number, anything else by its unit or the last part of
+// its path. No spaces (event details are "key=value" words). "" = unknown.
+func groupApp(o sockets.Owner) string {
+	n := o.Unit
+	switch {
+	case strings.HasPrefix(n, "session-") && strings.HasSuffix(n, ".scope"):
+		n = "login-session"
+	case n != "":
+		for _, suffix := range []string{".scope", ".service", ".socket"} {
+			n = strings.TrimSuffix(n, suffix)
+		}
+	default:
+		n = path.Base(o.Cgroup)
+		if n == "." || n == "/" {
+			return ""
+		}
+	}
+	n = strings.Map(func(r rune) rune {
+		if r <= ' ' || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, n)
+	for len(n) > 64 {
+		_, size := utf8.DecodeLastRuneInString(n)
+		n = n[:len(n)-size]
+	}
+	return groupPrefix + n
 }
 
 // tlsCheck runs the certificate check once (default route, normal name
