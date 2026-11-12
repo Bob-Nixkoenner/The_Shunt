@@ -1,0 +1,48 @@
+# Lab: like defense.toml plus the evidence log with capture, as the level
+# Max Security sets it (R09: shuntd must run under the real unit).
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[inbound]
+enabled = true
+
+[defense]
+enabled = true
+decoy_ports = [23, 80, 445, 2222, 2323, 3389]
+ban_seconds = 300
+dhcp_probe = "on"
+dns_probe = "on"
+
+[defense.features.decoy]
+watch = true
+[defense.features.scan]
+watch = true
+block = true
+[defense.features.brute]
+watch = true
+block = true
+[defense.features.arp]
+watch = true
+[defense.features.dhcp]
+watch = true
+[defense.features.dns]
+watch = true
+
+[defense.evidence]
+enabled = true
+retention_days = 90
+capture = true
