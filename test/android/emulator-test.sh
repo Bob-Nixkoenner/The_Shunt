@@ -291,6 +291,31 @@ dump_ui
 shown=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"' | tr '\n' ' ')
 check "defense: the event names the base domain" "exfil.test" "$shown"
 [[ $shown != *"$(ui_text "No events yet. The first minutes of an app are learning only.")"* ]] && echo "  ok   defense: the list is no longer empty" || { echo "  FAIL defense: still 'no events yet'"; fails=$((fails + 1)); }
+echo "== defense watcher: first contact and beacon (an app that is not new talks to something new / in a fixed rhythm)"
+# first_seen: the learning phase (10 min) is skipped by backdating the app's memory (debug build: run-as);
+# the shell app (com.android.shell) already "knows" 198.51.100.0/24, so 203.0.113.9 is new to it
+SINCE=$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)
+H=$(printf '198.51.100.0/24' | sha256sum | cut -c1-16)
+printf '{"com.android.shell":{"since":"%s","targets":["%s"]}}' "$SINCE" "$H" >"$W/first-seen.json"
+$ADB push "$W/first-seen.json" /data/local/tmp/shunt-first-seen.json >/dev/null
+$ADB shell am force-stop $PKG
+$ADB shell "run-as $PKG sh -c 'mkdir -p files/defense && cp /data/local/tmp/shunt-first-seen.json files/defense/first-seen.json'"
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+vpn_up || { toggle; wait_vpn up || true; }
+sleep 6
+conn() { $ADB shell "printf 'x' | nc -w 1 $1 $2 >/dev/null 2>&1" || true; }
+conn 203.0.113.9 443
+# beacon: 9 new connections in a fixed rhythm (every 3 s) to one destination
+for _ in $(seq 9); do conn 203.0.113.77 8443; sleep 2; done
+sleep 10
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+dump_ui
+shown=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"' | tr '\n' ' ')
+echo "  screen: $shown" | cut -c1-600
+check "defense first contact: the event names the new destination" "203.0.113.0/24" "$shown"
+check "defense beacon: the event names destination and port" "203.0.113.77:8443" "$shown"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
