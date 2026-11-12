@@ -634,20 +634,92 @@ func TestDHCPServerLearnedInWindow(t *testing.T) {
 	}
 }
 
-func TestDHCPRogueBeforeFirstOffer(t *testing.T) {
+// The order of the OFFERs must not decide: a rogue that answers before the
+// gateway is reported like one that answers after it (lab R04: the rogue
+// was faster in 3 of 5 runs, was learned as the network's server and only
+// its options were reported).
+func TestDHCPRogueOfferOrder(t *testing.T) {
+	const gw, rogue = "192.0.2.1", "192.0.2.66"
+	for _, tc := range []struct {
+		name  string
+		order []string
+		gap   time.Duration // between the answers
+	}{
+		{"gateway first", []string{gw, rogue}, 0},
+		{"rogue first", []string{rogue, gw}, 0},
+		{"rogue first, repeated, then gateway", []string{rogue, rogue, gw}, time.Second},
+		{"rogue first, gateway only at the next probe", []string{rogue, gw}, 5 * time.Minute},
+		{"rogue after the window, gateway later", []string{rogue, gw}, time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now, clk := dhcpClock()
+			w := newDHCPWatchWith(gw, nil, now)
+			if tc.name == "rogue after the window, gateway later" {
+				*clk = clk.Add(time.Minute)
+			}
+			var got []Event
+			for _, s := range tc.order {
+				if ev, hit := w.Feed(ad(s)); hit && ev.Kind == KindRogueDHCP {
+					got = append(got, ev)
+				}
+				*clk = clk.Add(tc.gap)
+			}
+			if len(got) != 1 || got[0].Src != rogue || got[0].Severity != SevHigh || !strings.Contains(got[0].Detail, "second server") {
+				t.Fatalf("want one rogue_dhcp naming %s, got %+v", rogue, got)
+			}
+			// reported once, whoever answers afterwards
+			for _, s := range []string{rogue, gw, "192.0.2.200"} {
+				if ev, hit := w.Feed(ad(s)); hit {
+					t.Fatalf("%s after the report: %+v", s, ev)
+				}
+			}
+		})
+	}
+}
+
+// A network whose DHCP server is not the gateway: the gateway never answers
+// DHCP, so the server stays the assumed one and is never reported, in the
+// window or long after it (the false alarm the learning window was built
+// against).
+func TestDHCPServerNotGatewayStaysQuiet(t *testing.T) {
+	now, clk := dhcpClock()
+	w := newDHCPWatchWith("192.0.2.1", nil, now)
+	for i := 0; i < 5; i++ {
+		if ev, hit := w.Feed(ad("192.0.2.53")); hit {
+			t.Fatalf("answer %d of the only server: %+v", i, ev)
+		}
+		*clk = clk.Add(5 * time.Minute)
+	}
+	if ev, hit := w.Feed(ad("198.51.100.7")); !hit || ev.Kind != KindRogueDHCP || ev.Src != "198.51.100.7" {
+		t.Fatalf("second server missed: %+v", ev)
+	}
+}
+
+// Limit that stays: gateway silent, lease unreadable, rogue faster than the
+// real server. Two servers are reported, but the source names the slower one.
+func TestDHCPTwoUnknownServersReportSecond(t *testing.T) {
 	now, _ := dhcpClock()
-	// limit: a rogue answering first in the window is learned; the real
-	// server then counts as the second one
 	w := newDHCPWatchWith("192.0.2.1", nil, now)
 	if _, hit := w.Feed(ad("192.0.2.66")); hit {
-		t.Fatal("learned first")
+		t.Fatal("first answer is assumed")
 	}
-	if ev, hit := w.Feed(ad("192.0.2.1")); hit {
-		// gateway is pre-known, so it is no alarm
+	if ev, hit := w.Feed(ad("192.0.2.53")); !hit || ev.Kind != KindRogueDHCP || ev.Src != "192.0.2.53" {
 		t.Fatalf("%+v", ev)
 	}
-	if ev, hit := w.Feed(ad("192.0.2.200")); !hit || ev.Kind != KindRogueDHCP {
+}
+
+// With a readable lease nothing is assumed: an unknown server is the second
+// one at once, before and after the lease server answers.
+func TestDHCPLeaseNeedsNoAssumption(t *testing.T) {
+	now, _ := dhcpClock()
+	w := newDHCPWatchWith("192.0.2.1", []netip.Addr{ad("192.0.2.53")}, now)
+	if ev, hit := w.Feed(ad("192.0.2.66")); !hit || ev.Kind != KindRogueDHCP || ev.Src != "192.0.2.66" {
 		t.Fatalf("%+v", ev)
+	}
+	for _, s := range []string{"192.0.2.53", "192.0.2.1", "192.0.2.66"} {
+		if ev, hit := w.Feed(ad(s)); hit {
+			t.Fatalf("%s: %+v", s, ev)
+		}
 	}
 }
 

@@ -140,12 +140,18 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   DHCP server send ARP requests, which put the true gateway MAC back into the neighbour table for a
   few seconds; sent at once, that hid a DNS redirection from the DNS check that starts 2 s after the
   same trigger (lab R05). A second server ID raises `rogue_dhcp`.
-  Known servers are the gateway address, the server of this client's own lease (read without root from
-  NetworkManager `nmcli`, systemd-networkd or dhclient lease files; skipped when unreadable) and the first
-  server that answers within 10 s after joining while no known one has answered. Only a different server
-  raises `rogue_dhcp` (high, "second server"); with no known or learned server, an unknown one is only an
-  info note and is learned. Limit: a rogue server that answers before the real one and is learned first
-  cannot be told apart this way; the active probe makes both answer, so the real one then counts as second.
+  Known servers are the gateway address and the server of this client's own lease (read without root from
+  NetworkManager `nmcli`, systemd-networkd or dhclient lease files; skipped when unreadable). The first
+  server that answers while no known one has answered is only assumed to be the network's own (silently
+  within 10 s after joining, later with an info note). A different server raises `rogue_dhcp` (high,
+  "second server"). The assumption ends when a known server answers: then two servers answer, and the
+  assumed one is reported, whichever of the two was faster and however much later the known one answers
+  (lab R04: a rogue that answered the probe before the gateway was learned as the network's server and
+  only its options were reported). A network whose DHCP server is not the gateway stays quiet, because
+  its gateway does not answer DHCP at all; where the gateway and another server both answer, that is
+  reported in either order. Limits: with a silent gateway and an unreadable lease, a rogue that answers
+  before the real server makes the report name the real one; a rogue that puts the gateway's address
+  into its server ID is not seen (the sender of the packet is not compared).
   This probe sends into the network, so it is switchable with `defense.dhcp_probe`: `auto` (default) =
   only in public networks and never while the quiet mode (`daemon.quiet`, `quiet_out`) is on for the
   network; `on` = always (also in quiet mode, counts as explicit permission; not for trusted or managed
