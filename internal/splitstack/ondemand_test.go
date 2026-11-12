@@ -119,10 +119,20 @@ func newTestEngine(t *testing.T, cfg map[string]any) (*Engine, *netstack.Net) {
 	return e, apps
 }
 
+// setFor gives a package variable another value for one test. Call it before
+// newTestEngine: cleanups run last-in first-out, so the old value comes back
+// only after the engine has stopped. The engine's health loop reads these
+// variables every 50 ms; putting the old value back in a defer of the test
+// wrote under its hands (data race, seen with -race under load).
+func setFor[T any](t *testing.T, p *T, v T) {
+	t.Helper()
+	old := *p
+	*p = v
+	t.Cleanup(func() { *p = old })
+}
+
 func TestOnDemandTunnel(t *testing.T) {
-	old := idleAfter
-	idleAfter = 400 * time.Millisecond
-	defer func() { idleAfter = old }()
+	setFor(t, &idleAfter, 400*time.Millisecond)
 	a := wgDNSServer(t, 1, "DNS = 10.9.0.1\n")
 	b := wgDNSServer(t, 2, "DNS = 10.9.0.1\n")
 	e, apps := newTestEngine(t, map[string]any{
@@ -186,9 +196,7 @@ func TestOnDemandKeepsViaTunnel(t *testing.T) {
 }
 
 func TestDNSFallbackList(t *testing.T) {
-	old := dnsRetryAfter
-	dnsRetryAfter = 300 * time.Millisecond
-	defer func() { dnsRetryAfter = old }()
+	setFor(t, &dnsRetryAfter, 300*time.Millisecond)
 	// the file names a DNS server that never answers (10.9.0.2); 10.9.0.1 does
 	conf := wgDNSServer(t, 7, "DNS = 10.9.0.2\n")
 	e, apps := newTestEngine(t, map[string]any{
@@ -213,7 +221,7 @@ func TestDNSFallbackList(t *testing.T) {
 	if err := e.SetRules(string(cfg)); err != nil {
 		t.Fatal(err)
 	}
-	e.dnsGood = dnsGoods{}
+	e.dnsGood.m.Clear() // not "= dnsGoods{}": the health loop reads it meanwhile
 	if got := e.dnsServers("tunnel:t"); len(got) != 1 || got[0] != netip.MustParseAddr("10.9.0.1") {
 		t.Errorf("ignored tunnel DNS still listed: %v", got)
 	}
