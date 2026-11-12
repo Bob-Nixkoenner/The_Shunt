@@ -223,3 +223,37 @@ func TestTunnelPeersNeverBlocked(t *testing.T) {
 		t.Fatalf("endpoint of a removed tunnel still protected: %v", err)
 	}
 }
+
+// Lab H04, second part: the automatic block spares a tunnel endpoint too
+// (here the one that needs no handshake: an address on a bad list with
+// blocking on). The finding is still reported.
+func TestTunnelPeerNotBlockedAutomatically(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	d := &Daemon{Log: log}
+	d.def.m = defense.NewManager(log)
+	defer d.def.m.Close()
+	cfg := defense.DefaultConfig()
+	cfg.Enabled = true
+	cfg.Features[defense.FeatDecoy] = defense.Feature{}
+	cfg.Features[defense.FeatReputation] = defense.Feature{Watch: true, Block: true}
+	d.def.m.Configure(cfg)
+	endpoint, other := netip.MustParseAddr("203.0.113.9"), netip.MustParseAddr("198.51.100.5")
+	d.def.m.Reputation().SetList("feodo", []netip.Prefix{netip.PrefixFrom(endpoint, 32), netip.PrefixFrom(other, 32)}, time.Time{})
+
+	d.defenseTunnelPeers([]string{"203.0.113.9:51820"})
+	d.def.m.Observe(endpoint, 22, "tcp", true)
+	st := d.def.m.Status()
+	if len(st.Bans) != 0 || st.Counts[defense.KindReputation] != 1 {
+		t.Fatalf("tunnel endpoint on a bad list: bans %+v, reported %d", st.Bans, st.Counts[defense.KindReputation])
+	}
+	d.def.m.Observe(other, 22, "tcp", true) // control: any other listed address is blocked
+	if bans := d.def.m.Status().Bans; len(bans) != 1 || bans[0].Src != other.String() {
+		t.Fatalf("control: %+v", bans)
+	}
+	// the tunnel is gone: the address is treated like any other
+	d.defenseTunnelPeers(nil)
+	d.def.m.Observe(endpoint, 22, "tcp", true)
+	if bans := d.def.m.Status().Bans; len(bans) != 2 {
+		t.Fatalf("former endpoint still spared: %+v", bans)
+	}
+}
