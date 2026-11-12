@@ -306,6 +306,18 @@ Read 2026-11-11 (spamhaus.org/drop, drop-fair-use-policy, terms-conditions):
 - Replies to connections this machine opened never count as scan or brute force: the nft table skips replies that conntrack knows (`ct direction reply return`), and the packet reader additionally skips TCP packets with ACK or RST set (a connection attempt is a bare SYN). That covers answers whose conntrack entry is gone, for example right after a restart of shuntd. Limit: UDP answers without state are not told apart; bare ACK/RST packets of an attacker are not counted (the kernel drops them).
 - In the first 30 s after shuntd starts the state is being rebuilt: scan and brute-force findings are only observed (not reported, not blocked). A scan that goes on is reported after the next window (60 s).
 
+### Names of sources (silent)
+
+The event list and the source detail show a host name next to the address when one is known. It is learned **silently**: nothing is sent (no reverse DNS, NetBIOS, mDNS or LLMNR question, no scan back). The sensor `hostNames` (`sniff_linux.go`, AF_PACKET with a BPF filter, IPv4, needs CAP_NET_RAW like the DHCP watch) only listens for packets other devices send on the segment anyway:
+
+- DHCP client packets (UDP 68 to 67): option 12 (host name); the name belongs to ciaddr, else the requested address (option 50), else the packet source.
+- mDNS (UDP 5353) and LLMNR (UDP 5355) announcements: address records (A, AAAA) whose address equals the packet's own source, so a device can name itself but not another one. mDNS names must end in `.local`, LLMNR names are single labels.
+- A self-announced name (mDNS, LLMNR) ranks above a DHCP name. This machine's own addresses are skipped.
+
+Not built: neighbour table (it has no names), NetworkManager or lease files (root files), the DNS proxy (it only knows names this machine asked for, not names of attackers), IPv6 mDNS (the filter is IPv4 only).
+
+A name is untrusted input, chosen by the device. It is cut to 63 characters, only printable characters are kept, and it lives in memory only (at most 512 entries, 24 h, forgotten on a network change). The API carries it as `names` in the events answer; the UI shows it as plain text marked "Name given by the device, not verified". It never decides anything (no block, no allow, no ignore). The evidence log lines never contain it; the export adds `source_names.json` for the sources of the export (with the same warning) and leaves it out when "Anonymize" is set.
+
 ### Pivot on a source
 
 Click an address in the event list, the live window or the block list: the UI opens a detail view

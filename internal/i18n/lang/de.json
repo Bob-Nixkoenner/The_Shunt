@@ -1767,6 +1767,7 @@
   "Enter an address or range first.": "Gib zuerst eine Adresse oder einen Bereich ein.",
   "No devices ignored.": "Keine Geräte ignoriert.",
   "Ports are numbers from 1 to 65535.": "Ports sind Zahlen von 1 bis 65535.",
-  "all ports": "alle Ports"
+  "all ports": "alle Ports",
+  "Name given by the device, not verified": "Name laut Gerät, nicht geprüft"
  }
 }

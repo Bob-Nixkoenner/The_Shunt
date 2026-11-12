@@ -6,6 +6,21 @@
 
 let defSt = null; // last defense.Status; null = the service has no defense (yet)
 let defEvents = []; // newest last, at most 200
+// Host names learned silently for sources (address -> {name, source}). The
+// device chose the name itself: untrusted text, shown as text only and
+// marked "not verified" (the service cuts and cleans it as well).
+let defNames = {};
+function defNoteNames(n) {
+  if (!n) return;
+  if (Object.keys(defNames).length > 500) defNames = {};
+  Object.assign(defNames, n);
+}
+function defNameTag(src, long) {
+  const n = defNames[src];
+  if (!n || typeof n.name !== "string" || !n.name) return "";
+  const t = T("Name given by the device, not verified");
+  return el("span", { class: "muted", title: t }, " · " + n.name.slice(0, 63), long ? el("span", { class: "muted" }, " (" + t + ")") : "");
+}
 let defSince = 0;
 let defPrimed = false; // the first fetch brings old events: no live window for those
 let defMuteUntil = 0; // the live window was closed: quiet until then
@@ -282,7 +297,7 @@ function defEventRow(e, compact) {
   return el("div", { class: "ev s" + (e.severity | 0) },
     el("span", { class: "t" }, defTime(e.time)), el("span", { class: "dot" }),
     el("span", { class: "x" }, el("b", {}, kind),
-      e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
+      e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), defNameTag(e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
         : where ? el("span", { class: "mono" }, " " + where) : "",
       e.detail && !compact ? el("div", { class: "muted" }, defDetail(e)) : ""));
 }
@@ -607,6 +622,7 @@ async function pollDefense() {
     const r = await api("GET", "/api/defense/events?since=" + defSince);
     if (r.last_seq < defSince) { defEvents = []; defSince = 0; defPrimed = false; return; } // the service restarted
     defSince = r.last_seq;
+    defNoteNames(r.names);
     if (r.events.length) {
       defEvents = defEvents.concat(r.events).slice(-200);
       renderDefense();
@@ -648,7 +664,7 @@ function defSrcSummary(evs) {
   return { kinds, ports: [...ports].sort((a, b) => parseInt(a.split("/")[1]) - parseInt(b.split("/")[1])), tl, t0, t1 };
 }
 function defRenderSource(src, evs) {
-  $("#def-src-title").textContent = src;
+  $("#def-src-title").replaceChildren(src, defNameTag(src, true));
   const ban = ((defSt && defSt.bans) || []).find((b) => b.src === src);
   const btn = ban
     ? el("button", { onclick: async () => { await defUnban(src); defOpenSource(src); } }, T("Unblock"))
@@ -674,6 +690,7 @@ async function defOpenSource(src) {
   $("#def-src").hidden = false;
   try {
     const r = await api("GET", "/api/defense/events?src=" + encodeURIComponent(src));
+    defNoteNames(r.names);
     if (defSrcCur === src) defRenderSource(src, r.events || []);
   } catch (e) { $("#def-src-body").replaceChildren(el("div", { class: "muted" }, e.message)); }
 }

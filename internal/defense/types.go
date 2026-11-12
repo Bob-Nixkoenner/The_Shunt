@@ -426,6 +426,10 @@ type SourceInfo struct {
 type EventsResponse struct {
 	Events  []Event `json:"events"`
 	LastSeq uint64  `json:"last_seq"`
+	// Names holds the host names learned silently for the sources of these
+	// events (address -> name). Text chosen by the device itself: untrusted,
+	// never verified.
+	Names map[string]SrcName `json:"names,omitempty"`
 }
 
 // Engine is what the daemon, the API and the UI talk to. Implemented by

@@ -217,7 +217,7 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 					out = append(out, e)
 				}
 			}
-			js(w, defense.EventsResponse{Events: out, LastSeq: m.seq})
+			js(w, defense.EventsResponse{Events: out, LastSeq: m.seq, Names: mockNames(out)})
 			return
 		}
 		out := []defense.Event{}
@@ -226,7 +226,7 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 				out = append(out, e)
 			}
 		}
-		js(w, defense.EventsResponse{Events: out, LastSeq: m.seq})
+		js(w, defense.EventsResponse{Events: out, LastSeq: m.seq, Names: mockNames(out)})
 	})
 	mux.HandleFunc("POST /v1/defense/outside-scan", func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
@@ -247,6 +247,10 @@ func (m *mockDefense) handle(mux *http.ServeMux) {
 		var c defense.Config
 		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		if err := defense.ValidateIgnore(c.Ignore); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":%q}`, err.Error()), http.StatusUnprocessableEntity)
 			return
 		}
 		m.mu.Lock()
@@ -333,4 +337,23 @@ func (m *mockDefense) sources() []defense.SourceInfo {
 		}
 	}
 	return append(out, defense.SourceInfo{Name: defense.SpamhausDROP, Unavailable: true})
+}
+
+// mockNames gives two sources a host name, one of them with markup in it (the
+// page must show it as plain text).
+func mockNames(evs []defense.Event) map[string]defense.SrcName {
+	known := map[string]defense.SrcName{
+		"192.0.2.44":  {Name: "living-room-tv", Source: defense.NameMDNS},
+		"203.0.113.8": {Name: "<b>printer</b><img src=x onerror=alert(1)>", Source: defense.NameDHCP},
+	}
+	out := map[string]defense.SrcName{}
+	for _, e := range evs {
+		if n, ok := known[e.Src]; ok {
+			out[e.Src] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

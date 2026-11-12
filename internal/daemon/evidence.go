@@ -418,6 +418,9 @@ func (d *Daemon) evidenceRoutes(mux *http.ServeMux) {
 		}
 		o := evidence.ExportOptions{Dir: d.evidenceDir(), Version: d.Version, ClockSynced: evidence.ClockSynced,
 			Net: req.Net, Anonymize: req.Anonymize}
+		if d.def.m != nil && !req.Anonymize {
+			o.Names = d.def.m.Names().Snapshot()
+		}
 		if req.CaseID != "" {
 			c, ok := d.evCases().Get(req.CaseID)
 			if !ok {

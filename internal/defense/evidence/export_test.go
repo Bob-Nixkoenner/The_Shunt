@@ -313,3 +313,39 @@ func TestExportOneNetworkAndAnonymize(t *testing.T) {
 		t.Fatal("unknown network accepted")
 	}
 }
+
+func TestExportNamesOnlyForSourcesAndNotAnonymous(t *testing.T) {
+	l, dir, clk, cs := exportFixture(t)
+	l.Close()
+	names := map[string]string{"192.0.2.7": "kitchen-printer", "198.51.100.4": "other-device"}
+	read := func(anon bool) map[string][]byte {
+		res, err := Export(context.Background(), ExportOptions{Dir: dir, Case: &cs, OutDir: t.TempDir(), Names: names, Anonymize: anon, Now: clk.now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep, err := VerifyPath(res.Path); err != nil || !rep.OK {
+			t.Fatalf("verify: %+v %v", rep, err)
+		}
+		b, _ := os.ReadFile(res.Path)
+		files, err := readArchive(bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	f := read(false)
+	nf := string(f[FileNames])
+	if !strings.Contains(nf, "kitchen-printer") || strings.Contains(nf, "other-device") || !strings.Contains(nf, "not verified") {
+		t.Fatalf("source_names.json:\n%s", nf)
+	}
+	if strings.Contains(string(f[FileEvents]), "kitchen-printer") {
+		t.Fatal("name inside the hash-chained lines")
+	}
+	if _, ok := read(true)[FileNames]; ok {
+		t.Fatal("names in an anonymous export")
+	}
+	pl, err := Plan(ExportOptions{Dir: dir, Case: &cs, Names: names})
+	if err != nil || !strings.Contains(strings.Join(pl.Files, " "), FileNames) {
+		t.Fatalf("%v %+v", err, pl)
+	}
+}

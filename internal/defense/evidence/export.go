@@ -38,12 +38,16 @@ const (
 	FileAddrTXT   = "addresses.txt"
 	FileAddrCSV   = "addresses.csv"
 	FileTimestamp = "timestamp.tsr"
+	// FileNames holds the host names the devices gave themselves (not
+	// verified). Not part of the hash-chained log lines; left out when the
+	// export is anonymous.
+	FileNames = "source_names.json"
 	// ExportsDir holds finished archives (0700, inside the evidence dir).
 	ExportsDir = "exports"
 )
 
 var archiveFiles = map[string]bool{FileEvents: true, FileChain: true, FileCapture: true, FileManifest: true,
-	FileReadme: true, FileAddrTXT: true, FileAddrCSV: true, FileTimestamp: true}
+	FileReadme: true, FileAddrTXT: true, FileAddrCSV: true, FileTimestamp: true, FileNames: true}
 
 // ExportOptions says what to export.
 type ExportOptions struct {
@@ -65,9 +69,32 @@ type ExportOptions struct {
 	// (it can hold this computer's hardware address) and the program, system
 	// and build details in the manifest. The log lines stay as they are,
 	// because their hashes would break otherwise.
-	Anonymize   bool
+	Anonymize bool
+	// Names maps source addresses to host names learned silently (the
+	// device's own claim, never verified). Only names of sources in the
+	// export are written, and not at all when Anonymize is set.
+	Names       map[string]string
 	ClockSynced func() (synced, known bool)
 	Now         func() time.Time
+}
+
+// namesFile is source_names.json: only the names of the sources of this
+// export, with a note that they are not checked.
+func namesFile(names map[string]string, entries []Entry) []byte {
+	out := map[string]string{}
+	for _, e := range entries {
+		if n, ok := names[e.Src]; ok && e.Src != "" {
+			out[e.Src] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	b, _ := json.MarshalIndent(struct {
+		Note  string            `json:"note"`
+		Names map[string]string `json:"names"`
+	}{"Host names as the devices announced them on the network (DHCP, mDNS, LLMNR). Chosen by the device itself, not verified; they can be forged. Not part of the signed log lines.", out}, "", " ")
+	return b
 }
 
 // ExportResult describes the archive.
@@ -219,6 +246,9 @@ func Plan(o ExportOptions) (ExportPlan, error) {
 	}
 	sort.Strings(p.Kinds)
 	p.Files = []string{FileEvents, FileChain, FileAddrTXT, FileAddrCSV, FileReadme, FileManifest}
+	if !o.Anonymize && namesFile(o.Names, entries) != nil {
+		p.Files = append(p.Files, FileNames)
+	}
 	if !o.Anonymize {
 		_, p.Packets = mergeCapture(filepath.Join(o.Dir, PcapDir), seqs, cs.Src)
 		if p.Packets > 0 {
@@ -271,6 +301,11 @@ func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
 	}
 	txt, csvb, naddr := addressLists(entries)
 	files = append(files, archiveFile{FileAddrTXT, txt}, archiveFile{FileAddrCSV, csvb})
+	if !o.Anonymize {
+		if nb := namesFile(o.Names, entries); nb != nil {
+			files = append(files, archiveFile{FileNames, nb})
+		}
+	}
 	files = append(files, archiveFile{FileReadme, []byte(readme(npk > 0, o.Anonymize))})
 
 	var m ArchiveManifest
@@ -503,6 +538,11 @@ Files
                   for tools that take a host list (for example whois).
                   The Shunt never scans anyone. Scanning other people's
                   computers can be illegal; do not do it without advice.
+  source_names.json
+                  (only if a name was learned, never in an anonymous export)
+                  host names the devices announced on the network. The device
+                  chose the name itself: it is not checked and can be forged.
+                  It is not part of the hash-chained log lines.
   ` + cap + `
   timestamp.tsr   (only if set up) an RFC 3161 time stamp over manifest.json,
                   issued by a time stamp authority. Only the hash was sent.

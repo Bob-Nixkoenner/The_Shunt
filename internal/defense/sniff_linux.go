@@ -101,6 +101,7 @@ func (s *Sensors) SetEnv(env Env) {
 	recheck := make(chan struct{}, 1) // gateway MAC changed: ask the DNS question again now
 	run(func() { s.neighbours(ctx, env, recheck) })
 	run(func() { s.dhcp(ctx, env) })
+	run(func() { s.hostNames(ctx, env) })
 	run(func() { s.dhcpProbe(ctx, env, kick) })
 	run(func() { s.routerAdverts(ctx, env) })
 	run(func() { s.once(ctx, env, recheck) })
@@ -311,6 +312,62 @@ var dhcpFilter = []unix.SockFilter{
 	{Code: 0x15, Jf: 1, K: 68},     // jeq 68 else drop
 	{Code: 0x06, K: 262144},        // accept
 	{Code: 0x06, K: 0},             // drop
+}
+
+// namesFilter is a classic BPF program: IPv4, UDP, not fragmented, source or
+// destination port 67, 68, 5353 (mDNS) or 5355 (LLMNR). Same layout as
+// dhcpFilter. Index 15 accepts, 16 drops.
+var namesFilter = []unix.SockFilter{
+	{Code: 0x30, K: 9},              // 0  ldb [9]  protocol
+	{Code: 0x15, Jf: 14, K: 17},     // 1  jeq UDP else drop
+	{Code: 0x28, K: 6},              // 2  ldh [6]  flags/fragment offset
+	{Code: 0x45, Jt: 12, K: 0x1fff}, // 3  jset fragment offset -> drop
+	{Code: 0xb1, K: 0},              // 4  ldxb 4*([0]&0xf)
+	{Code: 0x48, K: 0},              // 5  ldh [x+0] source port
+	{Code: 0x15, Jt: 8, K: 67},      // 6
+	{Code: 0x15, Jt: 7, K: 68},      // 7
+	{Code: 0x15, Jt: 6, K: 5353},    // 8
+	{Code: 0x15, Jt: 5, K: 5355},    // 9
+	{Code: 0x48, K: 2},              // 10 ldh [x+2] destination port
+	{Code: 0x15, Jt: 3, K: 67},      // 11
+	{Code: 0x15, Jt: 2, K: 68},      // 12
+	{Code: 0x15, Jt: 1, K: 5353},    // 13
+	{Code: 0x15, Jf: 1, K: 5355},    // 14 hit -> accept, else drop
+	{Code: 0x06, K: 262144},         // 15 accept
+	{Code: 0x06, K: 0},              // 16 drop
+}
+
+// hostNames listens, and only listens, for host names other devices tell the
+// segment themselves: DHCP requests (option 12), mDNS and LLMNR
+// announcements. It sends nothing (no PTR, NetBIOS, mDNS or LLMNR question,
+// no scan). IPv4 only. Needs CAP_NET_RAW.
+func (s *Sensors) hostNames(ctx context.Context, env Env) {
+	link, err := netlink.LinkByName(env.Iface)
+	if err != nil {
+		return
+	}
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, int(htons(unix.ETH_P_IP)))
+	if err != nil {
+		return
+	}
+	defer unix.Close(fd)
+	prog := unix.SockFprog{Len: uint16(len(namesFilter)), Filter: &namesFilter[0]}
+	if err := unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &prog); err != nil {
+		return
+	}
+	if err := unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_IP), Ifindex: link.Attrs().Index}); err != nil {
+		return
+	}
+	tv := unix.NsecToTimeval(int64(time.Second))
+	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
+	buf := make([]byte, 2048)
+	for ctx.Err() == nil {
+		n, _, err := unix.Recvfrom(fd, buf, 0)
+		if err != nil {
+			continue
+		}
+		s.M.LearnNames(NamesFromIPv4(buf[:n]))
+	}
 }
 
 // dhcp listens for DHCP replies on the interface and reports a second

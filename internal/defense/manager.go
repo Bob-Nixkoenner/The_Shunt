@@ -23,6 +23,7 @@ type Manager struct {
 	det       *Detector
 	never     *NeverSet
 	ignore    IgnoreSet
+	names     *NameCache
 	started   time.Time     // when the manager began (start grace)
 	grace     time.Duration // after start, scans and brute force are only observed
 	ver       verifier
@@ -120,7 +121,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 		log = slog.Default()
 	}
 	m := &Manager{log: log, ring: NewRing(1000), therm: NewThermo(), bans: NewBans(),
-		rpts: NewReports(""), agg: map[aggKey]*aggEntry{}, rep: NewReputation(), never: &NeverSet{}, now: time.Now, class: ClassUnknown, cfg: DefaultConfig()}
+		rpts: NewReports(""), agg: map[aggKey]*aggEntry{}, rep: NewReputation(), names: NewNameCache(), never: &NeverSet{}, now: time.Now, class: ClassUnknown, cfg: DefaultConfig()}
 	m.cfg.Enabled = false
 	m.det = NewDetector(DetectConfig{}, m.never)
 	m.det.OnFound = m.found
@@ -251,6 +252,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	if changed {
 		m.forgetDNS()
 		m.forgetConns()
+		m.names.Forget()
 	}
 	if changed && enabled {
 		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class) + " net=" + NetID(key)})
@@ -560,7 +562,11 @@ func (m *Manager) Unban(src string) {
 }
 
 // Events returns events with Seq > since.
-func (m *Manager) Events(since uint64) EventsResponse { return m.ring.Events(since) }
+func (m *Manager) Events(since uint64) EventsResponse {
+	r := m.ring.Events(since)
+	r.Names = m.names.For(eventSrcs(r.Events))
+	return r
+}
 
 // EventsFor returns the events of one source address (all kinds), oldest
 // first. src is normalised (IPv4-mapped form, case); anything that is no
@@ -570,7 +576,9 @@ func (m *Manager) EventsFor(src string) EventsResponse {
 	if err != nil {
 		return EventsResponse{Events: []Event{}, LastSeq: m.ring.LastSeq()}
 	}
-	return m.ring.EventsFor(a.Unmap().String())
+	r := m.ring.EventsFor(a.Unmap().String())
+	r.Names = m.names.For([]string{a.String()})
+	return r
 }
 
 // Reports returns the per-network reports (export = redacted copy).
