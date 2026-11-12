@@ -69,10 +69,42 @@ function defTime(t) {
   const d = new Date(t);
   return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
-function defLeft(ts) {
+function defLeft(ts, ban) {
+  if (ban && ban.permanent) return T("until you lift it");
   const s = Math.round((new Date(ts) - Date.now()) / 1000);
   if (!(s > 0)) return "";
+  if (s >= 2 * 86400) return T("{n} days left", { n: Math.round(s / 86400) });
+  if (s >= 2 * 3600) return T("{n} h left", { n: Math.round(s / 3600) });
   return s >= 90 ? T("{n} min left", { n: Math.round(s / 60) }) : T("{n} s left", { n: s });
+}
+
+// block times for a source that is blocked again and again (config
+// ban_seconds, ban_seconds_2, ban_seconds_3; -1 = until lifted by hand)
+const DEF_BAN_TIMES = [[300, "5 minutes"], [900, "15 minutes"], [3600, "1 hour"], [21600, "6 hours"], [86400, "24 hours"], [604800, "7 days"], [2592000, "30 days"]];
+function renderBanTimes(on) {
+  const host = $("#def-bantimes");
+  if (!host) return;
+  const cfg = defSt.config || {};
+  const mk = (key, label, forever) => {
+    const sel = el("select", { onchange: () => {
+      const c = JSON.parse(JSON.stringify(defSt.config));
+      c[key] = Number(sel.value);
+      defSend(c);
+    } });
+    let v = cfg[key];
+    if (v === undefined || v === 0) v = key === "ban_seconds" ? 3600 : key === "ban_seconds_2" ? 86400 : -1;
+    const opts = DEF_BAN_TIMES.slice();
+    if (!opts.some((o) => o[0] === v) && v > 0) opts.push([v, Tn(Math.round(v / 60), "{n} minute", "{n} minutes")]);
+    opts.sort((a, b) => a[0] - b[0]);
+    for (const [s, name] of opts) sel.append(el("option", { value: String(s) }, T(name)));
+    if (forever) sel.append(el("option", { value: "-1" }, T("Until I lift it")));
+    sel.value = String(v);
+    sel.disabled = !on;
+    return el("label", { class: "d", style: "display:flex;gap:8px;align-items:center;justify-content:space-between;margin:2px 0" }, el("span", {}, T(label)), sel);
+  };
+  host.replaceChildren(
+    el("div", { class: "d muted", style: "margin-bottom:4px" }, T("How long a source stays blocked. A source that is blocked again waits longer each time.")),
+    mk("ban_seconds", "First block"), mk("ban_seconds_2", "Second block", true), mk("ban_seconds_3", "Third block and later", true));
 }
 
 // the heat gauge: number, level name and a bar with the level borders
@@ -300,11 +332,12 @@ function renderDefense() {
   }));
   renderDefSources(on);
   // bans
+  renderBanTimes(on);
   const bans = defSt.bans || [];
   $("#def-unban-all").hidden = !bans.length;
   $("#def-bans").replaceChildren(...(bans.length ? bans.map((b) => el("tr", {},
     el("td", { class: "mono" }, b.src.includes("/") ? el("span", { title: T("A whole range, blocked because many addresses in it attacked") }, b.src) : el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(b.src) }, b.src)),
-    el("td", {}, defKindText()[b.reason] || b.reason, " ", el("span", { class: "muted" }, defLeft(b.expires))),
+    el("td", {}, defKindText()[b.reason] || b.reason, " ", el("span", { class: "muted" }, defLeft(b.expires, b))),
     el("td", { style: "text-align:right" }, el("button", { onclick: () => defUnban(b.src) }, "Unblock"), " ", el("button", { onclick: () => defAllow(b.src) }, T("Always allow")))))
     : [el("tr", {}, el("td", { class: "muted" }, "No address is blocked."))]));
   // events
@@ -570,7 +603,7 @@ function defRenderSource(src, evs) {
     : el("button", { class: "primary", onclick: () => defBan(src) }, T("Block"));
   const allow = el("button", { onclick: async () => { await defAllow(src); defOpenSource(src); } }, T("Always allow"));
   const parts = [el("div", { class: "row" }, ban ? el("span", { class: "pill bad" }, T("Blocked")) : el("span", { class: "pill" }, T("Not blocked")),
-    ban ? el("span", { class: "muted" }, defLeft(ban.expires)) : "", el("span", { class: "spacer" }), allow, btn)];
+    ban ? el("span", { class: "muted" }, defLeft(ban.expires, ban)) : "", el("span", { class: "spacer" }), allow, btn)];
   if (!evs.length) {
     parts.push(el("div", { class: "muted" }, T("No events from this source are kept any more.")));
   } else {

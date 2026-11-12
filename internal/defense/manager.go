@@ -3,6 +3,7 @@ package defense
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/netip"
 	"strconv"
@@ -13,19 +14,20 @@ import (
 
 // Manager implements Engine.
 type Manager struct {
-	log   *slog.Logger
-	ring  *Ring
-	therm *Thermo
-	bans  *Bans
-	rep   *Reputation
-	det   *Detector
-	never *NeverSet
-	ver   verifier
-	dec   *Decoys
-	rpts  *Reports
-	dns   dnsState
-	conn  connState
-	now   func() time.Time
+	offenders map[string]offender // escalation memory, guarded by mu
+	log       *slog.Logger
+	ring      *Ring
+	therm     *Thermo
+	bans      *Bans
+	rep       *Reputation
+	det       *Detector
+	never     *NeverSet
+	ver       verifier
+	dec       *Decoys
+	rpts      *Reports
+	dns       dnsState
+	conn      connState
+	now       func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
 	mu     sync.Mutex
@@ -183,6 +185,12 @@ func featureOf(c Config, name string) Feature {
 func (m *Manager) Configure(cfg Config) {
 	if cfg.BanSeconds <= 0 {
 		cfg.BanSeconds = 3600
+	}
+	if cfg.BanSeconds2 == 0 {
+		cfg.BanSeconds2 = DefaultBanSeconds2
+	}
+	if cfg.BanSeconds3 == 0 {
+		cfg.BanSeconds3 = BanForever
 	}
 	m.mu.Lock()
 	m.cfg = cfg
@@ -357,7 +365,6 @@ func (m *Manager) banWaits(src netip.Addr, feat string) bool {
 func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	m.mu.Lock()
 	f := featureOf(m.cfg, feat)
-	secs := m.cfg.BanSeconds
 	unverified := m.cfg.BanUnverified
 	m.mu.Unlock()
 	src = src.Unmap()
@@ -371,7 +378,7 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 		m.ver.hold(src, reason, m.now())
 		return
 	}
-	m.addBan(src, reason, time.Duration(secs)*time.Second, "")
+	m.addBan(src, reason, 0, "")
 }
 
 // banNow carries out a block that waited for the handshake.
@@ -382,15 +389,59 @@ func (m *Manager) banNow(src netip.Addr, reason Kind, note string) {
 	}
 	m.mu.Lock()
 	f := featureOf(m.cfg, feat)
-	secs := m.cfg.BanSeconds
 	m.mu.Unlock()
 	if !f.Watch || !f.Block || !m.Bannable(src) {
 		return
 	}
-	m.addBan(src, reason, time.Duration(secs)*time.Second, note)
+	m.addBan(src, reason, 0, note)
 }
 
-// addBan blocks src, or its whole range while exposed (see banTarget).
+// escalate returns the block level of target: 1 for a first block, higher for
+// a source that was blocked before (within offenderMemory). A target that is
+// blocked right now keeps its level. Manual blocks do not escalate.
+func (m *Manager) escalate(target string, manual bool) int {
+	if manual {
+		return 1
+	}
+	now := m.now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.offenders == nil {
+		m.offenders = map[string]offender{}
+	}
+	o := m.offenders[target]
+	if !o.last.IsZero() && now.Sub(o.last) > offenderMemory {
+		o = offender{}
+	}
+	if m.bans.Has(target) {
+		if o.n < 1 {
+			o.n = 1
+		}
+		return o.n
+	}
+	o.n++
+	o.last = now
+	if len(m.offenders) >= maxOffenders {
+		var oldest string
+		var at time.Time
+		for k, v := range m.offenders {
+			if oldest == "" || v.last.Before(at) {
+				oldest, at = k, v.last
+			}
+		}
+		delete(m.offenders, oldest)
+	}
+	m.offenders[target] = o
+	return o.n
+}
+
+type offender struct {
+	n    int
+	last time.Time
+}
+
+// addBan blocks src, or its whole range while exposed (see banTarget). d 0
+// means: the configured time for the source's escalation level.
 func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration, note string) {
 	target := m.banTarget(src)
 	if target == "" {
@@ -401,8 +452,21 @@ func (m *Manager) addBan(src netip.Addr, reason Kind, d time.Duration, note stri
 			m.bans.Remove(s)
 		}
 	}
-	if b, isNew := m.bans.Add(target, reason, d); isNew {
+	level, perm := 1, false
+	if d <= 0 {
+		level = m.escalate(target, reason == KindManual)
+		m.mu.Lock()
+		d, perm = m.cfg.BanFor(level)
+		m.mu.Unlock()
+	}
+	if b, isNew := m.bans.AddLevel(target, reason, d, perm, level); isNew {
 		detail := "reason=" + string(reason)
+		if level > 1 {
+			detail += fmt.Sprintf(" level=%d", level)
+		}
+		if b.Permanent {
+			detail += " permanent"
+		}
 		if note != "" {
 			detail += " " + note
 		}
@@ -425,7 +489,7 @@ func (m *Manager) Ban(src string) error {
 	}
 	a = a.Unmap()
 	m.mu.Lock()
-	enabled, secs := m.cfg.Enabled, m.cfg.BanSeconds
+	enabled := m.cfg.Enabled
 	m.mu.Unlock()
 	if !enabled {
 		return errors.New("defense is off")
@@ -436,7 +500,7 @@ func (m *Manager) Ban(src string) error {
 	if !m.Bannable(a) {
 		return ErrNotBannable
 	}
-	m.addBan(a, KindManual, time.Duration(secs)*time.Second, "")
+	m.addBan(a, KindManual, 0, "")
 	return nil
 }
 

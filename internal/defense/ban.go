@@ -29,12 +29,39 @@ func NewBans() *Bans { return &Bans{m: map[string]Ban{}, now: time.Now} }
 // Add blocks src for d. It returns the ban and true if it is new; an existing
 // ban is only extended.
 func (b *Bans) Add(src string, reason Kind, d time.Duration) (Ban, bool) {
+	return b.AddLevel(src, reason, d, false, 1)
+}
+
+// permanentHorizon is the Expires of a permanent ban (the firewall entry gets
+// this timeout; the entry is also kept by Prune until lifted by hand).
+const permanentHorizon = 10 * 365 * 24 * time.Hour
+
+// AddLevel is Add with an escalation level and the option permanent. Beyond
+// MaxPermanentBans permanent entries a permanent request becomes 24 h.
+func (b *Bans) AddLevel(src string, reason Kind, d time.Duration, permanent bool, level int) (Ban, bool) {
 	b.mu.Lock()
 	now := b.now()
+	if permanent {
+		n := 0
+		for k, v := range b.m {
+			if v.Permanent && k != src {
+				n++
+			}
+		}
+		if n >= MaxPermanentBans {
+			permanent, d = false, DefaultBanSeconds2*time.Second
+		} else {
+			d = permanentHorizon
+		}
+	}
 	ban, exists := b.m[src]
 	if exists {
 		if e := now.Add(d); e.After(ban.Expires) {
 			ban.Expires = e
+			ban.Permanent = ban.Permanent || permanent
+			if level > ban.Level {
+				ban.Level = level
+			}
 			b.m[src] = ban
 		}
 		b.mu.Unlock()
@@ -56,7 +83,7 @@ func (b *Bans) Add(src string, reason Kind, d time.Duration) (Ban, bool) {
 		evicted = append(evicted, b.m[oldest])
 		delete(b.m, oldest)
 	}
-	ban = Ban{Src: src, Reason: reason, Since: now, Expires: now.Add(d)}
+	ban = Ban{Src: src, Reason: reason, Since: now, Expires: now.Add(d), Permanent: permanent, Level: level}
 	b.m[src] = ban
 	cb, un := b.OnBan, b.OnUnban
 	b.mu.Unlock()
@@ -105,7 +132,7 @@ func (b *Bans) Prune() []Ban {
 	now := b.now()
 	var gone []Ban
 	for k, v := range b.m {
-		if !now.Before(v.Expires) {
+		if !v.Permanent && !now.Before(v.Expires) {
 			gone = append(gone, v)
 			delete(b.m, k)
 		}

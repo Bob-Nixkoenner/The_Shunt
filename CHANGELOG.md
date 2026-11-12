@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Defense, block time:** a source that is blocked again waits longer: first block `ban_seconds` (1 h), second `ban_seconds_2` (24 h), third and later `ban_seconds_3` (permanent, until lifted by hand; `-1` also accepted for the second). All three are set in the Defense tab (section "Blocked addresses"); the block list shows the time left or "until you lift it". A source is forgotten after 30 days without a block. At most 1024 permanent entries, beyond that 24 h, so the 4096-entry firewall table cannot fill up. Old configs keep working. Manual blocks do not escalate. See docs/DEFENSE.md.
 - **Defense:** `first_seen` no longer reports the Shunt's own programs (shuntd, desktop app, helpers). Their list downloads (for example emergingthreats.net) were noise.
 - **Window, Defense tab:** the two tick boxes per switch (Watch, Block) became one choice list that offers only what the switch can really do. Only port scans, brute force, bad address lists and DNS rebind can block (Off / Report / Report and block); the tarpit is Off / Hold and report; fake ports and fake login are Off / On; everything else is Off / Report. Before, "Block" on e.g. the tarpit looked like a setting and did nothing. The saved settings stay the same (`watch`, `block`).
 - **Service:** a saved setting that keeps shuntd from starting no longer locks you out. After 3 starts in a row that never got through (30 s), shuntd goes back to the previous settings (`shunt.toml.bak`), keeps the failed ones as `shunt.toml.failed` and shows a notice. See docs/DEFENSE.md.

@@ -160,6 +160,12 @@ type Config struct {
 	DecoyPorts []int `json:"decoy_ports" toml:"decoy_ports"`
 	// BanSeconds is how long a source stays blocked (default 3600).
 	BanSeconds int `json:"ban_seconds" toml:"ban_seconds"`
+	// BanSeconds2 and BanSeconds3 are the block times for a source that is
+	// blocked again: the second block uses BanSeconds2 (0 = 24 h), the third
+	// and every later one BanSeconds3 (0 = permanent, until lifted by hand).
+	// -1 means permanent. A source is forgotten after 30 days without a block.
+	BanSeconds2 int `json:"ban_seconds_2" toml:"ban_seconds_2"`
+	BanSeconds3 int `json:"ban_seconds_3" toml:"ban_seconds_3"`
 	// BanUnverified blocks on scan and brute-force findings at once, also
 	// when the source never finished a TCP handshake (default false: the
 	// block then waits for the first real connection to a decoy, because a
@@ -251,11 +257,13 @@ func DefaultConfig() Config {
 		f[n] = Feature{Watch: true}
 	}
 	return Config{
-		Features:   f,
-		DecoyPorts: []int{22, 23, 2222, 2323, 80, 443, 445, 3389},
-		BanSeconds: 3600,
-		DHCPProbe:  ProbeAuto,
-		DNSProbe:   ProbeAuto,
+		Features:    f,
+		DecoyPorts:  []int{22, 23, 2222, 2323, 80, 443, 445, 3389},
+		BanSeconds:  3600,
+		BanSeconds2: DefaultBanSeconds2,
+		BanSeconds3: BanForever,
+		DHCPProbe:   ProbeAuto,
+		DNSProbe:    ProbeAuto,
 	}
 }
 
@@ -265,6 +273,49 @@ type Ban struct {
 	Reason  Kind      `json:"reason"`
 	Since   time.Time `json:"since"`
 	Expires time.Time `json:"expires"`
+	// Permanent bans stay until lifted by hand (Expires is far away).
+	Permanent bool `json:"permanent,omitempty"`
+	// Level is 1 for a first block, 2 for the second, and so on.
+	Level int `json:"level,omitempty"`
+}
+
+// Block time constants. BanForever is the config value for "until lifted".
+const (
+	BanForever         = -1
+	DefaultBanSeconds2 = 24 * 3600
+	MaxBanSeconds      = 30 * 24 * 3600
+	// MaxPermanentBans caps permanent entries so that they can never fill
+	// the 4096-entry firewall table; beyond it a block lasts 24 h.
+	MaxPermanentBans = 1024
+	// offenderMemory is how long a blocked source is remembered for escalation.
+	offenderMemory = 30 * 24 * time.Hour
+	maxOffenders   = 8192
+)
+
+// BanFor returns the block time for the n-th block of a source (level 1
+// first). permanent is true when it lasts until lifted by hand.
+func (c Config) BanFor(level int) (d time.Duration, permanent bool) {
+	secs := c.BanSeconds
+	switch {
+	case level <= 1:
+		if secs <= 0 {
+			secs = 3600
+		}
+	case level == 2:
+		secs = c.BanSeconds2
+		if secs == 0 {
+			secs = DefaultBanSeconds2
+		}
+	default:
+		secs = c.BanSeconds3
+		if secs == 0 {
+			secs = BanForever
+		}
+	}
+	if secs < 0 {
+		return 0, true
+	}
+	return time.Duration(secs) * time.Second, false
 }
 
 // Exposure says whether the uplink has a public address. It is a trait on

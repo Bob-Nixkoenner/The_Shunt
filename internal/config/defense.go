@@ -29,6 +29,12 @@ func (c *Config) DefenseConfig() defense.Config {
 	if d.BanSeconds <= 0 {
 		d.BanSeconds = 3600
 	}
+	if d.BanSeconds2 == 0 {
+		d.BanSeconds2 = defense.DefaultBanSeconds2
+	}
+	if d.BanSeconds3 == 0 {
+		d.BanSeconds3 = defense.BanForever
+	}
 	if d.DHCPProbe == "" {
 		d.DHCPProbe = defense.ProbeAuto
 	}
@@ -77,6 +83,11 @@ func (c *Config) validateDefense() error {
 	}
 	if d.BanSeconds < 0 || d.BanSeconds > 30*24*3600 {
 		return fmt.Errorf("defense.ban_seconds %d (0 = default, at most 30 days)", d.BanSeconds)
+	}
+	for i, v := range []int{d.BanSeconds2, d.BanSeconds3} {
+		if v < -1 || v > 30*24*3600 {
+			return fmt.Errorf("defense.ban_seconds_%d %d (-1 = until lifted by hand, 0 = default, at most 30 days)", i+2, v)
+		}
 	}
 	okSrc := map[string]bool{}
 	for _, n := range defense.OptionalSourceNames() {

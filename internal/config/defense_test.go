@@ -81,3 +81,21 @@ func TestDefenseTLSTargets(t *testing.T) {
 		t.Fatal("too many targets accepted")
 	}
 }
+
+func TestDefenseBanStepsDefaultsAndLimits(t *testing.T) {
+	c := &Config{Defense: &defense.Config{Enabled: true, BanSeconds: 300}}
+	d := c.DefenseConfig()
+	if d.BanSeconds2 != 86400 || d.BanSeconds3 != defense.BanForever {
+		t.Fatalf("%+v", d)
+	}
+	for _, v := range []int{-2, 31 * 24 * 3600} {
+		bad := &Config{Defense: &defense.Config{BanSeconds2: v}}
+		if bad.validateDefense() == nil {
+			t.Fatalf("ban_seconds_2 %d accepted", v)
+		}
+	}
+	ok := &Config{Defense: &defense.Config{BanSeconds2: -1, BanSeconds3: -1}}
+	if err := ok.validateDefense(); err != nil {
+		t.Fatal(err)
+	}
+}

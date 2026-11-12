@@ -816,3 +816,102 @@ func TestManagerManualBan(t *testing.T) {
 		t.Fatal("unban")
 	}
 }
+
+func TestBanEscalation(t *testing.T) {
+	m, clk := newTestManager(t, &portMap{real: map[int]int{}}, nil)
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.BanSeconds, cfg.BanSeconds2, cfg.BanSeconds3 = 300, 3600, 0 // 0 = permanent
+	m.Configure(cfg)
+	src := mustAddr("203.0.113.9")
+	left := func() (Ban, bool) {
+		for _, b := range m.Status().Bans {
+			if b.Src == src.String() {
+				return b, true
+			}
+		}
+		return Ban{}, false
+	}
+	m.addBan(src, KindScan, 0, "")
+	b, ok := left()
+	if !ok || b.Level != 1 || b.Expires.Sub(clk.Now()) != 5*time.Minute {
+		t.Fatalf("first: %+v", b)
+	}
+	m.addBan(src, KindScan, 0, "") // still blocked: no new level
+	if b, _ = left(); b.Level != 1 {
+		t.Fatalf("level rose while blocked: %+v", b)
+	}
+	clk.Add(6 * time.Minute)
+	m.bans.Prune()
+	m.addBan(src, KindScan, 0, "")
+	if b, _ = left(); b.Level != 2 || b.Expires.Sub(clk.Now()) != time.Hour || b.Permanent {
+		t.Fatalf("second: %+v", b)
+	}
+	clk.Add(2 * time.Hour)
+	m.bans.Prune()
+	m.addBan(src, KindScan, 0, "")
+	if b, _ = left(); b.Level != 3 || !b.Permanent {
+		t.Fatalf("third: %+v", b)
+	}
+	clk.Add(400 * 24 * time.Hour)
+	m.bans.Prune()
+	if _, ok := left(); !ok {
+		t.Fatal("permanent ban expired")
+	}
+	m.Unban(src.String())
+	if _, ok := left(); ok {
+		t.Fatal("not lifted")
+	}
+	// forgotten after 30 days: first level again
+	clk.Add(31 * 24 * time.Hour)
+	m.addBan(src, KindScan, 0, "")
+	if b, _ = left(); b.Level != 1 {
+		t.Fatalf("not forgotten: %+v", b)
+	}
+	// a manual block never escalates
+	other := mustAddr("203.0.113.10")
+	for i := 0; i < 3; i++ {
+		m.Unban(other.String())
+		m.addBan(other, KindManual, 0, "")
+	}
+	for _, b := range m.Status().Bans {
+		if b.Src == other.String() && (b.Level != 1 || b.Permanent) {
+			t.Fatalf("manual escalated: %+v", b)
+		}
+	}
+}
+
+func TestPermanentBanCap(t *testing.T) {
+	b := NewBans()
+	b.Max = 4096
+	for i := 0; i < MaxPermanentBans+5; i++ {
+		b.AddLevel(netip.AddrFrom4([4]byte{10, 0, byte(i >> 8), byte(i)}).String(), KindScan, 0, true, 3)
+	}
+	perm := 0
+	for _, v := range b.List() {
+		if v.Permanent {
+			perm++
+		}
+	}
+	if perm != MaxPermanentBans {
+		t.Fatalf("permanent %d", perm)
+	}
+}
+
+func TestBanConfigDefaults(t *testing.T) {
+	var c Config
+	c.BanSeconds = 3600
+	if d, p := c.BanFor(1); d != time.Hour || p {
+		t.Fatal(d, p)
+	}
+	if d, p := c.BanFor(2); d != 24*time.Hour || p {
+		t.Fatal(d, p)
+	}
+	if _, p := c.BanFor(3); !p {
+		t.Fatal("third not permanent")
+	}
+	c.BanSeconds3 = 7200
+	if d, p := c.BanFor(9); d != 2*time.Hour || p {
+		t.Fatal(d, p)
+	}
+}

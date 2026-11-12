@@ -40,6 +40,31 @@ Behaviour while exposed (`Status.exposed = {v4, v6, inbound}`):
   as the gateway). The ban table is capped at 4096 entries (the soonest-expiring one makes room). The
   event ring keeps 1000 events. The nft block sets are interval sets so a range is one element.
 
+### Block time and escalation
+
+A source that is blocked again waits longer each time. Config (all in seconds, also set in the Defense tab,
+section "Blocked addresses"):
+
+| Block of the same source | Key | Default |
+|---|---|---|
+| first | `ban_seconds` | 3600 (1 h; 0 = default; at most 30 days) |
+| second | `ban_seconds_2` | 86400 (24 h; 0 = default) |
+| third and every later one | `ban_seconds_3` | -1 = permanent, until lifted by hand (0 = default = permanent) |
+
+-1 (until lifted by hand) is accepted for the second block too. Old configs with only `ban_seconds` keep
+working: the new keys take their defaults. The count per source (or per blocked range) lives in memory for 30
+days after its last block (8192 sources at most, oldest dropped) and is lost when shuntd restarts; a block
+that is active right now does not raise the level. Manual blocks never escalate and use the first time.
+`ban`/`unban` events say `level=N` and `permanent`; the block list shows the time left, "until you lift it" for
+permanent ones.
+
+Limits: a permanent block is an entry with a 10 year timeout in the same 4096-entry table, so it uses the same
+space as any other. At most 1024 permanent entries exist at once; beyond that a block lasts 24 h instead, so
+permanent blocks can never fill the table. Permanent blocks are not stored in a file: after a restart of shuntd
+or a reboot the table is empty (as before). The lab configs (`test/lab/configs`) keep `ban_seconds = 300` on
+purpose (short, so a test can see the lift) and are untouched; with them the second block lasts 24 h and the
+third is permanent unless the lab config sets `ban_seconds_2`/`ban_seconds_3`.
+
 ### Outside check (your own server)
 
 `[defense.outside_scan] enabled = true, host = "https://…/outside-scan", token = "…"`; off by default.
