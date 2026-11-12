@@ -394,6 +394,17 @@ fun CheckRow(checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = t
 }
 
 /** Buttons of the web UI: plain, primary (accent) and danger (red). */
+/** True when the system font is much larger than normal (font scale above 1.15): rows of short buttons then stack, so no word breaks in the middle. */
+@Composable
+fun bigFont(): Boolean = androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f
+
+/** Buttons side by side, or one under the other when the system font is big. */
+@Composable
+fun ButtonRow(content: @Composable (Modifier) -> Unit) {
+    if (bigFont()) Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Gap.buttons)) { content(Modifier.fillMaxWidth()) }
+    else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) { content(Modifier.weight(1f)) }
+}
+
 @Composable
 fun ShuntButton(text: String, onClick: () -> Unit, kind: Tone = Tone.Neutral, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val c = LocalShunt.current

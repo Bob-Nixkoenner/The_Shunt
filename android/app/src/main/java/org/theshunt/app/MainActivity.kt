@@ -135,7 +135,8 @@ private fun App() {
                     ).filter { it.first != "Ports" || showPorts }.forEachIndexed { i, (label, icon) ->
                         NavigationBarItem(
                             selected = tab == i, onClick = { tab = i }, icon = { Icon(icon, null) },
-                            label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal) },
+                            // big system font: the label stays at 11 dp, else six tabs do not fit and the words are cut off
+                            label = { Text(T(label), maxLines = 1, softWrap = false, fontWeight = if (tab == i) FontWeight.Bold else FontWeight.Normal, fontSize = if (bigFont()) with(LocalDensity.current) { 11.dp.toSp() } else androidx.compose.ui.unit.TextUnit.Unspecified) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedTextColor = c.text, unselectedTextColor = c.muted, indicatorColor = c.panel2,
                                 selectedIconColor = c.accent, unselectedIconColor = c.muted,
@@ -175,7 +176,7 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
     val passLeft = ov?.optLong("pass_left") ?: 0L
     Column(Modifier.background(c.bg).statusBarsPadding()) {
         if (band) Text(
-            "MAX SECURITY", Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
+            T(Level.Opsec.label).uppercase(), Modifier.fillMaxWidth().background(c.accent).padding(vertical = 2.dp)
                 .semantics { contentDescription = T("Max Security level") },
             color = c.accentInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -183,10 +184,10 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ShuntLogo()
             Spacer(Modifier.width(10.dp))
-            // title and pill take what the PANIC button leaves (large font: the title shortens, the button never wraps)
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Text(T("The Shunt"), Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.width(12.dp))
+            // title and pill take what the PANIC button leaves; with a big system font the pill moves under the title
+            // (so "The Shunt" is not cut to "…") and the button never wraps
+            val big = bigFont()
+            val pill: @Composable () -> Unit = {
                 when {
                     !running -> Pill("off")
                     panic -> Pill("PANIC", Tone.Bad)
@@ -194,6 +195,15 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
                     !lockdown -> Pill("no kill switch", Tone.Warn)
                     else -> Pill("protected", Tone.Ok)
                 }
+            }
+            if (big) Column(Modifier.weight(1f)) {
+                Text(T("The Shunt"), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                pill()
+            } else Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(T("The Shunt"), Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(12.dp))
+                pill()
             }
             Spacer(Modifier.width(8.dp))
             if (running) {
@@ -1109,8 +1119,8 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
     }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(Gap.screen), verticalArrangement = Arrangement.spacedBy(Gap.sections)) {
         Section("Settings shown") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Gap.buttons)) {
-                for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = Modifier.weight(1f))
+            ButtonRow { m ->
+                for (l in Level.entries) ShuntButton(T(l.label), { pick(l) }, kind = if (settings.level == l) Tone.Ok else Tone.Neutral, modifier = m)
             }
             Hint(
                 when (settings.level) {

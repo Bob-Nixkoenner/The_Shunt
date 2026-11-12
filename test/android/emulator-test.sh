@@ -109,11 +109,22 @@ toggle
 wait_vpn down && echo "  ok   VPN off" || { echo "  FAIL VPN still up"; fails=$((fails + 1)); }
 toggle
 wait_vpn up && sleep 3 && check "VPN on again, tunnel works" "tunnel=work" "$(get)" || { echo "  FAIL VPN did not come back"; fails=$((fails + 1)); }
-tap_text() { # tap the first view whose text starts with $1
+# The app shows its texts in the device language (catalog internal/i18n/lang/<code>.json, the
+# English text is the key). The test names the English text; the screen text is looked up here,
+# so the test also passes on a German (or other translated) emulator.
+UI_LANG=$($ADB shell getprop persist.sys.locale 2>/dev/null | tr -d '\r' | cut -c1-2)
+ui_text() { # ui_text "English text" -> the text as the app shows it in the device language
+	if [[ -n $UI_LANG && $UI_LANG != en && -f internal/i18n/lang/$UI_LANG.json ]]; then
+		python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["strings"].get(sys.argv[2], sys.argv[2]))' \
+			"internal/i18n/lang/$UI_LANG.json" "$1"
+	else echo "$1"; fi
+}
+tap_text() { # tap the first view whose text starts with $1 (English text, looked up in the device language)
 	dump_ui
-	local b
-	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$1[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
-	[[ -n $b ]] || { echo "  FAIL no '$1' on screen"; fails=$((fails + 1)); return 1; }
+	local b want
+	want=$(ui_text "$1")
+	b=$($ADB shell cat /data/local/tmp/ui.xml | grep -o "text=\"$want[^\"]*\"[^>]*bounds=\"[^\"]*\"" | grep -o 'bounds="[^"]*"' | head -1)
+	[[ -n $b ]] || { echo "  FAIL no '$1' (shown as '$want') on screen"; fails=$((fails + 1)); return 1; }
 	read -r x1 y1 x2 y2 <<<"$(echo "$b" | tr -c '0-9' ' ')"
 	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
@@ -252,6 +263,59 @@ $ADB shell svc wifi disable; sleep 8
 check "on mobile data: the profile's route (work)" "tunnel=work" "$(get || true)"
 $ADB shell svc wifi enable; sleep 8
 check "back on Wi-Fi: home again" "tunnel=home" "$(get || true)"
+echo "== defense watcher (Max Security): a DNS tunnel pattern shows up as an event on the status screen"
+python3 - "$W/settings.json" <<'PY7'
+import json, sys
+p = sys.argv[1]; c = json.load(open(p))
+c["defense"] = True; c["level"] = "opsec"
+c["apps"] = {}; c["default"] = "tunnel:home"; c["networks"] = []
+json.dump(c, open(p, "w"))
+PY7
+$ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
+# the screen reads level and defense only when the app starts: swap the file while it is stopped
+$ADB shell am force-stop $PKG
+$ADB shell "run-as $PKG cp /data/local/tmp/shunt-settings.json files/settings.json"
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+vpn_up || { toggle; wait_vpn up || true; } # always-on usually has started it already
+sleep 6
+# 40 long random names under one base domain, all through the Shunt's DNS proxy (what a DNS tunnel looks like)
+for _ in $(seq 40); do
+	label=$(head -c 60 /dev/urandom | base64 | tr -dc 'a-z0-9' | head -c 44)
+	$ADB shell "ping -c1 -W1 $label.exfil.test >/dev/null 2>&1" || true
+done
+sleep 10 # the status screen asks the core for events every few seconds
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+dump_ui
+shown=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"' | tr '\n' ' ')
+check "defense: the event names the base domain" "exfil.test" "$shown"
+[[ $shown != *"$(ui_text "No events yet. The first minutes of an app are learning only.")"* ]] && echo "  ok   defense: the list is no longer empty" || { echo "  FAIL defense: still 'no events yet'"; fails=$((fails + 1)); }
+echo "== defense watcher: first contact and beacon (an app that is not new talks to something new / in a fixed rhythm)"
+# first_seen: the learning phase (10 min) is skipped by backdating the app's memory (debug build: run-as);
+# the shell app (com.android.shell) already "knows" 198.51.100.0/24, so 203.0.113.9 is new to it
+SINCE=$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)
+H=$(printf '198.51.100.0/24' | sha256sum | cut -c1-16)
+printf '{"com.android.shell":{"since":"%s","targets":["%s"]}}' "$SINCE" "$H" >"$W/first-seen.json"
+$ADB push "$W/first-seen.json" /data/local/tmp/shunt-first-seen.json >/dev/null
+$ADB shell am force-stop $PKG
+$ADB shell "run-as $PKG sh -c 'mkdir -p files/defense && cp /data/local/tmp/shunt-first-seen.json files/defense/first-seen.json'"
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+vpn_up || { toggle; wait_vpn up || true; }
+sleep 6
+conn() { $ADB shell "printf 'x' | nc -w 1 $1 $2 >/dev/null 2>&1" || true; }
+conn 203.0.113.9 443
+# beacon: 9 new connections in a fixed rhythm (every 3 s) to one destination
+for _ in $(seq 9); do conn 203.0.113.77 8443; sleep 2; done
+sleep 10
+$ADB shell am start -W -n $PKG/.MainActivity >/dev/null
+sleep 3
+dump_ui
+shown=$($ADB shell cat /data/local/tmp/ui.xml | grep -o 'text="[^"]*"' | tr '\n' ' ')
+echo "  screen: $shown" | cut -c1-600
+check "defense first contact: the event names the new destination" "203.0.113.0/24" "$shown"
+check "defense beacon: the event names destination and port" "203.0.113.77:8443" "$shown"
 echo "== status"
 $ADB logcat -d -s Shunt | tail -5
 ((fails == 0)) && echo "ALL OK" || { echo "$fails FAILED"; exit 1; }
