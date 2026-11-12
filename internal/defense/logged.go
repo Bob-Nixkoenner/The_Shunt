@@ -86,3 +86,33 @@ func ParseConnPacket(p []byte) (src, dst netip.AddrPort, ok bool) {
 	}
 	return netip.AddrPortFrom(a, binary.BigEndian.Uint16(l4[0:2])), netip.AddrPortFrom(b, binary.BigEndian.Uint16(l4[2:4])), true
 }
+
+// IsTCPReply reports whether the logged packet is a TCP segment that can only
+// belong to a connection somebody opened earlier: ACK or RST set (SYN-ACK,
+// plain ACK, RST). A connection attempt is a bare SYN. After a restart of the
+// daemon or a lost connection-tracking entry such answers to our own outgoing
+// connections reach the log as "new"; they are no scan and no brute force.
+// Limit: an attacker who sends bare ACK or RST packets is not counted either
+// (such packets reveal no port and are dropped by the kernel anyway).
+func IsTCPReply(p []byte) bool {
+	if len(p) < 1 {
+		return false
+	}
+	var l4 []byte
+	switch p[0] >> 4 {
+	case 4:
+		ihl := int(p[0]&0xf) * 4
+		if ihl < 20 || len(p) < ihl+14 || p[9] != 6 || binary.BigEndian.Uint16(p[6:8])&0x1fff != 0 {
+			return false
+		}
+		l4 = p[ihl:]
+	case 6:
+		if len(p) < 54 || p[6] != 6 {
+			return false
+		}
+		l4 = p[40:]
+	default:
+		return false
+	}
+	return l4[13]&(0x10|0x04) != 0 // ACK | RST
+}

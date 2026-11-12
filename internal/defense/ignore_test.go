@@ -3,6 +3,7 @@ package defense
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateIgnore(t *testing.T) {
@@ -95,5 +96,46 @@ func TestIgnoreKeepsReputation(t *testing.T) {
 	m.Report(Event{Kind: KindDecoyHit, Severity: SevMedium, Src: "192.0.2.5", Port: 22})
 	if !hasKind(m, KindReputation) || hasKind(m, KindDecoyHit) {
 		t.Fatal("reputation must stay, decoy hit must go")
+	}
+}
+
+func TestStartGraceObservesOnly(t *testing.T) {
+	clk := newClock()
+	m := NewManager(nil, WithClock(clk.Now), WithStartGrace(30*time.Second))
+	t.Cleanup(m.Close)
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	m.Configure(cfg)
+	m.SetNetwork("net1", ClassUnknown)
+	src := mustAddr("192.0.2.9")
+	for i := 0; i < 15; i++ {
+		m.ObserveState(src, 22000, "tcp", StateS0)
+	}
+	if hasKind(m, KindBruteForce) {
+		t.Fatal("reported in the grace time")
+	}
+	clk.Add(2 * time.Minute)
+	for i := 0; i < 15; i++ {
+		m.ObserveState(src, 22000, "tcp", StateS0)
+	}
+	if !hasKind(m, KindBruteForce) {
+		t.Fatal("must report after the grace time")
+	}
+}
+
+func TestIsTCPReply(t *testing.T) {
+	pkt := func(flags byte) []byte {
+		p := make([]byte, 20+20)
+		p[0], p[9] = 0x45, 6
+		p[20+13] = flags
+		return p
+	}
+	for f, want := range map[byte]bool{0x02: false, 0x12: true, 0x10: true, 0x04: true, 0x14: true, 0x00: false} {
+		if IsTCPReply(pkt(f)) != want {
+			t.Errorf("flags %#x", f)
+		}
+	}
+	if IsTCPReply([]byte{0x45}) || IsTCPReply(nil) {
+		t.Error("short packet")
 	}
 }

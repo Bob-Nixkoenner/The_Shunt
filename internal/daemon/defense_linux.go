@@ -261,6 +261,12 @@ func (d *Daemon) defenseLogPacket(st *logState, a nflog.Attribute) {
 		st.listen, st.at = listeningPorts(), time.Now()
 	}
 	d.evidencePacket(*a.Payload, proto, port, st.listen)
+	if proto == "tcp" && defense.IsTCPReply(*a.Payload) {
+		// answer to a connection this machine (or its state before a
+		// restart) opened: no scan, no brute force; reputation still checks
+		d.def.m.CheckPeer(src, port, proto)
+		return
+	}
 	for _, p := range d.def.m.DecoyPorts() {
 		if p == port && proto == "tcp" {
 			return

@@ -63,7 +63,7 @@ func (d *Daemon) startDefense(ctx context.Context) {
 	opts := append(d.defenseOptions(), defense.WithOwnAddr(ownAddr), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
 		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")),
 		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")),
-		defense.WithEventHook(d.evidenceEvent))
+		defense.WithEventHook(d.evidenceEvent), defense.WithStartGrace(30*time.Second))
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")

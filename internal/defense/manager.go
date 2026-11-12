@@ -23,6 +23,8 @@ type Manager struct {
 	det       *Detector
 	never     *NeverSet
 	ignore    IgnoreSet
+	started   time.Time     // when the manager began (start grace)
+	grace     time.Duration // after start, scans and brute force are only observed
 	ver       verifier
 	dec       *Decoys
 	rpts      *Reports
@@ -55,6 +57,12 @@ type Option func(*Manager)
 
 // WithListen sets how decoy listeners are opened.
 func WithListen(f ListenFunc) Option { return func(m *Manager) { m.dec.Listen = f } }
+
+// WithStartGrace makes scan and brute-force findings in the first d after the
+// start only observed: not reported, not blocked. Right after a restart the
+// connection state of this machine is being rebuilt, answers to its own
+// connections look like strangers.
+func WithStartGrace(d time.Duration) Option { return func(m *Manager) { m.grace = d } }
 
 // WithBanHooks sets the callbacks for blocks and unblocks (firewall).
 func WithBanHooks(onBan, onUnban func(Ban)) Option {
@@ -122,6 +130,7 @@ func NewManager(log *slog.Logger, opts ...Option) *Manager {
 	for _, o := range opts {
 		o(m)
 	}
+	m.started = m.now()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.stop, m.done = cancel, make(chan struct{})
 	go m.loop(ctx)
@@ -373,6 +382,9 @@ func (m *Manager) ja3Seen(h Hit) {
 }
 
 func (m *Manager) found(f Finding) {
+	if m.grace > 0 && m.now().Sub(m.started) < m.grace {
+		return // state is still being rebuilt after the start: observe only
+	}
 	sev, feat := SevHigh, FeatScan
 	if f.Kind == KindBruteForce {
 		sev, feat = SevMedium, FeatBrute
