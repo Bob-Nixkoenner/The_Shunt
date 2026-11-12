@@ -27,25 +27,26 @@ const defKindText = () => ({
   exposed: T("Directly reachable from the internet"), outside: T("Outside check"),
 });
 // what each switch does: [name, one line]
+// [name, what it watches, what on/off means for a beginner]
 const defFeatText = () => ({
-  decoy: [T("Decoy ports"), T("Fake services on common ports (not in trusted or managed networks).")],
-  tarpit: [T("Tarpit"), T("Holds scanners in slow connections.")],
-  cowrie: [T("Fake login"), T("A fake service records login attempts.")],
-  scan: [T("Port scans"), T("Many ports from one source.")],
-  brute: [T("Brute force"), T("Many failed connections in a row.")],
-  reputation: [T("Bad address lists"), T("Peers and destinations on lists of known attackers.")],
-  first_seen: [T("New destinations"), T("An app contacts a destination for the first time (shown only, never blocks; each app learns for 10 minutes first).")],
-  arp: [T("ARP/NDP spoofing"), T("The gateway's hardware address changes.")],
-  dhcp: [T("Rogue DHCP"), T("A second DHCP server answers.")],
-  dns: [T("DNS tampering"), T("DNS answers differ or port 53 is diverted.")],
-  tls: [T("Certificate changes"), T("Checks the certificate issuer of a few public sites now and then (shown only).")],
-  beacon: [T("Beacons"), T("An app connects to one destination at clockwork intervals (Linux only).")],
-  dns_tunnel: [T("DNS tunnels"), T("Long, random names and many TXT queries.")],
-  evil_twin: [T("Evil twin"), T("Same Wi-Fi name, different access point.")],
-  dhcp_option: [T("DHCP options"), T("Routes from the network's DHCP reply that bypass the tunnel (shown only, never blocks).")],
-  rogue_ra: [T("IPv6 routers"), T("A second or odd IPv6 router or DHCPv6 server (shown only, never blocks).")],
-  dns_rebind: [T("DNS rebind"), T("A public name that resolves to a private address. Needs defense.rebind_protect; drops the answer only with Block.")],
-  new_iface: [T("New interfaces"), T("A network interface appears that was not there at start, e.g. a USB adapter (Linux, shown only).")],
+  decoy: [T("Decoy ports"), T("Fake services on common ports (not in trusted or managed networks)."), T("On: fake services on common ports catch snoopers. Off: no fake ports open.")],
+  tarpit: [T("Tarpit"), T("Holds scanners in slow connections."), T("On: scanners get stuck in very slow connections. Off: they are turned away at once.")],
+  cowrie: [T("Fake login"), T("A fake service records login attempts."), T("On: a fake login records what intruders type. Off: no fake login.")],
+  scan: [T("Port scans"), T("Many ports from one source."), T("On: you learn when someone probes many ports. Off: scans go unnoticed.")],
+  brute: [T("Brute force"), T("Many failed connections in a row."), T("On: many failed logins in a row are reported. Off: password guessing goes unnoticed.")],
+  reputation: [T("Bad address lists"), T("Peers and destinations on lists of known attackers."), T("On: contact with known attackers is reported. Off: nothing is compared with the lists.")],
+  first_seen: [T("New destinations"), T("An app contacts a destination for the first time (shown only, never blocks; each app learns for 10 minutes first)."), T("On: you see when an app talks to something new. Off: no such notes.")],
+  arp: [T("ARP/NDP spoofing"), T("The gateway's hardware address changes."), T("On: warns when someone poses as your router. Off: such a takeover goes unnoticed.")],
+  dhcp: [T("Rogue DHCP"), T("A second DHCP server answers."), T("On: warns when a stranger hands out network settings. Off: no warning.")],
+  dns: [T("DNS tampering"), T("DNS answers differ or port 53 is diverted."), T("On: warns when name lookups are faked. Off: faked lookups go unnoticed.")],
+  tls: [T("Certificate changes"), T("Checks the certificate issuer of a few public sites now and then (shown only)."), T("On: notices when secure connections are intercepted. Off: no such check.")],
+  beacon: [T("Beacons"), T("An app connects to one destination at clockwork intervals (Linux only)."), T("On: reports apps that phone home like clockwork, as malware does. Off: no such check.")],
+  dns_tunnel: [T("DNS tunnels"), T("Long, random names and many TXT queries."), T("On: notices data smuggled out in name lookups. Off: no such check.")],
+  evil_twin: [T("Evil twin"), T("Same Wi-Fi name, different access point."), T("On: warns about a fake Wi-Fi with the same name. Off: no warning.")],
+  dhcp_option: [T("DHCP options"), T("Routes from the network's DHCP reply that bypass the tunnel (shown only, never blocks)."), T("On: shows network settings that would steer traffic past the tunnel. Off: not shown.")],
+  rogue_ra: [T("IPv6 routers"), T("A second or odd IPv6 router or DHCPv6 server (shown only, never blocks)."), T("On: shows a stranger acting as an IPv6 router. Off: not shown.")],
+  dns_rebind: [T("DNS rebind"), T("A public name that resolves to a private address. Needs defense.rebind_protect; drops the answer only with Block."), T("On: notices websites that try to reach devices in your own network. Off: no such check.")],
+  new_iface: [T("New interfaces"), T("A network interface appears that was not there at start, e.g. a USB adapter (Linux, shown only)."), T("On: shows a newly plugged-in network adapter. Off: not shown.")],
 });
 // the lists: [name, what is in it, how often, how long it counts, source link, terms link, restriction]
 const DEF_SRC = {
@@ -273,6 +274,10 @@ function renderDefense() {
   else if (defSt.class === "managed") notes.push(T("Managed network: watching only, no decoys."));
   else if ((defSt.decoys || []).length) notes.push(T("Decoys listen on: {ports}", { ports: defSt.decoys.join(", ") }));
   if (defSt.unsupported) notes.push(defSt.unsupported);
+  // the switches, lists and blocks exist only where the defense runs
+  // (Linux): elsewhere they are not shown at all, the note above says why
+  const none = typeof onWindows === "function" && onWindows();
+  for (const id of ["#def-feats", "#def-sources", "#def-bans"]) { const sec = $(id).closest("section"); if (sec) sec.hidden = none; }
   const exp = defSt.exposed && (defSt.exposed.v4 || defSt.exposed.v6);
   if (on && exp && !(defSt.config && defSt.config.decoys_when_exposed)) notes.push(T("Decoys stay off here: with a public address they would be real attack surface."));
   $("#def-notes").textContent = notes.join(" ");
@@ -290,7 +295,7 @@ function renderDefense() {
     const block = el("input", { type: "checkbox", "aria-label": T("Block") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: f.watch, block: block.checked }) });
     watch.checked = !!f.watch; block.checked = !!f.block && !!f.watch; block.disabled = !f.watch || !on;
     watch.disabled = !on;
-    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : k === "scan" ? defBanChoice(on, f) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
+    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), el("div", { class: "d onoff" }, txt[k][2]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : k === "scan" ? defBanChoice(on, f) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
   }));
   renderDefSources(on);
   // bans
@@ -317,7 +322,9 @@ function renderDefSources(on) {
   const txt = defSrcText(), cfg = defSt.config || {};
   const info = {};
   (defSt.sources || []).forEach((x) => { info[x.name] = x; });
-  const names = ["feodo", "sslbl", "sslbl_ja3", "et_compromised", "spamhaus_drop"];
+  // a list the terms keep out of the app (Spamhaus DROP, "unavailable") is not
+  // shown: a box that can never be ticked only confuses
+  const names = ["feodo", "sslbl", "sslbl_ja3", "et_compromised", "spamhaus_drop"].filter((n) => !(info[n] || {}).unavailable);
   $("#def-sources").replaceChildren(...names.map((n) => {
     const i = info[n] || { name: n, on: false };
     const m = DEF_SRC[n], dead = !!i.unavailable;

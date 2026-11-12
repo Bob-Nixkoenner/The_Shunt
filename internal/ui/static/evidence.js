@@ -28,7 +28,9 @@ function renderEvidence() {
   pill.textContent = !on ? T("Off") : st.chain_ok ? T("Chain intact") + " ✓" : T("Chain broken") + " ✗";
   $("#ev-on").checked = on; $("#ev-on").disabled = !defSt.enabled && !on;
   $("#ev-cap").checked = !!evSt.capture; $("#ev-cap").disabled = !on || !evSt.capture_supported;
-  $("#ev-cap-note").textContent = evSt.capture_supported ? "" : T("Not available on this system: only the event log and the export.");
+  // packet capture exists only on Linux: elsewhere the box is not shown at all
+  $("#ev-cap").closest("label").hidden = !evSt.capture_supported;
+  $("#ev-cap-note").textContent = "";
   if (document.activeElement !== $("#ev-days")) $("#ev-days").value = (evSt.config && evSt.config.retention_days) || 90;
   const lines = [];
   if (!on && !(st.lines > 0)) lines.push([T("Evidence is off: nothing is written."), "muted"]);
