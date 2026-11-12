@@ -72,6 +72,7 @@ _de() {
 	'unknown option %s') printf %s 'unbekannte Option %s' ;;
 	'--dns-level must be 0, 1, 2 or 3') printf %s '--dns-level muss 0, 1, 2 oder 3 sein' ;;
 	'run as root: sudo bash %s') printf %s 'als root starten: sudo bash %s' ;;
+	'The Shunt is installed as a package (dpkg). Update it with its package, or remove it first (sudo apt remove the-shunt the-shunt-desktop); two copies hide each other.') printf %s 'The Shunt ist als Paket (dpkg) installiert. Aktualisiere es mit dem Paket oder entferne es zuerst (sudo apt remove the-shunt the-shunt-desktop); zwei Kopien verdecken sich gegenseitig.' ;;
 	'--dry-run only works for installing') printf %s '--dry-run geht nur beim Installieren' ;;
 	'Removing The Shunt') printf %s 'The Shunt wird entfernt' ;;
 	'rules, routes and kill switches removed') printf %s 'Regeln, Routen und Kill-Switches entfernt' ;;
@@ -311,6 +312,7 @@ done
 [[ -z $DNS_LEVEL || $DNS_LEVEL =~ ^[0-3]$ ]] || die "--dns-level must be 0, 1, 2 or 3"
 
 ((DRY)) || [[ $EUID -eq 0 ]] || die "run as root: sudo bash %s" "$0"
+[[ $MODE == uninstall ]] || ! command -v dpkg >/dev/null || ! dpkg -s the-shunt >/dev/null 2>&1 || die "The Shunt is installed as a package (dpkg). Update it with its package, or remove it first (sudo apt remove the-shunt the-shunt-desktop); two copies hide each other."
 ((DRY)) && [[ $MODE == uninstall ]] && die "--dry-run only works for installing"
 
 if [[ $EUID -eq 0 ]]; then

@@ -64,6 +64,27 @@ if [ "$1" = configure ]; then
 	DE=
 	case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in de | de_* | de.*) DE=1 ;; esac
 	getent group shunt >/dev/null || groupadd --system shunt
+	# A copy made by install.sh (programs in /usr/local/bin, units in
+	# /etc/systemd/system that call them) would hide this package: the old units
+	# win over the packaged ones and /usr/local/bin comes first in PATH, so the
+	# old version would keep running. Move such files aside (not deleted).
+	aside=
+	for u in shuntd.service shunt-lockdown.service; do
+		f=/etc/systemd/system/$u
+		if [ -f "$f" ] && [ ! -L "$f" ] && grep -q '/usr/local/bin/shunt' "$f" 2>/dev/null; then
+			mv "$f" "$f.from-install-sh" && aside="$aside $f"
+		fi
+	done
+	for b in shunt shuntd shunt-desktop; do
+		f=/usr/local/bin/$b
+		if [ -f "$f" ] && [ ! -L "$f" ]; then
+			mv "$f" "$f.from-install-sh" && aside="$aside $f"
+		fi
+	done
+	if [ -n "$aside" ]; then
+		if [ -n "$DE" ]; then echo "The Shunt: Reste einer Installation mit install.sh hätten dieses Paket verdeckt und wurden beiseitegelegt (Endung .from-install-sh, nicht gelöscht):$aside"
+		else echo "The Shunt: leftovers of an install.sh installation would have hidden this package; moved aside (suffix .from-install-sh, not deleted):$aside"; fi
+	fi
 	# The Shunt runs its own tor for Tor tunnels; the system service (SOCKS
 	# on 9050) that the tor package starts is not needed. Only on a fresh
 	# install, so a tor someone set up on purpose is left alone.
