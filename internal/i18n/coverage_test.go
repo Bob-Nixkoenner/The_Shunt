@@ -80,6 +80,9 @@ func TestGermanCoversAndroidTexts(t *testing.T) {
 	de := Dict("de")
 	seen := map[string]bool{}
 	root := filepath.Join(goRoot, "android", "app", "src")
+	if _, err := os.Stat(root); err != nil {
+		t.Skip("no android/ in this tree (test/farm.sh leaves it out)")
+	}
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".kt") {
 			return nil
