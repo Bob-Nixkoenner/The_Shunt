@@ -52,7 +52,6 @@ KeyringMode=private
 PrivateIPC=yes
 PrivateTmp=yes
 ProtectKernelModules=yes
-ProtectClock=yes
 ProtectHostname=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
@@ -63,8 +62,22 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=bpf perf_event_open
+# adjtimex, read-only: the evidence log notes whether the clock is
+# synchronised (internal/defense/evidence, on with Max Security). Without this
+# line the first call killed shuntd (SIGSYS) at every start. The clock still
+# cannot be set: that needs CAP_SYS_TIME, which is outside the bounding set
+# above and cannot come back (NoNewPrivileges), and the calls that only set
+# it (settimeofday, clock_settime, clock_adjtime) stay outside this list.
+SystemCallFilter=adjtimex
+# A call outside the list fails with "not permitted" instead of killing the
+# daemon: one forgotten call in a rarely used path, or a new one in a library
+# or a child program, must not end in a restart loop with no socket left to
+# switch the setting off again.
+SystemCallErrorNumber=EPERM
 # Not set on purpose: ProtectKernelTunables (needs /proc/sys/net),
-# ProtectControlGroups (needs to write its cgroups), PrivateDevices (/dev/net/tun).
+# ProtectControlGroups (needs to write its cgroups), PrivateDevices (/dev/net/tun),
+# ProtectClock (it blocks adjtimex altogether, reading included; setting the
+# clock is ruled out by the missing CAP_SYS_TIME, see above).
 
 [Install]
 WantedBy=multi-user.target
