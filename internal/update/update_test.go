@@ -25,6 +25,10 @@ func TestNewer(t *testing.T) {
 		{"v0.7.1-rc10-4-gf357390", "v0.7.1-rc11", true},
 		{"v0.7.1-rc10-4-gf357390", "v0.7.1", true},
 		{"v0.7.0-12-gabc1234", "v0.7.1-rc10", true},
+		// versions it cannot read: no update (lab build with a hash, 2026-11-12)
+		{"v0.7.5-m12f4d4a5", "v0.7.5-rc24", false},
+		{"v0.7.5-m12f4d4a5", "v0.8.0", false},
+		{"v0.7.5", "weird-tag", false},
 	} {
 		if got := newer(tc.cur, tc.latest); got != tc.want {
 			t.Errorf("%q vs %q: %v", tc.cur, tc.latest, got)

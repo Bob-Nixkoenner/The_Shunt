@@ -250,7 +250,10 @@ func newer(current, latest string) bool {
 		if c, ok := cmpVersion(latest, current); ok {
 			return c > 0
 		}
-		return latest != current
+		// a version this code cannot read (a lab build such as
+		// "v0.7.5-m12f4d4a5") is never reported as outdated: only a
+		// comparison that worked may say "update available"
+		return false
 	}
 }
 
