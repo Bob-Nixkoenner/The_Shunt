@@ -44,10 +44,10 @@ func TestDefenseRoutes(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 	d.def.m.Configure(defense.Config{Enabled: true, Features: map[string]defense.Feature{}, BanSeconds: 60})
-	d.def.m.SetNetwork("k", defense.ClassTrusted)
+	d.def.m.SetNetwork("0123456789abcdef", defense.ClassTrusted)
 	var ev defense.EventsResponse
 	get("/v1/defense/events?since=0", &ev)
-	if len(ev.Events) != 1 || ev.Events[0].Kind != defense.KindNetEnter || strings.Contains(ev.Events[0].Detail, "k") && ev.Events[0].Detail != "class=trusted" {
+	if len(ev.Events) != 1 || ev.Events[0].Kind != defense.KindNetEnter || ev.Events[0].Detail != "class=trusted net=01234567" {
 		t.Fatalf("%+v", ev)
 	}
 	get("/v1/defense/events?since=1", &ev)

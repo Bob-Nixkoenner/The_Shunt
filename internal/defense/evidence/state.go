@@ -26,6 +26,7 @@ type StateWatch struct {
 	wall   time.Time // last reading, with its monotonic part
 	last   string    // last sync line written
 	class  string
+	net    string
 	joined time.Time
 }
 
@@ -40,6 +41,14 @@ func (w *StateWatch) now() time.Time {
 func (w *StateWatch) SetNet(class string, joined time.Time) {
 	w.mu.Lock()
 	w.class, w.joined = class, joined
+	w.mu.Unlock()
+}
+
+// SetNetID records the short network label (see defense.NetID) for the state
+// line at the top of new files.
+func (w *StateWatch) SetNetID(id string) {
+	w.mu.Lock()
+	w.net = id
 	w.mu.Unlock()
 }
 
@@ -66,7 +75,7 @@ func (w *StateWatch) Preamble() []Input {
 	w.last = d
 	out := []Input{{Kind: "state_clock", Severity: "info", Detail: d}}
 	if !w.joined.IsZero() {
-		out = append(out, Input{Kind: "state_net", Severity: "info", Detail: fmt.Sprintf("class=%s joined=%s", w.class, w.joined.UTC().Format(time.RFC3339))})
+		out = append(out, Input{Kind: "state_net", Severity: "info", Detail: fmt.Sprintf("class=%s joined=%s%s", w.class, w.joined.UTC().Format(time.RFC3339), netSuffix(w.net))})
 	}
 	return out
 }
@@ -109,4 +118,11 @@ func (w *StateWatch) CheckAt(wall time.Time, mono time.Duration, haveMono bool) 
 	if diff > JumpThreshold || diff < -JumpThreshold {
 		_, _ = w.Log.Append(Input{Kind: "clock_jump", Severity: "medium", Detail: fmt.Sprintf("system clock moved %+.1fs against the monotonic clock", diff.Seconds())})
 	}
+}
+
+func netSuffix(id string) string {
+	if id == "" {
+		return ""
+	}
+	return " net=" + id
 }

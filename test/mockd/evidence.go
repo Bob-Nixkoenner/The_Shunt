@@ -66,7 +66,21 @@ func (m *mockDefense) handleEvidence(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/defense/evidence/purge", func(w http.ResponseWriter, r *http.Request) { js(w, map[string]int{"removed_files": 1}) })
+	mux.HandleFunc("GET /v1/defense/evidence/networks", func(w http.ResponseWriter, r *http.Request) {
+		js(w, map[string]any{"networks": []map[string]any{
+			{"id": "a1b2c3d4", "class": "public", "visits": 2, "first_utc": "2026-11-10T08:00:00Z", "last_utc": "2026-11-11T09:00:00Z", "lines": 7, "sources": 2},
+			{"id": "e5f6a7b8", "class": "trusted", "visits": 1, "first_utc": "2026-11-09T18:00:00Z", "last_utc": "2026-11-09T20:00:00Z", "lines": 1, "sources": 1}}})
+	})
 	mux.HandleFunc("POST /v1/defense/evidence/export", func(w http.ResponseWriter, r *http.Request) {
+		var q struct {
+			Preview bool `json:"preview"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&q)
+		if q.Preview {
+			js(w, map[string]any{"lines": 7, "sources": 2, "packets": 12, "first_utc": "2026-11-10T08:00:00Z", "last_utc": "2026-11-11T09:00:00Z",
+				"kinds": []string{"decoy_hit", "scan"}, "chain_only": 3, "files": []string{"events.jsonl", "chain.jsonl", "manifest.json"}})
+			return
+		}
 		js(w, map[string]any{"path": "/var/lib/shunt/defense/evidence/exports/shunt-case-demo.tar.gz", "bytes": 5, "lines": 7, "packets": 12, "addresses": 1})
 	})
 	mux.HandleFunc("GET /v1/defense/evidence/download", func(w http.ResponseWriter, r *http.Request) {

@@ -278,6 +278,11 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 .srclink:hover { text-decoration: underline; }
 #def-src { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
 #def-src[hidden] { display: none; }
+#ev-exp { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+#ev-exp[hidden] { display: none; }
+#ev-exp .box { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px; width: min(520px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; display: grid; gap: 10px; }
+#ev-exp ul { margin: 0; padding-left: 18px; font-size: 13px; }
+#ev-exp select { max-width: 100%; }
 #def-src .box { background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px; width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; display: grid; gap: 10px; }
 #def-src .hd { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 #def-src .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -820,6 +825,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <div id="lv-note" class="hint"></div>
   <div class="row" style="margin-top:12px"><button id="lv-cancel">Cancel</button><button id="lv-keep" hidden></button><button id="lv-ok" class="primary"></button></div>
 </div></div>
+<div id="ev-exp" hidden><div class="box" role="dialog" aria-modal="true" id="ev-exp-box"></div></div>
 <div id="modal" hidden><div class="box" role="dialog" aria-modal="true">
   <p id="modal-msg"></p>
   <input id="modal-input" hidden>

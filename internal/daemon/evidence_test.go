@@ -95,10 +95,19 @@ func TestEvidenceOffWritesNothingThenOnWritesChain(t *testing.T) {
 	evCall(t, mux, "POST", "/v1/defense/evidence/case", evCaseReq{Action: "create", Src: "nonsense"}, 400)
 	evCall(t, mux, "POST", "/v1/defense/evidence/case", evCaseReq{Action: "create", Src: "203.0.113.50"}, 409)
 	var res evidence.ExportResult
-	_ = json.Unmarshal(evCall(t, mux, "POST", "/v1/defense/evidence/export", evExportReq{CaseID: cs.ID}, 200), &res)
+	_ = json.Unmarshal(evCall(t, mux, "POST", "/v1/defense/evidence/export", evExportReq{CaseID: cs.ID, AllNetworks: true}, 200), &res)
 	if res.Lines != 2 || !strings.HasPrefix(res.Path, d.evidenceDir()) {
 		t.Fatalf("%+v", res)
 	}
+	// without a network choice the export is refused; a preview writes nothing
+	evCall(t, mux, "POST", "/v1/defense/evidence/export", evExportReq{CaseID: cs.ID}, 400)
+	evCall(t, mux, "POST", "/v1/defense/evidence/export", evExportReq{CaseID: cs.ID, Net: "../x"}, 400)
+	var pl evidence.ExportPlan
+	_ = json.Unmarshal(evCall(t, mux, "POST", "/v1/defense/evidence/export", evExportReq{CaseID: cs.ID, AllNetworks: true, Preview: true, Anonymize: true}, 200), &pl)
+	if pl.Lines != 2 || !pl.Anonymize || len(pl.Files) == 0 {
+		t.Fatalf("plan %+v", pl)
+	}
+	evCall(t, mux, "GET", "/v1/defense/evidence/networks", nil, 200)
 	var dl evDownload
 	_ = json.Unmarshal(evCall(t, mux, "GET", "/v1/defense/evidence/download?name="+filepath.Base(res.Path), nil, 200), &dl)
 	if dl.Size == 0 || len(dl.Data) != dl.Size {
@@ -140,7 +149,7 @@ func withTestPeer(ctx context.Context) context.Context {
 func TestEvidenceRoutesNeedAuthorization(t *testing.T) {
 	_, mux := evDaemon(t)
 	for _, c := range []struct{ m, p string }{
-		{"POST", "/v1/defense/evidence/case"}, {"POST", "/v1/defense/evidence/purge"}, {"POST", "/v1/defense/evidence/export"},
+		{"POST", "/v1/defense/evidence/case"}, {"POST", "/v1/defense/evidence/purge"}, {"POST", "/v1/defense/evidence/export"}, {"GET", "/v1/defense/evidence/networks"},
 		{"GET", "/v1/defense/evidence/download?name=shunt-case-a.tar.gz"}, {"GET", "/v1/defense/evidence/abuse?src=192.0.2.1"},
 	} {
 		rec := httptest.NewRecorder()

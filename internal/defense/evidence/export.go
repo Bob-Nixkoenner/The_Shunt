@@ -55,8 +55,17 @@ type ExportOptions struct {
 	Build   string // build hash ("" = from the binary)
 	// TSA, when set, is an https URL of an RFC 3161 time stamp authority;
 	// only the SHA-256 of manifest.json is sent, and only here, on export.
-	TSA         string
-	TSAClient   *http.Client
+	TSA       string
+	TSAClient *http.Client
+	// Net limits the export to the lines of one network (label from
+	// Networks). Empty = every network; the service refuses that unless the
+	// caller asked for it on purpose.
+	Net string
+	// Anonymize leaves out what describes this computer: the packet capture
+	// (it can hold this computer's hardware address) and the program, system
+	// and build details in the manifest. The log lines stay as they are,
+	// because their hashes would break otherwise.
+	Anonymize   bool
 	ClockSynced func() (synced, known bool)
 	Now         func() time.Time
 }
@@ -126,13 +135,8 @@ func buildHash() string {
 	return "unknown"
 }
 
-// Export writes a case archive (.tar.gz) and returns where it is.
-func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
-	var res ExportResult
-	now := time.Now
-	if o.Now != nil {
-		now = o.Now
-	}
+// selectEntries applies the case or source and the network choice.
+func selectEntries(o ExportOptions) (Case, []Entry, error) {
 	var f Filter
 	var cs Case
 	if o.Case != nil {
@@ -141,19 +145,102 @@ func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
 	} else if o.Src != "" {
 		a, err := netip.ParseAddr(o.Src)
 		if err != nil {
-			return res, errors.New("src is not an IP address")
+			return cs, nil, errors.New("src is not an IP address")
 		}
 		cs.Src = a.Unmap().String()
 		f = Filter{Src: cs.Src}
 	} else {
-		return res, errors.New("a case or a source address is needed")
+		return cs, nil, errors.New("a case or a source address is needed")
 	}
 	entries, err := ReadDir(o.Dir, f)
 	if err != nil {
-		return res, err
+		return cs, nil, err
+	}
+	if o.Net != "" {
+		seqs, err := netSeqs(o.Dir, o.Net)
+		if err != nil {
+			return cs, nil, err
+		}
+		kept := entries[:0:0]
+		for _, e := range entries {
+			if seqs[e.Seq] {
+				kept = append(kept, e)
+			}
+		}
+		entries = kept
 	}
 	if len(entries) == 0 {
-		return res, errors.New("no log lines for this case (retention may have removed them)")
+		return cs, nil, errors.New("no log lines for this case (retention may have removed them)")
+	}
+	return cs, entries, nil
+}
+
+// ExportPlan says what an export would hold, without writing anything.
+type ExportPlan struct {
+	Lines     int      `json:"lines"`
+	Sources   int      `json:"sources"`
+	Packets   int      `json:"packets"`
+	First     string   `json:"first_utc"`
+	Last      string   `json:"last_utc"`
+	Kinds     []string `json:"kinds"`
+	ChainOnly int      `json:"chain_only"` // lines of other networks or sources, as hashes only
+	Files     []string `json:"files"`
+	Net       string   `json:"net,omitempty"`
+	Anonymize bool     `json:"anonymize"`
+	TSA       bool     `json:"timestamp"`
+}
+
+// Plan lists what Export would write for o.
+func Plan(o ExportOptions) (ExportPlan, error) {
+	var p ExportPlan
+	cs, entries, err := selectEntries(o)
+	if err != nil {
+		return p, err
+	}
+	span, _ := ReadDir(o.Dir, Filter{FromSeq: entries[0].Seq, ToSeq: entries[len(entries)-1].Seq})
+	srcs := map[string]bool{}
+	kinds := map[string]bool{}
+	seqs := map[uint64]bool{}
+	for _, e := range entries {
+		seqs[e.Seq] = true
+		kinds[e.Kind] = true
+		if e.Src != "" {
+			srcs[e.Src] = true
+		}
+	}
+	p.Lines, p.Sources, p.Net, p.Anonymize, p.TSA = len(entries), len(srcs), o.Net, o.Anonymize, o.TSA != ""
+	p.First, p.Last = entries[0].TimeUTC, entries[len(entries)-1].TimeUTC
+	p.ChainOnly = len(span) - len(entries)
+	if p.ChainOnly < 0 {
+		p.ChainOnly = 0
+	}
+	for k := range kinds {
+		p.Kinds = append(p.Kinds, k)
+	}
+	sort.Strings(p.Kinds)
+	p.Files = []string{FileEvents, FileChain, FileAddrTXT, FileAddrCSV, FileReadme, FileManifest}
+	if !o.Anonymize {
+		_, p.Packets = mergeCapture(filepath.Join(o.Dir, PcapDir), seqs, cs.Src)
+		if p.Packets > 0 {
+			p.Files = append(p.Files, FileCapture)
+		}
+	}
+	if p.TSA {
+		p.Files = append(p.Files, FileTimestamp)
+	}
+	return p, nil
+}
+
+// Export writes a case archive (.tar.gz) and returns where it is.
+func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
+	var res ExportResult
+	now := time.Now
+	if o.Now != nil {
+		now = o.Now
+	}
+	cs, entries, err := selectEntries(o)
+	if err != nil {
+		return res, err
 	}
 	// the evidence for the whole span, to prove the chain around the
 	// selected lines (hashes only)
@@ -172,7 +259,11 @@ func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
 	for _, e := range entries {
 		seqs[e.Seq] = true
 	}
-	capData, npk := mergeCapture(filepath.Join(o.Dir, PcapDir), seqs, cs.Src)
+	var capData []byte
+	npk := 0
+	if !o.Anonymize {
+		capData, npk = mergeCapture(filepath.Join(o.Dir, PcapDir), seqs, cs.Src)
+	}
 
 	files := []archiveFile{{FileEvents, events.Bytes()}, {FileChain, chain.Bytes()}}
 	if npk > 0 {
@@ -180,7 +271,7 @@ func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
 	}
 	txt, csvb, naddr := addressLists(entries)
 	files = append(files, archiveFile{FileAddrTXT, txt}, archiveFile{FileAddrCSV, csvb})
-	files = append(files, archiveFile{FileReadme, []byte(readme(npk > 0))})
+	files = append(files, archiveFile{FileReadme, []byte(readme(npk > 0, o.Anonymize))})
 
 	var m ArchiveManifest
 	m.Format = 1
@@ -195,12 +286,14 @@ func Export(ctx context.Context, o ExportOptions) (ExportResult, error) {
 		}
 	}
 	m.TimeSource = "system clock (UTC), NTP synchronised at export: " + sync + "; see state_clock and clock_jump lines in events.jsonl"
-	m.Tool.Shunt, m.Tool.Go = o.Version, runtime.Version()
-	m.Tool.Build = o.Build
-	if m.Tool.Build == "" {
-		m.Tool.Build = buildHash()
+	if !o.Anonymize {
+		m.Tool.Shunt, m.Tool.Go = o.Version, runtime.Version()
+		m.Tool.Build = o.Build
+		if m.Tool.Build == "" {
+			m.Tool.Build = buildHash()
+		}
+		m.Host.OS, m.Host.Arch = runtime.GOOS, runtime.GOARCH // never the host name
 	}
-	m.Host.OS, m.Host.Arch = runtime.GOOS, runtime.GOARCH // never the host name
 	for _, af := range files {
 		s := sha256.Sum256(af.data)
 		m.Files = append(m.Files, ManifestFile{af.name, len(af.data), hex.EncodeToString(s[:])})
@@ -380,10 +473,13 @@ func addressLists(es []Entry) (txt, csvb []byte, n int) {
 	return tb.Bytes(), cb.Bytes(), len(keys)
 }
 
-func readme(haveCapture bool) string {
+func readme(haveCapture, anonymous bool) string {
 	cap := "capture.pcapng is not part of this archive (no packet capture was running, or none was labelled with these events)."
 	if haveCapture {
 		cap = "capture.pcapng holds the packets recorded around these events (open it with Wireshark, Zeek or Suricata). Each packet carries the comment \"event=<seq>\", the seq of the log line that caused it. It contains only unsolicited inbound packets (first packet of a connection to a decoy or closed port, payload cut to 128 bytes) and incoming ARP/DHCP/IPv6 router and neighbour frames. Control frames can contain hardware addresses of devices on the network, including this computer: look at it before you pass it on."
+	}
+	if anonymous {
+		cap = "capture.pcapng is not part of this archive on purpose (it can hold the hardware address of this computer). The manifest names no program, system or build."
 	}
 	return `THE SHUNT - CASE ARCHIVE
 

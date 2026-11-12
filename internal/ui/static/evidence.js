@@ -96,7 +96,54 @@ $("#ev-purge").addEventListener("click", () => evPurge(false));
 $("#ev-purge-all").addEventListener("click", () => evPurge(true));
 
 // export: the service writes the archive, the page saves a copy as a download
+// evExport asks for the network first: only its lines go into the archive,
+// so no other place is given away by accident.
 async function evExport(body) {
+  const box = $("#ev-exp-box"), host = $("#ev-exp");
+  let nets = [];
+  try { nets = (await api("GET", "/api/defense/evidence/networks")).networks || []; } catch (e) { toast(e.message); return; }
+  if (!nets.length) { toast(T("No evidence has been written yet.")); return; }
+  const day = (s) => String(s || "").slice(0, 10);
+  const classText = (c) => (typeof defClassText === "function" && defClassText()[c]) || c || "";
+  const sel = el("select", {}, el("option", { value: "" }, T("Choose a network …")),
+    ...nets.map((n) => el("option", { value: n.id }, n.id === "unknown"
+      ? T("Earlier lines, network not known ({lines} lines)", { lines: n.lines })
+      : T("Network {n}: {class}, last {day}, {lines} lines", { n: n.id, class: classText(n.class), day: day(n.last_utc), lines: n.lines }))));
+  const anon = el("input", { type: "checkbox" });
+  const list = el("div", { class: "hint" }, T("Choose a network to see what the package will hold."));
+  const go = el("button", { class: "primary", disabled: true }, T("Export"));
+  const close = () => { host.hidden = true; };
+  const preview = async () => {
+    go.disabled = true;
+    if (!sel.value) { list.replaceChildren(T("Choose a network to see what the package will hold.")); return; }
+    list.textContent = T("Looking up …");
+    try {
+      const p = await api("POST", "/api/defense/evidence/export", Object.assign({}, body, { net: sel.value, anonymize: anon.checked, preview: true }));
+      const li = [
+        T("{lines} log lines from {a} to {b}, only from the network you chose", { lines: p.lines | 0, a: day(p.first_utc), b: day(p.last_utc) }),
+        T("{n} source addresses (the other side; they are the evidence)", { n: p.sources | 0 }),
+        (p.chain_only | 0) ? T("{n} other lines only as hashes, no content (they prove the chain is unbroken)", { n: p.chain_only | 0 }) : "",
+        (p.packets | 0) ? T("Packet capture with {n} packets (may hold hardware addresses of your computer)", { n: p.packets | 0 }) : (anon.checked ? T("No packet capture (left out on purpose)") : T("No packet capture")),
+        anon.checked ? T("No program, system or build details in the manifest") : T("Program version, system type and build in the manifest"),
+        T("No name or hardware address of any network; no data of other networks"),
+      ].filter(Boolean);
+      list.replaceChildren(el("div", { style: "margin-bottom:4px" }, T("The package will hold:")), el("ul", {}, ...li.map((t) => el("li", {}, t))),
+        el("div", { class: "muted mono", style: "margin-top:6px" }, (p.files || []).join(", ")));
+      go.disabled = false;
+    } catch (e) { list.textContent = e.message; }
+  };
+  sel.onchange = preview; anon.onchange = preview;
+  go.onclick = () => { close(); evExportRun(Object.assign({}, body, { net: sel.value, anonymize: anon.checked })); };
+  box.replaceChildren(
+    el("div", { style: "font-weight:700" }, T("Export evidence")),
+    el("label", { class: "d" }, T("Network to export"), el("div", {}, sel)),
+    el("label", { class: "row d", style: "gap:6px" }, anon, T("Make my own device details anonymous (no capture, no program or system details)")),
+    list,
+    el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { onclick: close }, T("Cancel")), go));
+  host.hidden = false;
+}
+
+async function evExportRun(body) {
   toast(T("Making the archive …"));
   try {
     const r = await api("POST", "/api/defense/evidence/export", body);

@@ -223,8 +223,18 @@ func (m *Manager) SetNetwork(key string, class Class) {
 		m.forgetConns()
 	}
 	if changed && enabled {
-		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class)})
+		m.Report(Event{Kind: KindNetEnter, Severity: SevInfo, Detail: "class=" + string(class) + " net=" + NetID(key)})
 	}
+}
+
+// NetID is the short label of a network in the evidence log: the first 8
+// characters of its (already hashed) key. It lets an export pick the lines of
+// one network without the log ever holding a name.
+func NetID(key string) string {
+	if len(key) > 8 {
+		key = key[:8]
+	}
+	return key
 }
 
 // syncDecoys starts or stops decoys to match config and class. Handlers

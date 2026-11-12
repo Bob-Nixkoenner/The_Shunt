@@ -246,3 +246,70 @@ func TestVerifyPathLiveDir(t *testing.T) {
 		t.Fatal("missing path accepted")
 	}
 }
+
+func TestExportOneNetworkAndAnonymize(t *testing.T) {
+	clk := &clock{time.Date(2026, 11, 11, 8, 0, 0, 0, time.UTC)}
+	l, dir := newLog(t, clk, nil)
+	add := func(kind, src, detail string) {
+		clk.t = clk.t.Add(time.Second)
+		_, _ = l.Append(Input{Kind: kind, Severity: "medium", Src: src, Port: 22, Proto: "tcp", Detail: detail})
+	}
+	add("decoy_hit", "192.0.2.1", "before any network") // unknown
+	add("net_enter", "", "class=public net=aaaa1111")
+	add("decoy_hit", "192.0.2.7", "in A")
+	add("scan", "192.0.2.8", "in A")
+	add("net_enter", "", "class=trusted net=bbbb2222")
+	add("decoy_hit", "198.51.100.4", "in B")
+	add("net_enter", "", "class=public net=aaaa1111") // back in A
+	add("decoy_hit", "192.0.2.7", "in A again")
+	l.Close()
+
+	nets, err := Networks(dir)
+	if err != nil || len(nets) != 3 {
+		t.Fatalf("%v %+v", err, nets)
+	}
+	for _, n := range nets {
+		if n.ID == "aaaa1111" && (n.Visits != 2 || n.Lines != 3 || n.Sources != 2 || n.Class != "public") {
+			t.Fatalf("A: %+v", n)
+		}
+		if n.ID == UnknownNet && n.Lines != 1 {
+			t.Fatalf("unknown: %+v", n)
+		}
+	}
+	cs := Case{ID: "c9", Name: "all", FromSeq: 1}
+	out := t.TempDir()
+	res, err := Export(context.Background(), ExportOptions{Dir: dir, Case: &cs, OutDir: out, Net: "aaaa1111", Anonymize: true, Now: clk.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A has 3 log lines plus its 2 markers
+	if res.Lines != 5 {
+		t.Fatalf("%+v", res)
+	}
+	fh, err := os.Open(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fh.Close()
+	files, err := readArchive(fh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := string(files[FileEvents])
+	if strings.Contains(ev, "in B") || strings.Contains(ev, "bbbb2222") || strings.Contains(ev, "before any") {
+		t.Fatalf("other network leaked:\n%s", ev)
+	}
+	if strings.Contains(string(files[FileManifest]), "shunt_version\": \"v") || strings.Contains(string(files[FileManifest]), "\"os\": \"linux\"") {
+		t.Fatalf("manifest not anonymous: %s", files[FileManifest])
+	}
+	if _, ok := files[FileCapture]; ok {
+		t.Fatal("capture in anonymous archive")
+	}
+	pl, err := Plan(ExportOptions{Dir: dir, Case: &cs, Net: "aaaa1111", Anonymize: true})
+	if err != nil || pl.Lines != 5 || pl.Sources != 2 || pl.ChainOnly < 1 {
+		t.Fatalf("%v %+v", err, pl)
+	}
+	if _, err := Plan(ExportOptions{Dir: dir, Case: &cs, Net: "nope"}); err == nil {
+		t.Fatal("unknown network accepted")
+	}
+}

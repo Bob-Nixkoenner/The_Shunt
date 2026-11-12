@@ -51,6 +51,7 @@ func (s *Server) evidenceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/defense/evidence/case", pass("POST", "/v1/defense/evidence/case", nil, true))
 	mux.HandleFunc("POST /api/defense/evidence/purge", pass("POST", "/v1/defense/evidence/purge", nil, true))
 	mux.HandleFunc("POST /api/defense/evidence/export", pass("POST", "/v1/defense/evidence/export", nil, true))
+	mux.HandleFunc("GET /api/defense/evidence/networks", pass("GET", "/v1/defense/evidence/networks", nil, false))
 	mux.HandleFunc("GET /api/defense/evidence/download", pass("GET", "/v1/defense/evidence/download", func(r *http.Request) (string, bool) {
 		n := r.URL.Query().Get("name")
 		return "?name=" + url.QueryEscape(n), evExportName.MatchString(n)

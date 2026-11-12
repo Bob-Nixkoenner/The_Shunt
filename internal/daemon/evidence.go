@@ -67,6 +67,7 @@ func (d *Daemon) evidenceEvent(ev defense.Event, class defense.Class) {
 	l.SetNetClass(string(class))
 	if ev.Kind == defense.KindNetEnter && w != nil {
 		w.SetNet(string(class), ev.Time)
+		w.SetNetID(evidence.DetailField(ev.Detail, "net"))
 	}
 	src := ev.Src
 	if a, err := netip.ParseAddr(src); err == nil && ownAddr(a) {
@@ -274,7 +275,16 @@ type evPurgeReq struct {
 type evExportReq struct {
 	CaseID string `json:"case_id"`
 	Src    string `json:"src"`
+	// Net is the network label from /v1/defense/evidence/networks. It is
+	// required: an export of every network must be asked for on purpose
+	// (AllNetworks), so that no one gives away other places by accident.
+	Net         string `json:"net"`
+	AllNetworks bool   `json:"all_networks"`
+	Anonymize   bool   `json:"anonymize"`
+	Preview     bool   `json:"preview"` // only say what the archive would hold
 }
+
+var evNetRe = regexp.MustCompile(`^[A-Za-z0-9]{1,16}$`)
 
 type evDownload struct {
 	Name string `json:"name"`
@@ -398,7 +408,16 @@ func (d *Daemon) evidenceRoutes(mux *http.ServeMux) {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		o := evidence.ExportOptions{Dir: d.evidenceDir(), Version: d.Version, ClockSynced: evidence.ClockSynced}
+		if req.Net == "" && !req.AllNetworks {
+			writeErr(w, http.StatusBadRequest, errors.New("choose the network to export"))
+			return
+		}
+		if req.Net != "" && !evNetRe.MatchString(req.Net) {
+			writeErr(w, http.StatusBadRequest, errors.New("bad network label"))
+			return
+		}
+		o := evidence.ExportOptions{Dir: d.evidenceDir(), Version: d.Version, ClockSynced: evidence.ClockSynced,
+			Net: req.Net, Anonymize: req.Anonymize}
 		if req.CaseID != "" {
 			c, ok := d.evCases().Get(req.CaseID)
 			if !ok {
@@ -413,6 +432,15 @@ func (d *Daemon) evidenceRoutes(mux *http.ServeMux) {
 		o.TSA = d.def.ev.cfg.TSAURL
 		d.def.ev.mu.RUnlock()
 		o.TSAClient = d.downloadClient()
+		if req.Preview {
+			pl, err := evidence.Plan(o)
+			if err != nil {
+				writeErr(w, http.StatusConflict, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, pl)
+			return
+		}
 		d.def.ev.mu.RLock()
 		if l := d.def.ev.log; l != nil {
 			_ = l.Sync()
@@ -424,6 +452,22 @@ func (d *Daemon) evidenceRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, http.StatusOK, res)
+	})
+	mux.HandleFunc("GET /v1/defense/evidence/networks", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		d.def.ev.mu.RLock()
+		if l := d.def.ev.log; l != nil {
+			_ = l.Sync()
+		}
+		d.def.ev.mu.RUnlock()
+		n, err := evidence.Networks(d.evidenceDir())
+		if err != nil {
+			writeErr(w, http.StatusConflict, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"networks": n})
 	})
 	mux.HandleFunc("GET /v1/defense/evidence/download", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {

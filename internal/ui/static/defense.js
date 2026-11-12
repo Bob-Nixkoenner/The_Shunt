@@ -229,7 +229,7 @@ function defDetail(e) {
       if (d === "manual") return T("The block was lifted by hand");
       break;
     case "net_enter":
-      if ((m = /^class=(\w+)$/.exec(d))) return T("Joined a network, treated as: {class}", { class: defClassText()[m[1]] || m[1] });
+      if ((m = /^class=(\w+)(?: net=\w+)?$/.exec(d))) return T("Joined a network, treated as: {class}", { class: defClassText()[m[1]] || m[1] });
       break;
   }
   return d;
