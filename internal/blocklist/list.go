@@ -9,20 +9,91 @@ package blocklist
 import (
 	"bufio"
 	"errors"
+	"hash/maphash"
 	"io"
+	"slices"
 	"strings"
 )
 
-// List is one parsed blocklist. A value of true means the name and all its
-// subdomains are blocked ("||example.com^"), false only the name itself
-// (hosts files, plain names).
+// List is one parsed blocklist. It keeps no names, only a sorted array of
+// 64-bit hashes (8 bytes per name instead of about 100 for a map of
+// strings; Bob's paranoid setup has 14 million names). The lowest bit of a
+// key says whether the name's subdomains are blocked too ("||example.com^")
+// or only the name itself (hosts files, plain names). A false hit needs two
+// different names with the same 63-bit hash: about 1 in 10^12 per lookup.
 type List struct {
-	Name    string
-	entries map[string]bool
+	Name string
+	keys []uint64 // sorted, one per name
+	// idx[b] is the first position in keys whose top bits are >= b, so a
+	// lookup only scans a handful of keys (about 8) instead of a binary
+	// search through millions.
+	idx   []uint32
+	shift uint
 }
 
+// seed: one per process, so nobody can build names that collide on purpose
+// (hashes never leave the process).
+var seed = maphash.MakeSeed()
+
+func hashName(s string) uint64 { return maphash.String(seed, s) &^ 1 }
+
 // Len is the number of entries.
-func (l *List) Len() int { return len(l.entries) }
+func (l *List) Len() int { return len(l.keys) }
+
+// bucketSize: average number of keys per index slot.
+const bucketSize = 8
+
+// build sorts keys, drops duplicates (with subdomains wins, as in the
+// lists), trims the array to its length and builds the index.
+func build(name string, keys []uint64) *List {
+	slices.Sort(keys)
+	out := keys[:0]
+	for _, k := range keys {
+		if n := len(out); n > 0 && out[n-1]&^1 == k&^1 {
+			out[n-1] |= k & 1 // sorted: the flagged copy comes last
+			continue
+		}
+		out = append(out, k)
+	}
+	keys = slices.Clone(out) // drops the growth slack of the parser
+	bits := uint(0)
+	for (1<<bits)*bucketSize < len(keys) {
+		bits++
+	}
+	l := &List{Name: name, keys: keys, shift: 64 - bits, idx: make([]uint32, (1<<bits)+1)}
+	b := 0
+	for i, k := range keys {
+		for kb := int(l.bucket(k)); b <= kb; b++ {
+			l.idx[b] = uint32(i)
+		}
+	}
+	for ; b < len(l.idx); b++ {
+		l.idx[b] = uint32(len(keys))
+	}
+	return l
+}
+
+func (l *List) bucket(k uint64) uint64 {
+	if l.shift == 64 {
+		return 0
+	}
+	return k >> l.shift
+}
+
+// lookup finds base (a hash with the low bit clear): found, and whether
+// subdomains are blocked.
+func (l *List) lookup(base uint64) (found, sub bool) {
+	b := l.bucket(base)
+	for _, k := range l.keys[l.idx[b]:l.idx[b+1]] {
+		if k&^1 == base {
+			return true, k&1 == 1
+		}
+		if k > base|1 {
+			break
+		}
+	}
+	return false, false
+}
 
 // MaxLine: longer lines are skipped (a valid name is at most 253 bytes).
 const MaxLine = 4096
@@ -41,7 +112,7 @@ func Parse(name string, r io.Reader) (*List, error) { return parse(name, r, fals
 func ParseAllow(name string, r io.Reader) (*List, error) { return parse(name, r, true) }
 
 func parse(name string, r io.Reader, allow bool) (*List, error) {
-	l := &List{Name: name, entries: map[string]bool{}}
+	var keys []uint64
 	br := bufio.NewReaderSize(r, MaxLine)
 	for {
 		line, long, err := br.ReadLine()
@@ -51,8 +122,12 @@ func parse(name string, r io.Reader, allow bool) (*List, error) {
 			}
 			line = nil
 		}
-		if d, sub := parseLine(string(line), allow); d != "" && (sub || !l.entries[d]) {
-			l.entries[d] = sub
+		if d, sub := parseLine(string(line), allow); d != "" {
+			k := hashName(d)
+			if sub {
+				k |= 1
+			}
+			keys = append(keys, k)
 		}
 		if err == io.EOF {
 			break
@@ -61,10 +136,10 @@ func parse(name string, r io.Reader, allow bool) (*List, error) {
 			return nil, err
 		}
 	}
-	if len(l.entries) == 0 {
+	if len(keys) == 0 {
 		return nil, ErrEmpty
 	}
-	return l, nil
+	return build(name, keys), nil
 }
 
 func parseLine(s string, allow bool) (string, bool) {
@@ -126,12 +201,15 @@ func Normalize(d string) string {
 
 // Has reports whether name (normalized) is blocked by l.
 func (l *List) Has(name string) bool {
-	if _, ok := l.entries[name]; ok {
+	if len(l.keys) == 0 {
+		return false
+	}
+	if found, _ := l.lookup(hashName(name)); found {
 		return true
 	}
 	for i := 0; i < len(name); i++ {
 		if name[i] == '.' {
-			if l.entries[name[i+1:]] {
+			if _, sub := l.lookup(hashName(name[i+1:])); sub {
 				return true
 			}
 		}
