@@ -320,6 +320,7 @@ function renderDefense() {
   const badge = defExposedBadge();
   $("#def-exposed").replaceChildren(...(badge ? [badge] : []), ...(on && exp ? [defDecoyChoice()] : []));
   renderOutside();
+  renderIgnore();
   // heat
   $("#def-thermo").replaceChildren(defThermo(defSt, false));
   // switches
@@ -435,6 +436,53 @@ function renderOutside() {
       el("b", {}, c.family === "v6" ? "IPv6: " : "IPv4: "),
       c.error ? c.error : (c.open || []).length ? T("answering from the internet: {ports}", { ports: c.open.join(", ") }) : T("no port answers from the internet")))] : []));
 }
+// ignore list: devices that raise no alarm (config.ignore) and the
+// never-block list (config.never, filled by "Always allow")
+function renderIgnore() {
+  const c = defSt.config || {};
+  const rows = [];
+  (c.ignore || []).forEach((e, i) => rows.push(el("tr", {},
+    el("td", { class: "mono" }, e.addr),
+    el("td", {}, e.name || ""),
+    el("td", { class: "mono" }, (e.ports || []).length ? e.ports.join(", ") : T("all ports")),
+    el("td", { style: "text-align:right" }, el("button", { onclick: () => ignRemove(i) }, T("Remove"))))));
+  (c.never || []).forEach((a, i) => rows.push(el("tr", {},
+    el("td", { class: "mono" }, a),
+    el("td", { class: "muted" }, T("never blocked")),
+    el("td", {}, ""),
+    el("td", { style: "text-align:right" }, el("button", { onclick: () => ignRemoveNever(i) }, T("Remove"))))));
+  $("#ign-list").replaceChildren(rows.length ? el("table", { class: "deftable" }, el("tbody", {}, ...rows)) : el("div", { class: "muted" }, T("No devices ignored.")));
+}
+function ignRemove(i) {
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  (cfg.ignore || []).splice(i, 1);
+  defSend(cfg);
+}
+function ignRemoveNever(i) {
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  (cfg.never || []).splice(i, 1);
+  defSend(cfg);
+}
+$("#ign-add").addEventListener("click", async () => {
+  const msg = $("#ign-msg");
+  const addr = $("#ign-addr").value.trim();
+  if (!addr) { msg.textContent = T("Enter an address or range first."); return; }
+  const ports = [];
+  for (const x of $("#ign-ports").value.split(/[\s,]+/).filter(Boolean)) {
+    const n = Number(x);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) { msg.textContent = T("Ports are numbers from 1 to 65535."); return; }
+    if (!ports.includes(n)) ports.push(n);
+  }
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  cfg.ignore = cfg.ignore || [];
+  const entry = { addr, name: $("#ign-name").value.trim() };
+  if (ports.length) entry.ports = ports;
+  cfg.ignore.push(entry);
+  try { await api("POST", "/api/defense/config", cfg); } catch (e) { msg.textContent = T("Nothing was changed: {error}", { error: e.message }); return; }
+  msg.textContent = "";
+  $("#ign-addr").value = ""; $("#ign-name").value = ""; $("#ign-ports").value = "";
+  await loadDefense();
+});
 let defOutBusy = false;
 $("#out-save").addEventListener("click", () => {
   const cfg = JSON.parse(JSON.stringify(defSt.config));

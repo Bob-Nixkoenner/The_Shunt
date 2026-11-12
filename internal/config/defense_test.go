@@ -99,3 +99,29 @@ func TestDefenseBanStepsDefaultsAndLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDefenseIgnoreList(t *testing.T) {
+	c := &Config{Defense: &defense.Config{Ignore: []defense.IgnoreEntry{{Addr: "192.0.2.5", Name: "peer", Ports: []int{22000}}}}}
+	if err := c.validateDefense(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := c.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2, err := Parse(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c2.Defense.Ignore; len(got) != 1 || got[0].Addr != "192.0.2.5" || got[0].Name != "peer" || len(got[0].Ports) != 1 || got[0].Ports[0] != 22000 {
+		t.Fatalf("round trip: %+v", got)
+	}
+	c.Defense.Ignore = append(c.Defense.Ignore, defense.IgnoreEntry{Addr: "not an address"})
+	if c.validateDefense() == nil {
+		t.Fatal("bad ignore address accepted")
+	}
+	c.Defense.Ignore = make([]defense.IgnoreEntry, defense.MaxIgnoreEntries+1)
+	if c.validateDefense() == nil {
+		t.Fatal("too many ignore entries accepted")
+	}
+}

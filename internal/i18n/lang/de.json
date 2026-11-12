@@ -1756,6 +1756,17 @@
   "On: shows network settings that would steer traffic past the tunnel. Off: not shown.": "An: Zeigt Netz-Einstellungen, die Verkehr am Tunnel vorbeilenken würden. Aus: nicht angezeigt.",
   "On: shows a stranger acting as an IPv6 router. Off: not shown.": "An: Zeigt einen Fremden, der sich als IPv6-Router ausgibt. Aus: nicht angezeigt.",
   "On: notices websites that try to reach devices in your own network. Off: no such check.": "An: Bemerkt Webseiten, die Geräte in deinem eigenen Netz erreichen wollen. Aus: keine solche Prüfung.",
-  "On: shows a newly plugged-in network adapter. Off: not shown.": "An: Zeigt einen neu eingesteckten Netzwerkadapter. Aus: nicht angezeigt."
+  "On: shows a newly plugged-in network adapter. Off: not shown.": "An: Zeigt einen neu eingesteckten Netzwerkadapter. Aus: nicht angezeigt.",
+  "192.0.2.5 or 192.0.2.0/24": "192.0.2.5 oder 192.0.2.0/24",
+  "A device listed here is not reported as a scan or brute force and is never blocked, for the ports you name (no ports = all). Use it for your own devices, for example one that keeps looking for a service on this computer. Known bad addresses are still reported. VPN peers are not added by themselves: only what you enter here counts.": "Ein Gerät auf dieser Liste wird nicht als Scan oder Brute Force gemeldet und nie blockiert, für die Ports, die du nennst (keine Ports = alle). Nutze es für deine eigenen Geräte, zum Beispiel eines, das ständig einen Dienst auf diesem Rechner sucht. Bekannte schlechte Adressen werden weiter gemeldet. VPN-Partner kommen nicht von selbst dazu: Es zählt nur, was du hier einträgst.",
+  "Address or range": "Adresse oder Bereich",
+  "Ignored devices": "Ignorierte Geräte",
+  "Name (optional)": "Name (optional)",
+  "Ports (empty = all)": "Ports (leer = alle)",
+  "no alarm for your own devices": "kein Alarm für deine eigenen Geräte",
+  "Enter an address or range first.": "Gib zuerst eine Adresse oder einen Bereich ein.",
+  "No devices ignored.": "Keine Geräte ignoriert.",
+  "Ports are numbers from 1 to 65535.": "Ports sind Zahlen von 1 bis 65535.",
+  "all ports": "alle Ports"
  }
 }

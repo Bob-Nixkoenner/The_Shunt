@@ -295,6 +295,17 @@ Read 2026-11-11 (spamhaus.org/drop, drop-fair-use-policy, terms-conditions):
 5. Only high quality lists may block (`feodo`, `sslbl`, `sslbl_ja3`); `et_compromised` and any list with known false alarms only report, even when Block is on.
 6. A hit can be allowed for good in the UI ("Always allow": adds the address to `defense.never` and lifts the block). Built-in lists are switched off with `defense.reputation_off`.
 
+### Ignored devices (`defense.ignore`) and false alarms from own traffic
+
+`defense.never` only stops blocks ("Always allow"). The separate list `defense.ignore` (Defense tab, "Ignored devices") is for devices that must not be reported at all. An entry is `{addr, name, ports}`: `addr` an address or CIDR (IPv4 at least /8, IPv6 at least /32), `name` a note of the user (at most 64 printable characters), `ports` up to 16 local ports (empty = all ports). At most 64 entries; the config is refused otherwise.
+
+- A source on the list causes no scan, brute-force or decoy event (tarpit and fake login included), so it also adds no heat and cannot be blocked by those. The check runs before the detector counts the packet; an entry with ports only covers those ports.
+- Reputation hits (known attacker lists) stay visible and can still block: being on the ignore list does not make a listed address harmless.
+- A manual block still works. "Always allow" still adds to `defense.never`; both lists are shown and removable in the tab.
+- VPN peers are **not** ignored or known automatically. Decision of the owner: a compromised device inside the VPN must keep standing out. Peers get on the list only when the user types them in.
+- Replies to connections this machine opened never count as scan or brute force: the nft table skips replies that conntrack knows (`ct direction reply return`), and the packet reader additionally skips TCP packets with ACK or RST set (a connection attempt is a bare SYN). That covers answers whose conntrack entry is gone, for example right after a restart of shuntd. Limit: UDP answers without state are not told apart; bare ACK/RST packets of an attacker are not counted (the kernel drops them).
+- In the first 30 s after shuntd starts the state is being rebuilt: scan and brute-force findings are only observed (not reported, not blocked). A scan that goes on is reported after the next window (60 s).
+
 ### Pivot on a source
 
 Click an address in the event list, the live window or the block list: the UI opens a detail view

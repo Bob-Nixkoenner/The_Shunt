@@ -608,6 +608,18 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     </table></div>
     <div class="hint">Blocking is off by default: a block can also hit a harmless device. Addresses of your gateway and DNS server are never blocked.</div>
   </section>
+  <section data-fold id="sec-ignore">
+    <h2>Ignored devices <span class="muted" style="text-transform:none;letter-spacing:0">no alarm for your own devices</span></h2>
+    <div class="hint" style="margin:0 0 8px">A device listed here is not reported as a scan or brute force and is never blocked, for the ports you name (no ports = all). Use it for your own devices, for example one that keeps looking for a service on this computer. Known bad addresses are still reported. VPN peers are not added by themselves: only what you enter here counts.</div>
+    <div id="ign-list"></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 10px;margin-top:8px">
+      <input id="ign-addr" placeholder="192.0.2.5 or 192.0.2.0/24" aria-label="Address or range" style="min-width:150px">
+      <input id="ign-name" placeholder="Name (optional)" maxlength="64" aria-label="Name" style="min-width:120px">
+      <input id="ign-ports" placeholder="Ports (empty = all)" aria-label="Ports" style="min-width:110px">
+      <button id="ign-add">Add</button>
+    </div>
+    <div class="muted" id="ign-msg"></div>
+  </section>
   <section data-fold>
     <h2>Lists and sources</h2>
     <div class="hint" style="margin:0 0 8px">Your device downloads these lists directly from the provider; Shunt ships no data. A list that is too old, or whose download keeps failing, expires and stops matching. Only lists of high quality may block; the others only report.</div>
