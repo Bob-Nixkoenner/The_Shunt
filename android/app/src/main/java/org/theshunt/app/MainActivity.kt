@@ -184,10 +184,10 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ShuntLogo()
             Spacer(Modifier.width(10.dp))
-            // title and pill take what the PANIC button leaves (large font: the title shortens, the button never wraps)
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Text(T("The Shunt"), Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.width(12.dp))
+            // title and pill take what the PANIC button leaves; with a big system font the pill moves under the title
+            // (so "The Shunt" is not cut to "…") and the button never wraps
+            val big = bigFont()
+            val pill: @Composable () -> Unit = {
                 when {
                     !running -> Pill("off")
                     panic -> Pill("PANIC", Tone.Bad)
@@ -195,6 +195,15 @@ private fun Header(status: JSONObject?, band: Boolean = false) {
                     !lockdown -> Pill("no kill switch", Tone.Warn)
                     else -> Pill("protected", Tone.Ok)
                 }
+            }
+            if (big) Column(Modifier.weight(1f)) {
+                Text(T("The Shunt"), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                pill()
+            } else Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(T("The Shunt"), Modifier.weight(1f, fill = false), fontWeight = FontWeight.Bold, fontSize = 17.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(12.dp))
+                pill()
             }
             Spacer(Modifier.width(8.dp))
             if (running) {
