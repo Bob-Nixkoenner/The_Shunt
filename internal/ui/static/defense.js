@@ -291,11 +291,12 @@ function renderDefense() {
   const txt = defFeatText();
   $("#def-feats").replaceChildren(...Object.keys(txt).map((k) => {
     const f = feats[k] || { watch: false, block: false };
-    const watch = el("input", { type: "checkbox", "aria-label": T("Watch") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: watch.checked, block: watch.checked && f.block }) });
-    const block = el("input", { type: "checkbox", "aria-label": T("Block") + ": " + txt[k][0], onchange: () => defSetFeature(k, { watch: f.watch, block: block.checked }) });
-    watch.checked = !!f.watch; block.checked = !!f.block && !!f.watch; block.disabled = !f.watch || !on;
-    watch.disabled = !on;
-    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), el("div", { class: "d onoff" }, txt[k][2]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : k === "scan" ? defBanChoice(on, f) : ""), el("td", { class: "sw" }, watch), el("td", { class: "sw" }, block));
+    const kinds = defModes(k);
+    const sel = el("select", { "aria-label": txt[k][0] }, ...kinds.map((m) => el("option", { value: m[0] }, m[1])));
+    sel.value = !f.watch ? "off" : f.block && kinds.some((m) => m[0] === "block") ? "block" : kinds[1][0];
+    sel.disabled = !on;
+    sel.onchange = () => defSetFeature(k, { watch: sel.value !== "off", block: sel.value === "block" });
+    return el("tr", {}, el("td", {}, el("b", {}, txt[k][0]), el("div", { class: "d" }, txt[k][1]), el("div", { class: "d onoff" }, txt[k][2]), k === "dhcp" ? defProbeChoice(on, "dhcp_probe", "Active DHCP check") : k === "dns" ? defProbeChoice(on, "dns_probe", "Active DNS check") : k === "scan" ? defBanChoice(on, f) : ""), el("td", { class: "sw" }, sel));
   }));
   renderDefSources(on);
   // bans
@@ -481,6 +482,15 @@ function defProbeChoice(on, key, label) {
 async function defSend(cfg) {
   try { await api("POST", "/api/defense/config", cfg); } catch (e) { toast(T("Nothing was changed: {error}", { error: e.message })); }
   await loadDefense();
+}
+// the choices a switch really has: only these four can shut a source out
+// (maybeBan / rebind); everything else reports, nothing more
+const DEF_BLOCKS = ["scan", "brute", "reputation", "dns_rebind"];
+function defModes(k) {
+  if (DEF_BLOCKS.includes(k)) return [["off", T("Off")], ["watch", T("Report")], ["block", T("Report and block")]];
+  if (k === "tarpit") return [["off", T("Off")], ["watch", T("Hold and report")]];
+  if (k === "decoy" || k === "cowrie") return [["off", T("Off")], ["watch", T("On")]];
+  return [["off", T("Off")], ["watch", T("Report")]];
 }
 async function defSetFeature(name, f) {
   if (f.block && !(defSt.config.features[name] || {}).block &&

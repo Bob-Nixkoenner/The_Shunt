@@ -250,7 +250,8 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 .thermo .fill { background: var(--heat); } .thermo .num, .thermo .lvl { color: var(--heat); }
 .deftable td, .deftable th { padding: 6px 8px; vertical-align: middle; }
 .deftable th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; }
-.deftable .sw { text-align: center; width: 76px; }
+.deftable .sw { text-align: center; width: 190px; }
+.deftable .sw select { min-width: 170px; }
 .srccard { border: 1px solid var(--border, #8884); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
 .srccard .hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .srccard .hd b { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
@@ -595,9 +596,9 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     <div id="out-res" class="hint"></div>
   </section>
   <section data-fold>
-    <h2>Switches <span class="muted" style="text-transform:none;letter-spacing:0">watch = notice and report · block = also shut the source out</span></h2>
+    <h2>Switches <span class="muted" style="text-transform:none;letter-spacing:0">each switch offers only what it can do; only scans, brute force, bad lists and DNS rebind can block</span></h2>
     <div data-rows="8"><table class="deftable">
-      <thead><tr><th>What</th><th class="sw">Watch</th><th class="sw">Block</th></tr></thead>
+      <thead><tr><th>What</th><th class="sw">Mode</th></tr></thead>
       <tbody id="def-feats"></tbody>
     </table></div>
     <div class="hint">Blocking is off by default: a block can also hit a harmless device. Addresses of your gateway and DNS server are never blocked.</div>

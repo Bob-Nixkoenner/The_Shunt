@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Window, Defense tab:** the two tick boxes per switch (Watch, Block) became one choice list that offers only what the switch can really do. Only port scans, brute force, bad address lists and DNS rebind can block (Off / Report / Report and block); the tarpit is Off / Hold and report; fake ports and fake login are Off / On; everything else is Off / Report. Before, "Block" on e.g. the tarpit looked like a setting and did nothing. The saved settings stay the same (`watch`, `block`).
 - **Service:** a saved setting that keeps shuntd from starting no longer locks you out. After 3 starts in a row that never got through (30 s), shuntd goes back to the previous settings (`shunt.toml.bak`), keeps the failed ones as `shunt.toml.failed` and shows a notice. See docs/DEFENSE.md.
 - **Window, Defense tab:** every switch now has one sentence for beginners on what on and off mean (English and German). Spamhaus DROP is no longer listed: its terms keep it out of the app, and a box that can never be ticked only confused. On Windows, where the defense does not run yet, the switches, lists and blocked addresses are not shown at all, nor is packet recording of the evidence log; Android already offers only what works there.
 - **Update check:** a build whose version the check cannot read (lab builds such as `v0.7.5-m12f4d4a5`) showed "update available" for every release. Such a version is no longer reported as outdated, like other local test builds.
