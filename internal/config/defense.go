@@ -130,7 +130,7 @@ func (c *Config) validateDefense() error {
 			}
 		}
 	}
-	return nil
+	return defense.ValidateIgnore(d.Ignore)
 }
 
 // validTLSHost: a plain DNS host name with at least two labels (letters,

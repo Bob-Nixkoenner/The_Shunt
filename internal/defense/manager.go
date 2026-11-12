@@ -22,6 +22,7 @@ type Manager struct {
 	rep       *Reputation
 	det       *Detector
 	never     *NeverSet
+	ignore    IgnoreSet
 	ver       verifier
 	dec       *Decoys
 	rpts      *Reports
@@ -214,6 +215,7 @@ func (m *Manager) Configure(cfg Config) {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.never.SetConfig(ParsePrefixes(cfg.Never))
+	m.ignore.Set(cfg.Ignore)
 	key, class := m.key, m.class
 	watchDNS := featureOf(cfg, FeatDNS).Watch
 	m.mu.Unlock()
@@ -282,6 +284,11 @@ func (m *Manager) Report(ev Event) {
 	if !enabled {
 		return
 	}
+	if ignoredKind(ev.Kind) {
+		if a, err := netip.ParseAddr(ev.Src); err == nil && m.ignore.Match(a, ev.Port) {
+			return
+		}
+	}
 	if m.fold(ev) {
 		// folded: counts for heat and the report, but takes no ring slot
 		ev.Time = m.now()
@@ -307,7 +314,7 @@ func (m *Manager) Observe(src netip.Addr, port int, proto string, ok bool) {
 
 // ObserveState is Observe with a Zeek-style outcome (S0/REJ/OK).
 func (m *Manager) ObserveState(src netip.Addr, port int, proto string, st ConnState) {
-	if m.feature(FeatScan).Watch || m.feature(FeatBrute).Watch {
+	if (m.feature(FeatScan).Watch || m.feature(FeatBrute).Watch) && !m.ignore.Match(src, port) {
 		m.det.ObserveState(src, port, proto, st)
 	}
 	m.CheckPeer(src, port, proto)

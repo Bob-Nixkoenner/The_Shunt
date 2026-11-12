@@ -222,6 +222,10 @@ type Config struct {
 	// Never lists addresses/CIDRs that are never blocked (gateway, DNS and
 	// captive portal are added automatically at runtime).
 	Never []string `json:"never" toml:"never"`
+	// Ignore lists devices that must not be reported as attackers (no event,
+	// no heat, no block for scans, brute force and decoy hits; bad-list hits
+	// stay visible). See IgnoreEntry.
+	Ignore []IgnoreEntry `json:"ignore,omitempty" toml:"ignore,omitempty"`
 	// ReputationSources names optional downloadable lists ("sslbl_ja3",
 	// "et_compromised"). Empty = only the built-in CC0 lists. Nothing
 	// optional is fetched unless the user lists it here.
