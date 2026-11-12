@@ -139,3 +139,21 @@ func TestIsTCPReply(t *testing.T) {
 		t.Error("short packet")
 	}
 }
+
+// A peer inside a VPN is a source like any other: nothing makes it known by
+// itself (owner's decision, a compromised peer must keep standing out). Only
+// entries the user wrote are on the ignore list.
+func TestVPNPeerNotKnownAutomatically(t *testing.T) {
+	m := scanManager(t, nil)
+	m.SetNever(ParsePrefixes([]string{"203.0.113.1"})) // automatic part: gateway, DNS, tunnel endpoints
+	peer := mustAddr("198.51.100.25")                  // an address inside the VPN
+	for i := 0; i < 30; i++ {
+		m.ObserveState(peer, 22000, "tcp", StateS0)
+	}
+	if !hasKind(m, KindBruteForce) {
+		t.Fatal("a VPN peer must be reported like any other source")
+	}
+	if m.ignore.Match(peer, 22000) {
+		t.Fatal("peer is on the ignore list without the user adding it")
+	}
+}
