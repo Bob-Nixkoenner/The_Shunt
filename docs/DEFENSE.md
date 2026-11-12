@@ -127,8 +127,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   (`Manager.ObserveState`). Limit: brute force on a real service (for example SSH) is not seen this way.
 - Sensors (`sniff_linux.go`): gateway MAC change (netlink neighbour events, ARP and NDP), a second DHCP
   server (passive AF_PACKET with a BPF filter, needs `CAP_NET_RAW`), DNS comparison (the network's
-  resolvers and a public resolver on port 53 against DoH over the default route), evil twin (a known
-  SSID with a new gateway MAC; the memory is a hashed file in the state directory).
+  resolvers against DoH over the default route and a public resolver asked through the tunnel), evil
+  twin (a known SSID with a new gateway MAC; the memory is a hashed file in the state directory).
   The captive portal check of the daemon is reported as an observation.
   Timing: the gateway's neighbour entry is compared on every netlink event and also every 5 s (events
   can be missed); the DNS comparison runs 3 s after joining, every 5 min, and right after a gateway MAC
@@ -153,15 +153,31 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   The daemon decides at network join and when the config changes (`defense.ProbeAllowed`); the nft
   `quiet_out` chain itself is not consulted, as AF_PACKET frames bypass it.
   The DNS comparison is an active probe as well: it asks `dns.google` and `one.one.one.one` at the
-  network's resolver and at 9.9.9.9 directly (outside the tunnel). `defense.dns_probe` (`auto` / `on` /
-  `off`) works exactly like `dhcp_probe`; when it is not allowed, only the passive gateway-MAC watch
-  runs (the DoH reference over the default route is not sent into the local network).
-  Order of one check: first the network's resolvers and 9.9.9.9 are asked, then the reference (at most
-  8 s per name). The reference usually runs through the tunnel, and whoever redirects DNS often cuts
-  or delays the tunnel too; asked first, it held the whole check until the real path was back (lab
-  R05). If the reference stays out of reach, `dns.google` and `one.one.one.one` are compared with
-  their well-known addresses (8.8.8.8/8.8.4.4, 1.1.1.1/1.0.0.1); such a finding is rated medium and
-  says so. A private or reserved answer for these names counts without any reference.
+  network's own resolvers. Only these questions travel over the local network (they go to the
+  resolvers that network named itself). `defense.dns_probe` (`auto` / `on` / `off`) works exactly like
+  `dhcp_probe`; when it is not allowed, only the passive gateway-MAC watch runs (the DoH reference
+  over the default route is not sent into the local network).
+  The same names are also asked at 9.9.9.9, but only through the tunnel: the question carries the
+  packet mark of the default route and is sent only while that route is a tunnel (not Tor, which
+  carries no UDP). With the tunnel down the leak guard drops it like any other packet of that route;
+  with a direct, block or link default route it is not sent at all. Until 2026-11-12 it went out over
+  the local network with the bypass mark and showed that network a resolver and two names of the
+  Shunt's choice (lab Q01/R03/R04).
+  Order of one check: (1) the network's resolvers, every name; (2) 9.9.9.9 through the tunnel (after
+  the first question without an answer the rest is skipped); (3) the DoH reference (at most 8 s per
+  name). Everything that needs the tunnel comes after the local questions: whoever redirects DNS
+  often cuts or delays the tunnel too, and asked first, the reference held the whole check until the
+  real path was back (lab R05).
+  What the local answers are compared with: the DoH reference; if it is out of reach, the answer
+  from 9.9.9.9 through the tunnel (a live reference, full rating); if the tunnel carries nothing,
+  the well-known addresses of `dns.google` and `one.one.one.one` (8.8.8.8/8.8.4.4, 1.1.1.1/1.0.0.1) -
+  such a finding is rated medium and says so. A private or reserved answer of a network resolver for
+  these names counts without any reference.
+  If 9.9.9.9 through the tunnel and the DoH reference disagree, port 53 is answered by someone else
+  at the tunnel's far end: `dns_hijack`, medium, "inside the tunnel". A reserved answer there (a
+  filtering resolver of the VPN provider) is ignored. Not seen any more: a local network that leaves
+  its own resolver alone but diverts port 53 to other resolvers - that could only be shown by sending
+  such a question over the local network.
   Features missing from `[defense.features.*]` keep their default (watch on, block off).
 - Reputation lists (abuse.ch, CC0) are fetched twice a day while the `reputation` feature is on;
   the cache is `<cache dir>/defense`.

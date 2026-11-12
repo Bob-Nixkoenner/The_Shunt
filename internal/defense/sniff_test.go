@@ -2,11 +2,14 @@ package defense
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -102,6 +105,134 @@ func fakeDNS(t *testing.T, ip string) string {
 	return pc.LocalAddr().String()
 }
 
+// plainDial stands in for the dialer that leads through the tunnel.
+func plainDial(ctx context.Context, network, addr string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
+}
+
+// countDNS is fakeDNS that also counts the questions it got.
+func countDNS(t *testing.T, ip string, n *atomic.Int32) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback udp:", err)
+	}
+	srv := &dns.Server{PacketConn: pc, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		n.Add(1)
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.ParseIP(ip)})
+		_ = w.WriteMsg(m)
+	})}
+	go srv.ActivateAndServe()
+	t.Cleanup(func() { srv.Shutdown() })
+	return pc.LocalAddr().String()
+}
+
+// The question to the public resolver goes through the tunnel only (lab
+// Q01/R03/R04, 2026-11-11: sent over the local network it showed that
+// network a resolver and names of our choice).
+func TestDNSCheckPublicOnlyThroughTunnel(t *testing.T) {
+	ctx := context.Background()
+	ref := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.53")}, nil
+	}
+	var pubAsked, localAsked atomic.Int32
+	pub := countDNS(t, "192.0.2.53", &pubAsked)
+	local := countDNS(t, "192.0.2.53", &localAsked)
+
+	// no tunnel: only the network's own resolver is asked, with Dial
+	var localDials, pubDials atomic.Int32
+	c := &DNSCheck{Reference: ref, Names: []string{"a.test", "b.test"}, Public: pub,
+		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			localDials.Add(1)
+			if addr != local {
+				t.Errorf("local dialer used for %s", addr)
+			}
+			return plainDial(ctx, network, addr)
+		}}
+	if ev, ok := c.RunStatus(ctx, Env{DNS: []string{local}}); len(ev) != 0 || !ok {
+		t.Fatalf("%+v ok=%v", ev, ok)
+	}
+	if pubAsked.Load() != 0 || localAsked.Load() != 2 || localDials.Load() != 2 {
+		t.Fatalf("without a tunnel: public asked %d times, local %d (dials %d)", pubAsked.Load(), localAsked.Load(), localDials.Load())
+	}
+
+	// tunnel: the public resolver is asked through PublicDial and never
+	// through the dialer of the local network
+	c.PublicDial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		pubDials.Add(1)
+		if addr != pub {
+			t.Errorf("tunnel dialer used for %s", addr)
+		}
+		return plainDial(ctx, network, addr)
+	}
+	if ev, ok := c.RunStatus(ctx, Env{DNS: []string{local}}); len(ev) != 0 || !ok {
+		t.Fatalf("%+v ok=%v", ev, ok)
+	}
+	if pubAsked.Load() != 2 || pubDials.Load() != 2 || localDials.Load() != 4 {
+		t.Fatalf("with a tunnel: public asked %d (dials %d), local dials %d", pubAsked.Load(), pubDials.Load(), localDials.Load())
+	}
+}
+
+// Order (lab R05 still holds): every question to the network's resolvers is
+// out before anything that needs the tunnel, and a dead tunnel costs the
+// public question only once.
+func TestDNSCheckLocalBeforeTunnel(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	note := func(s string) { mu.Lock(); order = append(order, s); mu.Unlock() }
+	evil := fakeDNS(t, "203.0.113.66")
+	hang := func(ctx context.Context, _ string) ([]netip.Addr, error) {
+		note("ref")
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	c := &DNSCheck{Reference: hang, RefTimeout: 200 * time.Millisecond,
+		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			note("local")
+			return plainDial(ctx, network, addr)
+		},
+		// the tunnel is down: the kill switch refuses the packet
+		PublicDial: func(context.Context, string, string) (net.Conn, error) {
+			note("public")
+			return nil, errors.New("operation not permitted")
+		}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ev, refOK := c.RunStatus(ctx, Env{DNS: []string{evil}})
+	if got := strings.Join(order, " "); got != "local local public ref ref" {
+		t.Fatalf("order: %s", got)
+	}
+	// nothing through the tunnel: the built-in addresses decide, rated medium
+	if refOK || len(ev) != 1 || ev[0].Severity != SevMedium || !strings.Contains(ev[0].Detail, "reference not reachable") {
+		t.Fatalf("%+v refOK=%v", ev, refOK)
+	}
+}
+
+// DoH out of reach, plain DNS through the tunnel answers: that answer is
+// the reference (a live one, so the finding keeps its full rating).
+func TestDNSCheckTunnelAnswerAsReference(t *testing.T) {
+	ctx := context.Background()
+	failing := func(context.Context, string) ([]netip.Addr, error) { return nil, context.DeadlineExceeded }
+	pub := fakeDNS(t, "192.0.2.53")
+	c := &DNSCheck{Reference: failing, Names: []string{"example.test"}, Public: pub, PublicDial: plainDial}
+	ev, refOK := c.RunStatus(ctx, Env{DNS: []string{fakeDNS(t, "203.0.113.66")}})
+	if !refOK || len(ev) != 1 || ev[0].Severity != SevHigh || strings.Contains(ev[0].Detail, "not reachable") {
+		t.Fatalf("lying resolver: %+v refOK=%v", ev, refOK)
+	}
+	if ev, refOK := c.RunStatus(ctx, Env{DNS: []string{fakeDNS(t, "192.0.2.53")}}); !refOK || len(ev) != 0 {
+		t.Fatalf("honest resolver: %+v refOK=%v", ev, refOK)
+	}
+	// a reserved answer from the tunnel's far end (a filtering resolver)
+	// is neither a finding nor a reference
+	c.Public = fakeDNS(t, "0.0.0.0")
+	if ev, refOK := c.RunStatus(ctx, Env{DNS: []string{fakeDNS(t, "192.0.2.53")}}); refOK || len(ev) != 0 {
+		t.Fatalf("reserved answer inside the tunnel: %+v refOK=%v", ev, refOK)
+	}
+}
+
 func TestDNSCheck(t *testing.T) {
 	ref := func(context.Context, string) ([]netip.Addr, error) {
 		return []netip.Addr{netip.MustParseAddr("192.0.2.53")}, nil
@@ -116,10 +247,18 @@ func TestDNSCheck(t *testing.T) {
 	if len(ev) != 1 || ev[0].Kind != KindDNSHijack {
 		t.Fatalf("lying local resolver: %+v", ev)
 	}
-	c.Public = evil // port 53 diverted
-	if ev := c.Run(ctx, Env{DNS: []string{good}}); len(ev) != 1 {
-		t.Fatalf("diverted: %+v", ev)
+	// without a way through the tunnel the public resolver is not asked
+	c.Public = evil
+	if ev := c.Run(ctx, Env{DNS: []string{good}}); len(ev) != 0 {
+		t.Fatalf("public resolver asked without a tunnel: %+v", ev)
 	}
+	// through the tunnel: port 53 answered with other data at the far end
+	c.PublicDial = plainDial
+	ev = c.Run(ctx, Env{DNS: []string{good}})
+	if len(ev) != 1 || ev[0].Severity != SevMedium || !strings.Contains(ev[0].Detail, "inside the tunnel") {
+		t.Fatalf("diverted inside the tunnel: %+v", ev)
+	}
+	c.PublicDial = nil
 	// dead resolver and failing reference are no findings
 	c.Public = "127.0.0.1:1"
 	if ev := c.Run(ctx, Env{DNS: []string{"127.0.0.1:1"}}); len(ev) != 0 {

@@ -20,6 +20,7 @@ import (
 	"github.com/miekg/dns"
 	"golang.org/x/sys/unix"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
@@ -128,10 +129,31 @@ func (d *Daemon) defenseNever(p []netip.Prefix) {
 
 func (d *Daemon) newSensors() *defense.Sensors {
 	return &defense.Sensors{
-		M: d.def.m, Log: d.Log, Mark: engine.MarkBypass,
+		M: d.def.m, Log: d.Log, Mark: engine.MarkBypass, TunnelMark: d.defenseTunnelMark,
 		Twins: &defense.TwinStore{Path: filepath.Join(d.defenseStateDir(), "twins.json")},
 		DNS:   defense.DNSCheck{Reference: d.dnsReference},
 	}
+}
+
+// defenseTunnelMark is the mark of the default route while that route is a
+// tunnel that carries UDP (not Tor, not direct, block or a link). The DNS
+// check's question to a public resolver carries it: it goes where your own
+// traffic goes, and while the tunnel is down the leak guard drops it like
+// everything else with that mark.
+func (d *Daemon) defenseTunnelMark() (uint32, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.plan == nil {
+		return 0, false
+	}
+	return tunnelMark(d.plan.DefaultRoute)
+}
+
+func tunnelMark(r *engine.Route) (uint32, bool) {
+	if r == nil || r.Kind != config.RouteTunnel || r.Tor || r.Iface == "" || r.Mark == 0 {
+		return 0, false
+	}
+	return r.Mark, true
 }
 
 func (d *Daemon) defenseStateDir() string {

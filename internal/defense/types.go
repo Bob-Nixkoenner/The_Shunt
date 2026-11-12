@@ -184,7 +184,8 @@ type Config struct {
 	// while the quiet mode is on, "on" = always, "off" = never (listen only).
 	DHCPProbe string `json:"dhcp_probe,omitempty" toml:"dhcp_probe,omitempty"`
 	// DNSProbe is the same switch for the active DNS check (queries to the
-	// network's resolvers and to a public resolver outside the tunnel).
+	// network's resolvers; a public resolver is asked only through the
+	// default route's tunnel).
 	DNSProbe string `json:"dns_probe,omitempty" toml:"dns_probe,omitempty"`
 	// RebindProtect switches the DNS rebind check of the DNS proxy on
 	// (default off). When on, answers for public names that carry private,

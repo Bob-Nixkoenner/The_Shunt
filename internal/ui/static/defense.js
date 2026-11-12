@@ -169,6 +169,7 @@ function defDetail(e) {
       break;
     case "dns_hijack":
       if (d.startsWith("the network's resolver answers differently")) return T("The network's resolver answers differently from the reference for a fixed name");
+      if (d.startsWith("port 53 to a public resolver is answered with other data inside the tunnel")) return T("Port 53 to a public resolver is answered with other data inside the tunnel");
       if (d.startsWith("port 53 to a public resolver")) return T("Port 53 to a public resolver is answered with other data (diverted)");
       break;
     case "evil_twin":

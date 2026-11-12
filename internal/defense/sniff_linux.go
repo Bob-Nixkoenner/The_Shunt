@@ -25,9 +25,14 @@ type Sensors struct {
 	Log   *slog.Logger
 	DNS   DNSCheck
 	Twins *TwinStore
-	// Mark is set on the DNS query sockets (the "bypass" mark: main table,
-	// physical link).
+	// Mark is set on the sockets that ask the network's own resolvers (the
+	// "bypass" mark: main table, physical link).
 	Mark uint32
+	// TunnelMark returns the packet mark of the default route while that
+	// route is a tunnel (ok=false: it is not). The question to the public
+	// resolver carries it: it leaves through the tunnel or, with the tunnel
+	// down, not at all. nil = the public resolver is never asked.
+	TunnelMark func() (mark uint32, ok bool)
 
 	mu     sync.Mutex
 	ifw    *ifaceWatch // interfaces present at the first start
@@ -177,29 +182,49 @@ func (s *Sensors) dnsRound(ctx context.Context, env Env, once *dnsOnce, noted *b
 	if !s.M.Watching(FeatDNS) || !env.DNSProbe {
 		return
 	}
-	c := s.DNS
-	if s.Mark != 0 {
-		mark := s.Mark
-		c.Dial = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 3 * time.Second, Control: func(_, _ string, rc syscall.RawConn) error {
-				var serr error
-				err := rc.Control(func(fd uintptr) {
-					serr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, int(mark))
-				})
-				if err != nil {
-					return err
-				}
-				return serr
-			}}
-			return d.DialContext(ctx, network, addr)
-		}
-	}
 	run := func() ([]Event, bool) {
+		c := s.dnsCheck() // for every attempt: the default route can change in between
 		qctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		return c.RunStatus(qctx, env)
 	}
 	dnsSeries(ctx, run, sleep, func(ev Event) { s.emit(FeatDNS, ev) }, once, noted)
+}
+
+// dnsCheck is the DNS comparison with its sockets set up for right now: the
+// network's resolvers over the physical link, the public resolver through
+// the default route's tunnel or, without one, not at all.
+func (s *Sensors) dnsCheck() DNSCheck {
+	c := s.DNS
+	if s.Mark != 0 {
+		c.Dial = markDial(s.Mark)
+	}
+	c.PublicDial = nil
+	if s.TunnelMark != nil {
+		if mark, ok := s.TunnelMark(); ok && mark != 0 {
+			c.PublicDial = markDial(mark)
+		}
+	}
+	return c
+}
+
+// markDial opens sockets that carry the packet mark mark (SO_MARK): the
+// mark picks the routing table, and the leak guard drops a tunnel's mark on
+// any other interface.
+func markDial(mark uint32) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		d := net.Dialer{Timeout: 3 * time.Second, Control: func(_, _ string, rc syscall.RawConn) error {
+			var serr error
+			err := rc.Control(func(fd uintptr) {
+				serr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, int(mark))
+			})
+			if err != nil {
+				return err
+			}
+			return serr
+		}}
+		return d.DialContext(ctx, network, addr)
+	}
 }
 
 // neighbours follows ARP/NDP entries of the interface and watches the

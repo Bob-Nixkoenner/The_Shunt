@@ -32,3 +32,26 @@ func TestDNSRoundNeedsProbe(t *testing.T) {
 		t.Fatal("probe did not run while on")
 	}
 }
+
+// The public resolver is asked only while the default route is a tunnel,
+// and the daemon is asked again for every attempt.
+func TestDNSCheckPublicNeedsTunnel(t *testing.T) {
+	s := &Sensors{Mark: 0x10}
+	if c := s.dnsCheck(); c.Dial == nil || c.PublicDial != nil {
+		t.Fatal("no TunnelMark: local dialer set, public resolver not asked")
+	}
+	up := false
+	var asked int
+	s.TunnelMark = func() (uint32, bool) { asked++; return 0x20, up }
+	if c := s.dnsCheck(); c.PublicDial != nil {
+		t.Fatal("default route is no tunnel: public resolver must not be asked")
+	}
+	up = true
+	if c := s.dnsCheck(); c.PublicDial == nil {
+		t.Fatal("default route is a tunnel: public resolver goes through it")
+	}
+	up = false
+	if c := s.dnsCheck(); c.PublicDial != nil || asked != 3 {
+		t.Fatalf("tunnel gone: public resolver still asked (TunnelMark calls %d)", asked)
+	}
+}

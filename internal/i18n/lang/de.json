@@ -1557,6 +1557,7 @@
   "A second DHCP server answered on this network": "Ein zweiter DHCP-Server hat in diesem Netz geantwortet",
   "The network's resolver answers differently from the reference for a fixed name": "Der Namensserver des Netzes antwortet bei einem festen Namen anders als die Vergleichsquelle",
   "Port 53 to a public resolver is answered with other data (diverted)": "Port 53 zu einem öffentlichen Namensserver wird mit anderen Daten beantwortet (umgeleitet)",
+  "Port 53 to a public resolver is answered with other data inside the tunnel": "Port 53 zu einem öffentlichen Namensserver wird im Tunnel mit anderen Daten beantwortet",
   "A known Wi-Fi name appears with a different gateway (possible evil twin)": "Ein bekannter WLAN-Name taucht mit einem anderen Gateway auf (möglicherweise Evil Twin)",
   "Captive portal: the network wants a login before it is open": "Anmeldeseite: das Netz verlangt eine Anmeldung, bevor es offen ist",
   "TLS fingerprint of a visitor: {ja3}": "TLS-Fingerabdruck eines Besuchers: {ja3}",
