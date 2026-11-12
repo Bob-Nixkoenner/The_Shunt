@@ -61,6 +61,10 @@ type Daemon struct {
 	// Backend enforces plans on this platform (nil: DefaultBackend).
 	Backend Backend
 
+	// startRestored: starts that failed before the start guard put the
+	// previous config back (0 = it did not); see startguard.go
+	startRestored int
+
 	mu        sync.Mutex
 	cfg       *config.Config
 	plan      *engine.Plan
@@ -569,6 +573,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.filter = &blocklist.Manager{Dir: d.filterDir(), Log: d.Log, Client: d.downloadClient,
 		OnChange: func(f *blocklist.Filter) { d.proxy.SetFilter(f) }}
 
+	d.startGuardBegin()
 	d.startDefense(ctx)
 	if err := d.reload(self); err != nil {
 		return err
@@ -599,6 +604,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	go func() { _ = srv.Serve(ln) }()
 	d.Log.Info("shuntd running", "socket", d.cfg.Daemon.Socket)
+	settled := time.AfterFunc(startGuardSettle, d.startGuardDone)
+	defer settled.Stop()
 
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
@@ -634,11 +641,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			_ = srv.Close()
 			d.shutdown()
+			d.startGuardDone() // an orderly stop is no failed start
 			return nil
 		case <-d.restart:
 			time.Sleep(200 * time.Millisecond) // let the API answer go out
 			_ = srv.Close()
 			d.shutdown()
+			d.startGuardDone()
 			return ErrRestart
 		case <-hup:
 			if err := d.reload(self); err != nil {
@@ -1910,6 +1919,7 @@ func (d *Daemon) status() api.Status {
 		st.InboundAsk = d.inboundAsk()
 	}
 	notes := append([]check.Finding(nil), d.prep.Notes...)
+	notes = append(notes, d.startGuardNote()...)
 	st.Findings = d.prep.Findings
 	st.StartGuard = d.Backend.StartGuardStats()
 	if d.startErr != nil && len(d.plan.AppRules()) > 0 {

@@ -1689,6 +1689,7 @@
   "saved answer": "gespeicherte Antwort",
   "{lines} log lines in {files} files, {size}": "{lines} Logzeilen in {files} Dateien, {size}",
   "Stop keeping": "Nicht mehr behalten",
+  "shuntd did not get through its start {n} times in a row with the last saved settings, so it went back to the previous ones. The failed settings are kept in {file}.": "shuntd ist mit den zuletzt gespeicherten Einstellungen {n}-mal hintereinander nicht hochgekommen und hat deshalb die vorherigen wiederhergestellt. Die fehlerhaften Einstellungen liegen in {file}.",
   "On: fake services on common ports catch snoopers. Off: no fake ports open.": "An: Lockdienste auf üblichen Ports fangen Neugierige. Aus: keine Lockports offen.",
   "On: scanners get stuck in very slow connections. Off: they are turned away at once.": "An: Scanner hängen in sehr langsamen Verbindungen fest. Aus: Sie werden sofort abgewiesen.",
   "On: a fake login records what intruders type. Off: no fake login.": "An: Eine falsche Anmeldung zeichnet auf, was Eindringlinge tippen. Aus: keine falsche Anmeldung.",

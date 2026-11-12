@@ -300,6 +300,10 @@ marked **assumption** are not confirmed by that catalogue.
 Windows and Android: stubs only (no packet sockets or netlink). `dns_rebind` is platform neutral and works wherever the
 DNS proxy runs with the defense.
 
+## If shuntd no longer starts after a change
+
+Every start is counted until shuntd has run for 30 seconds (or stopped in an orderly way). After 3 starts in a row with the same, newly saved config that never got there (a crash at start, as with Max Security and the system call filter on 2026-11-12), shuntd puts back the previous config (`shunt.toml.bak`, written by every save from the window or the CLI), keeps the failed one as `shunt.toml.failed`, logs it and shows a notice in the status. The previous config is never swapped back by itself, so there is no ping-pong. Without a different `.bak` (a config edited by hand) nothing is replaced. State: `start-guard.json` in the state directory.
+
 ## Evidence (Beweissicherung)
 
 Goal: material you can hand to the police, a lawyer or an abuse desk. The Shunt records, it never attacks and **never scans back**. Off by default (`[defense.evidence] enabled`).
