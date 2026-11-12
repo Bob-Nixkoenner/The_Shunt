@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -385,6 +386,11 @@ func (m *Manager) publish() {
 	if m.OnChange != nil {
 		m.OnChange(f)
 	}
+	// Parsing leaves a lot of garbage (one string per line) and replaced
+	// lists are free now: give that memory back to the system right away,
+	// Go would keep it for minutes (measured with 14 million names: RSS
+	// 342 -> 132 MB). Lists change at most a few times a day.
+	debug.FreeOSMemory()
 }
 
 // Status lists the lists in use.
