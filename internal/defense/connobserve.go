@@ -156,8 +156,15 @@ func (m *Manager) noteBeacon(app string, dst netip.AddrPort) {
 	}
 }
 
+// ownApps are the Shunt's own programs (daemon, helpers, desktop app). Their
+// destinations (list downloads, updater) are no news to the user.
+var ownApps = map[string]bool{
+	"shuntd": true, "shunt": true, "the-shunt": true, "shunt-desktop": true,
+	"shuntd-win": true, "shunt-helper": true, "shunt-tray": true,
+}
+
 func (m *Manager) noteFirstSeen(app string, dst netip.AddrPort) {
-	if !appUsable(app) {
+	if !appUsable(app) || ownApps[strings.ToLower(app)] {
 		return
 	}
 	target, ok := m.destTarget(dst.Addr())

@@ -210,3 +210,24 @@ func TestParseConnPacket(t *testing.T) {
 		}
 	}
 }
+
+func TestFirstSeenSkipsOwnApps(t *testing.T) {
+	clk := newClock()
+	m := NewManager(nil, WithClock(clk.Now))
+	defer m.Close()
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	m.Configure(cfg)
+	m.SetNetwork("n", ClassPublic)
+	m.NoteConn("firefox", ap("198.51.100.10:443"), true)
+	clk.Add(firstSeenLearn + time.Second)
+	m.NoteConn("shuntd", ap("192.0.2.50:443"), true)
+	m.NoteConn("Shunt-Desktop", ap("192.0.2.51:443"), true)
+	if n, _ := countKind(m, KindFirstSeen); n != 0 {
+		t.Fatalf("own app reported: %d", n)
+	}
+	m.NoteConn("firefox", ap("192.0.2.60:443"), true)
+	if n, _ := countKind(m, KindFirstSeen); n != 1 {
+		t.Fatalf("other app: %d", n)
+	}
+}
