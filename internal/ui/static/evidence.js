@@ -148,12 +148,16 @@ async function evExportRun(body) {
   try {
     const r = await api("POST", "/api/defense/evidence/export", body);
     const name = String(r.path || "").split(/[\\/]/).pop();
-    const d = await api("GET", "/api/defense/evidence/download?name=" + encodeURIComponent(name));
-    const bin = atob(d.data || ""), bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const a = el("a", { href: URL.createObjectURL(new Blob([bytes], { type: "application/gzip" })), download: d.name });
-    document.body.appendChild(a); a.click(); a.remove();
-    toast(T("Exported {lines} log lines, {packets} packets. Check it with: shunt evidence verify {name}", { lines: r.lines | 0, packets: r.packets | 0, name: d.name }));
+    // the desktop window cannot take a browser download: the app saves the file itself
+    const sv = await api("POST", "/api/defense/evidence/save", { name });
+    const box = $("#ev-exp-box"), host = $("#ev-exp");
+    box.replaceChildren(
+      el("div", { style: "font-weight:700" }, T("Evidence saved")),
+      el("div", { class: "d" }, T("{lines} log lines, {packets} packets.", { lines: r.lines | 0, packets: r.packets | 0 })),
+      el("div", { class: "mono", style: "margin:6px 0;word-break:break-all" }, sv.path),
+      el("div", { class: "d" }, T("Check it with: shunt evidence verify {name}", { name: String(sv.path).split(/[\\/]/).pop() })),
+      el("div", { class: "row", style: "justify-content:flex-end" }, el("button", { class: "primary", onclick: () => { host.hidden = true; } }, T("OK"))));
+    host.hidden = false;
   } catch (e) { toast(e.message); }
 }
 

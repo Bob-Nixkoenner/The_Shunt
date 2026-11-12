@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,12 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
+	"strings"
 )
 
 var evExportName = regexp.MustCompile(`^shunt-case-[A-Za-z0-9._-]+\.tar\.gz$`)
@@ -61,4 +67,94 @@ func (s *Server) evidenceRoutes(mux *http.ServeMux) {
 		_, err := netip.ParseAddr(src)
 		return "?src=" + url.QueryEscape(src), err == nil
 	}, false))
+	mux.HandleFunc("POST /api/defense/evidence/save", s.evidenceSave)
+}
+
+// downloadsDir is where a saved archive goes: the user's download folder
+// (XDG on Linux), else ~/Downloads, else the home directory.
+// downloadsDirFn and openFolderFn are variables so a test can replace them.
+var (
+	downloadsDirFn = downloadsDir
+	openFolderFn   = openFolder
+)
+
+func downloadsDir() string {
+	if runtime.GOOS == "linux" {
+		if out, err := exec.Command("xdg-user-dir", "DOWNLOAD").Output(); err == nil {
+			if d := strings.TrimSpace(string(out)); d != "" && d != os.Getenv("HOME") {
+				return d
+			}
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return os.TempDir()
+	}
+	if d := filepath.Join(home, "Downloads"); isDir(d) {
+		return d
+	}
+	return home
+}
+
+func isDir(p string) bool { st, err := os.Stat(p); return err == nil && st.IsDir() }
+
+// evidenceSave fetches a finished archive from the daemon (the daemon's
+// folder belongs to root) and writes it into the user's download folder.
+// The desktop window cannot take a browser download, so the page does not
+// rely on one. The folder opens in the file manager, best effort.
+func (s *Server) evidenceSave(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !evExportName.MatchString(in.Name) {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("bad request"))
+		return
+	}
+	var d struct {
+		Name string `json:"name"`
+		Data string `json:"data"`
+	}
+	if err := s.Client.Do("GET", "/v1/defense/evidence/download?name="+url.QueryEscape(in.Name), nil, &d); err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(d.Data)
+	if err != nil || len(raw) == 0 {
+		writeErr(w, http.StatusBadGateway, fmt.Errorf("the archive could not be read"))
+		return
+	}
+	dir := downloadsDirFn()
+	path := filepath.Join(dir, in.Name)
+	for i := 1; ; i++ { // never overwrite an earlier export
+		if _, err := os.Lstat(path); err != nil {
+			break
+		}
+		path = filepath.Join(dir, strings.TrimSuffix(in.Name, ".tar.gz")+fmt.Sprintf("-%d.tar.gz", i))
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	openFolderFn(path)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "dir": dir, "size": len(raw)})
+}
+
+// openFolder shows the file in the file manager; failures are not an error.
+func openFolder(path string) {
+	var c *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		c = exec.Command("explorer", "/select,"+path)
+	case "darwin":
+		c = exec.Command("open", "-R", path)
+	default:
+		c = exec.Command("xdg-open", filepath.Dir(path))
+	}
+	if c.Start() == nil {
+		go func() { _ = c.Wait() }()
+	}
 }
