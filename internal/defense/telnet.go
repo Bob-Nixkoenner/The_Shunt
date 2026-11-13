@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"io"
 	"net"
-	"net/netip"
 	"strings"
 )
 
@@ -134,7 +133,7 @@ func (t *telnetIO) negotiate(cmd, opt byte) {
 	}
 }
 
-func telnetTrap(c net.Conn, src netip.Addr, port int, hit func(Hit)) {
+func telnetTrap(c net.Conn, login func(user, pw string)) {
 	t := newTelnetIO(c, c)
 	if t.announce() != nil {
 		return
@@ -151,8 +150,7 @@ func telnetTrap(c net.Conn, src netip.Addr, port int, hit func(Hit)) {
 			return
 		}
 		pw, ok2 := t.readLine()
-		hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevMedium,
-			Detail: "telnet login user=" + cleanName(user) + " " + PasswordDigest(pw)})
+		login(user, pw)
 		if !ok2 {
 			return
 		}

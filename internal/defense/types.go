@@ -86,6 +86,7 @@ const (
 	KindDecoyHit    Kind = "decoy_hit"   // someone connected to a decoy port
 	KindTarpit      Kind = "tarpit"      // a peer is being held in the tarpit
 	KindCowrie      Kind = "cowrie"      // login attempt on the fake service
+	KindBait        Kind = "bait"        // the lock credentials from a bait file were used at a login decoy
 	KindScan        Kind = "scan"        // many ports from one source
 	KindBruteForce  Kind = "brute_force" // many failed connections
 	KindReputation  Kind = "reputation"  // peer or destination on a bad list

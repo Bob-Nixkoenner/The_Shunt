@@ -135,7 +135,7 @@ func (s *IgnoreSet) Match(a netip.Addr, port int) bool {
 // Reputation hits are deliberately not among them.
 func ignoredKind(k Kind) bool {
 	switch k {
-	case KindScan, KindBruteForce, KindDecoyHit, KindTarpit, KindCowrie:
+	case KindScan, KindBruteForce, KindDecoyHit, KindTarpit, KindCowrie, KindBait:
 		return true
 	}
 	return false

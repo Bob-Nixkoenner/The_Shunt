@@ -63,9 +63,12 @@ type Decoys struct {
 	srcMu   sync.Mutex
 	perSrc  map[netip.Addr]int
 
-	keyMu  sync.Mutex
-	signer ssh.Signer
-	sshSem chan struct{}
+	BaitPath string // lock credentials file ("" = memory only, see bait.go)
+
+	keyMu     sync.Mutex
+	signer    ssh.Signer
+	baitCreds *BaitCreds
+	sshSem    chan struct{}
 }
 
 // NewDecoys returns a stopped decoy set.
@@ -260,10 +263,15 @@ func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOpti
 	if port == 443 {
 		d.tlsHello(c, src, port)
 	}
+	if opt.Cowrie && isHTTPPort(port) {
+		d.httpTrap(c, src, port)
+		c.Close()
+		return
+	}
 	if opt.Cowrie && (isTelnetPort(port) || isSSHPort(port)) {
 		_ = c.SetDeadline(time.Now().Add(to * 4))
 		if isTelnetPort(port) {
-			telnetTrap(c, src, port, d.hit)
+			telnetTrap(c, func(user, pw string) { d.login(src, port, "telnet", user, pw, "") })
 		} else {
 			d.sshTrap(ctx, c, src, port)
 		}

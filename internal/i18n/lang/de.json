@@ -1768,6 +1768,11 @@
   "No devices ignored.": "Keine Geräte ignoriert.",
   "Ports are numbers from 1 to 65535.": "Ports sind Zahlen von 1 bis 65535.",
   "all ports": "alle Ports",
-  "Name given by the device, not verified": "Name laut Gerät, nicht geprüft"
+  "Name given by the device, not verified": "Name laut Gerät, nicht geprüft",
+  "Bait credentials used": "Lock-Zugangsdaten benutzt",
+  "Someone used the lock credentials from a bait file at a fake login ({via}). Proof of an attack: blocked at once when blocking of login attempts is on.": "Jemand hat die Lock-Zugangsdaten aus einer Köder-Datei an einer Schein-Anmeldung benutzt ({via}). Beweis für einen Angriff: sofort gesperrt, wenn das Sperren von Anmeldeversuchen an ist.",
+  "Fetched the bait file {path}": "Köder-Datei {path} abgerufen",
+  "Tried to log in on the fake web login as {user} (password of {n} characters)": "Anmeldeversuch an der Schein-Webanmeldung als {user} (Passwort mit {n} Zeichen)",
+  "Asked the fake web server for {path}": "Den Schein-Webserver nach {path} gefragt"
  }
 }
