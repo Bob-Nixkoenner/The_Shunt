@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
@@ -67,6 +68,13 @@ func appOf(a net.Addr) string {
 	return procapp.Unknown
 }
 
+// torPortGuard blocks loopback ports a Tor proxy listener could not bind
+// (another program holds them): the redirected Tor traffic must not reach
+// that program. An empty list lifts the block.
+type torPortGuard interface {
+	GuardTorPorts(ports []int) error
+}
+
 // torProxy runs the transparent listener of every Tor route: nft redirects
 // the route's TCP there (127.0.0.1 and ::1 only).
 type torProxy struct {
@@ -74,7 +82,12 @@ type torProxy struct {
 	runs map[int][]net.Listener // proxy port -> listeners
 }
 
-func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(context.Context, string, string) (net.Conn, error)) {
+// Update binds the listeners of the plan's Tor routes and returns the proxy
+// ports it could not bind because something else holds them (report M-04:
+// the ports are fixed and above 1024, so any local user can take one first;
+// nft would then redirect Tor traffic to that user's listener in plain
+// text). The caller blocks those ports (fail closed).
+func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(context.Context, string, string) (net.Conn, error)) (taken []int) {
 	p := pp.Plan
 	// port -> route, and the isolation key of the rule behind a port ("" =
 	// the program, see torDial)
@@ -112,9 +125,13 @@ func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(con
 			continue
 		}
 		var ls []net.Listener
+		inUse := false
 		for _, host := range []string{"127.0.0.1", "::1"} {
 			l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 			if err != nil {
+				if errors.Is(err, syscall.EADDRINUSE) {
+					inUse = true // someone else listens there: never let traffic reach it
+				}
 				continue // no IPv6 on loopback: fine
 			}
 			ls = append(ls, l)
@@ -133,8 +150,17 @@ func (t *torProxy) Update(pp *Prepared, dial func(name, isolate string) func(con
 			}}
 			go func() { _ = tp.Serve(l) }()
 		}
+		if inUse {
+			for _, l := range ls {
+				_ = l.Close()
+			}
+			taken = append(taken, port) // tried again with the next plan
+			continue
+		}
 		t.runs[port] = ls
 	}
+	sort.Ints(taken)
+	return taken
 }
 
 // Close stops every listener.

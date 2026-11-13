@@ -190,7 +190,7 @@ func (b *linuxBackend) LiftLockdown() error {
 
 func (b *linuxBackend) Cleanup() error {
 	var errs []error
-	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable, nft.EmergencyTable} {
+	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable, nft.EmergencyTable, nft.TorGuardTable} {
 		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
 	}
 	errs = append(errs, nft.Apply(nft.DeleteArpScript()))
@@ -293,4 +293,8 @@ func (b *linuxBackend) release(pid int, since int64) {
 	if g != nil {
 		g.Release(pid, since)
 	}
+}
+
+func (b *linuxBackend) GuardTorPorts(ports []int) error {
+	return nft.Apply(nft.TorGuardScript(ports))
 }

@@ -965,3 +965,24 @@ func loSet(gwo string) string {
 	}
 	return `{ "lo"` + gwo + ` }`
 }
+
+// TorGuardTable blocks Tor proxy ports another program holds (daemon/tor.go).
+const TorGuardTable = "shunt_torguard"
+
+// TorGuardScript replaces the guard table: every TCP packet to one of ports
+// on loopback is dropped (no ports: the table goes).
+func TorGuardScript(ports []int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", TorGuardTable, TorGuardTable)
+	if len(ports) == 0 {
+		return b.String()
+	}
+	set := make([]string, len(ports))
+	for i, p := range ports {
+		set[i] = strconv.Itoa(p)
+	}
+	fmt.Fprintf(&b, "table inet %s {\n\tchain out {\n\t\ttype filter hook output priority filter - 5; policy accept;\n", TorGuardTable)
+	fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", strings.Join(set, ", "))
+	fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n\t}\n}\n", strings.Join(set, ", "))
+	return b.String()
+}

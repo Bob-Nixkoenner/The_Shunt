@@ -849,7 +849,15 @@ func (d *Daemon) reload(selfCgroup string) error {
 		d.socks = &socks.Manager{Log: d.Log}
 	}
 	d.socks.Update(d.socksExits(p, ups))
-	d.torProxy.Update(p, d.torDial)
+	taken := d.torProxy.Update(p, d.torDial)
+	if g, ok := d.Backend.(torPortGuard); ok {
+		if err := g.GuardTorPorts(taken); err != nil {
+			return fmt.Errorf("tor proxy ports %v are taken by another program and could not be blocked: %w", taken, err)
+		}
+	}
+	if len(taken) > 0 {
+		d.Log.Error("TOR PROXY PORT TAKEN BY ANOTHER PROGRAM: traffic of these Tor routes is blocked", "ports", taken)
+	}
 	if d.filter != nil {
 		var used []string
 		if p.Plan.DNS {

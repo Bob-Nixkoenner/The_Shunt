@@ -1,13 +1,18 @@
 package daemon
 
 import (
+	"context"
+	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -100,5 +105,59 @@ func TestSetTorAllNeedsTorTunnel(t *testing.T) {
 	}
 	if err := d.setTorAll(true, "wg"); err == nil {
 		t.Error("wireguard tunnel accepted as tor-all target")
+	}
+}
+
+// M-04 (external report): a proxy port another program holds is reported, not
+// silently skipped, so the caller can block it; a free one is bound.
+func TestTorProxyPortTaken(t *testing.T) {
+	conf := `[daemon]
+socket = "/nonexistent/s.sock"
+default_route = "direct"
+[tunnel.tor]
+driver = "tor"
+[[rule]]
+name = "via tor"
+app = ["someapp"]
+route = "tunnel:tor"
+`
+	path := filepath.Join(t.TempDir(), "shunt.toml")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := PrepareOn(path, "shunt", Env{Backend: newFake()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ports []int
+	for _, r := range p.Plan.Routes {
+		if r.Tor {
+			ports = append(ports, r.ProxyPort)
+		}
+	}
+	if len(ports) == 0 {
+		t.Fatal("no Tor proxy port in the plan")
+	}
+	// another program takes the first port before shuntd
+	squat, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ports[0])))
+	if err != nil {
+		t.Skipf("port %d not free here: %v", ports[0], err)
+	}
+	defer squat.Close()
+	var tp torProxy
+	defer tp.Close()
+	taken := tp.Update(p, func(string, string) func(context.Context, string, string) (net.Conn, error) { return nil })
+	if !slices.Contains(taken, ports[0]) {
+		t.Fatalf("taken port not reported: %v (ports %v)", taken, ports)
+	}
+	if _, ok := tp.runs[ports[0]]; ok {
+		t.Fatal("a taken port must not count as running")
+	}
+	// the script that blocks it is valid nft and names the port
+	if s := nft.TorGuardScript(taken); !strings.Contains(s, strconv.Itoa(ports[0])) || !strings.Contains(s, "drop") {
+		t.Fatalf("guard script: %s", s)
+	}
+	if s := nft.TorGuardScript(nil); strings.Contains(s, "drop") {
+		t.Fatalf("empty guard must only delete the table: %s", s)
 	}
 }
