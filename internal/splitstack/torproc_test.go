@@ -115,7 +115,7 @@ func TestTorProc(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tt.close()
-	rc, _ := os.ReadFile(tt.proc.dir + "/torrc")
+	rc := tt.proc.torrc() // the file itself lives only until tor answers
 	for _, want := range []string{"UseBridges 1", "ClientTransportPlugin obfs4,meek_lite,webtunnel,snowflake exec /pt/lyrebird", "Bridge snowflake ", "SOCKSPort 127.0.0.1:"} {
 		if !strings.Contains(string(rc), want) {
 			t.Errorf("torrc lacks %q:\n%s", want, rc)
@@ -138,12 +138,33 @@ func TestTorProc(t *testing.T) {
 	if !sawStarting {
 		t.Error("never saw the starting state")
 	}
+	// the bridge lines are not kept on disk once tor read them
+	if _, err := os.Stat(tt.proc.torrcPath()); !os.IsNotExist(err) {
+		t.Errorf("torrc still on disk after the start: %v", err)
+	}
 	time.Sleep(3500 * time.Millisecond) // reachable() caches for 3 s
 	if !tt.reachable() {
 		t.Error("not reachable at 100 %")
 	}
 	if err := tt.proc.NewIdentity(); err != nil {
 		t.Errorf("newnym: %v", err)
+	}
+}
+
+// A torrc left by a crashed run is wiped at the next start; a tor that
+// ends leaves none behind.
+func TestTorrcNotKept(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "torrc")
+	os.WriteFile(stale, []byte("Bridge obfs4 192.0.2.7:443 cert=secret\n"), 0o600)
+	p, err := startTorProc("/bin/false", dir, []string{"obfs4 192.0.2.7:443 0123456789ABCDEF0123456789ABCDEF01234567 cert=secret iat-mode=0"}, "", t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // /bin/false ran and ended
+	p.Close()
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("torrc left: %v", err)
 	}
 }
 

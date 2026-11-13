@@ -46,8 +46,9 @@ const DNSAddr = splitstack.DNSAddr
 
 // Engine runs while the VPN is up.
 type Engine struct {
-	e   *splitstack.Engine
-	def *defenseState
+	e    *splitstack.Engine
+	def  *defenseState
+	conf string // the start config: its work_dir is tidied after Stop
 }
 
 // Start takes over the TUN file descriptor; the app closes it after Stop.
@@ -84,12 +85,18 @@ func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
 			return strconv.Itoa(uid)
 		}
 	}
+	// rests of a crashed run (OpenVPN config, torrc with keys/bridges) and
+	// folders of removed tunnels; the app starts one engine at a time
+	if n := splitstack.CleanWorkDir(configJSON); n > 0 && o.Log != nil {
+		o.Log(fmt.Sprintf("work folder: removed %d leftovers", n))
+	}
 	e, err := splitstack.New(o, configJSON)
 	if err != nil {
 		ds.m.Close()
+		splitstack.CleanWorkDir(configJSON)
 		return nil, err
 	}
-	return &Engine{e: e, def: ds}, nil
+	return &Engine{e: e, def: ds, conf: configJSON}, nil
 }
 
 // SetRules swaps default route, app rules and DNS filter without restarting
@@ -183,6 +190,7 @@ func (e *Engine) ResetStats() error { return e.e.ResetStats() }
 func (e *Engine) Stop() {
 	e.e.Stop()
 	e.def.m.Close()
+	splitstack.CleanWorkDir(e.conf) // openvpn/tor have ended: nothing of theirs with keys stays
 }
 
 // CheckWireGuard validates a wg-quick file (import) and returns a short JSON

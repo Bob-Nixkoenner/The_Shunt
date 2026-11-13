@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/secfile"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -24,6 +25,12 @@ import (
 // loopback ports chosen at start, is told apart from other programs by a
 // cookie file, and is restarted when it ends. The SOCKS port keeps Tor's
 // default IsolateSOCKSAuth: each SOCKS user name gets its own circuits.
+//
+// The torrc holds the bridge lines (address, fingerprint, obfs4 cert): it is
+// written before each start of tor and wiped as soon as tor answers on its
+// control port (tor has read the whole torrc by then) or ends. The data
+// folder stays: Tor's guard and consensus state, which Tor keeps on purpose
+// (stable entry guards); it holds no tunnel key or login.
 type torProc struct {
 	exe, dir string
 	bridges  []string
@@ -70,7 +77,7 @@ func startTorProc(exe, dir string, bridges []string, pt string, logf func(string
 	if p.ctlPort, err = freeTCPPort(); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "torrc"), []byte(p.torrc()), 0o600); err != nil {
+	if err := secfile.Wipe(p.torrcPath()); err != nil { // a rest of a run that crashed
 		return nil, err
 	}
 	_ = os.Remove(p.cookiePath())
@@ -79,6 +86,32 @@ func startTorProc(exe, dir string, bridges []string, pt string, logf func(string
 }
 
 func (p *torProc) cookiePath() string { return filepath.Join(p.dir, "control_auth_cookie") }
+
+func (p *torProc) torrcPath() string { return filepath.Join(p.dir, "torrc") }
+
+// writeTorrc writes the torrc for the next start of tor (0600, new file).
+func (p *torProc) writeTorrc() error {
+	_ = secfile.Wipe(p.torrcPath())
+	f, err := os.OpenFile(p.torrcPath(), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(p.torrc())
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = secfile.Wipe(p.torrcPath())
+	}
+	return err
+}
+
+// dropTorrc wipes the torrc (tor has read it, or ended).
+func (p *torProc) dropTorrc() {
+	if err := secfile.Wipe(p.torrcPath()); err != nil {
+		p.logf("tor: removing the torrc: %v", err)
+	}
+}
 
 func (p *torProc) torrc() string {
 	var b strings.Builder
@@ -167,7 +200,11 @@ func (p *torProc) Kick() {
 }
 
 func (p *torProc) runOnce() error {
-	cmd := exec.Command(p.exe, "-f", filepath.Join(p.dir, "torrc"))
+	if err := p.writeTorrc(); err != nil {
+		return err
+	}
+	defer p.dropTorrc()
+	cmd := exec.Command(p.exe, "-f", p.torrcPath())
 	cmd.Dir = p.dir
 	pr, pw := io.Pipe() // Wait then returns only after all of stderr is copied: the last line is the reason tor died
 	cmd.Stderr = pw
@@ -221,8 +258,10 @@ func trimTorLine(l string) string {
 	return l
 }
 
-// watchBootstrap polls the progress over the control port while this tor lives.
+// watchBootstrap polls the progress over the control port while this tor
+// lives. The first answer means tor has read its torrc: it is wiped then.
 func (p *torProc) watchBootstrap(pid int) {
+	dropped := false
 	for {
 		select {
 		case <-p.stop:
@@ -238,6 +277,10 @@ func (p *torProc) watchBootstrap(pid int) {
 		lines, err := p.control("GETINFO status/bootstrap-phase")
 		if err != nil {
 			continue
+		}
+		if !dropped {
+			p.dropTorrc()
+			dropped = true
 		}
 		for _, l := range lines {
 			if i := strings.Index(l, "PROGRESS="); i >= 0 {
