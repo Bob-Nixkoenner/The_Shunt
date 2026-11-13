@@ -103,7 +103,9 @@ temp_c() { # package temperature in whole degrees C (x86_pkg_temp, else hottest 
 	local z best=0 t type
 	for z in /sys/class/thermal/thermal_zone*; do
 		[[ -r $z/temp ]] || continue
-		t=$(($(<"$z/temp") / 1000)); type=$(<"$z/type")
+		t=$(<"$z/temp") 2>/dev/null || continue
+		[[ $t =~ ^-?[0-9]+$ ]] || continue # some zones read empty or fail (no sensor behind them)
+		t=$((t / 1000)); type=$(<"$z/type")
 		[[ $type == x86_pkg_temp ]] && { echo "$t"; return; }
 		((t > best)) && best=$t
 	done
