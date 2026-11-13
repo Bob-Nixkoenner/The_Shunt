@@ -75,12 +75,16 @@ func secureDataDir(dir string) error {
 	return windows.CreateDirectory(p, sa)
 }
 
+// movedAside: what moveAside did, logged again once the log file is open.
+var movedAside []string
+
 func moveAside(dir, why string) error {
 	to := dir + ".untrusted-" + strconv.FormatInt(time.Now().Unix(), 10)
 	if err := os.Rename(dir, to); err != nil {
 		return fmt.Errorf("%s is %s and cannot be moved aside: %w", dir, why, err)
 	}
-	log.Printf("SECURITY: %s was %s: moved to %s, not used", dir, why, to)
+	movedAside = append(movedAside, fmt.Sprintf("SECURITY: %s was %s: moved to %s, not used", dir, why, to))
+	log.Print(movedAside[len(movedAside)-1])
 	return nil
 }
 

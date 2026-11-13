@@ -132,6 +132,9 @@ func setupLog() {
 	if err == nil {
 		log.SetOutput(logWriter{f})
 	}
+	for _, m := range movedAside { // happened before the log file was open
+		log.Print(m)
+	}
 }
 
 // logWriter writes to the log file and, best effort, to the console. A
