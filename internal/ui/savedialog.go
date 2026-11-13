@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -26,9 +27,11 @@ func saveDialog(def string) (string, error) {
 	var c *exec.Cmd
 	switch {
 	case runtime.GOOS == "windows":
-		// the path travels as an argument, never inside the script text
-		c = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command",
-			`Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.SaveFileDialog; $d.FileName=$args[0]; if($d.ShowDialog() -eq 'OK'){$d.FileName}`, def)
+		// the path travels in the environment, never inside the script text
+		// (after -Command, extra arguments are not $args but part of the script)
+		c = exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command",
+			`Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.SaveFileDialog; $d.FileName=$env:SHUNT_SAVE_DEF; if($d.ShowDialog() -eq 'OK'){$d.FileName}`)
+		c.Env = append(os.Environ(), "SHUNT_SAVE_DEF="+def)
 	case runtime.GOOS == "darwin":
 		c = exec.CommandContext(ctx, "osascript", "-e", `on run argv
 POSIX path of (choose file name default name (item 1 of argv))
