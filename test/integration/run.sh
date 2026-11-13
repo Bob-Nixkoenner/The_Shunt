@@ -18,7 +18,11 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d)
 chmod 755 "$WORK" # test apps run as nobody
 BIN=$WORK/bin
-CG=shunt-it
+# A cgroup root of its own for every run. A fixed name was found on a desktop
+# where an earlier run (or a stopped daemon) had left processes in it: every
+# new shuntd adopts the processes of its groups at start and keeps moving them
+# back (sticky routes), the app-rule checks then failed there on every run.
+CG=shunt-it-$$
 SOCK=$WORK/shuntd.sock
 WAN=shunt-wan
 CLI=shunt-cli
