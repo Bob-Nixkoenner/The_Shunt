@@ -149,7 +149,8 @@ func (m *Manager) flushAgg(force bool) {
 
 // banTarget decides what to block for src while exposed: a covered address
 // needs nothing, and when RangeBanSources addresses of one range are
-// blocked, the range is blocked (unless it contains a never-block entry).
+// blocked, the range is blocked (unless it contains a never-block entry or
+// an ignore entry of any trust step).
 // It returns the entry to ban ("" = nothing to do).
 func (m *Manager) banTarget(src netip.Addr) string {
 	if !m.exposure().Any() {
@@ -159,8 +160,8 @@ func (m *Manager) banTarget(src netip.Addr) string {
 		return ""
 	}
 	r := RangeOf(src)
-	if m.never.Overlaps(r) {
-		return src.String()
+	if m.never.Overlaps(r) || m.ignore.Overlaps(r, m.now()) {
+		return src.String() // own devices (ignored, known, test) are never blocked, not even as part of a range
 	}
 	singles := m.bans.InRange(r)
 	have := false

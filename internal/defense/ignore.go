@@ -137,6 +137,23 @@ func (s *IgnoreSet) Set(in []IgnoreEntry) {
 	s.mu.Unlock()
 }
 
+// Overlaps reports whether an entry of any trust step (full, known, or a
+// test entry that has not ended) shares addresses with p, whatever its
+// ports: a range block over p would block that device too.
+func (s *IgnoreSet) Overlaps(p netip.Prefix, now time.Time) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, r := range s.rules {
+		if r.level == TrustTest && !now.Before(r.until) {
+			continue
+		}
+		if r.p.Overlaps(p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Match reports whether traffic from a to local port (0 = unknown) is ignored.
 // An entry limited to ports never matches an unknown port.
 func (s *IgnoreSet) Match(a netip.Addr, port int) bool {

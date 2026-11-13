@@ -203,6 +203,35 @@ func TestRangeBanSkipsNeverRange(t *testing.T) {
 	}
 }
 
+// Own devices on the ignore list at every trust step are never blocked, so a
+// range that holds one is not blocked either (single blocks of the others go on).
+func TestRangeBanSkipsIgnoredDevices(t *testing.T) {
+	now := newClock().Now()
+	for _, e := range []IgnoreEntry{
+		{Addr: "198.51.100.200", Name: "own server"},
+		{Addr: "198.51.100.200", Name: "friend", Level: TrustKnown, Ports: []int{22}},
+		{Addr: "198.51.100.200", Name: "own scan", Level: TrustTest, Until: now.Add(time.Hour).Unix()},
+	} {
+		m, _, _ := expoManager(t)
+		m.SetExposure(Exposure{V4: true, Inbound: "closed"})
+		cfg := m.cfg
+		cfg.Ignore = []IgnoreEntry{e}
+		m.Configure(cfg)
+		for i := 10; i < 20; i++ {
+			banConfirmed(m, netip.MustParseAddr(fmt.Sprintf("198.51.100.%d", i)), KindScan, FeatScan)
+		}
+		bans := m.Status().Bans
+		if len(bans) != 10 {
+			t.Fatalf("%s: singles go on: %+v", e.Name, bans)
+		}
+		for _, b := range bans {
+			if strings.Contains(b.Src, "/") {
+				t.Fatalf("%s: a range holding an own device must not be blocked: %v", e.Name, b)
+			}
+		}
+	}
+}
+
 func TestNoRangeBanWhenNotExposed(t *testing.T) {
 	m, _, _ := expoManager(t)
 	for i := 1; i <= 6; i++ {

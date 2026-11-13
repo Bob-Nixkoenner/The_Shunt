@@ -56,7 +56,8 @@ Behaviour while exposed (`Status.exposed = {v4, v6, inbound}`):
   `more=N` (rare important kinds like ARP, DNS, TLS are never folded; heat and report counts still see
   every event; at most 2048 sources are tracked, beyond that events are only counted). Blocks go per range once
   4 addresses of one /24 (IPv4) or /64 (IPv6) are blocked (not if the range holds a never-block address such
-  as the gateway). The ban table is capped at 4096 entries (the soonest-expiring one makes room). The
+  as the gateway, or an entry of `defense.ignore` at any trust step: own devices are never blocked, not even
+  as part of a range). The ban table is capped at 4096 entries (the soonest-expiring one makes room). The
   event ring keeps 1000 events. The nft block sets are interval sets so a range is one element.
 
 ### Block time and escalation
