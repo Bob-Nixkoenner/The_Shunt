@@ -449,6 +449,7 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 
 	q2 := r.Copy()
 	stripECS(q2)
+	q2.Id = dns.Id() // upstream ID is not the client's: a forged answer must guess it
 	ctx, cancel := context.WithTimeout(context.Background(), 2*upstreamTimeout)
 	defer cancel()
 	var resp *dns.Msg
@@ -459,6 +460,9 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	}
 	for _, u := range ups[key] {
 		resp, lastErr = u.Exchange(ctx, q2)
+		if lastErr == nil && !answersQuestion(q2, resp) {
+			resp, lastErr = nil, fmt.Errorf("answer does not match the question")
+		}
 		if lastErr == nil {
 			break
 		}
@@ -617,4 +621,15 @@ func (p *Proxy) byPortName(port int) string {
 		return r.String()
 	}
 	return ""
+}
+
+// answersQuestion tells whether resp is an answer to q: same ID, one question
+// with the same name (case-insensitive), type and class. Anything else is not
+// trusted, whatever it carries.
+func answersQuestion(q, resp *dns.Msg) bool {
+	if resp == nil || resp.Id != q.Id || len(resp.Question) != 1 || len(q.Question) != 1 {
+		return false
+	}
+	a, b := q.Question[0], resp.Question[0]
+	return a.Qtype == b.Qtype && a.Qclass == b.Qclass && strings.EqualFold(a.Name, b.Name)
 }

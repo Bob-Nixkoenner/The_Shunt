@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **DNS, answers (external report L-03):** the answer of an upstream is now checked against the question (name, type, class, ID) before it is passed on or its addresses go into a set; a mismatch is a failed upstream. The ID sent upstream is random and not the client's (restored for the client). Test `TestUpstreamIDAndQuestionChecked`.
 - **Debian package (external report L-12):** the postinst of a first install stopped and disabled `tor.service` even when the admin had tor set up before. A new preinst notes whether tor was already installed; only a tor that came with this package has its system service switched off. Test `TestPostinstLeavesExistingTorAlone`.
 - **Tor control port (external report L-06):** a line with `PROGRESS=` and no value from the control port made the app panic (index out of range); a missing or bad value is now ignored. Test `TestParseProgress`.
 - **DNS, domain sets (external report M-02):** an answer with a TTL over 2 h (for example 24 h) was given to the client unchanged while the set entry lived 2 h at most; the client then used its cache and the traffic took the default route. The TTL given to the client is now capped to the entry life minus the grace time. Test `TestEnsureTTLCappedToSetLife`.

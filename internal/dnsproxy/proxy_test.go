@@ -308,3 +308,57 @@ func TestRebinder(t *testing.T) {
 		t.Fatalf("dropped answer expected, got rcode %d with %d records", r.Rcode, len(r.Answer))
 	}
 }
+
+// seenUpstream records the ID it was asked with and answers as told.
+type seenUpstream struct {
+	id    *uint16
+	other string // answer for this name instead of the asked one
+}
+
+func (s seenUpstream) Exchange(_ context.Context, m *dns.Msg) (*dns.Msg, error) {
+	*s.id = m.Id
+	r := new(dns.Msg)
+	r.SetReply(m)
+	name := m.Question[0].Name
+	if s.other != "" {
+		r.Question[0].Name, name = s.other, s.other
+	}
+	r.Answer = append(r.Answer, &dns.A{Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.ParseIP("192.0.2.5")})
+	return r, nil
+}
+func (s seenUpstream) String() string { return "seen" }
+
+// The upstream gets its own random ID, and an answer to another question is
+// not passed on.
+func TestUpstreamIDAndQuestionChecked(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 1}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct}
+	var id uint16
+	p.upstreams = RouteUpstreams{"direct": {seenUpstream{id: &id}}}
+	q := new(dns.Msg)
+	q.SetQuestion("one.example.test.", dns.TypeA)
+	q.Id = 0x1234
+	w := &fakeRW{}
+	p.serve(1, w, q)
+	if w.got.Id != 0x1234 || len(w.got.Answer) != 1 {
+		t.Fatalf("client answer: id %x, %d records", w.got.Id, len(w.got.Answer))
+	}
+	same := 0
+	for i := 0; i < 8; i++ {
+		p.serve(1, &fakeRW{}, q)
+		if id == 0x1234 {
+			same++
+		}
+	}
+	if same > 1 {
+		t.Fatal("upstream was asked with the client's ID")
+	}
+	p.upstreams = RouteUpstreams{"direct": {seenUpstream{id: &id, other: "evil.example.test."}}}
+	w = &fakeRW{}
+	p.serve(1, w, q)
+	if w.got.Rcode != dns.RcodeServerFailure || len(w.got.Answer) != 0 {
+		t.Fatalf("answer to another question passed: rcode %d, %d records", w.got.Rcode, len(w.got.Answer))
+	}
+}
