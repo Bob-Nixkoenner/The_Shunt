@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **F-Droid repo build (external report M-09):** `build-repo.sh` put the repo keystore and its password (`config.yml`) into the output folder and removed them only at the end, so a failed `fdroid update` left them in a folder that may be published. The build now runs in a private work directory (`mktemp -d`, umask 077) that is removed on every exit; the output gets only `repo/` and `metadata/`. Test `TestBuildRepoKeepsKeyOutOfOutput`.
 - **Daemon, login page (external report M-03):** while a Wi-Fi login page was detected, a process of any socket group could move itself from a route into any group that leads to the direct route without the manage right. The exception now holds only for the login browser's own group (`captive`). Test `TestPortalException`.
 - **DNS, login port (external report L-04):** the DNS port of the Wi-Fi login browser took TCP queries from any local process without a blocklist check, because a TCP query has no readable packet mark. A query to that port without a readable mark is now filtered like the direct route; a marked (login browser) query is still not filtered. On a kernel without `SO_RCVMARK` this also covers the login browser's UDP queries. Test extended: `TestFilter`.
 - **DNS, answers (external report L-03):** the answer of an upstream is now checked against the question (name, type, class, ID) before it is passed on or its addresses go into a set; a mismatch is a failed upstream. The ID sent upstream is random and not the client's (restored for the client). Test `TestUpstreamIDAndQuestionChecked`.
