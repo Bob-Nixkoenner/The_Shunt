@@ -58,9 +58,18 @@ const (
 // ServiceFlows is what the connection table says about the connections of
 // one source to one local port.
 type ServiceFlows struct {
-	Open      int  // established right now (not short, not counted)
-	Handshake bool // at least one finished a TCP handshake (established or closing after one)
+	Open int // established right now (not short, not counted)
+	// Done counts connections that finished a TCP handshake and are closing
+	// now (FIN_WAIT, CLOSE_WAIT, LAST_ACK, TIME_WAIT; not CLOSE after a
+	// reset). Open+Done are the connections of this source that are proven
+	// real; a block needs SvcBruteConns of them, not just one: a forger who
+	// sends SYNs in the name of a device that holds one real connection (a
+	// phone with Syncthing or SSH open) must not get that device blocked.
+	Done int
 }
+
+// proven is the number of connections in the table that finished a handshake.
+func (f ServiceFlows) proven() int { return f.Open + f.Done }
 
 // ServiceProbe reads the connection table for src -> local port. ok=false:
 // the table could not be read (then nothing is subtracted and no handshake
@@ -311,7 +320,7 @@ func (s *svcState) step(log *slog.Logger, src netip.Addr, port int, service stri
 	d := svcDecision{conns: n, short: short, open: flows.Open, service: e.service, hs: "unknown"}
 	if known {
 		d.hs = "no"
-		if flows.Handshake {
+		if flows.proven() >= SvcBruteConns {
 			d.hs = "yes"
 		}
 	}
@@ -326,7 +335,7 @@ func (s *svcState) step(log *slog.Logger, src netip.Addr, port int, service stri
 		}
 		e.fired = level
 	}
-	if !e.banned && known && flows.Handshake {
+	if !e.banned && known && flows.proven() >= SvcBruteConns {
 		d.ban, e.banned = true, true
 	}
 	return d, d.report || d.ban

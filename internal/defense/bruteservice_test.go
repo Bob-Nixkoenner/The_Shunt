@@ -99,7 +99,7 @@ func bans(ch chan Ban) []Ban {
 // its 30 s limit. The connections ended after a handshake.
 func TestBruteServiceLabR02(t *testing.T) {
 	tab := &fakeTable{}
-	tab.set("203.0.113.7", 22, ServiceFlows{Open: 1, Handshake: true})
+	tab.set("203.0.113.7", 22, ServiceFlows{Open: 1, Done: 9})
 	m, clk, banCh := svcManager(t, true, tab)
 	conns(m, clk, "203.0.113.7", 22, 11, 3*time.Second)
 	ev := svcEvents(m)
@@ -127,7 +127,7 @@ func TestBruteServiceLabR02(t *testing.T) {
 // hydra-like: 16 parallel tasks, 80 connections in 20 s -> medium, then high.
 func TestBruteServiceHighRate(t *testing.T) {
 	tab := &fakeTable{}
-	tab.set("203.0.113.8", 3306, ServiceFlows{Open: 16, Handshake: true})
+	tab.set("203.0.113.8", 3306, ServiceFlows{Open: 16})
 	m, clk, banCh := svcManager(t, true, tab)
 	conns(m, clk, "203.0.113.8", 3306, 80, 250*time.Millisecond)
 	ev := svcEvents(m)
@@ -161,7 +161,7 @@ func TestBruteServiceControls(t *testing.T) {
 	})
 	t.Run("syncthing-like long-running traffic", func(t *testing.T) {
 		tab := &fakeTable{}
-		tab.set("203.0.113.21", 22000, ServiceFlows{Open: 2, Handshake: true})
+		tab.set("203.0.113.21", 22000, ServiceFlows{Open: 2})
 		m, clk, banCh := svcManager(t, true, tab)
 		// two hours: the peer keeps its connections and reconnects every
 		// 30 s at most (discovery, relay change)
@@ -172,7 +172,7 @@ func TestBruteServiceControls(t *testing.T) {
 	})
 	t.Run("keep-alive pool: connections stay open", func(t *testing.T) {
 		tab := &fakeTable{}
-		tab.set("203.0.113.22", 8080, ServiceFlows{Open: 14, Handshake: true})
+		tab.set("203.0.113.22", 8080, ServiceFlows{Open: 14})
 		m, clk, banCh := svcManager(t, true, tab)
 		conns(m, clk, "203.0.113.22", 8080, 14, 2*time.Second)
 		if len(svcEvents(m)) != 0 || len(bans(banCh)) != 0 {
@@ -221,10 +221,38 @@ func TestBruteServiceSynOnlyNeverBlocks(t *testing.T) {
 		t.Fatal("no handshake must be noted")
 	}
 	// now the source finishes handshakes with the service
-	tab.set("203.0.113.30", 22, ServiceFlows{Handshake: true})
+	tab.set("203.0.113.30", 22, ServiceFlows{Done: SvcBruteConns})
 	conns(m, clk, "203.0.113.30", 22, 6, time.Second)
 	if b := bans(banCh); len(b) != 1 || b[0].Reason != KindBruteService {
 		t.Fatalf("block after the handshake: %+v", b)
+	}
+}
+
+// Ban spoofing: a forger sends SYNs in the name of a device that holds one
+// real connection to the service (a phone with Syncthing or SSH open). One
+// proven handshake must not stand for the forged ones: reported, no block,
+// and the device is not marked as verified (that would let forged scans
+// block it at once afterwards).
+func TestBruteServiceForgedSYNsBesideOneRealConnection(t *testing.T) {
+	tab := &fakeTable{}
+	tab.set("198.51.100.20", 22, ServiceFlows{Open: 1}) // the device's own session
+	m, clk, banCh := svcManager(t, true, tab)
+	conns(m, clk, "198.51.100.20", 22, 70, 500*time.Millisecond) // forged SYNs
+	ev := svcEvents(m)
+	if len(ev) == 0 || !strings.Contains(ev[0].Detail, "handshake=no") {
+		t.Fatalf("events %+v", ev)
+	}
+	if b := bans(banCh); len(b) != 0 {
+		t.Fatalf("one real connection must not prove forged ones: %+v", b)
+	}
+	if m.ver.confirmed(netip.MustParseAddr("198.51.100.20"), clk.Now()) {
+		t.Fatal("the device must not be marked as verified")
+	}
+	// a few closed sessions of its own are still not enough
+	tab.set("198.51.100.20", 22, ServiceFlows{Open: 1, Done: SvcBruteConns - 2})
+	conns(m, clk, "198.51.100.20", 22, 12, 500*time.Millisecond)
+	if b := bans(banCh); len(b) != 0 {
+		t.Fatalf("%d proven connections must not block: %+v", SvcBruteConns-1, b)
 	}
 }
 
@@ -252,7 +280,7 @@ func TestBruteServiceNoTable(t *testing.T) {
 
 func TestBruteServiceBlockOff(t *testing.T) {
 	tab := &fakeTable{}
-	tab.set("203.0.113.32", 22, ServiceFlows{Handshake: true})
+	tab.set("203.0.113.32", 22, ServiceFlows{Done: SvcBruteConns})
 	m, clk, banCh := svcManager(t, false, tab)
 	conns(m, clk, "203.0.113.32", 22, 30, time.Second)
 	ev := svcEvents(m)
@@ -278,7 +306,7 @@ func TestBruteServiceExempt(t *testing.T) {
 	m.SetNever([]netip.Prefix{netip.MustParsePrefix("192.0.2.1/32")}) // gateway
 	m.ownAddr = func(a netip.Addr) bool { return a == netip.MustParseAddr("192.0.2.50") }
 	for _, src := range []string{"198.51.100.10", "198.51.100.11", "198.51.100.12", "192.0.2.1", "192.0.2.50", "127.0.0.1", "::1"} {
-		tab.set(src, 22, ServiceFlows{Handshake: true})
+		tab.set(src, 22, ServiceFlows{Done: SvcBruteConns})
 		conns(m, clk, src, 22, 70, 100*time.Millisecond)
 	}
 	conns(m, clk, "198.51.100.13", 22000, 70, 100*time.Millisecond)
@@ -289,7 +317,7 @@ func TestBruteServiceExempt(t *testing.T) {
 		t.Fatal("exempt sources must not even be looked up")
 	}
 	// the port-limited entry covers only its port
-	tab.set("198.51.100.13", 22, ServiceFlows{Handshake: true})
+	tab.set("198.51.100.13", 22, ServiceFlows{Done: SvcBruteConns})
 	conns(m, clk, "198.51.100.13", 22, 12, time.Second)
 	if len(svcEvents(m)) != 1 {
 		t.Fatal("other ports of a port-limited entry count")
@@ -298,7 +326,7 @@ func TestBruteServiceExempt(t *testing.T) {
 
 func TestBruteServiceWindowAndReset(t *testing.T) {
 	tab := &fakeTable{}
-	tab.set("203.0.113.40", 22, ServiceFlows{Handshake: true})
+	tab.set("203.0.113.40", 22, ServiceFlows{Done: SvcBruteConns})
 	m, clk, _ := svcManager(t, false, tab)
 	conns(m, clk, "203.0.113.40", 22, 9, 6*time.Second) // 9 in 54 s: below
 	if len(svcEvents(m)) != 0 {
@@ -416,7 +444,7 @@ func TestBruteServiceRace(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 300; i++ {
 				a := netip.AddrFrom4([4]byte{203, 0, 113, byte(g*10 + i%5)})
-				tab.set(a.String(), 22, ServiceFlows{Handshake: i%2 == 0})
+				tab.set(a.String(), 22, ServiceFlows{Done: SvcBruteConns * (1 - i%2)})
 				m.ObserveService(a, 22, "tcp", "sshd")
 				if i%50 == 0 {
 					m.tick()

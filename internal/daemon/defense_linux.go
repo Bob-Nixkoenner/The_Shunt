@@ -73,9 +73,8 @@ func conntrackServiceProbe(src netip.Addr, port int) (defense.ServiceFlows, bool
 		switch tcp.State {
 		case nl.TCP_CONNTRACK_ESTABLISHED:
 			out.Open++
-			out.Handshake = true
 		case nl.TCP_CONNTRACK_FIN_WAIT, nl.TCP_CONNTRACK_CLOSE_WAIT, nl.TCP_CONNTRACK_LAST_ACK, nl.TCP_CONNTRACK_TIME_WAIT:
-			out.Handshake = true
+			out.Done++
 		}
 	}
 	return out, true

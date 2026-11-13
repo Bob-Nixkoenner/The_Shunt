@@ -404,12 +404,14 @@ the service: nothing is delayed, answered, cut or proxied.
 | nothing | a web client with 6 connections in 10 s (the browser limit per host); Syncthing-like long-running traffic; R01 (a port scan touches each port once or a few times); the Q runs (normal traffic of the test client) | unit tests `TestBruteServiceControls`, `TestBruteServiceLabR02` |
 
   Detail: `service=<program> conns=<n> short=<n> open=<n> window=60s handshake=yes|no|unknown`, plus
-  `block=waits_for_handshake` when blocking is on and no handshake was seen. One finding per pair and window;
+  `block=waits_for_handshake` when blocking is on and fewer than 10 handshakes were seen. One finding per pair and window;
   a medium finding can be followed by one high finding in the same window.
 - **Blocking:** only when blocking of login attempts (`brute`, Block; in unsafe networks automatic) is on
-  **and** the connection table shows a finished handshake of that source with the port (conntrack states
-  ESTABLISHED, FIN_WAIT, CLOSE_WAIT, LAST_ACK or TIME_WAIT; TIME_WAIT stays 120 s). Bare SYNs (SYN_RECV,
-  or CLOSE after a reset) are reported but **never block**; without a readable table (`handshake=unknown`)
+  **and** the connection table shows at least `SvcBruteConns` = 10 connections of that source with the port
+  that finished a handshake (conntrack states ESTABLISHED, FIN_WAIT, CLOSE_WAIT, LAST_ACK or TIME_WAIT;
+  TIME_WAIT stays 120 s). One is not enough: a forger on the network could otherwise send SYNs in the name
+  of a device that holds one real connection (a phone with Syncthing or SSH open) and get it blocked
+  (`handshake=no` then). Bare SYNs (SYN_RECV, or CLOSE after a reset) are reported but **never block**; without a readable table (`handshake=unknown`)
   nothing is blocked either. A handshake seen here also confirms the source for blocks that waited for one
   (see "Ban spoofing").
 - **Never counted:** ignored devices (`defense.ignore`) at every trust step (full, **known**, **test**: they are
