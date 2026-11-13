@@ -283,6 +283,13 @@ source is blocked at once when blocking of login attempts (`brute`, Block) is on
 it is on by itself. No handshake wait: the source has finished one. Ignored devices (`defense.ignore`)
 cause no `bait` event and no block. The comparison is constant-time.
 
+A source on the ignore list as **known** or **test** (trust steps, see below) that uses the lock
+credentials gets a `bait` event that is **shown only**: tagged `trust` in the event list, no
+evidence-log entry, **never blocked**, also with blocking on and in unsafe networks. Decision of the
+owner (2026-11-13): the user vouched for that device, for example an own scanner run against the
+decoys; a device that should be blocked again must be taken off the list. The same holds for
+`automated_chain`. Test: `TestTrustedSourceBaitAndChainShownNeverBlocked`.
+
 ### Tool marks (`tool=`)
 
 The decoys read what a visitor sends anyway and name the program when it is a known scripted tool
@@ -295,11 +302,17 @@ The decoys read what a visitor sends anyway and name the program when it is a kn
 | SSH decoy | client version | `nmap`, `python_paramiko`, `python_asyncssh`, `libssh` (hydra, medusa), `go_ssh`, `zgrab` |
 | other decoy ports (no tarpit) | first bytes: nmap's SIP or 404 probe, or an HTTP request with such a User-Agent | as above; event `decoy_hit` low, detail `probe tool=<name>` |
 
-A normal browser, OpenSSH or PuTTY gives no mark. An event with a mark adds 6 extra heat points
-(times the class factor), so a scripted visitor raises the gauge and its alarms sooner. **A mark is
+A normal browser, OpenSSH or PuTTY gives no mark. An event with a mark adds 6 extra points to the
+alert level (`heat` in the code; times the class factor), so a scripted visitor raises the gauge and its
+alarms sooner. A mark of a test source adds nothing, one of a known source counts half like the rest
+of its events. **A mark is
 never a reason to block on its own**: the agent can change it in a second, and curl or a headless
 browser are used by honest people too. The `probe` event is not fed to the scan detector (the
 connection was already counted once).
+
+In the Defense tab (`defDetail` in `internal/ui/static/defense.js`) the mark follows the event sentence
+as "Tool: <name>" (a bare probe reads "Sent a probe of the tool ..."), with a hint that it never blocks;
+`bait` reads "Bait credentials used" and `automated_chain` "Automated attack" (Android: `Defense.text`).
 
 ### Tempo: automated attack chains (`automated_chain`)
 
@@ -317,7 +330,8 @@ R01 alone (no login) and R02 alone (logins, but only two ports, no scan finding)
 test `TestAutomatedChain` holds both as controls. One finding per chain; half-done chains are forgotten
 after 20 s and on a network change (at most 4096 sources followed). The source is blocked when blocking
 of login attempts (`brute`, Block) is on, at once (it finished a handshake). Ignored devices
-(`defense.ignore`) never start or finish a chain (the check sees only events that passed the list), and
+(`defense.ignore`) never start or finish a chain (the check sees only events that passed the list); a
+known or test source can finish one, which is then shown only and never blocked (see the bait section), and
 replies to this machine's own connections never make a scan finding (see below), so they cannot
 start one. Limit: a person with a script (scan, then `sshpass`) is a chain as well - which is what it is.
 

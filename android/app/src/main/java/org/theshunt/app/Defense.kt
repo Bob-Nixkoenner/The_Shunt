@@ -122,6 +122,8 @@ object Defense {
             "beacon" -> T("{app} connects to {dst} at regular intervals ({interval}).", "app" to (f["app"] ?: "?"), "dst" to dst, "interval" to (f["interval"] ?: "?"))
             "dns_tunnel" -> T("Unusual DNS queries for {domain} (possible DNS tunnel).", "domain" to (f["domain"] ?: "?"))
             "net_enter" -> T("Network joined, class {class}.", "class" to T(classLabel(migrate(f["class"] ?: "unknown"))))
+            "bait" -> T("Bait credentials used") + (if (dst.isNotEmpty()) " $dst" else "")
+            "automated_chain" -> T("Automated attack") + (if (dst.isNotEmpty()) " $dst" else "")
             else -> ev.kind
         }
     }

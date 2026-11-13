@@ -36,6 +36,7 @@ const defClassText = () => ({ unknown: T("Unclear network"), unsafe: T("Unsafe n
 const defClassId = (c) => ({ public: "unknown", trusted: "safe", managed: "safe" })[c] || (["unknown", "unsafe", "safe"].includes(c) ? c : "unknown");
 const defKindText = () => ({
   decoy_hit: T("Decoy port hit"), tarpit: T("Held in the tarpit"), cowrie: T("Login attempt on fake service"),
+  bait: T("Bait credentials used"), automated_chain: T("Automated attack"),
   scan: T("Port scan"), brute_force: T("Brute force"), reputation: T("Known bad address"), first_seen: T("New destination"),
   arp: T("ARP/NDP spoofing"), rogue_dhcp: T("Second DHCP server"), dns_hijack: T("DNS answers differ"), tls: T("Certificate changed"),
   beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"),
@@ -145,9 +146,24 @@ function defApp(a) {
   return g === "login-session" ? T("A program of the login session") : T("A program of the group {g}", { g });
 }
 
+// defTool is the tool mark of a decoy visitor (" tool=<name>" in the detail), "" when none.
+function defTool(e) {
+  const m = /(?:^| )tool=(\S+)/.exec(e.detail || "");
+  return m ? m[1] : "";
+}
+
 // defDetail turns the machine detail of the connection-based findings into a
 // sentence (the service writes "key=value" pairs in English); anything else is shown as it is.
+// A tool mark is cut off first and named after the sentence.
 function defDetail(e) {
+  const tool = defTool(e);
+  if (!tool) return defDetailText(e);
+  const rest = (e.detail || "").replace(/(?:^| )tool=\S+/, "").trim();
+  if (e.kind === "decoy_hit" && rest === "probe") return T("Sent a probe of the tool {tool} to a decoy port", { tool });
+  return (rest ? defDetailText(Object.assign({}, e, { detail: rest })) + " · " : "") + T("Tool: {tool}", { tool });
+}
+
+function defDetailText(e) {
   const d = e.detail || "";
   const kv = {};
   d.split(" ").forEach((x) => { const i = x.indexOf("="); if (i > 0) kv[x.slice(0, i)] = x.slice(i + 1); });
@@ -186,6 +202,12 @@ function defDetail(e) {
     if (d.startsWith("default route")) return T("A new network interface ({how}) got the default route", { how });
     return T("A new network interface appeared ({how}); the USB hint is a guess from system files", { how });
   }
+  if (e.kind === "bait" && d.startsWith("bait used")) {
+    return T("Someone used the lock credentials from a bait file at a fake login ({via}). Proof of an attack: blocked at once when blocking of login attempts is on.", { via: kv.via || "?" });
+  }
+  if (e.kind === "automated_chain" && kv.scan_to_login) {
+    return T("Scan, connection and login try within {s} s: machine speed ({via}).", { s: parseFloat(kv.scan_to_login) || kv.scan_to_login, via: kv.via || "?" });
+  }
   if (kv.more && !kv.app && e.kind !== "outside") return T("{n} more of the same kind in a short time (folded into one line)", { n: kv.more });
   if (e.kind === "exposed" && kv.inbound) return defExposedText(kv.inbound, (kv.public || "").split(","));
   if (e.kind === "outside") return defOutsideText(d);
@@ -212,6 +234,9 @@ function defDetail(e) {
     case "cowrie":
       if ((m = /^telnet login user=(\S*) len=(\d+) h=\w+$/.exec(d))) return T("Tried to log in on the fake telnet service as {user} (password of {n} characters)", { user: m[1], n: m[2] });
       if ((m = /^ssh client (.*)$/.exec(d))) return T("Connected to the fake SSH service, client: {client}", { client: m[1] });
+      if ((m = /^http login user=(\S*) len=(\d+) h=\w+$/.exec(d))) return T("Tried to log in on the fake web login as {user} (password of {n} characters)", { user: m[1], n: m[2] });
+      if ((m = /^http \S+ path=(\S+) bait=served$/.exec(d))) return T("Fetched the bait file {path}", { path: m[1] });
+      if ((m = /^http \S+ path=(\S+)$/.exec(d))) return T("Asked the fake web server for {path}", { path: m[1] });
       break;
     case "scan":
       if ((m = /^mode=many_ports .*: (\d+)/.exec(d))) return T("Probed {n} different ports in a short time", { n: m[1] });
@@ -299,7 +324,7 @@ function defEventRow(e, compact) {
     el("span", { class: "x" }, el("b", {}, kind), e.trust ? el("span", { class: "muted" }, " (" + (e.trust === "test" ? T("test") : T("known")) + ")") : "",
       e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), defNameTag(e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
         : where ? el("span", { class: "mono" }, " " + where) : "",
-      e.detail && !compact ? el("div", { class: "muted" }, defDetail(e)) : ""));
+      e.detail && !compact ? el("div", defTool(e) ? { class: "muted", title: T("The visitor names a scripted tool ({tool}). Raises the alert level, never blocks on its own.", { tool: defTool(e) }) } : { class: "muted" }, defDetail(e)) : ""));
 }
 
 function renderDefense() {
