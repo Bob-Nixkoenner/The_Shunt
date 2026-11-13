@@ -14,6 +14,8 @@ function SetVia($line) {
   & C:\Windows\System32\curl.exe -s -m 10 --unix-socket C:\ProgramData\Shunt\shuntd.sock -X POST http://shuntd/v1/reload | Out-Null
   if ($LASTEXITCODE -ne 0) { "FAIL reload ueber die API ging nicht" }
   Start-Sleep 4
+  # a tunnel change restarts the service (about 10 s); the next reload needs the API again (h10: round 1 hit the gap, rc=7)
+  foreach ($w in 1..20) { & C:\Windows\System32\curl.exe -s -m 3 --unix-socket C:\ProgramData\Shunt\shuntd.sock http://shuntd/v1/status | Out-Null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 2 }
 }
 Start-Sleep 6; if (-not (HopOk)) { "FAIL Ausgangszustand: Hop traegt nicht" }
 if (-not (Select-String -Quiet -Pattern "^via = " C:\ProgramData\Shunt\shunt.toml)) { "FAIL Testaufbau: via fehlt in der Config" }
