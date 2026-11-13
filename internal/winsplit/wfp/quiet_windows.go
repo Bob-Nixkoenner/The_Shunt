@@ -87,7 +87,8 @@ func EnableQuiet() error {
 	}
 	defer fwpmEngineClose0(session)
 	return runTransaction(session, func(session uintptr) error {
-		removeQuiet(session)
+		gen := swapGen(session, quBootBase, quMaxFilters) // see genKey
+		removeQuietPersistent(session)
 		dd, err := createWtFwpmDisplayData0("The Shunt quiet mode", "No discovery traffic out of the network")
 		if err != nil {
 			return wrapErr(err)
@@ -121,7 +122,7 @@ func EnableQuiet() error {
 			// drops above the kill switch's LAN/DHCP permits (QuietWeight)
 			k, flags, sub, pk := quBase, cFWPM_FILTER_FLAG_PERSISTENT, quSublayer, &prov
 			if qf.Boot {
-				k, flags, sub, pk = quBootBase, cFWPM_FILTER_FLAG_BOOTTIME, windows.GUID{}, nil
+				k, flags, sub, pk = genKey(quBootBase, gen, 0), cFWPM_FILTER_FLAG_BOOTTIME, windows.GUID{}, nil
 			}
 			k.Data1 += qf.Index
 			f := wtFwpmFilter0{
@@ -148,11 +149,13 @@ func EnableQuiet() error {
 }
 
 func removeQuiet(session uintptr) {
+	swapGen(session, quBootBase, quMaxFilters)
+	removeQuietPersistent(session)
+}
+
+func removeQuietPersistent(session uintptr) {
 	for i := uint32(0); i < quMaxFilters; i++ {
 		k := quBase
-		k.Data1 += i
-		_ = fwpmFilterDeleteByKey0(session, &k)
-		k = quBootBase
 		k.Data1 += i
 		_ = fwpmFilterDeleteByKey0(session, &k)
 	}
