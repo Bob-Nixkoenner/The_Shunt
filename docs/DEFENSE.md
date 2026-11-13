@@ -11,7 +11,8 @@ network without a profile, counts as `unknown`: that is what a network you join 
 window shows the class on the Defense tab (next to the alert-level gauge, with a list to change it for the network you
 are in: the choice is stored in the [[network]] profile of this network, which is made when there is none)
 and per profile under Configure, Networks ("network class"). Android stores the class per kind of network
-(Wi-Fi, mobile).
+(Wi-Fi, mobile) and, in Max Security, per known Wi-Fi (Apps tab, *Known Wi-Fi networks*; only a hash of the
+name is kept, reading the name needs the optional location permission; any other Wi-Fi takes the Wi-Fi row).
 
 | | Unknown (default) | Unsafe | Safe |
 |---|---|---|---|

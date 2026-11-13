@@ -45,4 +45,47 @@ class DefenseTest {
         assertEquals("org.example.app", f["app"])
         assertEquals("feodo", f["list"])
     }
+
+    @Test
+    fun wifiIdIsAHashOfTheName() {
+        val id = Defense.wifiId("ExampleNet")
+        assertTrue(Defense.isWifiId(id))
+        assertTrue(!id.contains("Example"))
+        assertEquals(id, Defense.wifiId("ExampleNet"))
+        assertNotEquals(id, Defense.wifiId("OtherNet"))
+        assertEquals("wifi:$id", Defense.wifiKey("ExampleNet"))
+    }
+
+    @Test
+    fun classPerWifiFallsBackToTheWifiRow() {
+        // old settings: the "wifi" class stays and is the default for every Wi-Fi
+        val old = Settings(netClasses = mapOf("wifi" to "trusted"))
+        assertEquals("safe", Defense.classFor(old, "wifi", "ExampleNet"))
+        val s = old.copy(netClasses = old.netClasses + (Defense.wifiKey("ExampleNet") to "unsafe"))
+        assertEquals("unsafe", Defense.classFor(s, "wifi", "ExampleNet"))
+        assertEquals("safe", Defense.classFor(s, "wifi", "OtherNet")) // not rated: the Wi-Fi row
+        assertEquals("safe", Defense.classFor(s, "wifi")) // name not known (no permission)
+        assertEquals("unknown", Defense.classFor(Settings(), "wifi", "ExampleNet")) // nothing rated: unclear
+        assertEquals("unknown", Defense.classFor(s, "mobile", "ExampleNet")) // a name only counts on Wi-Fi
+        assertEquals(listOf(Defense.wifiId("ExampleNet")), Defense.knownWifis(s))
+    }
+
+    @Test
+    fun wifiProfileKeepsOnlyTheIdAndComesFirst() {
+        val id = Defense.wifiId("ExampleNet")
+        val s = Settings(networks = listOf(NetProfile("wifi", "direct"), NetProfile("wifi", "block", id)))
+        val j = s.toJson().getJSONArray("networks")
+        assertEquals(id, j.getJSONObject(0).getJSONArray("ssid").getString(0)) // one Wi-Fi before all Wi-Fi
+        assertTrue(!j.toString().contains("ExampleNet"))
+        assertEquals(s.networks.toSet(), (0 until j.length()).map { NetProfile.fromJson(j.getJSONObject(it)) }.toSet())
+        assertEquals(listOf(id), Defense.knownWifis(s))
+    }
+
+    @Test
+    fun wifiListFromProOnSimpleStaysDefault() {
+        assertEquals(Level.Simple, Settings().level)
+        assertTrue(!Levels.shows("wifi.list", Level.Simple))
+        assertTrue(Levels.shows("wifi.list", Level.Pro))
+        assertTrue(Levels.shows("wifi.list", Level.Opsec))
+    }
 }

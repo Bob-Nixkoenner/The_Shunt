@@ -88,12 +88,21 @@ data class Tunnel(
  * (by package name). Kept as JSON in the app's private files.
  * Routes are named as in shunt.toml: "direct", "block", "tunnel:<name>".
  */
-/** A network profile: on this kind of network (wifi | mobile) apps without a rule take [route]. */
-data class NetProfile(val link: String, val route: String) {
-    fun toJson(): JSONObject = JSONObject().put("name", link).put("link", link).put("default", route)
+/**
+ * A network profile: on this kind of network (wifi | mobile) apps without a rule take [route].
+ * [wifi] set: only on the one Wi-Fi with this id (Defense.wifiId, a hash of its name, never the
+ * name); the core gets the id as the network's "ssid" and compares it with what the app passes.
+ */
+data class NetProfile(val link: String, val route: String, val wifi: String = "") {
+    fun toJson(): JSONObject = JSONObject().put("name", if (wifi.isEmpty()) link else "wifi-$wifi").put("link", link).put("default", route)
+        .apply { if (wifi.isNotEmpty()) put("ssid", JSONArray(listOf(wifi))) }
 
     companion object {
         val LINKS = listOf("wifi", "mobile")
+
+        /** Reads one profile as written by [toJson]; a "ssid" that is no Wi-Fi id is dropped. */
+        fun fromJson(o: JSONObject) = NetProfile(o.getString("link"), o.optString("default", "block"),
+            o.optJSONArray("ssid")?.optString(0).orEmpty().takeIf { Defense.isWifiId(it) }.orEmpty())
     }
 }
 
@@ -174,7 +183,8 @@ data class Settings(
         put("on_demand", onDemand)
         put("dns_servers", JSONArray(dnsServers))
         put("ignore_tunnel_dns", ignoreTunnelDns)
-        put("networks", JSONArray(networks.map { it.toJson() }))
+        // one Wi-Fi's profile before the one for all Wi-Fi networks (the core takes the first that fits)
+        put("networks", JSONArray(networks.sortedBy { it.wifi.isEmpty() }.map { it.toJson() }))
         put("tor_all", torAll)
         put("level", level.key)
         // older versions read "pro" (Normal/Pro): going back keeps the choice
@@ -288,7 +298,7 @@ data class Settings(
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
-                        .map { NetProfile(it.getString("link"), it.optString("default", "block")) }
+                        .map { NetProfile.fromJson(it) }
                 } ?: emptyList(),
             )
         }

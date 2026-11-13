@@ -176,6 +176,7 @@ class ShuntVpnService : VpnService() {
         private var applied: Network? = null
         private var appliedAddrs: Set<String> = emptySet()
         private var appliedLink: String? = null
+        private var appliedWifiKey = ""
         /** The network the system uses now (we are not in our own VPN, so it is a real one). */
         private fun active(): Network? = cm.activeNetwork?.takeIf {
             cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != true
@@ -191,8 +192,16 @@ class ShuntVpnService : VpnService() {
             VpnState.privateDns.value = n?.let { cm.getLinkProperties(it) }?.isPrivateDnsActive == true
             // the kind of network for link:wifi / link:mobile routes (and network profiles)
             val link = linkOf(n?.let { cm.getNetworkCapabilities(it) })
-            if (link != appliedLink) {
-                VpnState.engine?.let { it.setNetwork(link, ""); appliedLink = link; VpnState.link = link; Defense.network(it, Store.load(this@ShuntVpnService), link) }
+            // the Wi-Fi name only as a hash and only in Max Security (Defense.ssidFor): a change between two Wi-Fis re-rates too
+            val st = if (link == "wifi" || link != appliedLink) Store.load(this@ShuntVpnService) else null
+            val wifiId = st?.let { Defense.ssidFor(this@ShuntVpnService, it, link) }?.takeIf { it.isNotEmpty() }?.let { Defense.wifiId(it) }.orEmpty()
+            if (link != appliedLink || wifiId != appliedWifiKey) {
+                VpnState.engine?.let {
+                    // the core gets the id, never the name (Wi-Fi profiles hold ids)
+                    it.setNetwork(link, wifiId)
+                    appliedLink = link; appliedWifiKey = wifiId; VpnState.link = link
+                    Defense.network(this@ShuntVpnService, it, st ?: Store.load(this@ShuntVpnService), link)
+                }
             }
             notifyStatus()
         }

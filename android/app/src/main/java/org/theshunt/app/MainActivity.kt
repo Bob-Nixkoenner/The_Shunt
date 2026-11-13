@@ -847,17 +847,18 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
             }
             // network profiles: another default on Wi-Fi or on mobile data
             for ((link, label) in listOf("wifi" to "… on Wi-Fi", "mobile" to "… on mobile data")) {
-                val p = settings.networks.find { it.link == link }
+                val p = settings.networks.find { it.link == link && it.wifi.isEmpty() }
                 // Simple hides the network profiles, but shows one while it is set
                 if (p == null && !settings.shows("apps.netprofiles")) continue
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(T(label), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
                     RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
-                        val rest = settings.networks.filter { it.link != link }
+                        val rest = settings.networks.filter { it.link != link || it.wifi.isNotEmpty() }
                         update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile(link, r)))
                     }
                 }
             }
+            if (settings.shows("wifi.list")) KnownWifiSection(settings, update)
             OutlinedTextField(
                 query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(T("filter…")) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = c.panel2, focusedContainerColor = c.panel2, unfocusedBorderColor = c.line),
@@ -1264,4 +1265,55 @@ private fun checkTunnel(t: Tunnel): List<Pair<Tone, String>> {
         if (n("endpoints") == 0) out += Tone.Bad to T("The file has no endpoint (server address).")
     }
     return out
+}
+
+/**
+ * Pro and Max Security: Wi-Fi networks with their own settings, kept only as a hash of the
+ * name (Defense.wifiId). Pro: own default route; Max Security also the defense class.
+ * Reading the name needs the location permission: asked only when the user taps
+ * "Set up this Wi-Fi"; declined = every Wi-Fi takes the Wi-Fi row as before.
+ */
+@Composable
+private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
+    val c = LocalShunt.current
+    val ctx = LocalContext.current
+    var granted by remember { mutableStateOf(Defense.canReadSsid(ctx)) }
+    var asked by remember { mutableStateOf(false) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
+    val ssid = remember(granted, VpnState.link) { if (granted) Defense.currentSsid(ctx) else "" }
+    val here = if (ssid.isNotEmpty()) Defense.wifiId(ssid) else ""
+    val classes = settings.shows("defense.ui")
+    Text(T("Known Wi-Fi networks"), color = c.text, fontWeight = FontWeight.SemiBold)
+    Hint("A Wi-Fi set up here keeps its own settings; every other Wi-Fi takes the Wi-Fi row above. Only a fingerprint of the name is saved, never the name.")
+    when {
+        !granted -> {
+            Hint("To tell Wi-Fi networks apart Android needs the location permission (only to read the Wi-Fi name; The Shunt uses no location).")
+            ButtonRow { m -> ShuntButton("Set up this Wi-Fi", { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }, modifier = m) }
+            if (asked) Hint("Not allowed: all Wi-Fi networks take the Wi-Fi row.")
+        }
+        here.isEmpty() -> Hint("Not connected to a Wi-Fi (or location is switched off).")
+        here !in Defense.knownWifis(settings) -> ButtonRow { m ->
+            ShuntButton("Set up this Wi-Fi", { update(settings.copy(networks = settings.networks + NetProfile("wifi", settings.networks.find { it.link == "wifi" && it.wifi.isEmpty() }?.route ?: settings.defaultRoute, here))) }, modifier = m)
+        }
+    }
+    for (id in Defense.knownWifis(settings)) {
+        val p = settings.networks.find { it.wifi == id }
+        Text(T("Wi-Fi") + " " + id.take(4) + (if (id == here) " · " + T("this one") else ""), color = c.text)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(T("All other apps"), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
+            RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
+                val rest = settings.networks.filter { it.wifi != id }
+                update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile("wifi", r, id)))
+            }
+        }
+        if (classes) ButtonRow { m ->
+            for (k in Defense.CLASSES) ShuntButton(
+                Defense.classLabel(k),
+                { update(settings.copy(netClasses = settings.netClasses + ("wifi:$id" to k))) },
+                kind = if (settings.netClasses["wifi:$id"]?.let { Defense.migrate(it) } == k) Tone.Ok else Tone.Neutral,
+                modifier = m,
+            )
+        }
+        ButtonRow { m -> ShuntButton("Delete", { update(settings.copy(networks = settings.networks.filter { it.wifi != id }, netClasses = settings.netClasses - "wifi:$id")) }, modifier = m) }
+    }
 }

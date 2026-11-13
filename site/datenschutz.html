@@ -18,7 +18,7 @@
 <h2>Auf dem Gerät gespeicherte Daten</h2>
 <ul>
 <li>Tunnel-Konfigurationen, private Schlüssel und Pre-Shared-Keys, die du hinzufügst.</li>
-<li>Regeln und App-Auswahl.</li>
+<li>Regeln und App-Auswahl sowie Einstellungen pro WLAN: nur ein Fingerabdruck (Hash) des WLAN-Namens, nie der Name.</li>
 <li>Zähler: übertragene Bytes pro Tunnel und Anzahl blockierter DNS-Anfragen, in einer lokalen Datei für das Verlaufsdiagramm. Eine Liste besuchter Seiten wird nicht geführt.</li>
 </ul>
 <p>Nichts davon verlässt das Gerät, außer du exportierst es selbst. Beim Deinstallieren wird alles gelöscht.</p>
@@ -30,6 +30,7 @@
 <tr><td>Vordergrunddienst</td><td>Damit der Tunnel läuft, auch wenn die App geschlossen ist. Wird als Benachrichtigung angezeigt.</td></tr>
 <tr><td>Benachrichtigungen</td><td>Tunnelstatus und Warnungen.</td></tr>
 <tr><td>Installierte Apps sehen (<code>QUERY_ALL_PACKAGES</code>)</td><td>Um deine Apps aufzulisten, damit du wählen kannst, welche welchen Tunnel nutzt. Die Liste wird nur auf dem Gerät verwendet und nirgends hin gesendet.</td></tr>
+<tr><td>Genauer Standort (<code>ACCESS_FINE_LOCATION</code>), optional</td><td>Android gibt den Namen des aktuellen WLANs nur mit dieser Berechtigung heraus. Sie wird erst erfragt, wenn du auf „Dieses WLAN einstellen“ tippst (Stufen Pro und Max. Sicherheit), um einem WLAN eigene Einstellungen zu geben. Die App macht aus dem Namen sofort einen kurzen Fingerabdruck (Hash) und behält nur diesen; deinen Standort liest, speichert und sendet sie nie. Ohne die Berechtigung nutzt jedes WLAN die gemeinsame WLAN-Einstellung.</td></tr>
 <tr><td>Kamera</td><td>Nur zum Scannen eines QR-Codes mit einer Tunnel-Konfiguration. Es wird kein Bild gespeichert oder gesendet.</td></tr>
 <tr><td>Netzwerkstatus</td><td>Um auf WLAN- und Mobilfunk-Wechsel zu reagieren.</td></tr>
 </table>

@@ -50,6 +50,8 @@ object Levels {
         // apps: Simple keeps the route per app and "All other apps"; the
         // per-network defaults (network profiles) are Pro (shown while set)
         "apps.netprofiles" to PRO,
+        // known Wi-Fi networks (only a hash of the name) with their own default route; Opsec adds the class per Wi-Fi
+        "wifi.list" to PRO,
         // DNS servers asked after the tunnel's own
         "dns.servers" to PRO,
         // security check: Simple shows only what is really bad

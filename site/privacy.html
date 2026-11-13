@@ -18,7 +18,7 @@
 <h2>Data stored on your device</h2>
 <ul>
 <li>Tunnel configurations, private keys and pre-shared keys that you add.</li>
-<li>Rules and app selections.</li>
+<li>Rules and app selections, and per Wi-Fi settings: only a fingerprint (hash) of the Wi-Fi name, never the name.</li>
 <li>Counters: transferred bytes per tunnel and number of blocked DNS requests, kept in a local file for the history chart. No list of visited sites is kept.</li>
 </ul>
 <p>Nothing of this leaves the device unless you export it yourself. Uninstalling the app deletes it.</p>
@@ -30,6 +30,7 @@
 <tr><td>Foreground service</td><td>To keep the tunnel running while the app is closed. Shown as a notification.</td></tr>
 <tr><td>Notifications</td><td>Status of the tunnel and warnings.</td></tr>
 <tr><td>See installed apps (<code>QUERY_ALL_PACKAGES</code>)</td><td>To list your apps so you can choose which of them use which tunnel. The list is used on the device only and is never sent anywhere.</td></tr>
+<tr><td>Precise location (<code>ACCESS_FINE_LOCATION</code>), optional</td><td>Android gives the name of the current Wi-Fi only with this permission. It is asked only when you tap "Set up this Wi-Fi" (levels Pro and Max Security), to give one Wi-Fi its own settings. The app turns the name into a short fingerprint (hash) at once and keeps only that; it never reads, stores or sends your location. Without the permission every Wi-Fi uses the common Wi-Fi setting.</td></tr>
 <tr><td>Camera</td><td>Only to scan a QR code with a tunnel configuration. No picture is saved or sent.</td></tr>
 <tr><td>Network state</td><td>To react to Wi-Fi and mobile network changes.</td></tr>
 </table>

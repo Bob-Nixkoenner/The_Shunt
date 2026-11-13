@@ -1,6 +1,9 @@
 package org.theshunt.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -36,12 +39,50 @@ object Defense {
 
     fun dir(ctx: Context) = File(ctx.filesDir, "defense")
 
-    /** The class of the network kind ("wifi", "mobile", ...); not rated = unknown. */
-    fun classFor(s: Settings, link: String): String = s.netClasses[link]?.let { migrate(it) }?.takeIf { it in CLASSES } ?: "unknown"
+    /**
+     * The class of the network: a Wi-Fi rated on its own (key [wifiKey], a hash of its
+     * name) has its own class; any other Wi-Fi takes the "wifi" row (the default for new
+     * Wi-Fi networks); other kinds ("mobile", ...) their row. Not rated = unknown.
+     */
+    fun classFor(s: Settings, link: String, ssid: String = ""): String {
+        val own = if (link == "wifi" && ssid.isNotEmpty()) s.netClasses[wifiKey(ssid)] else null
+        return (own ?: s.netClasses[link])?.let { migrate(it) }?.takeIf { it in CLASSES } ?: "unknown"
+    }
+
+    /** The id of one Wi-Fi: a hash of its name (12 hex digits), never the name. */
+    fun wifiId(ssid: String) = netKey("wifi", ssid)
+
+    fun isWifiId(s: String) = s.length == 12 && s.all { it in '0'..'9' || it in 'a'..'f' }
+
+    /** The netClasses key of one rated Wi-Fi: "wifi:" and its id. */
+    fun wifiKey(ssid: String) = "wifi:" + wifiId(ssid)
+
+    /** The ids of the Wi-Fi networks with their own settings (class or route), in a fixed order. */
+    fun knownWifis(s: Settings): List<String> =
+        (s.netClasses.keys.filter { it.startsWith("wifi:") }.map { it.removePrefix("wifi:") } + s.networks.map { it.wifi })
+            .filter { isWifiId(it) }.distinct().sorted()
+
+    /** Whether the app may read the Wi-Fi name (Android ties it to the location permission). */
+    fun canReadSsid(ctx: Context) = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * The name of the current Wi-Fi, only with the permission granted (else ""). Used
+     * for the hash at once, never stored or logged.
+     */
+    fun currentSsid(ctx: Context): String {
+        if (!canReadSsid(ctx)) return ""
+        val wm = ctx.applicationContext.getSystemService(WifiManager::class.java) ?: return ""
+        @Suppress("DEPRECATION") val raw = runCatching { wm.connectionInfo?.ssid }.getOrNull() ?: return ""
+        return raw.removeSurrounding("\"").takeIf { it.isNotEmpty() && it != "<unknown ssid>" } ?: ""
+    }
+
+    /** The current Wi-Fi name: only from Pro on (the levels with the Wi-Fi list) and with the permission, else "". */
+    fun ssidFor(ctx: Context, s: Settings, link: String) =
+        if (link == "wifi" && s.shows("wifi.list")) currentSsid(ctx) else ""
 
     /**
      * The key the core keeps per network, only in memory: a hash of the kind of
-     * network (or of a Wi-Fi name, should one ever be passed). Never the name itself.
+     * network and, for a Wi-Fi in Max Security with the permission, its name. Never the name itself.
      */
     fun netKey(link: String, ssid: String = ""): String =
         MessageDigest.getInstance("SHA-256").digest("$link/$ssid".toByteArray()).take(6).joinToString("") { "%02x".format(it) }
@@ -51,11 +92,12 @@ object Defense {
 
     fun apply(ctx: Context, e: Engine, s: Settings) {
         runCatching { e.defenseConfig(configJson(s)) }.onFailure { Log.w("Shunt", "defense config: ${it.message}") }
-        network(e, s, VpnState.link)
+        network(ctx, e, s, VpnState.link)
     }
 
-    fun network(e: Engine, s: Settings, link: String) {
-        runCatching { e.defenseNetwork(netKey(link), classFor(s, link)) }
+    fun network(ctx: Context, e: Engine, s: Settings, link: String) {
+        val ssid = ssidFor(ctx, s, link)
+        runCatching { e.defenseNetwork(netKey(link, ssid), classFor(s, link, ssid)) }
     }
 
     /**
