@@ -438,6 +438,10 @@ Lists can be pasted as a whole block in the UI (one URL per line, like a Pi-hole
 export or the copy block of a list page). Understood formats: hosts files, plain domain
 lists and AdGuard syntax (`||name^`), so **AdGuard Home lists work too**. `allow_lists`
 works the other way round: a name on such a list is never blocked (`@@||name^` is read too).
+Size limits: a downloaded list may have up to 128 MiB (a bigger one is refused, the last good copy
+stays), a local file (`file:`) up to 256 MiB; a bigger local file is read up to the last full line
+below that, with a warning in the log and "truncated" next to the list. In memory a list takes about
+8 bytes per name.
 
 ### Where the lists come from, and what is on by default
 

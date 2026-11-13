@@ -1,6 +1,7 @@
 package blocklist
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,11 +21,22 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 )
 
-// Download limits and timing.
+// Size limits and timing. A list takes about 8 bytes per name in memory
+// (sorted hashes, list.go), so the limits guard the disk and the parse time
+// more than the memory:
+//   - MaxDownload: the biggest public lists in use are hosts files of about
+//     50-60 MB (1.8 million names with "0.0.0.0 " in front); twice that is
+//     room to grow. A bigger download is refused with an error (the list
+//     keeps its last good copy), it is never cut.
+//   - MaxLocal: a local file the user put there on purpose; 256 MiB are
+//     about 9 million names, about 70 MB in memory. A bigger file is read up
+//     to the last full line below the limit and reported loudly (log
+//     warning, "truncated" in the status); names after the cut are missing.
 const (
-	MaxSize    = 64 << 20 // per list
-	RefreshAge = 24 * time.Hour
-	RetryAfter = 10 * time.Minute
+	MaxDownload = 128 << 20
+	MaxLocal    = 256 << 20
+	RefreshAge  = 24 * time.Hour
+	RetryAfter  = 10 * time.Minute
 )
 
 // Status describes one list for the UI.
@@ -35,6 +47,8 @@ type Status struct {
 	Entries int       `json:"entries"`
 	Updated time.Time `json:"updated,omitzero"`
 	Error   string    `json:"error,omitempty"`
+	// Truncated: a local list was bigger than MaxLocal and read only in part.
+	Truncated string `json:"truncated,omitempty"`
 }
 
 type entry struct {
@@ -44,7 +58,8 @@ type entry struct {
 	updated  time.Time // of the cached file
 	tried    time.Time // last download attempt
 	err      string
-	loading  bool // reading the cache, not due yet
+	trunc    string // a local list read only up to MaxLocal
+	loading  bool   // reading the cache, not due yet
 }
 
 // Manager keeps the lists of the levels in use loaded and fresh. Lists of
@@ -232,7 +247,7 @@ func (m *Manager) loadCache(e *entry) {
 	if err != nil {
 		return
 	}
-	l, err := m.parse(e, io.LimitReader(f, MaxSize))
+	l, err := m.parse(e, io.LimitReader(f, MaxDownload))
 	if err != nil {
 		m.Log.Warn("dns filter: cached list unusable", "list", e.ref, "err", err)
 		return
@@ -259,15 +274,41 @@ func localOpen(e *entry) (*os.File, os.FileInfo, error) {
 	return f, st, nil
 }
 
+// localReader reads a local list up to MaxLocal. A bigger file is cut at the
+// last line end below the limit (a name cut in half would block another
+// name); trunc then says so for the status and the log.
+func localReader(f *os.File, st os.FileInfo) (r io.Reader, trunc string) {
+	if st.Size() <= localLimit {
+		return f, ""
+	}
+	end := localLimit
+	back := min(int64(64<<10), end)
+	buf := make([]byte, back)
+	if n, _ := f.ReadAt(buf, end-back); n > 0 {
+		if i := bytes.LastIndexByte(buf[:n], '\n'); i >= 0 {
+			end = end - back + int64(i) + 1
+		}
+	}
+	return io.NewSectionReader(f, 0, end), fmt.Sprintf("truncated: only the first %d of %d bytes read (limit %d MiB), the names after that are missing",
+		end, st.Size(), localLimit>>20)
+}
+
+// localLimit is MaxLocal (a variable for tests).
+var localLimit int64 = MaxLocal
+
 func (m *Manager) loadLocal(e *entry) {
 	f, st, err := localOpen(e)
 	if err == nil {
 		defer f.Close()
 		var l *List
-		if l, err = m.parse(e, io.LimitReader(f, MaxSize)); err == nil {
+		r, trunc := localReader(f, st)
+		if l, err = m.parse(e, r); err == nil {
 			m.mu.Lock()
-			e.list, e.updated, e.err = l, m.clock(), ""
+			e.list, e.updated, e.err, e.trunc = l, m.clock(), "", trunc
 			m.mu.Unlock()
+			if trunc != "" {
+				m.Log.Warn("dns filter: LOCAL LIST TOO BIG, TRUNCATED", "list", e.ref, "entries", l.Len(), "detail", trunc)
+			}
 			m.Log.Info("dns filter: local list read", "list", e.ref, "entries", l.Len(), "modified", st.ModTime())
 			return
 		}
@@ -286,7 +327,16 @@ func (m *Manager) download(ctx context.Context, e *entry) (*List, string, error)
 			return nil, "", err
 		}
 		defer f.Close()
-		l, err := m.parse(e, io.LimitReader(f, MaxSize))
+		r, trunc := localReader(f, st)
+		l, err := m.parse(e, r)
+		if err == nil {
+			m.mu.Lock()
+			e.trunc = trunc
+			m.mu.Unlock()
+			if trunc != "" {
+				m.Log.Warn("dns filter: LOCAL LIST TOO BIG, TRUNCATED", "list", e.ref, "entries", l.Len(), "detail", trunc)
+			}
+		}
 		return l, st.ModTime().Format(http.TimeFormat), err
 	}
 	path := m.file(e)
@@ -325,9 +375,9 @@ func (m *Manager) download(ctx context.Context, e *entry) (*List, string, error)
 		return nil, "", err
 	}
 	defer os.Remove(tmp.Name())
-	n, err := io.Copy(tmp, io.LimitReader(resp.Body, MaxSize+1))
-	if err == nil && n > MaxSize {
-		err = fmt.Errorf("larger than %d MiB", MaxSize>>20)
+	n, err := io.Copy(tmp, io.LimitReader(resp.Body, MaxDownload+1))
+	if err == nil && n > MaxDownload {
+		err = fmt.Errorf("larger than %d MiB: not used (the last good copy stays)", MaxDownload>>20)
 	}
 	if err == nil {
 		_, err = tmp.Seek(0, io.SeekStart)
@@ -399,7 +449,7 @@ func (m *Manager) Status() []Status {
 	defer m.mu.Unlock()
 	var out []Status
 	for ref, e := range m.entries {
-		s := Status{Name: ref, URL: e.url, Updated: e.updated, Error: e.err}
+		s := Status{Name: ref, URL: e.url, Updated: e.updated, Error: e.err, Truncated: e.trunc}
 		if e.list != nil {
 			s.Entries = e.list.Len()
 		}

@@ -2,6 +2,7 @@ package blocklist
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -206,5 +207,48 @@ func TestLocalList(t *testing.T) {
 	m.refresh(context.Background())
 	if cur.Load().Check("normal", "new.example") == "" || cur.Load().Check("normal", "tracker.example") != "" {
 		t.Fatal("local list not re-read")
+	}
+}
+
+// A local list bigger than the limit is cut at a line end and said loudly
+// (status "truncated"); one at the limit is read whole.
+func TestLocalListTruncatedLoudly(t *testing.T) {
+	old := localLimit
+	t.Cleanup(func() { localLimit = old })
+	dir := t.TempDir()
+	file := filepath.Join(dir, "big.txt")
+	var b strings.Builder
+	for i := 0; b.Len() < 4000; i++ {
+		fmt.Fprintf(&b, "name%04d.example\n", i) // 17 bytes a line
+	}
+	body := b.String()
+	if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Count(body, "\n")
+	run := func(limit int64) (*Filter, Status) {
+		localLimit = limit
+		var cur atomic.Pointer[Filter]
+		m := &Manager{Dir: filepath.Join(dir, "cache"), Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+			OnChange: func(f *Filter) { cur.Store(f) }}
+		m.Configure(config.DNSFilter{Default: "normal", Normal: []string{"file:" + file}}, []string{"normal"})
+		waitLoaded(t, m)
+		return cur.Load(), m.Status()[0]
+	}
+	// at the limit: everything, no note
+	f, st := run(int64(len(body)))
+	if st.Truncated != "" || st.Entries != lines || f.Check("normal", fmt.Sprintf("name%04d.example", lines-1)) == "" {
+		t.Fatalf("whole file: %+v", st)
+	}
+	// 1000 bytes: 58 full lines, the cut line is dropped, not half used
+	f, st = run(1000)
+	if st.Truncated == "" || !strings.Contains(st.Truncated, "truncated") {
+		t.Fatalf("no truncation note: %+v", st)
+	}
+	if st.Entries != 1000/17 {
+		t.Fatalf("entries %d, want %d full lines", st.Entries, 1000/17)
+	}
+	if f.Check("normal", "name0058.example") != "" || f.Check("normal", "name0058.exa") != "" || f.Check("normal", "name0057.example") == "" {
+		t.Fatal("the cut must fall on a line end")
 	}
 }
