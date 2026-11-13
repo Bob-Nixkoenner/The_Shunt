@@ -18,8 +18,9 @@ done
 
 if [[ $1 == tarball ]]; then
 	# non-Debian: tools via dnf/pacman, Shunt = files of the rk .deb unpacked on the host ($2 = tar of the deb data)
-	if command -v dnf >/dev/null; then dnf -y -q install bpftrace bind-utils nmap-ncat curl tcpdump
-	else pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump; fi
+	# tor: the Tor tests (H series) need the tor binary; without it they all report "tor did not come up"
+	if command -v dnf >/dev/null; then dnf -y -q install bpftrace bind-utils nmap-ncat curl tcpdump tor
+	else pacman -S --needed --noconfirm bpftrace bind openbsd-netcat curl tcpdump tor; fi
 	systemctl stop shuntd 2>/dev/null || true
 	tar -C / -xf "$2"
 	# what the .deb's postinst does besides unpacking: the group of the control socket and the config directories
