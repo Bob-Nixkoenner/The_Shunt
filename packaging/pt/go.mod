@@ -1,6 +1,6 @@
 module github.com/Bob-Nixkoenner/the_shunt/packaging/pt
 
-go 1.26.10
+go 1.26.11
 
 tool gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/lyrebird/cmd/lyrebird
 
