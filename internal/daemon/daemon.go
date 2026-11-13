@@ -1421,7 +1421,7 @@ func (d *Daemon) routes() http.Handler {
 		from, to := d.leaveRoute(int(p.pid)), d.groupRoute(g)
 		// a Wi-Fi login page: the tunnels can't connect anyway, and the
 		// login browser (shunt captive) has to go direct
-		portal := d.captive == captive.Portal && to == "direct"
+		portal := portalException(d.captive, req.Group, to)
 		d.mu.Unlock()
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("unknown group %q", req.Group))
@@ -2353,4 +2353,11 @@ func startGuardFinding(err error, appRules bool, fwMode string) (check.Finding, 
 		f.Level = check.Bad
 	}
 	return f, true
+}
+
+// portalException tells whether a move into group needs no authorization
+// because of a Wi-Fi login page: only the login browser's own group, and only
+// while a portal is detected. Any other group still needs manage.
+func portalException(state, group, to string) bool {
+	return state == captive.Portal && group == engine.CaptiveGroup && to == "direct"
 }
