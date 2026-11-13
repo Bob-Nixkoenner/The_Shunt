@@ -31,13 +31,15 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+
+	"github.com/Bob-Nixkoenner/the_shunt/internal/secfile"
 )
 
 // Options for Start.
 type Options struct {
 	Exe    string // the openvpn program (libopenvpn.so in the app's library folder)
 	Config string // .ovpn text, inline only (no file references), already checked
-	Dir    string // private work folder: config file and management socket
+	Dir    string // private work folder: config file (only while openvpn starts) and management socket
 	User   string // for auth-user-pass
 	Pass   string
 	MTU    int // of the netstack; 0 = 1280
@@ -51,6 +53,8 @@ type Options struct {
 type Tunnel struct {
 	o    Options
 	cmd  *exec.Cmd
+	conf string    // the config file: wiped once openvpn has read it
+	wipe sync.Once // of conf
 	ln   *net.UnixListener
 	wmu  sync.Mutex // guards mgmt and writes to it
 	mgmt *net.UnixConn
@@ -90,17 +94,32 @@ func Start(o Options) (*Tunnel, error) {
 	if err := os.MkdirAll(o.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	conf := filepath.Join(o.Dir, "tunnel.ovpn")
-	if err := os.WriteFile(conf, []byte(o.Config), 0o600); err != nil {
+	// The config holds the tunnel's keys in clear: it exists only until
+	// openvpn has read it (openvpn parses the whole file, inline blocks
+	// included, before it connects to the management socket; a soft restart
+	// (SIGUSR1) does not read it again and SIGHUP is never sent).
+	conf := filepath.Join(o.Dir, ConfName)
+	_ = secfile.Wipe(conf) // a rest of a run that crashed
+	f, err := os.OpenFile(conf, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	_, err = f.WriteString(o.Config)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		secfile.Wipe(conf)
 		return nil, err
 	}
 	sock := filepath.Join(o.Dir, "mgmt")
 	os.Remove(sock)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
 	if err != nil {
+		secfile.Wipe(conf)
 		return nil, err
 	}
-	t := &Tunnel{o: o, ln: ln, done: make(chan struct{}), ready: make(chan struct{})}
+	t := &Tunnel{o: o, conf: conf, ln: ln, done: make(chan struct{}), ready: make(chan struct{})}
 	t.cmd = exec.Command(o.Exe,
 		"--config", conf,
 		"--management", sock, "unix", "--management-client",
@@ -113,11 +132,21 @@ func Start(o Options) (*Tunnel, error) {
 	t.cmd.Stderr = t.cmd.Stdout
 	if err := t.cmd.Start(); err != nil {
 		ln.Close()
+		t.dropConf()
 		return nil, fmt.Errorf("start openvpn: %w", err)
 	}
 	go t.copyLog(out)
 	go t.run()
 	return t, nil
+}
+
+// dropConf wipes the config file (once; called when openvpn has read it or ended).
+func (t *Tunnel) dropConf() {
+	t.wipe.Do(func() {
+		if err := secfile.Wipe(t.conf); err != nil {
+			t.o.Logf("openvpn: removing the config file: %v", err)
+		}
+	})
 }
 
 func (t *Tunnel) copyLog(r interface{ Read([]byte) (int, error) }) {
@@ -145,6 +174,7 @@ func (t *Tunnel) run() {
 		t.wmu.Unlock()
 		t.ln.Close()
 		os.Remove(filepath.Join(t.o.Dir, "mgmt"))
+		t.dropConf() // openvpn read it before it connected
 		err := t.serve()
 		t.finish(<-exited, err)
 	case err := <-exited:
@@ -157,6 +187,7 @@ func (t *Tunnel) run() {
 }
 
 func (t *Tunnel) finish(exitErr, err error) {
+	t.dropConf()
 	if err == nil {
 		err = exitErr
 	}

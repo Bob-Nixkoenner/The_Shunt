@@ -1796,6 +1796,8 @@
   "Scan, connection and login try within {s} s: machine speed ({via}).": "Scan, Verbindung und Anmeldeversuch innerhalb von {s} s: Maschinentempo ({via}).",
   "Brute force on a service": "Brute Force auf einen Dienst",
   "{n} short connections to {service} (port {port}) within {s} s": "{n} kurze Verbindungen zu {service} (Port {port}) innerhalb von {s} s",
-  "No finished handshake seen yet: not blocked.": "Noch kein vollständiger Verbindungsaufbau gesehen: nicht gesperrt."
+  "No finished handshake seen yet: not blocked.": "Noch kein vollständiger Verbindungsaufbau gesehen: nicht gesperrt.",
+  "Not saved: the key store of this phone did not seal the tunnel keys. Try again; restarting the phone helps if it keeps failing.": "Nicht gespeichert: Der Schlüsselspeicher dieses Handys hat die Tunnel-Schlüssel nicht versiegelt. Versuche es noch einmal; klappt es weiter nicht, hilft ein Neustart des Handys.",
+  "Locked: this tunnel's keys were sealed with a key this phone does not have (for example after moving to a new phone or restoring a copy). Its apps are blocked. Delete it and import the file again.": "Gesperrt: Die Schlüssel dieses Tunnels wurden mit einem Schlüssel versiegelt, den dieses Handy nicht hat (zum Beispiel nach dem Umzug auf ein neues Handy oder dem Zurückspielen einer Kopie). Seine Apps werden blockiert. Lösche den Tunnel und importiere die Datei neu."
  }
 }

@@ -71,6 +71,65 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   (D-Bus services, browser handover) take that process's route.
 - **root on the machine** can do anything, including turning Shunt off.
 
+## Android: tunnel keys at rest
+
+The Android app stores each tunnel's secret part (the WireGuard file with its
+private and preshared keys, OpenVPN keys and inline certificates, OpenVPN user
+and password, Tor bridge lines) sealed with AES-256-GCM in `settings.json`
+(`android/app/src/main/java/org/theshunt/app/Vault.kt`). The AES key is made in
+the Android Keystore (StrongBox when the phone has one, otherwise the TEE) and
+cannot be read out; a copy of the app's files holds only ciphertext. Tunnel
+names, types, routes and the other settings stay readable, so the app can show
+and fail closed without the key.
+
+- **Migration:** a `settings.json` from an earlier version (keys in clear) is
+  sealed on the first start: the new file replaces the old one atomically, then
+  the old file's bytes are overwritten with zeros. If the key store fails, the
+  old file is kept and the app runs on; it tries again on the next start.
+  Flash storage may keep copies of old blocks (wear levelling) that no app can
+  reach; only a factory reset clears those.
+- **Key gone** (files moved to another phone, restored copy, key store reset):
+  the tunnels show as *locked*. They are never handed to the VPN core and every
+  route that names one of them (default, apps, network profiles, tunnels going
+  through it, Tor for everything) blocks. Their sealed values are kept as they
+  are. Delete the tunnel and import its file again.
+- **Not bound to the screen lock:** the key works while the phone is locked,
+  because the VPN must restart then (always-on, watchdog). Before the first
+  unlock after a boot the app's files are not readable at all; the app then
+  sees no tunnels and blocks everything. A sealing error never writes keys in
+  clear: the change is not saved and the app says so.
+- **Limits:** the key protects the files at rest, not a running phone. Root or
+  an exploit in the app's process can use the key store key (or read the keys
+  from memory, where the VPN core needs them in clear). Backups are off
+  (`allowBackup="false"`, `dataExtractionRules` exclude everything).
+- **Files for the helper programs:** openvpn and the built-in Tor read their
+  setup from a file. The core writes it (0600, in the app's private
+  `files/openvpn/<tunnel>/tunnel.ovpn` or `files/tor/<tunnel>/torrc`) just
+  before the program starts and wipes it (overwrite with zeros, then delete;
+  `internal/secfile`) as soon as the program has read it: openvpn when it
+  connects to the management socket (it parses the whole file, inline keys
+  included, before that, and never reads it again), Tor when its control
+  port answers; also when the program ends or cannot start. The OpenVPN user
+  and password never go into the file (management interface). Rests of a
+  crash or kill in that moment are wiped at the next process start
+  (`ShuntApp.kt`), before every engine start and after every stop
+  (`splitstack.CleanWorkDir`, which also removes the `openvpn/` and `tor/`
+  folders of deleted tunnels). Tor's data folder (`files/tor/<tunnel>/data`)
+  stays on purpose: it holds Tor's guard and directory state, which Tor keeps
+  so that it does not pick new entry nodes on every start; with bridges that
+  state names the bridge in use (address and fingerprint, not the obfs4
+  secret). It goes when the tunnel is deleted. The files stay in the app's
+  folder rather than the cache folder: both are app-private and excluded from
+  backups, and the cache folder could be cleared by Android while Tor runs.
+  The Windows and Linux desktop paths are unchanged (they do not start this
+  built-in Tor or openvpn).
+- **Not yet tested on a device:** the instrumented test `VaultDeviceTest`
+  (real Android Keystore: seal, open, migration of a clear `settings.json`,
+  locked tunnel after the key is deleted) is built but has not run. It is to
+  run on the desktop machine against a test phone or an emulator
+  (`./gradlew connectedPlayDebugAndroidTest`, emulator with `-no-window`); it
+  overwrites `settings.json`, so never on a phone in use.
+
 ## Verifying downloads
 
 Release tarballs come with `SHA256SUMS` (checked by the installer) and a

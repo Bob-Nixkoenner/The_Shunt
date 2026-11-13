@@ -114,9 +114,15 @@ private fun App() {
     var message by remember { mutableStateOf<String?>(null) }
     val status by rememberStatus()
     val update: (Settings) -> Unit = { s ->
-        settings = s
-        Store.save(ctx, s)
-        ShuntVpnService.applyRules(ctx, s)?.let { message = it }
+        // the tunnels' keys are sealed in the key store first: when it fails, nothing
+        // is written (never keys in clear) and the change is not taken
+        val saved = runCatching { Store.save(ctx, s) }
+        if (saved.isSuccess) {
+            settings = s
+            ShuntVpnService.applyRules(ctx, s)?.let { message = it }
+        } else {
+            message = T("Not saved: the key store of this phone did not seal the tunnel keys. Try again; restarting the phone helps if it keeps failing.")
+        }
     }
     // Opsec: the violet accent over the whole app (status colours stay)
     ShuntTheme(UiPrefs.dark(), opsec = settings.level == Level.Opsec) {
@@ -598,7 +604,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
             }
             if (settings.tunnels.isEmpty()) Hint("A WireGuard file (.conf), an OpenVPN file (.ovpn) or the QR code your VPN server shows.")
             settings.tunnels.forEach { t ->
-                val sum = remember(t.conf) {
+                val sum = if (t.locked) null else remember(t.conf) {
                     runCatching { JSONObject(if (t.isTor) Mobile.checkTor(t.conf) else if (t.isOpenVPN) Mobile.checkOpenVPN(t.conf) else Mobile.checkWireGuard(t.conf)) }.getOrNull()
                 }
                 EdgeCard(Tone.Ok) {
@@ -613,12 +619,13 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         },
                         end = {
                             Row(horizontalArrangement = Arrangement.spacedBy(Gap.sectionH)) {
-                                ShuntLink("Check", { checking = t })
+                                if (!t.locked) ShuntLink("Check", { checking = t })
                                 ShuntLink("Rename", { renaming = t })
                                 ShuntLink("Delete", { confirmDelete = t }, color = LocalShunt.current.bad)
                             }
                         },
                     )
+                    if (t.locked) Hint("Locked: this tunnel's keys were sealed with a key this phone does not have (for example after moving to a new phone or restoring a copy). Its apps are blocked. Delete it and import the file again.")
                     sum?.let {
                         fun list(k: String) = it.optJSONArray(k)?.let { a -> (0 until a.length()).joinToString(", ") { i -> a.getString(i) } } ?: ""
                         if (t.isTor) {
