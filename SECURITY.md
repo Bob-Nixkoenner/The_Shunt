@@ -102,6 +102,33 @@ and fail closed without the key.
   an exploit in the app's process can use the key store key (or read the keys
   from memory, where the VPN core needs them in clear). Backups are off
   (`allowBackup="false"`, `dataExtractionRules` exclude everything).
+- **Files for the helper programs:** openvpn and the built-in Tor read their
+  setup from a file. The core writes it (0600, in the app's private
+  `files/openvpn/<tunnel>/tunnel.ovpn` or `files/tor/<tunnel>/torrc`) just
+  before the program starts and wipes it (overwrite with zeros, then delete;
+  `internal/secfile`) as soon as the program has read it: openvpn when it
+  connects to the management socket (it parses the whole file, inline keys
+  included, before that, and never reads it again), Tor when its control
+  port answers; also when the program ends or cannot start. The OpenVPN user
+  and password never go into the file (management interface). Rests of a
+  crash or kill in that moment are wiped at the next process start
+  (`ShuntApp.kt`), before every engine start and after every stop
+  (`splitstack.CleanWorkDir`, which also removes the `openvpn/` and `tor/`
+  folders of deleted tunnels). Tor's data folder (`files/tor/<tunnel>/data`)
+  stays on purpose: it holds Tor's guard and directory state, which Tor keeps
+  so that it does not pick new entry nodes on every start; with bridges that
+  state names the bridge in use (address and fingerprint, not the obfs4
+  secret). It goes when the tunnel is deleted. The files stay in the app's
+  folder rather than the cache folder: both are app-private and excluded from
+  backups, and the cache folder could be cleared by Android while Tor runs.
+  The Windows and Linux desktop paths are unchanged (they do not start this
+  built-in Tor or openvpn).
+- **Not yet tested on a device:** the instrumented test `VaultDeviceTest`
+  (real Android Keystore: seal, open, migration of a clear `settings.json`,
+  locked tunnel after the key is deleted) is built but has not run. It is to
+  run on the desktop machine against a test phone or an emulator
+  (`./gradlew connectedPlayDebugAndroidTest`, emulator with `-no-window`); it
+  overwrites `settings.json`, so never on a phone in use.
 
 ## Verifying downloads
 
