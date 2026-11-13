@@ -65,6 +65,7 @@ jobs() {
 		echo "root|integration userspace|SHUNT_DRIVER=userspace ./test/integration/run.sh"
 	fi
 	echo "|gofmt|test -z \"\$(gofmt -l .)\" || { gofmt -l .; exit 1; }"
+	echo "|installer scripts|bash test/installer/release-files.sh && bash test/installer/src-dir.sh"
 	echo "big|vet|go vet \$(go list ./... | grep -v -e /internal/desktopapp -e /cmd/shunt-desktop)"
 	echo "local|vet-desktop|go vet ./internal/desktopapp ./cmd/shunt-desktop"
 	(cd "$ROOT" && go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...) |

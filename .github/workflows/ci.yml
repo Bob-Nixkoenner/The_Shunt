@@ -37,6 +37,8 @@ jobs:
       - run: go test ./...
       - name: installer takes only signed release files
         run: bash test/installer/release-files.sh
+      - name: installer takes no foreign source checkout
+        run: bash test/installer/src-dir.sh
       - name: fuzz parsers (short)
         run: |
           # a count instead of a duration: a time limit that ends during an

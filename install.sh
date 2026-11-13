@@ -291,7 +291,29 @@ pkg_install() { # pkg_install "what" logical-name
 	esac
 }
 
-SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
+# The source checkout this installer runs from, if any. Piped in (curl | sudo
+# bash) there is no script file: then there is none, never the current
+# directory (report H-02: a go.mod there would have been built and installed
+# as root). A checkout counts only when root or the user who called sudo owns
+# it and nobody else may write to it.
+trusted_checkout() { # dir
+	local d=$1 f owner uid
+	uid=$(id -u "${SUDO_USER:-root}" 2>/dev/null || echo 0)
+	for f in "$d" "$d/go.mod" "$d/cmd" "$d/cmd/shuntd" "$d/internal" "$d/packaging" "$d/install.sh"; do
+		[[ -e $f && ! -L $f ]] || return 1
+		owner=$(stat -c %u "$f") || return 1
+		[[ $owner == 0 || $owner == "$uid" ]] || return 1
+		[[ -z $(find "$f" -maxdepth 0 -perm /022 2>/dev/null) ]] || return 1
+	done
+}
+SRC_DIR=''
+if [[ -n ${BASH_SOURCE[0]:-} && -f ${BASH_SOURCE[0]} ]]; then
+	SRC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)
+	if [[ -n $SRC_DIR && -f $SRC_DIR/go.mod ]] && ! trusted_checkout "$SRC_DIR"; then
+		printf 'The Shunt: %s is not used as a source checkout: it must belong to root or to %s and must not be writable by others.\n' "$SRC_DIR" "${SUDO_USER:-root}" >&2
+		SRC_DIR=''
+	fi
+fi
 MODE=install FROM_SOURCE=0 PURGE=0 DRY=0 DNS_LEVEL=${SHUNT_DNS_LEVEL:-}
 ARGS=("$@")
 for a in "$@"; do
@@ -482,7 +504,7 @@ WORK=$(mktemp -d /var/tmp/shunt-install.XXXXXX 2>/dev/null || mktemp -d)
 # signed release.
 find_release() { # -> sets tag (empty: build from source) and why
 	tag='' why=''
-	if [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
+	if [[ -n $SRC_DIR && -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 		why="running from the source checkout $SRC_DIR"
 		return
 	fi
@@ -580,7 +602,7 @@ fetch_extras() {
 		PKG_DIR=$WORK/packaging
 		rm -rf "$PKG_DIR"
 		mkdir -p "$PKG_DIR" && tar -xzf "$WORK/extras.tar.gz" -C "$PKG_DIR" --no-same-owner
-	elif [[ -f $SRC_DIR/packaging/systemd/shuntd.service ]]; then
+	elif [[ -n $SRC_DIR && -f $SRC_DIR/packaging/systemd/shuntd.service ]]; then
 		PKG_DIR=$SRC_DIR/packaging
 		warn "release %s has no signed service files - using the ones of %s" "$tag" "$SRC_DIR"
 	else
@@ -714,7 +736,7 @@ if [[ -n $tag ]]; then
 			WANT_DESKTOP=0
 		fi
 	fi
-elif [[ -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
+elif [[ -n $SRC_DIR && -f $SRC_DIR/go.mod && -d $SRC_DIR/cmd/shuntd ]]; then
 	build_from "$SRC_DIR"
 else
 	ok "%s - building from source" "$why"
