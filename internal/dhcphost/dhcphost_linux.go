@@ -397,18 +397,21 @@ func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slo
 		return err
 	}
 	defer conn.Close()
-	if err := conn.AddMatchSignal(
-		dbus.WithMatchInterface("org.freedesktop.NetworkManager.Settings"),
-		dbus.WithMatchMember("NewConnection"),
-	); err != nil {
-		return err
+	// only NetworkManager's own signals (report M-05: any client on the
+	// system bus could send a StateChanged and have a device stopped): the
+	// bus filters by sender, and every signal is checked against the
+	// current owner of the name again (it changes when NM restarts)
+	const nmName = "org.freedesktop.NetworkManager"
+	for _, m := range [][]dbus.MatchOption{
+		{dbus.WithMatchSender(nmName), dbus.WithMatchInterface(nmName + ".Settings"), dbus.WithMatchMember("NewConnection")},
+		{dbus.WithMatchSender(nmName), dbus.WithMatchInterface(nmName + ".Device"), dbus.WithMatchMember("StateChanged")},
+		{dbus.WithMatchSender("org.freedesktop.DBus"), dbus.WithMatchMember("NameOwnerChanged"), dbus.WithMatchArg(0, nmName)},
+	} {
+		if err := conn.AddMatchSignal(m...); err != nil {
+			return err
+		}
 	}
-	if err := conn.AddMatchSignal(
-		dbus.WithMatchInterface("org.freedesktop.NetworkManager.Device"),
-		dbus.WithMatchMember("StateChanged"),
-	); err != nil {
-		return err
-	}
+	owner := nmOwner(conn, nmName)
 	ch := make(chan *dbus.Signal, 64)
 	conn.Signal(ch)
 	for {
@@ -418,6 +421,17 @@ func WatchNew(ctx context.Context, f func(), pol func() (Policy, bool), log *slo
 		case s, ok := <-ch:
 			if !ok {
 				return errors.New("system bus closed")
+			}
+			if s.Name == "org.freedesktop.DBus.NameOwnerChanged" {
+				if s.Sender == "org.freedesktop.DBus" && len(s.Body) == 3 {
+					if n, _ := s.Body[0].(string); n == nmName {
+						owner, _ = s.Body[2].(string)
+					}
+				}
+				continue
+			}
+			if !fromOwner(s.Sender, owner) {
+				continue
 			}
 			// first, before anything slower: the window before DHCP is short
 			if pol != nil && s.Name == nmSettings+".NewConnection" && len(s.Body) > 0 {
@@ -480,3 +494,16 @@ func handleSignal(s *dbus.Signal, f func()) {
 		activatedTimer.Unlock()
 	}
 }
+
+// nmOwner returns the unique bus name that owns name ("" = nobody now).
+func nmOwner(conn *dbus.Conn, name string) string {
+	var owner string
+	if err := conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, name).Store(&owner); err != nil {
+		return ""
+	}
+	return owner
+}
+
+// fromOwner: a signal counts only from the current owner of NetworkManager's
+// name (never when nobody owns it).
+func fromOwner(sender, owner string) bool { return owner != "" && sender == owner }

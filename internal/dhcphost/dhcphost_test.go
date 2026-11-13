@@ -165,3 +165,17 @@ func TestCovered(t *testing.T) {
 		t.Errorf("network overrides the defaults: want reapply, now=%v", now)
 	}
 }
+
+// M-05 (external report): only the current owner of NetworkManager's bus
+// name may trigger anything, never another client, never when nobody owns it.
+func TestSignalOnlyFromNetworkManager(t *testing.T) {
+	if !fromOwner(":1.5", ":1.5") {
+		t.Fatal("NetworkManager's own signal refused")
+	}
+	if fromOwner(":1.99", ":1.5") {
+		t.Fatal("another client's signal accepted")
+	}
+	if fromOwner(":1.5", "") || fromOwner("", "") {
+		t.Fatal("signal accepted while nobody owns the name")
+	}
+}
