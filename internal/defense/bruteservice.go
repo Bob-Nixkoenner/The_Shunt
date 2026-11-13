@@ -107,7 +107,10 @@ func (e *svcEntry) add(sec int64) {
 
 // roll clears buckets older than the window when time moved on.
 func (e *svcEntry) roll(sec int64) {
-	if e.base == 0 || sec-e.base >= svcBuckets {
+	if e.base == 0 || sec-e.base >= svcBuckets || sec < e.base { // first, stale, or the clock went back
+		if sec < e.base {
+			e.base = sec
+		}
 		e.buckets = [svcBuckets]uint16{}
 	} else {
 		for s := e.base + 1; s <= sec; s++ {

@@ -454,3 +454,17 @@ func TestBruteServiceRace(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// The clock going back (NTP step) must not count connections twice.
+func TestSvcEntryClockBack(t *testing.T) {
+	var e svcEntry
+	for s := int64(1000); s < 1009; s++ {
+		e.add(s) // 9 in 9 s
+	}
+	for s := int64(1000); s < 1009; s++ {
+		e.add(s) // the same seconds again after a step back
+	}
+	if n := e.count(); n >= SvcBruteConns+8 {
+		t.Fatalf("counted twice after the clock went back: %d", n)
+	}
+}
