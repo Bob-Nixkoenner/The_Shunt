@@ -99,7 +99,6 @@ func TestFilter(t *testing.T) {
 		{1, "evil.example.", dns.RcodeSuccess},
 		{3, "evil.example.", dns.RcodeNameError},
 		{4, "x.ads.example.", dns.RcodeSuccess},
-		{2, "x.ads.example.", dns.RcodeSuccess},
 		{1, "routed.ads.example.", dns.RcodeSuccess},
 	} {
 		if got := ask(c.port, c.name); got != c.want {
@@ -111,6 +110,20 @@ func TestFilter(t *testing.T) {
 		t.Errorf("stats %+v", st)
 	}
 
+	// the login port: a query whose packet mark is known to come from the
+	// login browser is not filtered; one without a readable mark (TCP, any
+	// local process) is filtered like the direct route
+	askMark := func(port int, name string, mark uint32) int {
+		q := new(dns.Msg)
+		q.SetQuestion(name, dns.TypeA)
+		return p.handle(port, q, mark, nil).Rcode
+	}
+	if got := askMark(2, "x.ads.example.", 0); got != dns.RcodeSuccess {
+		t.Errorf("login port, marked: rcode %d", got)
+	}
+	if got := askMark(2, "x.ads.example.", markUnknown); got != dns.RcodeNameError {
+		t.Errorf("login port, no readable mark: rcode %d", got)
+	}
 	// per app: the sender is asked only for blocked queries
 	p.Owner = func(string, netip.AddrPort) string { return "never called" }
 	asked := 0
@@ -306,5 +319,59 @@ func TestRebinder(t *testing.T) {
 	rb.drop = true
 	if r := ask(); len(r.Answer) != 0 || r.Rcode != dns.RcodeRefused {
 		t.Fatalf("dropped answer expected, got rcode %d with %d records", r.Rcode, len(r.Answer))
+	}
+}
+
+// seenUpstream records the ID it was asked with and answers as told.
+type seenUpstream struct {
+	id    *uint16
+	other string // answer for this name instead of the asked one
+}
+
+func (s seenUpstream) Exchange(_ context.Context, m *dns.Msg) (*dns.Msg, error) {
+	*s.id = m.Id
+	r := new(dns.Msg)
+	r.SetReply(m)
+	name := m.Question[0].Name
+	if s.other != "" {
+		r.Question[0].Name, name = s.other, s.other
+	}
+	r.Answer = append(r.Answer, &dns.A{Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.ParseIP("192.0.2.5")})
+	return r, nil
+}
+func (s seenUpstream) String() string { return "seen" }
+
+// The upstream gets its own random ID, and an answer to another question is
+// not passed on.
+func TestUpstreamIDAndQuestionChecked(t *testing.T) {
+	direct := &engine.Route{Route: config.Route{Kind: config.RouteDirect}, DNSPort: 1}
+	plan := &engine.Plan{DNS: true, Routes: []*engine.Route{direct}}
+	p := New(slog.New(slog.NewTextHandler(io.Discard, nil)), &recWriter{adds: map[string]int{}})
+	p.plan, p.byPort = plan, map[int]*engine.Route{1: direct}
+	var id uint16
+	p.upstreams = RouteUpstreams{"direct": {seenUpstream{id: &id}}}
+	q := new(dns.Msg)
+	q.SetQuestion("one.example.test.", dns.TypeA)
+	q.Id = 0x1234
+	w := &fakeRW{}
+	p.serve(1, w, q)
+	if w.got.Id != 0x1234 || len(w.got.Answer) != 1 {
+		t.Fatalf("client answer: id %x, %d records", w.got.Id, len(w.got.Answer))
+	}
+	same := 0
+	for i := 0; i < 8; i++ {
+		p.serve(1, &fakeRW{}, q)
+		if id == 0x1234 {
+			same++
+		}
+	}
+	if same > 1 {
+		t.Fatal("upstream was asked with the client's ID")
+	}
+	p.upstreams = RouteUpstreams{"direct": {seenUpstream{id: &id, other: "evil.example.test."}}}
+	w = &fakeRW{}
+	p.serve(1, w, q)
+	if w.got.Rcode != dns.RcodeServerFailure || len(w.got.Answer) != 0 {
+		t.Fatalf("answer to another question passed: rcode %d, %d records", w.got.Rcode, len(w.got.Answer))
 	}
 }

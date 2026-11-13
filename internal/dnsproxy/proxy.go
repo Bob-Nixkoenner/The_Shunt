@@ -436,9 +436,17 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	}
 	// The blocklists: not for the login browser (portals live on odd
 	// names), not for names you routed on purpose with a domain rule.
-	if rule == nil && !src.Captive && src.Filter != "" && src.Filter != config.FilterOff {
-		if list := p.filter.Load().Check(src.Filter, name); list != "" {
-			b := Blocked{Time: time.Now(), Name: name, Level: src.Filter, List: list, Route: src.String()}
+	level := src.Filter
+	if src.Captive && mark == markUnknown {
+		// A TCP query carries no readable mark, so any local process can send
+		// it to the login port. Such a query is filtered like the direct route.
+		level = directFilter(plan)
+	} else if src.Captive {
+		level = ""
+	}
+	if rule == nil && level != "" && level != config.FilterOff {
+		if list := p.filter.Load().Check(level, name); list != "" {
+			b := Blocked{Time: time.Now(), Name: name, Level: level, List: list, Route: src.String()}
 			if who != nil {
 				b.App = who()
 			}
@@ -449,6 +457,7 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 
 	q2 := r.Copy()
 	stripECS(q2)
+	q2.Id = dns.Id() // upstream ID is not the client's: a forged answer must guess it
 	ctx, cancel := context.WithTimeout(context.Background(), 2*upstreamTimeout)
 	defer cancel()
 	var resp *dns.Msg
@@ -459,6 +468,9 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	}
 	for _, u := range ups[key] {
 		resp, lastErr = u.Exchange(ctx, q2)
+		if lastErr == nil && !answersQuestion(q2, resp) {
+			resp, lastErr = nil, fmt.Errorf("answer does not match the question")
+		}
 		if lastErr == nil {
 			break
 		}
@@ -615,6 +627,27 @@ func (p *Proxy) byPortName(port int) string {
 	defer p.mu.RUnlock()
 	if r := p.byPort[port]; r != nil {
 		return r.String()
+	}
+	return ""
+}
+
+// answersQuestion tells whether resp is an answer to q: same ID, one question
+// with the same name (case-insensitive), type and class. Anything else is not
+// trusted, whatever it carries.
+func answersQuestion(q, resp *dns.Msg) bool {
+	if resp == nil || resp.Id != q.Id || len(resp.Question) != 1 || len(q.Question) != 1 {
+		return false
+	}
+	a, b := q.Question[0], resp.Question[0]
+	return a.Qtype == b.Qtype && a.Qclass == b.Qclass && strings.EqualFold(a.Name, b.Name)
+}
+
+// directFilter is the blocklist level of the direct route ("" if none).
+func directFilter(plan *engine.Plan) string {
+	for _, r := range plan.Routes {
+		if r.Kind == config.RouteDirect {
+			return r.Filter
+		}
 	}
 	return ""
 }
