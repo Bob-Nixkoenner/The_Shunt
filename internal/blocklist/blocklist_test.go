@@ -252,3 +252,26 @@ func TestLocalListTruncatedLoudly(t *testing.T) {
 		t.Fatal("the cut must fall on a line end")
 	}
 }
+
+// L-05 (external report): a list with more names than MaxEntries keeps the
+// first MaxEntries and says it is truncated.
+func TestListEntryCap(t *testing.T) {
+	old := MaxEntries
+	t.Cleanup(func() { MaxEntries = old })
+	MaxEntries = 100
+	var b strings.Builder
+	for i := 0; i < 250; i++ {
+		fmt.Fprintf(&b, "n%03d.example\n", i)
+	}
+	l, err := Parse("big", strings.NewReader(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !l.Truncated || l.Len() != 100 {
+		t.Fatalf("truncated=%v len=%d", l.Truncated, l.Len())
+	}
+	small, _ := Parse("small", strings.NewReader("a.example\nb.example\n"))
+	if small.Truncated {
+		t.Fatal("a short list is not truncated")
+	}
+}

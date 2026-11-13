@@ -174,7 +174,7 @@ function renderFilterStatus() {
     el("td", {}, el("b", {}, l.name.replace(/^https:\/\//, "")), el("div", { class: "muted" }, (l.levels || []).join(", "))),
     el("td", {}, l.entries ? T("{n} names", { n: l.entries.toLocaleString() }) : el("span", { class: "muted" }, l.error ? "not loaded" : "loading…")),
     el("td", { class: "muted" }, T("updated {ago}", { ago: ago(l.updated) })),
-    el("td", { style: "color:var(--bad)" }, l.error || (l.truncated ? T("Truncated: the file is bigger than 256 MiB, the names after the cut are missing") : "")))) :
+    el("td", { style: "color:var(--bad)" }, l.error || (l.truncated ? T("Truncated: the list is too big (over 256 MiB or 20 million names), the names after the cut are missing") : "")))) :
     [el("tr", {}, el("td", { class: "muted" }, "No list in use."))]));
   const recent = st.recent || [];
   $("#f-recent").replaceChildren(...(recent.length ? recent.map((b) => el("tr", {},

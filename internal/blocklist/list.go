@@ -23,7 +23,10 @@ import (
 // different names with the same 63-bit hash: about 1 in 10^12 per lookup.
 type List struct {
 	Name string
-	keys []uint64 // sorted, one per name
+	// Truncated: the list had more than MaxEntries names; only the first
+	// MaxEntries are in it.
+	Truncated bool
+	keys      []uint64 // sorted, one per name
 	// idx[b] is the first position in keys whose top bits are >= b, so a
 	// lookup only scans a handful of keys (about 8) instead of a binary
 	// search through millions.
@@ -98,6 +101,13 @@ func (l *List) lookup(base uint64) (found, sub bool) {
 // MaxLine: longer lines are skipped (a valid name is at most 253 bytes).
 const MaxLine = 4096
 
+// MaxEntries caps one list (report L-05): 20 million names are about 160 MB
+// in memory (8 bytes each), more than the biggest public lists (about 2
+// million). The file limits alone allowed far more: a 256 MiB file of
+// one-letter names would be 128 million. A list that reaches the cap keeps
+// its first MaxEntries names and is marked Truncated (said loudly).
+var MaxEntries = 20_000_000
+
 // ErrEmpty: the file had no usable entry – probably not a blocklist (an
 // error page, a moved file).
 var ErrEmpty = errors.New("no usable entries (not a blocklist?)")
@@ -113,6 +123,7 @@ func ParseAllow(name string, r io.Reader) (*List, error) { return parse(name, r,
 
 func parse(name string, r io.Reader, allow bool) (*List, error) {
 	var keys []uint64
+	truncated := false
 	br := bufio.NewReaderSize(r, MaxLine)
 	for {
 		line, long, err := br.ReadLine()
@@ -128,6 +139,10 @@ func parse(name string, r io.Reader, allow bool) (*List, error) {
 				k |= 1
 			}
 			keys = append(keys, k)
+			if len(keys) >= MaxEntries {
+				truncated = true
+				break
+			}
 		}
 		if err == io.EOF {
 			break
@@ -139,7 +154,9 @@ func parse(name string, r io.Reader, allow bool) (*List, error) {
 	if len(keys) == 0 {
 		return nil, ErrEmpty
 	}
-	return build(name, keys), nil
+	l := build(name, keys)
+	l.Truncated = truncated
+	return l, nil
 }
 
 func parseLine(s string, allow bool) (string, bool) {

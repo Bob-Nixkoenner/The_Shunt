@@ -415,6 +415,9 @@ func (m *Manager) publish() {
 		for _, ref := range m.cfg.Lists(lvl) {
 			if e := m.entries[ref]; e != nil && e.list != nil {
 				levels[lvl] = append(levels[lvl], e.list)
+				if e.list.Truncated {
+					m.Log.Warn("dns filter: LIST TOO LONG, TRUNCATED", "list", ref, "kept", e.list.Len(), "limit", MaxEntries)
+				}
 			}
 		}
 	}
@@ -452,6 +455,9 @@ func (m *Manager) Status() []Status {
 		s := Status{Name: ref, URL: e.url, Updated: e.updated, Error: e.err, Truncated: e.trunc}
 		if e.list != nil {
 			s.Entries = e.list.Len()
+			if e.list.Truncated && s.Truncated == "" {
+				s.Truncated = fmt.Sprintf("truncated: more than %d names, only the first %d are used", MaxEntries, MaxEntries)
+			}
 		}
 		for _, lvl := range m.used {
 			if slices.Contains(m.cfg.Lists(lvl), ref) {
