@@ -155,6 +155,7 @@ func (p *torProc) loop() {
 		p.bootstrap = 0
 		stopped := p.stopped
 		p.mu.Unlock()
+		p.dropTorrc()
 		if stopped {
 			return
 		}
@@ -203,7 +204,8 @@ func (p *torProc) runOnce() error {
 	if err := p.writeTorrc(); err != nil {
 		return err
 	}
-	defer p.dropTorrc()
+	// the torrc is wiped by watchBootstrap once tor answers, and by loop
+	// when tor ended (after the reason is recorded: wiping syncs the disk)
 	cmd := exec.Command(p.exe, "-f", p.torrcPath())
 	cmd.Dir = p.dir
 	pr, pw := io.Pipe() // Wait then returns only after all of stderr is copied: the last line is the reason tor died
@@ -278,10 +280,6 @@ func (p *torProc) watchBootstrap(pid int) {
 		if err != nil {
 			continue
 		}
-		if !dropped {
-			p.dropTorrc()
-			dropped = true
-		}
 		for _, l := range lines {
 			if i := strings.Index(l, "PROGRESS="); i >= 0 {
 				n, _ := strconv.Atoi(strings.Fields(l[i+9:])[0])
@@ -292,6 +290,10 @@ func (p *torProc) watchBootstrap(pid int) {
 				}
 				p.mu.Unlock()
 			}
+		}
+		if !dropped { // after the progress is recorded: wiping syncs the disk
+			p.dropTorrc()
+			dropped = true
 		}
 	}
 }
