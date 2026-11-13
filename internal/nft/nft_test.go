@@ -676,3 +676,54 @@ func TestStrictNoConntrackAccept(t *testing.T) {
 		}
 	}
 }
+
+// L-02: a program sending to a DNS proxy listener itself (not redirected)
+// is rejected, so it cannot resolve through another route's upstream; every
+// listener port is covered (routes, filter-level copies, login browser) and
+// shuntd's own queries pass.
+func TestDNSListenerGuard(t *testing.T) {
+	p := plan(t)
+	got, err := Render(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := `chain dns_port_guard {
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		ct status dnat return
+		counter reject with icmpx admin-prohibited
+	}`
+	if !strings.Contains(got, guard) {
+		t.Errorf("missing guard chain:\n%s", got)
+	}
+	var line string
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, "jump dns_port_guard") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "ct direction original fib daddr type local meta l4proto { tcp, udp } th dport {") {
+		t.Fatalf("guard jump: %q", line)
+	}
+	ports := []int{p.Captive.DNSPort}
+	for _, r := range p.Routes {
+		ports = append(ports, r.DNSPort)
+	}
+	for _, r := range p.FilterRoutes {
+		ports = append(ports, r.DNSPort)
+	}
+	for _, port := range ports {
+		if !strings.Contains(line, strconvI(port)) {
+			t.Errorf("port %d not guarded: %q", port, line)
+		}
+	}
+	// the jump sits in filter_out before anything accepts
+	fo := strings.Replace(got[strings.Index(got, "chain filter_out {"):], "policy accept;", "", 1)
+	if j, a := strings.Index(fo, "jump dns_port_guard"), strings.Index(fo, "accept"); j < 0 || (a >= 0 && a < j) {
+		t.Errorf("guard after an accept in filter_out")
+	}
+	// without the DNS proxy there are no listeners to guard
+	p.DNS = false
+	if got, _ := Render(p); strings.Contains(got, "dns_port_guard") {
+		t.Error("guard without DNS proxy")
+	}
+}

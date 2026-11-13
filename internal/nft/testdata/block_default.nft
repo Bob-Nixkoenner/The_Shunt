@@ -50,9 +50,15 @@ table inet shunt {
 	}
 	chain ask_out {
 	}
+	chain dns_port_guard {
+		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" return
+		ct status dnat return
+		counter reject with icmpx admin-prohibited
+	}
 	chain filter_out {
 		type filter hook output priority filter; policy accept;
 		meta mark 0x5300fe counter reject with icmpx admin-prohibited
+		ct direction original fib daddr type local meta l4proto { tcp, udp } th dport { 53529, 53530, 53531, 53532, 53533, 53534 } jump dns_port_guard
 		oifname != "lo" jump ask_out
 		socket cgroupv2 level 3 "system.slice/shuntd.service/daemon" accept
 		meta l4proto { tcp, udp } th dport 853 counter reject with icmpx admin-prohibited

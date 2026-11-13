@@ -245,9 +245,27 @@ func Render(p *engine.Plan) (string, error) {
 	// by the daemon, see AskRules); loopback stays open (DNS to the proxy).
 	w("\tchain ask_out {")
 	w("\t}")
+	dnsPorts := ""
+	if p.DNS {
+		// L-02: the proxy listeners answer for the route a query was
+		// redirected for. A program sending to a listener port itself
+		// (unredirected, so with the mark of its own route only on UDP and
+		// none at all on TCP) would get that listener's route: a tunnelled
+		// app resolving through the direct upstream. Only redirected
+		// queries (ct status dnat) and shuntd's own reach the listeners.
+		dnsPorts = listenerPorts(p)
+		w("\tchain dns_port_guard {")
+		w("\t\t%s return", dg)
+		w("\t\tct status dnat return")
+		w("\t\tcounter reject with icmpx admin-prohibited")
+		w("\t}")
+	}
 	w("\tchain filter_out {")
 	w("\t\ttype filter hook output priority filter; policy accept;")
 	w("\t\tmeta mark %#x counter reject with icmpx admin-prohibited", engine.MarkBlock)
+	if dnsPorts != "" {
+		w("\t\tct direction original fib daddr type local meta l4proto { tcp, udp } th dport { %s } jump dns_port_guard", dnsPorts)
+	}
 	// Tor carries TCP only (and DNS, answered by the proxy on loopback):
 	// UDP and the rest are rejected at once, so QUIC falls back to TCP.
 	// "fib daddr type != local", not "oifname != lo": a DNS query redirected
@@ -413,6 +431,32 @@ func Render(p *engine.Plan) (string, error) {
 	w("}")
 	arpGuard(&b, p)
 	return b.String(), nil
+}
+
+// listenerPorts lists every DNS proxy listener port of p (routes, their
+// filter-level copies, the login browser), sorted, for an nft set.
+func listenerPorts(p *engine.Plan) string {
+	var ports []int
+	add := func(port int) {
+		if port > 0 && !slices.Contains(ports, port) {
+			ports = append(ports, port)
+		}
+	}
+	for _, r := range p.Routes {
+		add(r.DNSPort)
+	}
+	for _, r := range p.FilterRoutes {
+		add(r.DNSPort)
+	}
+	if p.Captive != nil {
+		add(p.Captive.DNSPort)
+	}
+	slices.Sort(ports)
+	s := make([]string, len(ports))
+	for i, port := range ports {
+		s[i] = strconv.Itoa(port)
+	}
+	return strings.Join(s, ", ")
 }
 
 func setMark(m uint32) string {
