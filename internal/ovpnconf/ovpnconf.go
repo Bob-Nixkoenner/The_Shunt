@@ -66,6 +66,34 @@ var forbidden = map[string]string{
 
 var providerName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// directiveName: OpenVPN's option names are lower case letters, digits and
+// "-". Anything else in the first word (a byte order mark, a backslash, odd
+// Unicode) could make Shunt read another name than openvpn does, so such a
+// line is refused instead of guessed.
+var directiveName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// cleanLine trims a line like openvpn reads it: surrounding white space and a
+// UTF-8 byte order mark in front (openvpn skips one at the start of the file;
+// Shunt drops it on every line so it cannot hide a directive).
+func cleanLine(raw string) string {
+	l := strings.TrimSpace(raw)
+	for strings.HasPrefix(l, "\ufeff") {
+		l = strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))
+	}
+	return l
+}
+
+// closesBlock reports whether l ends the inline block: openvpn ends it at a
+// line that starts with the close tag (case as written, Shunt ignores case),
+// whatever follows on that line. rest is that remainder.
+func closesBlock(l, block string) (ok bool, rest string) {
+	tag := "</" + block + ">"
+	if len(l) < len(tag) || !strings.EqualFold(l[:len(tag)], tag) {
+		return false, ""
+	}
+	return true, strings.TrimSpace(l[len(tag):])
+}
+
 // forbiddenLine reports why directive name with args is not allowed.
 // "providers legacy default" (OpenSSL's own providers by name, needed for
 // old ciphers) stays allowed; a path would load any library.
@@ -105,14 +133,20 @@ func Sanitize(s string) (string, []string) {
 	var removed []string
 	block, skip := "", false
 	for _, raw := range strings.Split(s, "\n") {
-		l := strings.TrimSpace(raw)
+		l := cleanLine(raw)
 		if block != "" {
-			if strings.EqualFold(l, "</"+block+">") {
+			if ok, rest := closesBlock(l, block); ok {
+				tag := "</" + block + ">"
 				block = ""
 				if skip {
 					skip = false
 					continue
 				}
+				if rest != "" { // openvpn ignores it; do not keep text that only looks ignored
+					removed = append(removed, "text after "+tag)
+				}
+				out = append(out, tag)
+				continue
 			}
 			if !skip {
 				out = append(out, raw)
@@ -131,6 +165,11 @@ func Sanitize(s string) (string, []string) {
 		}
 		if f := fields(l); len(f) > 0 {
 			name := strings.ToLower(strings.TrimPrefix(f[0], "--"))
+			if !directiveName.MatchString(name) {
+				out = append(out, "# removed by The Shunt (unusual directive name)")
+				removed = append(removed, "unusual directive name")
+				continue
+			}
 			if _, bad := forbiddenLine(name, f[1:]); bad && !refuseAlways[name] {
 				out = append(out, "# removed by The Shunt: "+l)
 				removed = append(removed, l)
@@ -166,9 +205,12 @@ func Parse(s, dir string) (*Config, error) {
 	sawAuth := false
 	for sc.Scan() {
 		line++
-		l := strings.TrimSpace(sc.Text())
+		l := cleanLine(sc.Text())
 		if block != "" {
-			if strings.EqualFold(l, "</"+block+">") {
+			if ok, rest := closesBlock(l, block); ok {
+				if rest != "" {
+					problems = append(problems, fmt.Sprintf("line %d: text after </%s>", line, block))
+				}
 				inline[block] = true
 				block = ""
 			}
@@ -189,6 +231,10 @@ func Parse(s, dir string) (*Config, error) {
 			continue
 		}
 		name := strings.ToLower(strings.TrimPrefix(f[0], "--"))
+		if !directiveName.MatchString(name) {
+			problems = append(problems, fmt.Sprintf("line %d: unusual directive name", line))
+			continue
+		}
 		if why, bad := forbiddenLine(name, f[1:]); bad {
 			problems = append(problems, fmt.Sprintf("line %d: %q (%s)", line, name, why))
 			continue

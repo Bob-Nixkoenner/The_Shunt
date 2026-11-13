@@ -121,3 +121,47 @@ func FuzzParse(f *testing.F) {
 	f.Add(provider)
 	f.Fuzz(func(t *testing.T, s string) { _, _ = Parse(s, "") })
 }
+
+// H-01 (external report, 13.11.): openvpn ends an inline block at a line that
+// starts with the close tag and reads the next lines as options; Shunt waited
+// for the exact tag and took them for block content. A byte order mark in
+// front of a directive hid it from Shunt but not from openvpn.
+func TestParserParityWithOpenVPN(t *testing.T) {
+	base := "client\nremote vpn.example 1194\n"
+	bad := map[string]string{
+		"text after close tag":   base + "<ca>\nAAAA\n</ca>x\nplugin /tmp/x.so\n",
+		"comment after close":    base + "<ca>\nAAAA\n</ca> # note\nup /tmp/x\n",
+		"bom before directive":   "\ufeffplugin /tmp/x.so\n" + base,
+		"bom inside the file":    base + "\ufeff up /tmp/x\n",
+		"backslash in the name":  base + "plug\\in /tmp/x.so\n",
+		"quoted odd name":        base + "\"plugin\u00a0\" /tmp/x.so\n",
+		"upper case close, then": base + "<ca>\nAAAA\n</CA>\n</ca>\n",
+	}
+	for name, conf := range bad {
+		if _, err := Parse(conf, ""); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		clean, removed := Sanitize(conf)
+		if len(removed) == 0 {
+			t.Errorf("%s: Sanitize removed nothing", name)
+		}
+		if strings.Contains(clean, "plugin /tmp") && !strings.Contains(clean, "# removed") {
+			t.Errorf("%s: plugin line left active:\n%s", name, clean)
+		}
+	}
+	// what Sanitize leaves must pass Parse (the import path runs both)
+	for name, conf := range bad {
+		clean, _ := Sanitize(conf)
+		if name == "upper case close, then" {
+			continue // a stray close tag stays refused
+		}
+		if _, err := Parse(clean, ""); err != nil {
+			t.Errorf("%s: sanitized text still refused: %v", name, err)
+		}
+	}
+	// an honest file with inline blocks and a BOM at the start still works
+	ok := "\ufeffclient\nremote vpn.example 1194 udp\n<ca>\nAAAA\n</ca>\n<tls-crypt>\nBBBB\n</tls-crypt>\n"
+	if c, err := Parse(ok, ""); err != nil || len(c.Remotes) != 1 {
+		t.Fatalf("honest file: %v %+v", err, c)
+	}
+}
