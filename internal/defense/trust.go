@@ -16,6 +16,11 @@ const (
 // TestSeconds is how long the "test" step lasts when the UI sets it.
 const TestSeconds = 3600
 
+// TestMaxSeconds caps a "test" entry: an end time further away (a hand-edited
+// config, a wrong clock) counts as this long from when the list was loaded,
+// so a test entry cannot become a hidden "never block" for good.
+const TestMaxSeconds = 24 * 3600
+
 // KnownHeatCap is the highest heat share events of "known" sources can cause.
 const KnownHeatCap = 50
 

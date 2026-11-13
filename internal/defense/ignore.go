@@ -113,7 +113,10 @@ type IgnoreSet struct {
 }
 
 // Set replaces the rules (invalid entries are skipped).
-func (s *IgnoreSet) Set(in []IgnoreEntry) {
+func (s *IgnoreSet) Set(in []IgnoreEntry) { s.setAt(in, time.Now()) }
+
+// setAt is Set with the load time (test entries end at most TestMaxSeconds after it).
+func (s *IgnoreSet) setAt(in []IgnoreEntry, loaded time.Time) {
 	var rules []ignoreRule
 	for _, e := range in {
 		p, ok := parsePrefix(strings.TrimSpace(e.Addr))
@@ -123,6 +126,9 @@ func (s *IgnoreSet) Set(in []IgnoreEntry) {
 		r := ignoreRule{p: p, level: e.Level}
 		if e.Until > 0 {
 			r.until = time.Unix(e.Until, 0)
+			if limit := loaded.Add(TestMaxSeconds * time.Second); r.until.After(limit) {
+				r.until = limit
+			}
 		}
 		if len(e.Ports) > 0 {
 			r.ports = map[int]bool{}

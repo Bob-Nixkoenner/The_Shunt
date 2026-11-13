@@ -1,6 +1,7 @@
 package defense
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -72,5 +73,25 @@ func TestKnownShownNotBlockedNotReported(t *testing.T) {
 	}
 	if tagged != 1 || hooked != 1 {
 		t.Errorf("tagged=%d hooked=%d, want 1 and 1", tagged, hooked)
+	}
+}
+
+// A test entry ends at most TestMaxSeconds after the list was loaded, however
+// far away its end time is.
+func TestTrustTestCapped(t *testing.T) {
+	var s IgnoreSet
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	a := netip.MustParseAddr("198.51.100.30")
+	s.setAt([]IgnoreEntry{{Addr: a.String(), Level: TrustTest, Until: now.AddDate(10, 0, 0).Unix()}}, now)
+	if got := s.Trust(a, 22, now.Add(23*time.Hour)); got != TrustTest {
+		t.Fatalf("within the cap: %q", got)
+	}
+	if got := s.Trust(a, 22, now.Add(TestMaxSeconds*time.Second)); got != "" {
+		t.Fatalf("after the cap the source counts normally: %q", got)
+	}
+	// a short end time stays as it is
+	s.setAt([]IgnoreEntry{{Addr: a.String(), Level: TrustTest, Until: now.Add(time.Hour).Unix()}}, now)
+	if got := s.Trust(a, 22, now.Add(2*time.Hour)); got != "" {
+		t.Fatalf("one hour entry: %q", got)
 	}
 }

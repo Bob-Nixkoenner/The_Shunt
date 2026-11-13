@@ -234,7 +234,7 @@ func (m *Manager) Configure(cfg Config) {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.never.SetConfig(ParsePrefixes(cfg.Never))
-	m.ignore.Set(cfg.Ignore)
+	m.ignore.setAt(cfg.Ignore, m.now())
 	key, class := m.key, m.class
 	watchDNS := featureOf(cfg, FeatDNS).Watch
 	m.mu.Unlock()
