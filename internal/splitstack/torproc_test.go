@@ -121,7 +121,10 @@ func TestTorProc(t *testing.T) {
 			t.Errorf("torrc lacks %q:\n%s", want, rc)
 		}
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	// polls for Bootstrap()==100; the limit is generous because the fake tor is
+	// a separate process whose start can take seconds when the machine is busy
+	// (it failed with "bootstrap 40" at 10 s under a parallel farm run)
+	deadline := time.Now().Add(60 * time.Second)
 	sawStarting := false
 	for time.Now().Before(deadline) {
 		if st := tt.status("t"); !st.Up && strings.Contains(st.Error, "Tor is starting") {
