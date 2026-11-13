@@ -127,7 +127,7 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 
 // permitWireGuardService permits all traffic of the program exe ("" = this process).
 func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight uint8, exe string) error {
-	var conditions [1]wtFwpmFilterCondition0
+	var conditions [2]wtFwpmFilterCondition0
 
 	//
 	// First condition is the exe path of the current process.
@@ -147,8 +147,32 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		},
 	}
 
-	// (The Shunt: no SECURITY_DESCRIPTOR condition as in wireguard-windows: the
-	// filters are persistent and must match the next run of the service too.)
+	// Second condition: the process runs as SYSTEM (report M-07). The path
+	// alone let any local user start tor.exe or shuntd-win.exe himself and
+	// send past the kill switch. wireguard-windows uses the security
+	// descriptor of the current process here; The Shunt's filters are
+	// persistent and must match the next run of the service too, so it is a
+	// fixed one that grants SYSTEM (the service and the tor it starts).
+	sd, err := windows.SecurityDescriptorFromString("O:SYD:(A;;CCRC;;;SY)")
+	if err != nil {
+		return wrapErr(err)
+	}
+	sdBlob := wtFwpByteBlob{size: sd.Length(), data: (*uint8)(unsafe.Pointer(sd))}
+	conditions[1] = wtFwpmFilterCondition0{
+		fieldKey:  cFWPM_CONDITION_ALE_USER_ID,
+		matchType: cFWP_MATCH_EQUAL,
+		conditionValue: wtFwpConditionValue0{
+			_type: cFWP_SECURITY_DESCRIPTOR_TYPE,
+			value: uintptr(unsafe.Pointer(&sdBlob)),
+		},
+	}
+	defer runtime.KeepAlive(sd)
+	// boot-time copies keep the path only: before BFE runs nobody is logged
+	// on, and a security descriptor condition might not be valid there
+	nconds := uint32(len(conditions))
+	if bootMode {
+		nconds = 1
+	}
 
 	//
 	// Assemble the filter.
@@ -158,7 +182,7 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		subLayerKey:         baseObjects.filters,
 		weight:              filterWeight(weight),
 		flags:               cFWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT,
-		numFilterConditions: uint32(len(conditions)),
+		numFilterConditions: nconds,
 		filterCondition:     (*wtFwpmFilterCondition0)(unsafe.Pointer(&conditions)),
 		action: wtFwpmAction0{
 			_type: cFWP_ACTION_PERMIT,
