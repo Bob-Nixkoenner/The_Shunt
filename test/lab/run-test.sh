@@ -4,6 +4,7 @@
 #   ID, TITLE                 e.g. A01, "App on the tunnel leaves only via CT130"
 #   MODE [normal]             gateway mode (labctl mode)
 #   CONFIG [base]             configs/<CONFIG>.toml becomes the client's shunt.toml
+#   USES_TOR=1                this test uses Tor although CONFIG is not tor...: lab.sh run waits LAB_AFTER_TOR_WAIT s (90) before the next test
 #   EXPECT_CANARY [tunnel]    where the canary name may show up: tunnel|gw|none|any
 #   ALLOW=()                  extra things the café network may see:
 #                             comm:<name> (packets of that process), dst:ip:port/proto,
@@ -163,6 +164,21 @@ ensure_link() {
 # gateway receive time minus send time as the clock offset and leaves the probes out of the findings.
 clock_probe() {
 	client "p='ping -n -c3 -i0.2 -W1 -s 32 -p 4c4142434c4f434b ${LAB_GW4:-10.77.0.1}'; sudo -n shunt run --via direct -- \$p >/dev/null 2>&1 || sudo -n \$p >/dev/null 2>&1" || true
+}
+
+# Tor tests leave connections to Tor relays behind; a relay closes an idle one
+# after about two minutes and the client's kernel answers that late FIN with an
+# RST, which the analyzer reports in the NEXT test ("reply past the tunnel").
+# So after a Tor test (CONFIG=tor... or USES_TOR=1 in the test file) the next test
+# waits LAB_AFTER_TOR_WAIT seconds (default 90; 0 turns it off). Not after the last test.
+uses_tor() { grep -q -E '^(USES_TOR=1|CONFIG=tor)' "$1"; }
+after_tor_pause() { # <test file>
+	local w=${LAB_AFTER_TOR_WAIT:-90}
+	if ((w > 0)) && uses_tor "$1"; then
+		echo "   (Tor test done: waiting ${w}s so the relays close their connections; LAB_AFTER_TOR_WAIT=0 turns this off)"
+		sleep "$w"
+	fi
+	return 0
 }
 
 run_test() {
