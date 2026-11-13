@@ -320,7 +320,13 @@ func (p *Plan) StartGuard(hold bool) map[string]StartEntry {
 				continue
 			}
 			if must && !hold {
-				if r.Route == nil || len(r.Args) > 0 || len(r.Ports) > 0 || !r.AnyFamily {
+				exeOpen := a.Kind == "exe" && r.Route != nil && r.Route.Kind != config.RouteBlock
+				if exeOpen || r.Route == nil || len(r.Args) > 0 || len(r.Ports) > 0 || !r.AnyFamily {
+					// exe: the guard sees only the 15-character name, not the
+					// path: a mark by name would give the rule's route to any
+					// program of that name (report H-03), so only the watcher,
+					// which checks the path, decides; a block mark by name only
+					// fails closed and stays.
 					// no route of its own (a filter level only), or the rule
 					// takes only part of the program (arguments, ports, one
 					// address family): its mark would be wrong for every

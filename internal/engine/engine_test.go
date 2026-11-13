@@ -189,3 +189,39 @@ route = "block"
 		t.Errorf("got %v", got)
 	}
 }
+
+// H-03 (external report): the start guard sees only the 15-byte name. A rule
+// for one path with an open route (direct, a tunnel) must not mark every
+// program of that name; the watcher decides by path. A block mark by name
+// fails closed and may stay.
+func TestStartGuardExeNotMarkedByName(t *testing.T) {
+	c, err := config.Parse(`
+[daemon]
+default_route = "tunnel:vps"
+[tunnel.vps]
+config = "x"
+[[rule]]
+app = ["exe:/opt/vendor/bin/updater"]
+route = "direct"
+[[rule]]
+app = ["exe:/opt/bad/bin/miner"]
+route = "block"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Compile(c, "shunt", map[string]TunnelInfo{"vps": {Iface: "sh-vps", HasV4: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	soft := p.StartGuard(false)
+	if e, ok := soft["updater"]; ok && e.Mark != 0 {
+		t.Fatalf("exe rule with route direct marked by name: %+v", e)
+	}
+	if e := soft["miner"]; e.Mark != p.RouteByName("block").Mark {
+		t.Fatalf("block by name should stay: %+v", e)
+	}
+	if e := p.StartGuard(true)["updater"]; !e.Hold {
+		t.Fatalf("with hold the exe rule is held: %+v", e)
+	}
+}
