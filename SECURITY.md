@@ -33,6 +33,13 @@ did, what leaked or broke, and the output of `shunt status --json` and
   If an application must never reach the internet except through the tunnel,
   route *everything* through the tunnel (`default_route = "tunnel:<name>"`)
   or run it as a separate user or in a VM.
+- **Tor connects to its relays directly.** A Tor tunnel (and the Tor route
+  `tor-all`) carries your traffic through Tor, but Tor's own connections to
+  its relays or bridges leave over the normal network of the machine, not
+  through another tunnel. The local network (Wi-Fi owner, provider) can see
+  that you use Tor, though not what you do. To hide this, put the Tor tunnel
+  behind a WireGuard tunnel with `via` (Linux only), or use a bridge
+  (obfs4, snowflake, meek, webtunnel).
 - **App rules are best effort**: a program is moved into its route right
   after it starts; a connection opened in the first milliseconds would keep
   the old route. On Linux with eBPF (kernel 6.1 or later) the start guard
