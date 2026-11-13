@@ -71,6 +71,38 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   (D-Bus services, browser handover) take that process's route.
 - **root on the machine** can do anything, including turning Shunt off.
 
+## Android: tunnel keys at rest
+
+The Android app stores each tunnel's secret part (the WireGuard file with its
+private and preshared keys, OpenVPN keys and inline certificates, OpenVPN user
+and password, Tor bridge lines) sealed with AES-256-GCM in `settings.json`
+(`android/app/src/main/java/org/theshunt/app/Vault.kt`). The AES key is made in
+the Android Keystore (StrongBox when the phone has one, otherwise the TEE) and
+cannot be read out; a copy of the app's files holds only ciphertext. Tunnel
+names, types, routes and the other settings stay readable, so the app can show
+and fail closed without the key.
+
+- **Migration:** a `settings.json` from an earlier version (keys in clear) is
+  sealed on the first start: the new file replaces the old one atomically, then
+  the old file's bytes are overwritten with zeros. If the key store fails, the
+  old file is kept and the app runs on; it tries again on the next start.
+  Flash storage may keep copies of old blocks (wear levelling) that no app can
+  reach; only a factory reset clears those.
+- **Key gone** (files moved to another phone, restored copy, key store reset):
+  the tunnels show as *locked*. They are never handed to the VPN core and every
+  route that names one of them (default, apps, network profiles, tunnels going
+  through it, Tor for everything) blocks. Their sealed values are kept as they
+  are. Delete the tunnel and import its file again.
+- **Not bound to the screen lock:** the key works while the phone is locked,
+  because the VPN must restart then (always-on, watchdog). Before the first
+  unlock after a boot the app's files are not readable at all; the app then
+  sees no tunnels and blocks everything. A sealing error never writes keys in
+  clear: the change is not saved and the app says so.
+- **Limits:** the key protects the files at rest, not a running phone. Root or
+  an exploit in the app's process can use the key store key (or read the keys
+  from memory, where the VPN core needs them in clear). Backups are off
+  (`allowBackup="false"`, `dataExtractionRules` exclude everything).
+
 ## Verifying downloads
 
 Release tarballs come with `SHA256SUMS` (checked by the installer) and a
