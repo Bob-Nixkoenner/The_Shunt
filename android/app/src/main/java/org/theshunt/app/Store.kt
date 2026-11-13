@@ -93,16 +93,19 @@ data class Tunnel(
  * [wifi] set: only on the one Wi-Fi with this id (Defense.wifiId, a hash of its name, never the
  * name); the core gets the id as the network's "ssid" and compares it with what the app passes.
  */
-data class NetProfile(val link: String, val route: String, val wifi: String = "") {
+data class NetProfile(val link: String, val route: String, val wifi: String = "", val lists: List<String>? = null) {
+    /** As stored; [lists] (DNS filter list names, null = as everywhere) become paths only in Settings.coreJson. */
     fun toJson(): JSONObject = JSONObject().put("name", if (wifi.isEmpty()) link else "wifi-$wifi").put("link", link).put("default", route)
         .apply { if (wifi.isNotEmpty()) put("ssid", JSONArray(listOf(wifi))) }
+        .apply { lists?.let { put("lists", JSONArray(it)) } }
 
     companion object {
         val LINKS = listOf("wifi", "mobile")
 
         /** Reads one profile as written by [toJson]; a "ssid" that is no Wi-Fi id is dropped. */
         fun fromJson(o: JSONObject) = NetProfile(o.getString("link"), o.optString("default", "block"),
-            o.optJSONArray("ssid")?.optString(0).orEmpty().takeIf { Defense.isWifiId(it) }.orEmpty())
+            o.optJSONArray("ssid")?.optString(0).orEmpty().takeIf { Defense.isWifiId(it) }.orEmpty(),
+            o.optJSONArray("lists")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it in Blocklists.ALL } })
     }
 }
 
@@ -138,6 +141,32 @@ data class Settings(
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
     fun shows(key: String) = Levels.shows(key, level)
+
+    /** Every DNS filter list in use: everywhere and on single Wi-Fi networks (to download). */
+    fun allFilterLists(): List<String> = (filterLists + networks.flatMap { it.lists.orEmpty() }).distinct()
+
+    private fun listsJson(ctx: Context, names: List<String>) = JSONArray().apply {
+        for (name in names) {
+            val f = Blocklists.file(ctx, name)
+            if (f.exists()) put(JSONObject().put("name", name).put("path", f.path))
+        }
+    }
+
+    /**
+     * The network profiles for the core: one Wi-Fi's before the one for all Wi-Fi networks
+     * (the core takes the first that fits), its route "" = the Wi-Fi row's, its own filter
+     * lists with their files.
+     */
+    private fun coreNetworks(ctx: Context): JSONArray {
+        val wifiRow = networks.find { it.link == "wifi" && it.wifi.isEmpty() }?.route.orEmpty()
+        return JSONArray(networks.sortedBy { it.wifi.isEmpty() }.map { p ->
+            p.toJson().apply {
+                remove("lists")
+                if (p.wifi.isNotEmpty() && p.route.isEmpty()) put("default", wifiRow)
+                p.lists?.let { put("blocklists", listsJson(ctx, it)) }
+            }
+        })
+    }
 
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
@@ -206,11 +235,7 @@ data class Settings(
         }
         val uids = JSONObject()
         for ((pkg, route) in apps) uid(pkg)?.let { uids.put(it.toString(), route) }
-        val lists = JSONArray()
-        for (name in filterLists) {
-            val f = Blocklists.file(ctx, name)
-            if (f.exists()) lists.put(JSONObject().put("name", name).put("path", f.path))
-        }
+        val lists = listsJson(ctx, filterLists)
         val tor = tunnels.firstOrNull { it.isTor }
         if (torAll && tor != null) {
             // everything on the Tor tunnel: the default, every app, no per-network profile
@@ -226,6 +251,7 @@ data class Settings(
                 .toString()
         }
         return toJson()
+            .put("networks", coreNetworks(ctx))
             .put("apps", uids)
             .put("blocklists", lists)
             .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))

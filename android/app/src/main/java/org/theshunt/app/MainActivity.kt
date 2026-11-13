@@ -1284,7 +1284,7 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
     val here = if (ssid.isNotEmpty()) Defense.wifiId(ssid) else ""
     val classes = settings.shows("defense.ui")
     Text(T("Known Wi-Fi networks"), color = c.text, fontWeight = FontWeight.SemiBold)
-    Hint("A Wi-Fi set up here keeps its own settings; every other Wi-Fi takes the Wi-Fi row above. Only a fingerprint of the name is saved, never the name.")
+    Hint("A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row above. Only a fingerprint of the name is saved, never the name.")
     when {
         !granted -> {
             Hint("To tell Wi-Fi networks apart Android needs the location permission (only to read the Wi-Fi name; The Shunt uses no location).")
@@ -1293,17 +1293,30 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
         }
         here.isEmpty() -> Hint("Not connected to a Wi-Fi (or location is switched off).")
         here !in Defense.knownWifis(settings) -> ButtonRow { m ->
-            ShuntButton("Set up this Wi-Fi", { update(settings.copy(networks = settings.networks + NetProfile("wifi", settings.networks.find { it.link == "wifi" && it.wifi.isEmpty() }?.route ?: settings.defaultRoute, here))) }, modifier = m)
+            ShuntButton("Set up this Wi-Fi", { update(settings.copy(networks = settings.networks + NetProfile("wifi", "", here))) }, modifier = m)
         }
     }
     for (id in Defense.knownWifis(settings)) {
         val p = settings.networks.find { it.wifi == id }
         Text(T("Wi-Fi") + " " + id.take(4) + (if (id == here) " · " + T("this one") else ""), color = c.text)
+        // route "" = the Wi-Fi row's, lists null = the lists everywhere; the entry stays until Delete
+        fun put(route: String, lists: List<String>?) =
+            update(settings.copy(networks = settings.networks.filter { it.wifi != id } + NetProfile("wifi", route, id, lists)))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(T("All other apps"), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
-            RoutePicker(p?.route ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
-                val rest = settings.networks.filter { it.wifi != id }
-                update(settings.copy(networks = if (r == SAME) rest else rest + NetProfile("wifi", r, id)))
+            RoutePicker(p?.route?.ifEmpty { SAME } ?: SAME, listOf(SAME) + settings.routes().filter { !it.startsWith("link:") }) { r ->
+                put(if (r == SAME) "" else r, p?.lists)
+            }
+        }
+        CheckRow(p?.lists != null, { on -> put(p?.route.orEmpty(), if (on) settings.filterLists else null) }) {
+            Text(T("Own DNS filter lists"), Modifier.weight(1f).padding(start = 12.dp), color = c.muted)
+        }
+        p?.lists?.let { own ->
+            for (name in Blocklists.ALL.keys) CheckRow(name in own, { on ->
+                put(p.route, if (on) own + name else own - name)
+                if (on) Thread { if (Blocklists.refresh(ctx, listOf(name))) ShuntVpnService.applyRules(ctx, Store.load(ctx)) }.start()
+            }) {
+                Text(name, Modifier.weight(1f).padding(start = 24.dp), color = c.text, fontFamily = Mono, fontSize = 12.sp)
             }
         }
         if (classes) ButtonRow { m ->

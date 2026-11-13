@@ -1,6 +1,7 @@
 package splitstack
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -30,4 +31,51 @@ func TestSetFilterBlocksAndRecords(t *testing.T) {
 	if got := e.blockedName("firefox.exe", "ads.example.com."); got != "" {
 		t.Fatalf("filter removed, blocked by %q", got)
 	}
+}
+
+// A Wi-Fi profile with its own lists filters with those on that Wi-Fi only;
+// an empty list switches the filter off there; other networks keep the
+// config's lists (Android: DNS filter lists per Wi-Fi, ssid = hash id).
+func TestNetworkBlocklists(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := dir + "/" + name
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	ads, trk := write("ads", "ads.example.com\n"), write("trk", "trk.example.com\n")
+	cfg := `{"default":"direct","direct_dns":"192.0.2.53",
+		"blocklists":[{"name":"ads","path":"` + ads + `"}],
+		"networks":[
+			{"name":"wifi-a","link":"wifi","ssid":["aaaaaaaaaaaa"],"blocklists":[{"name":"trk","path":"` + trk + `"}]},
+			{"name":"wifi-b","link":"wifi","ssid":["bbbbbbbbbbbb"],"blocklists":[]},
+			{"name":"wifi","link":"wifi"}]}`
+	c, err := parseConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{}
+	if err := e.setRules(c); err != nil {
+		t.Fatal(err)
+	}
+	check := func(ssid, name, want string) {
+		t.Helper()
+		e.mu.Lock()
+		e.link, e.ssid = "wifi", ssid
+		e.applyNetwork()
+		e.mu.Unlock()
+		if got := e.blockedName("app", name); got != want {
+			t.Errorf("wifi %q: %s blocked by %q, want %q", ssid, name, got, want)
+		}
+	}
+	check("", "ads.example.com.", "ads") // no id (no permission): the config's lists
+	check("cccccccccccc", "ads.example.com.", "ads")
+	check("aaaaaaaaaaaa", "trk.example.com.", "trk")
+	check("aaaaaaaaaaaa", "ads.example.com.", "")
+	check("bbbbbbbbbbbb", "ads.example.com.", "") // empty: no filter on this Wi-Fi
+	e.SetFilter(blocklist.NewFilter(map[string][]*blocklist.List{"x": nil}, nil), "x")
+	check("bbbbbbbbbbbb", "ads.example.com.", "") // not the platform's filter either
+	check("", "ads.example.com.", "ads")
 }

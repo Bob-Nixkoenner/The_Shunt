@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -263,7 +264,8 @@ type Engine struct {
 	gwMAC           string // MAC of its default gateway, "" = unknown
 	netName         string // matching profile, "" = none
 	domains         domainAddrs
-	filter          *blocklist.Filter
+	filter          *blocklist.Filter // the one in force: baseFilter or the network's (applyNetwork)
+	baseFilter      *blocklist.Filter
 	unfiltered      map[string]bool
 	// extFilter/extLevel: a filter kept up to date by the platform
 	// (SetFilter), used while the config names no blocklists itself.
@@ -427,17 +429,25 @@ func (e *Engine) setRules(c *config) error {
 	for k, v := range c.Apps {
 		apps[k] = v
 	}
-	var filter *blocklist.Filter
-	if len(c.Blocklists) > 0 {
-		var lists []*blocklist.List
-		for _, b := range c.Blocklists {
-			l, err := loadList(b)
-			if err != nil {
-				return err
-			}
-			lists = append(lists, l)
+	filter, err := buildFilter(c.Blocklists)
+	if err != nil {
+		return err
+	}
+	// a network with its own lists gets its own filter; an empty one filters
+	// nothing there (not the platform's lists either, see blockedName)
+	nets := slices.Clone(c.Networks)
+	for i := range nets {
+		if nets[i].Blocklists == nil {
+			continue
 		}
-		filter = blocklist.NewFilter(map[string][]*blocklist.List{filterLevel: lists}, nil)
+		f, err := buildFilter(*nets[i].Blocklists)
+		if err != nil {
+			return err
+		}
+		if f == nil {
+			f = blocklist.NewFilter(map[string][]*blocklist.List{filterLevel: nil}, nil)
+		}
+		nets[i].filter = f
 	}
 	unf := map[string]bool{}
 	for _, u := range c.Unfiltered {
@@ -448,7 +458,7 @@ func (e *Engine) setRules(c *config) error {
 		return err
 	}
 	e.mu.Lock()
-	e.apps, e.filter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, c.Networks
+	e.apps, e.baseFilter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, nets
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
 	e.autoDirect, e.blockDoH = c.autoDirect, c.BlockDoH
 	if c.autoDirect && e.sysDNS.IsValid() {
@@ -465,6 +475,22 @@ func (e *Engine) setRules(c *config) error {
 }
 
 const filterLevel = "on"
+
+// buildFilter loads lists into one filter (nil without lists).
+func buildFilter(bs []blocklistConf) (*blocklist.Filter, error) {
+	if len(bs) == 0 {
+		return nil, nil
+	}
+	var lists []*blocklist.List
+	for _, b := range bs {
+		l, err := loadList(b)
+		if err != nil {
+			return nil, err
+		}
+		lists = append(lists, l)
+	}
+	return blocklist.NewFilter(map[string][]*blocklist.List{filterLevel: lists}, nil), nil
+}
 
 // lists caches parsed blocklists by path: SetRules runs on every rule
 // change in the app, and parsing 100k names each time would stall it.

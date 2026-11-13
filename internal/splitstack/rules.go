@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	shuntcfg "github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/miekg/dns"
 )
@@ -25,6 +26,10 @@ type networkConf struct {
 	Link       string   `json:"link"`        // wifi | mobile | ethernet; "": any
 	Default    string   `json:"default"`     // "": keep the config's default
 	DirectDNS  string   `json:"direct_dns"`  // "": keep the config's direct_dns
+	// Blocklists: the DNS filter lists on this network instead of the
+	// config's (absent: keep those; empty: no filter here).
+	Blocklists *[]blocklistConf  `json:"blocklists"`
+	filter     *blocklist.Filter // built from Blocklists by setRules
 }
 
 // ruleConf routes by destination, the counterpart of [[rule]] with
@@ -295,7 +300,7 @@ func (e *Engine) SetNetworkMAC(link, ssid, mac string) string {
 // applyNetwork picks def and direct from the profile of the current
 // network. e.mu held.
 func (e *Engine) applyNetwork() string {
-	e.def, e.direct = e.baseDef, e.baseDirect
+	e.def, e.direct, e.filter = e.baseDef, e.baseDirect, e.baseFilter
 	n := matchNetwork(e.networks, e.link, e.ssid, e.gwMAC)
 	if n == nil {
 		e.netName = ""
@@ -306,6 +311,9 @@ func (e *Engine) applyNetwork() string {
 	}
 	if a, err := netip.ParseAddr(n.DirectDNS); err == nil {
 		e.direct = a
+	}
+	if n.Blocklists != nil {
+		e.filter = n.filter
 	}
 	e.netName = n.Name
 	return n.Name

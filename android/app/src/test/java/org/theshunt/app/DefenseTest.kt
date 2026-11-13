@@ -82,6 +82,19 @@ class DefenseTest {
     }
 
     @Test
+    fun filterListsPerWifi() {
+        val id = Defense.wifiId("ExampleNet")
+        val some = Blocklists.ALL.keys.take(2)
+        val s = Settings(filterLists = some.take(1), networks = listOf(NetProfile("wifi", "", id, some), NetProfile("wifi", "", Defense.wifiId("OtherNet"), emptyList())))
+        val j = s.toJson().getJSONArray("networks")
+        val back = (0 until j.length()).map { NetProfile.fromJson(j.getJSONObject(it)) }
+        assertEquals(s.networks.toSet(), back.toSet()) // own lists and "none here" (empty) survive
+        assertEquals(null, NetProfile.fromJson(NetProfile("wifi", "direct").toJson()).lists) // no own lists: as everywhere
+        assertEquals(some.toSet(), s.allFilterLists().toSet()) // all lists in use are downloaded
+        assertEquals(emptyList<String>(), NetProfile.fromJson(org.json.JSONObject("{\"link\":\"wifi\",\"lists\":[\"no-such-list\"]}")).lists)
+    }
+
+    @Test
     fun wifiListFromProOnSimpleStaysDefault() {
         assertEquals(Level.Simple, Settings().level)
         assertTrue(!Levels.shows("wifi.list", Level.Simple))

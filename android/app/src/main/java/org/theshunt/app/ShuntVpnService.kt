@@ -153,7 +153,7 @@ class ShuntVpnService : VpnService() {
             Defense.apply(this, VpnState.engine!!, settings)
             // filter lists: start with what is on disk, then refresh (also
             // without network the VPN must come up at once)
-            if (Blocklists.refresh(this, settings.filterLists)) applyRules(this, Store.load(this))
+            if (Blocklists.refresh(this, settings.allFilterLists())) applyRules(this, Store.load(this))
             Defense.refreshLists(this, VpnState.engine)
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
