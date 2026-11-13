@@ -12,6 +12,9 @@
 #   ns shunt-cli  10.99.0.2  shuntd; tunnel "ts" (tailscaled in its own
 #                            namespace behind veth sh-ts) with exit_node
 set -euo pipefail
+# the checks compare English output (WARNING, "0s ago"): a German system
+# (or a language picked in the UI) would fail them
+export LC_ALL=C SHUNT_LANG=en
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 HEADSCALE=${HEADSCALE:-$(command -v headscale || true)}

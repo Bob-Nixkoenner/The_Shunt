@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/cgroup"
@@ -218,4 +219,87 @@ func socketMark(t *testing.T) uint32 {
 		t.Fatal(err)
 	}
 	return uint32(m)
+}
+
+func TestParseCapEff(t *testing.T) {
+	got, err := parseCapEff("Name:\tshuntd\nCapPrm:\t0000000000003000\nCapEff:\t000000c000001000\n")
+	if err != nil || got != 0xc000001000 {
+		t.Fatalf("got %x %v", got, err)
+	}
+	if _, err := parseCapEff("Name:\tx\n"); err == nil {
+		t.Fatal("no CapEff line accepted")
+	}
+}
+
+// stubPrepare swaps the process-wide steps of prepare for one test.
+func stubPrepare(t *testing.T, caps uint64, capsErr, memlock error) *int {
+	t.Helper()
+	oldCaps, oldRm := effectiveCaps, removeMemlock
+	calls := 0
+	effectiveCaps = func() (uint64, error) { return caps, capsErr }
+	removeMemlock = func() error { calls++; return memlock }
+	memlockOnce, memlockErr = sync.Once{}, nil
+	t.Cleanup(func() {
+		effectiveCaps, removeMemlock = oldCaps, oldRm
+		memlockOnce, memlockErr = sync.Once{}, nil
+	})
+	return &calls
+}
+
+// Without CAP_BPF and CAP_SYS_ADMIN (the bounding set of a wrapper or an
+// old unit) Start must say so instead of cilium's "MEMLOCK may be too low",
+// and must not touch the memlock limit.
+func TestPrepareWithoutCaps(t *testing.T) {
+	calls := stubPrepare(t, 1<<12|1<<0, nil, nil) // CAP_NET_ADMIN + CAP_CHOWN only
+	if _, err := prepare(); !errors.Is(err, ErrNoCaps) {
+		t.Fatalf("got %v, want ErrNoCaps", err)
+	}
+	if *calls != 0 {
+		t.Fatal("memlock lifted without caps")
+	}
+	mnt := t.TempDir()
+	if err := os.Mkdir(filepath.Join(mnt, "shunt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Start(mnt, "shunt"); !errors.Is(err, ErrNoCaps) {
+		t.Fatalf("Start: got %v, want ErrNoCaps", err)
+	}
+}
+
+func TestPrepareLiftsMemlockOnce(t *testing.T) {
+	for _, c := range []uint64{1 << capBPF, 1 << capSysAdmin} {
+		calls := stubPrepare(t, c, nil, nil)
+		for range 3 {
+			if ml, err := prepare(); ml != nil || err != nil {
+				t.Fatalf("caps %x: %v %v", c, ml, err)
+			}
+		}
+		if *calls != 1 {
+			t.Fatalf("caps %x: RemoveMemlock called %d times, want once", c, *calls)
+		}
+	}
+	// unreadable caps: let the kernel decide
+	stubPrepare(t, 0, errors.New("no /proc"), nil)
+	if _, err := prepare(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A failed lift is kept and named by a later EPERM, nothing else.
+func TestMemlockFailureNamedOnEPERM(t *testing.T) {
+	lift := errors.New("setrlimit: operation not permitted")
+	stubPrepare(t, 1<<capBPF, nil, lift)
+	ml, err := prepare()
+	if err != nil || ml != lift {
+		t.Fatalf("got %v %v", ml, err)
+	}
+	if e := mapError("shunt_names", fmt.Errorf("map create: %w", unix.EPERM), ml); !errors.Is(e, ErrMemlock) || !strings.Contains(e.Error(), "LimitMEMLOCK") {
+		t.Fatalf("EPERM: %v", e)
+	}
+	if e := mapError("shunt_names", unix.EINVAL, ml); errors.Is(e, ErrMemlock) {
+		t.Fatalf("EINVAL called memlock: %v", e)
+	}
+	if e := mapError("shunt_names", unix.EPERM, nil); errors.Is(e, ErrMemlock) {
+		t.Fatalf("lifted limit called memlock: %v", e)
+	}
 }

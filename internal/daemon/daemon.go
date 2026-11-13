@@ -44,6 +44,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/override"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/ovpnconf"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/racebpf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
@@ -896,7 +897,12 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if err := d.startErr; err != nil {
 		if !d.startWarned {
 			d.startWarned = true
-			d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+			// loud: without it a starting program can leak its first packets
+			if f, ok := startGuardFinding(err, len(p.Plan.AppRules()) > 0, fwMode); ok {
+				d.Log.Error("START GUARD NOT AVAILABLE: "+f.Text(), "err", err)
+			} else {
+				d.Log.Warn("eBPF start guard not available: the first packets of a starting app may take the default route", "err", err)
+			}
 		}
 	} else if !d.startLogged && d.Backend.StartGuardStats() != nil {
 		d.startLogged = true
@@ -1922,8 +1928,7 @@ func (d *Daemon) status() api.Status {
 	notes = append(notes, d.startGuardNote()...)
 	st.Findings = d.prep.Findings
 	st.StartGuard = d.Backend.StartGuardStats()
-	if d.startErr != nil && len(d.plan.AppRules()) > 0 {
-		f := check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a newer kernel (6.1 or later).", "err", d.startErr.Error())
+	if f, ok := startGuardFinding(d.startErr, len(d.plan.AppRules()) > 0, d.cfg.FirewallMode(d.prep.Network)); ok {
 		notes = append(notes, f)
 		st.Findings = append(append([]check.Finding(nil), st.Findings...), f)
 	}
@@ -2319,4 +2324,31 @@ func (d *Daemon) gatewayStatus(g *engine.Gateway) *api.GatewayStatus {
 		gs.Groups = append(gs.Groups, s)
 	}
 	return gs
+}
+
+// startGuardFinding: the status note while the eBPF start guard is missing
+// (err != nil) and something relies on it: app rules (a starting program's
+// first packets) or the app firewall in ask/block mode (an unknown program's
+// first packets go out before it is held). With the firewall the level is
+// Bad: the promise "nothing goes out until you decide" is broken. The
+// reason decides the advice: missing capabilities and the memlock limit are
+// a service setup, not the kernel.
+func startGuardFinding(err error, appRules bool, fwMode string) (check.Finding, bool) {
+	fw := fwMode == config.FirewallAsk || fwMode == config.FirewallBlock
+	if err == nil || (!appRules && !fw) {
+		return check.Finding{}, false
+	}
+	var f check.Finding
+	switch {
+	case errors.Is(err, racebpf.ErrNoCaps):
+		f = check.Note("startguard", "eBPF start guard not available: shuntd lacks the capability CAP_BPF ({err}). Programs with an app rule and programs the app firewall should ask about may send their first packets over the default route. The service file (CapabilityBoundingSet) or the way shuntd was started removed it: start shuntd with CAP_BPF and CAP_PERFMON.", "err", err.Error())
+	case errors.Is(err, racebpf.ErrMemlock):
+		f = check.Note("startguard", "eBPF start guard not available: the memory lock limit is too low ({err}). Programs with an app rule and programs the app firewall should ask about may send their first packets over the default route. Set LimitMEMLOCK=infinity for the service.", "err", err.Error())
+	default:
+		f = check.Note("startguard", "eBPF start guard not available ({err}): a program with an app rule may send its first packets over the default route before it is moved into its rule's group. Start such programs with shunt run or a menu entry from shunt desktop, or use a newer kernel (6.1 or later).", "err", err.Error())
+	}
+	if fw {
+		f.Level = check.Bad
+	}
+	return f, true
 }
