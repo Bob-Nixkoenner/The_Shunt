@@ -8,7 +8,7 @@ mode=${1:-both}
 ports=${PORTS:-1-1024}
 if [[ $mode == syn || $mode == both ]]; then
 	echo "== SYN scan =="
-	sudo nmap -Pn -sS -e "$IFACE" -p "$ports" --min-rate "${RATE:-500}" "$TARGET"
+	sudo nmap -Pn -sS -p "$ports" --min-rate "${RATE:-500}" "$TARGET" # no -e: nmap 7.99x hangs with it (IPv6 link-local bind), the route picks the lab NIC
 fi
 if [[ $mode == connect || $mode == both ]]; then
 	echo "== connect scan =="

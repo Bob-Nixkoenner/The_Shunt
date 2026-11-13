@@ -11,7 +11,7 @@ need nmap; need curl; need_target
 ports=${PORTS:-1-1024}
 t0=$(date +%s)
 echo "== 1. SYN scan $ports =="
-sudo nmap -Pn -sS -e "$IFACE" -p "$ports" --min-rate 2000 "$TARGET" | grep -E "open|scanned" || true
+sudo nmap -Pn -sS -p "$ports" --min-rate 2000 "$TARGET" | grep -E "open|scanned" || true
 echo "== 2. bait file =="
 env_body=$(curl -s -m 5 "http://$TARGET/.env" || true)
 pw=$(printf '%s\n' "$env_body" | sed -n 's/^DB_PASSWORD=//p' | head -1)
