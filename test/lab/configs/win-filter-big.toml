@@ -1,4 +1,4 @@
-# Windows lab: DNS filter with a big synthetic local list (W03: memory of the sorted hash table).
+# Windows lab: DNS filter with a big synthetic local list (W03: memory of the sorted hash table; three files, one list is cut at 64 MB).
 [daemon]
 mac = ""
 dhcp_hostname = ""
@@ -20,5 +20,5 @@ route = "direct"
 [dns_filter]
 default = "normal"
 low = []
-normal = ['file:C:\ProgramData\Shunt\big-filter.txt']
-paranoid = ['file:C:\ProgramData\Shunt\big-filter.txt']
+normal = ['file:C:\ProgramData\Shunt\big-filter1.txt', 'file:C:\ProgramData\Shunt\big-filter2.txt', 'file:C:\ProgramData\Shunt\big-filter3.txt']
+paranoid = []
