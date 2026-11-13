@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 /**
  * Status tab, Max Security only (Levels "defense.ui"), while the defense is on:
- * a thermometer (heat 0-100 with its level) and the last events. Everything
+ * a thermometer (alert level 0-100 with its name) and the last events. Everything
  * comes from the core on this phone; nothing is sent anywhere.
  */
 @Composable
@@ -52,9 +52,10 @@ fun DefenseStatusSection(settings: Settings, status: JSONObject?) {
             }
             Text("$heat", color = c.muted, fontSize = 13.sp, modifier = Modifier.width(30.dp))
         }
+        Hint(T("Alert level 0–100: quiet below 25, noticed from 25, elevated from 50, attack from 80"))
         Hint(T("Network class: {class}", "class" to T(Defense.classLabel(d?.optString("class").orEmpty().ifEmpty { "unknown" }))))
         if (events.isEmpty()) Hint("No events yet. The first minutes of an app are learning only.")
-        for (ev in events) Text(Defense.text(ev), color = if (ev.severity >= 3) c.bad else c.text, fontSize = 13.sp, lineHeight = 18.sp)
+        for (ev in events) Text(Defense.text(ev) + (if (ev.trust.isNotEmpty()) " " + T("(known source)") else ""), color = if (ev.severity >= 3) c.bad else c.text, fontSize = 13.sp, lineHeight = 18.sp)
     }
 }
 

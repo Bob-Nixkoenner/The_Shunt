@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -97,11 +98,12 @@ func TestEvidenceSave(t *testing.T) {
 	if err := os.Mkdir(down, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	oldD, oldO := downloadsDirFn, openFolderFn
+	oldD, oldO, oldS := downloadsDirFn, openFolderFn, saveDialogFn
+	saveDialogFn = func(def string) (string, error) { return def, nil }
 	var opened []string
 	downloadsDirFn = func() string { return down }
 	openFolderFn = func(p string) { opened = append(opened, p) }
-	t.Cleanup(func() { downloadsDirFn, openFolderFn = oldD, oldO })
+	t.Cleanup(func() { downloadsDirFn, openFolderFn, saveDialogFn = oldD, oldO, oldS })
 	s := &Server{host: testHost, Client: api.NewClient(sock)}
 	h := s.handler()
 	_, sec := login(t, s, h)
@@ -134,5 +136,29 @@ func TestEvidenceSave(t *testing.T) {
 		if w := do(bad); w.Code != 400 {
 			t.Fatalf("%s: %d", bad, w.Code)
 		}
+	}
+}
+
+func TestSaveAsDialog(t *testing.T) {
+	dir := t.TempDir()
+	old, oldD := saveDialogFn, downloadsDirFn
+	t.Cleanup(func() { saveDialogFn, downloadsDirFn = old, oldD })
+	downloadsDirFn = func() string { return dir }
+	own := filepath.Join(dir, "mine.json")
+	saveDialogFn = func(string) (string, error) { return own, nil }
+	p, err := saveAs("x.json", ".json", []byte("a"))
+	if err != nil || p != own {
+		t.Fatalf("chosen path: %q %v", p, err)
+	}
+	saveDialogFn = func(string) (string, error) { return "", errCancelled }
+	if _, err := saveAs("x.json", ".json", []byte("a")); !errors.Is(err, errCancelled) {
+		t.Fatal("cancel must not write")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "x.json")); err == nil {
+		t.Fatal("file written after cancel")
+	}
+	saveDialogFn = func(string) (string, error) { return "", errNoDialog }
+	if p, err := saveAs("x.json", ".json", []byte("a")); err != nil || p != filepath.Join(dir, "x.json") {
+		t.Fatalf("fallback: %q %v", p, err)
 	}
 }

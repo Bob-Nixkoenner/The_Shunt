@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -19,6 +20,11 @@ type IgnoreEntry struct {
 	Addr  string `json:"addr" toml:"addr"`                       // address or CIDR
 	Name  string `json:"name,omitempty" toml:"name,omitempty"`   // note of the user
 	Ports []int  `json:"ports,omitempty" toml:"ports,omitempty"` // local ports; empty = all
+	// Level is the trust step: "" = ignore completely, "known" = shown but
+	// not reported, never blocked, heat halved and capped, "test" = like
+	// known without heat, until Until (unix seconds); then it counts normally.
+	Level string `json:"level,omitempty" toml:"level,omitempty"`
+	Until int64  `json:"until,omitempty" toml:"until,omitempty"`
 }
 
 // Limits of the ignore list.
@@ -67,6 +73,15 @@ func ValidateIgnore(in []IgnoreEntry) error {
 		if utf8.RuneCountInString(e.Name) > MaxIgnoreName || CleanText(e.Name, MaxIgnoreName+1) != strings.TrimSpace(e.Name) {
 			return fmt.Errorf("defense.ignore[%d]: the name is too long or has odd characters (at most %d)", i, MaxIgnoreName)
 		}
+		switch e.Level {
+		case TrustFull, TrustKnown:
+		case TrustTest:
+			if e.Until <= 0 {
+				return fmt.Errorf("defense.ignore[%d]: a test entry needs an end time", i)
+			}
+		default:
+			return fmt.Errorf("defense.ignore[%d]: unknown level %q", i, e.Level)
+		}
 		if len(e.Ports) > MaxIgnorePorts {
 			return fmt.Errorf("defense.ignore[%d]: at most %d ports", i, MaxIgnorePorts)
 		}
@@ -87,6 +102,8 @@ func ValidateIgnore(in []IgnoreEntry) error {
 type ignoreRule struct {
 	p     netip.Prefix
 	ports map[int]bool
+	level string
+	until time.Time
 }
 
 // IgnoreSet answers whether a source (and local port) is on the ignore list.
@@ -103,7 +120,10 @@ func (s *IgnoreSet) Set(in []IgnoreEntry) {
 		if !ok {
 			continue
 		}
-		r := ignoreRule{p: p}
+		r := ignoreRule{p: p, level: e.Level}
+		if e.Until > 0 {
+			r.until = time.Unix(e.Until, 0)
+		}
 		if len(e.Ports) > 0 {
 			r.ports = map[int]bool{}
 			for _, po := range e.Ports {
@@ -124,7 +144,7 @@ func (s *IgnoreSet) Match(a netip.Addr, port int) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, r := range s.rules {
-		if r.p.Contains(a) && (r.ports == nil || r.ports[port]) {
+		if r.level == TrustFull && r.p.Contains(a) && (r.ports == nil || r.ports[port]) {
 			return true
 		}
 	}

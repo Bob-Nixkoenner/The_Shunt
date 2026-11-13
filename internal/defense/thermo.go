@@ -50,11 +50,15 @@ func eventPoints(k Kind, s Severity) float64 {
 	return p
 }
 
+// knownRawCap is the raw point share at which known sources reach KnownHeatCap.
+var knownRawCap = -heatScale * math.Log(1-float64(KnownHeatCap)/100)
+
 // Thermo is the heat gauge: events add points, points fade exponentially,
 // and the shown value saturates smoothly below 100.
 type Thermo struct {
 	mu     sync.Mutex
 	raw    float64
+	known  float64 // points of "known" sources, capped when read
 	at     time.Time
 	class  Class
 	key    string
@@ -69,7 +73,9 @@ func NewThermo() *Thermo {
 
 func (t *Thermo) decay(now time.Time) {
 	if !t.at.IsZero() && now.After(t.at) {
-		t.raw *= math.Exp2(-float64(now.Sub(t.at)) / float64(HeatHalfLife))
+		f := math.Exp2(-float64(now.Sub(t.at)) / float64(HeatHalfLife))
+		t.raw *= f
+		t.known *= f
 	}
 	t.at = now
 }
@@ -83,7 +89,7 @@ func (t *Thermo) SetNetwork(key string, class Class) {
 	if key != t.key {
 		t.key = key
 		t.counts = map[Kind]int{}
-		t.raw = 0 // a new network starts cool (its report keeps its own peak)
+		t.raw, t.known = 0, 0 // a new network starts cool (its report keeps its own peak)
 	}
 }
 
@@ -93,9 +99,16 @@ func (t *Thermo) Add(ev Event) {
 	defer t.mu.Unlock()
 	t.decay(t.now())
 	t.counts[ev.Kind]++
+	if ev.Trust == TrustTest {
+		return
+	}
 	p := eventPoints(ev.Kind, ev.Severity) * ClassFactor(t.class)
 	if ev.Kind == KindExposed && !strings.Contains(ev.Detail, "inbound=closed") && !strings.Contains(ev.Detail, "inbound=lan") {
 		p *= 2 // nothing stops the internet: open or not filtered
+	}
+	if ev.Trust == TrustKnown {
+		t.known += p / 2
+		return
 	}
 	t.raw += p
 }
@@ -105,7 +118,7 @@ func (t *Thermo) Heat() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.decay(t.now())
-	h := int(math.Round(100 * (1 - math.Exp(-t.raw/heatScale))))
+	h := int(math.Round(100 * (1 - math.Exp(-(t.raw+math.Min(t.known, knownRawCap))/heatScale))))
 	return max(0, min(100, h))
 }
 

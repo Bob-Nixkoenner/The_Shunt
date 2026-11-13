@@ -577,7 +577,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 
 <main id="page-defense" hidden>
   <section>
-    <h2>Heat <span class="spacer"></span><span id="def-class"></span></h2>
+    <h2>Alert level <span class="spacer"></span><span id="def-class"></span></h2>
     <div id="def-thermo"></div>
     <div id="def-exposed"></div>
     <div id="def-notes" class="hint"></div>
@@ -585,7 +585,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <label class="row" style="color:var(--text)"><input type="checkbox" id="def-on"> Defense on</label>
       <span class="spacer"></span>
       <label class="muted" for="def-popup">Live window</label>
-      <select id="def-popup"><option value="auto">from Hot upwards</option><option value="always">always on a hit</option><option value="never">never</option></select>
+      <select id="def-popup"><option value="auto">from Elevated upwards</option><option value="always">always on a hit</option><option value="never">never</option></select>
     </div>
   </section>
   <section data-fold id="sec-outside">
@@ -610,15 +610,21 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   </section>
   <section data-fold id="sec-ignore">
     <h2>Ignored devices <span class="muted" style="text-transform:none;letter-spacing:0">no alarm for your own devices</span></h2>
-    <div class="hint" style="margin:0 0 8px">A device listed here is not reported as a scan or brute force and is never blocked, for the ports you name (no ports = all). Use it for your own devices, for example one that keeps looking for a service on this computer. Known bad addresses are still reported. VPN peers are not added by themselves: only what you enter here counts.</div>
+    <div class="hint" style="margin:0 0 8px" data-i18n="html">A device listed here is not reported as a scan or brute force and is never blocked, for the ports you name (no ports = all). <b>Known</b> still shows what it does, but does not report it, never blocks it and lets it raise the alert level to 50 at most. <b>Test</b> only shows it for one hour (for example your own port scan), then it counts normally. Use it for your own devices, for example one that keeps looking for a service on this computer. Known bad addresses are still reported. VPN peers are not added by themselves: only what you enter here counts.</div>
     <div id="ign-list"></div>
     <div class="row" style="flex-wrap:wrap;gap:6px 10px;margin-top:8px">
       <input id="ign-addr" placeholder="192.0.2.5 or 192.0.2.0/24" aria-label="Address or range" style="min-width:150px">
       <input id="ign-name" placeholder="Name (optional)" maxlength="64" aria-label="Name" style="min-width:120px">
       <input id="ign-ports" placeholder="Ports (empty = all)" aria-label="Ports" style="min-width:110px">
+      <select id="ign-level" aria-label="Trust step"><option value="">Ignore completely</option><option value="known">Known (shown, not reported)</option><option value="test">Test (1 hour, shown only)</option></select>
       <button id="ign-add">Add</button>
     </div>
     <div class="muted" id="ign-msg"></div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 10px;margin-top:12px">
+      <input id="nev-addr" placeholder="Never block: 192.0.2.5 or 192.0.2.0/24" aria-label="Never block address or range" style="min-width:260px">
+      <button id="nev-add">Never block</button>
+    </div>
+    <div class="muted" id="nev-msg"></div>
   </section>
   <section data-fold>
     <h2>Lists and sources</h2>

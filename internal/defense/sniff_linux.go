@@ -337,11 +337,27 @@ var namesFilter = []unix.SockFilter{
 	{Code: 0x06, K: 0},              // 16 drop
 }
 
+// namesFilter6 is the IPv6 twin: next header UDP, source or destination port
+// 5353 or 5355 (extension headers are not followed: such packets are dropped).
+var namesFilter6 = []unix.SockFilter{
+	{Code: 0x30, K: 6},           // 0 ldb [6] next header
+	{Code: 0x15, Jf: 6, K: 17},   // 1 jeq UDP else drop
+	{Code: 0x28, K: 40},          // 2 ldh [40] source port
+	{Code: 0x15, Jt: 4, K: 5353}, // 3
+	{Code: 0x15, Jt: 3, K: 5355}, // 4
+	{Code: 0x28, K: 42},          // 5 ldh [42] destination port
+	{Code: 0x15, Jt: 1, K: 5353}, // 6
+	{Code: 0x15, Jf: 1, K: 5355}, // 7 hit -> accept, else drop
+	{Code: 0x06, K: 262144},      // 8 accept
+	{Code: 0x06, K: 0},           // 9 drop
+}
+
 // hostNames listens, and only listens, for host names other devices tell the
 // segment themselves: DHCP requests (option 12), mDNS and LLMNR
 // announcements. It sends nothing (no PTR, NetBIOS, mDNS or LLMNR question,
-// no scan). IPv4 only. Needs CAP_NET_RAW.
+// no scan). IPv4 (DHCP, mDNS, LLMNR) and IPv6 (mDNS, LLMNR). Needs CAP_NET_RAW.
 func (s *Sensors) hostNames(ctx context.Context, env Env) {
+	go s.hostNames6(ctx, env)
 	link, err := netlink.LinkByName(env.Iface)
 	if err != nil {
 		return
@@ -367,6 +383,39 @@ func (s *Sensors) hostNames(ctx context.Context, env Env) {
 			continue
 		}
 		s.M.LearnNames(NamesFromIPv4(buf[:n]))
+	}
+}
+
+// hostNames6 is the IPv6 part of hostNames: mDNS (ff02::fb) and LLMNR
+// announcements. Listens only; the multicast groups are not joined, the
+// packet socket sees them anyway when something else on the host (or the
+// switch flooding) delivers them.
+func (s *Sensors) hostNames6(ctx context.Context, env Env) {
+	link, err := netlink.LinkByName(env.Iface)
+	if err != nil {
+		return
+	}
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, int(htons(unix.ETH_P_IPV6)))
+	if err != nil {
+		return
+	}
+	defer unix.Close(fd)
+	prog := unix.SockFprog{Len: uint16(len(namesFilter6)), Filter: &namesFilter6[0]}
+	if err := unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &prog); err != nil {
+		return
+	}
+	if err := unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_IPV6), Ifindex: link.Attrs().Index}); err != nil {
+		return
+	}
+	tv := unix.NsecToTimeval(int64(time.Second))
+	_ = unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &tv)
+	buf := make([]byte, 2048)
+	for ctx.Err() == nil {
+		n, _, err := unix.Recvfrom(fd, buf, 0)
+		if err != nil {
+			continue
+		}
+		s.M.LearnNames(NamesFromIPv6(buf[:n]))
 	}
 }
 
