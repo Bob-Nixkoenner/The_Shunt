@@ -131,6 +131,11 @@ clear text.
   (or `HOP_VM=<name>` -> `wg-hop-lab-<name>.conf`), not from the tunnel address.
 - Analyzer: `LABMARK tor_end <epoch>` in the client output marks an intended end of tor; contentless TCP to port 9001
   within 15 s afterwards is reported as info. GitHub list downloads with a `direct` default route are info (#8).
+- Clock: `LABMARK` times are the client's clock, `gw.pcap` the gateway's; the two guests differ by up to about 1 s
+  (measured 0.6–0.8 s). For a test with `LABMARK`, the runner sends three clock probes (ping to the gateway on the
+  direct route, payload = ping's send time + `LABCLOCK`) before and after the client script; the analyzer shifts the
+  strict window and `tor_end` by the median offset, leaves the probes out and prints the offset in the report.
+  Without the shift, packets sent before a switch looked like leaks after it (H01 on CachyOS, 2026-11-13).
 
 ## Windows client (CLIENT_OS=windows)
 

@@ -16,6 +16,7 @@ import json
 import os
 import re
 import socket
+import struct
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -221,8 +222,35 @@ def eui64(addr, mac):
 
 
 # strict window of the test (LABMARK lines, written right after the switch
-# returned; client clock = gateway clock in the lab, guest time sync)
-strict = meta.get("strict") or []
+# returned). LABMARK times are the CLIENT's clock, gw.pcap the gateway's: the
+# two guests differ by up to about 1 s (measured 0.77-0.81 s on 2026-11-13,
+# guest time sync does not keep them closer). The runner sends clock probes
+# (ICMP echo, payload starts with ping's send time, then LABCLOCK) before and
+# after the client script; offset = gateway receive time - client send time.
+CLOCK_MARK = b"LABCLOCK"
+
+
+def clock_probe(pkt):
+    """Send time (client clock) of a clock probe, else None."""
+    if IP not in pkt or ICMP not in pkt or pkt[ICMP].type != 8 or Raw not in pkt:
+        return None
+    data = bytes(pkt[Raw].load)
+    if len(data) < 24 or CLOCK_MARK not in data[16:]:
+        return None
+    sec, usec = struct.unpack("<qq", data[:16])
+    return sec + usec / 1e6
+
+
+clock_offsets = []
+if meta.get("strict") and os.path.exists(p("gw.pcap")):
+    for pkt in PcapReader(p("gw.pcap")):
+        t = clock_probe(pkt) if Ether in pkt else None
+        if t is not None:
+            clock_offsets.append(float(pkt.time) - t)
+clock_offset = sorted(clock_offsets)[len(clock_offsets) // 2] if clock_offsets else 0.0
+strict = [[a + clock_offset, b + clock_offset if b is not None else None] for a, b in (meta.get("strict") or [])]
+if tor_end:
+    tor_end += clock_offset
 strict_from = bool(strict)
 outside = 0
 
@@ -240,6 +268,8 @@ if os.path.exists(p("gw.pcap")):
     for pkt in PcapReader(p("gw.pcap")):
         if Ether not in pkt:
             continue
+        if strict and clock_probe(pkt) is not None:
+            continue  # the runner's clock probe (lab traffic, not the client's)
         if strict and not in_strict(float(pkt.time)):
             outside += 1
             continue
@@ -553,6 +583,8 @@ r += [f"- **{g}** ({s}): {t}" for s, g, t in findings] or ["- keine"]
 r += ["", "## Fremdes Netz (Lab-Gateway)", "",
       f"- Tunnel-Transport: " + (", ".join(f"{i}:{pt}/{pr} {n} Pakete" for (i, pt, pr), n in tunnel_pkts.items()) or "keiner"),
       *([f"- Nur der strenge Teil gewertet (LABMARK): {outside} Pakete davor/danach nicht beurteilt"] if strict_from else []),
+      *([f"- Uhrabgleich Gateway minus Client: {clock_offset:+.3f} s ({len(clock_offsets)} Proben)" if clock_offsets
+         else "- Uhrabgleich: keine Probe im Mitschnitt, LABMARK-Zeiten ungeprueft (Versatz bis ca. 1 s moeglich)"] if strict_from else []),
       f"- DNS-Anfragen über das fremde Netz: {len(gw_dns)} (unbound-Protokoll: {len(unbound_q)})",
       f"- HTTP-Aufrufe am Gateway: " + (", ".join(sorted({h for _, h, _ in web_hits})) or "keine")]
 r += ["", "### Was das Netz über das Gerät erfährt", ""]
