@@ -56,20 +56,37 @@ func parseUDP6(b []byte) ([]Row, error) { return parseTable(b, 28, 0, 20, 24, tr
 
 // find returns the PID of the socket bound to local; a socket bound to the
 // unspecified address (0.0.0.0 / ::, typical for UDP) matches any address
-// with that port.
+// with that port. Two different programs on the same address and port
+// (SO_REUSEADDR) make the owner unknown (report L-08): the first row must not
+// lend its route to another program's packets.
 func find(rows []Row, local netip.AddrPort) (uint32, bool) {
-	var wildcard uint32
-	found := false
+	var exact, wildcard uint32
+	nExact, nWild := 0, 0
 	for _, r := range rows {
 		if r.Local.Port() != local.Port() {
 			continue
 		}
 		if r.Local.Addr() == local.Addr() {
-			return r.PID, true
+			if nExact == 0 || r.PID != exact {
+				nExact++
+			}
+			exact = r.PID
+			continue
 		}
 		if r.Local.Addr().IsUnspecified() && r.Local.Addr().Is4() == local.Addr().Is4() {
-			wildcard, found = r.PID, true
+			if nWild == 0 || r.PID != wildcard {
+				nWild++
+			}
+			wildcard = r.PID
 		}
 	}
-	return wildcard, found
+	switch {
+	case nExact == 1:
+		return exact, true
+	case nExact > 1:
+		return 0, false
+	case nWild == 1:
+		return wildcard, true
+	}
+	return 0, false
 }

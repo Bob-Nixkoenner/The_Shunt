@@ -48,3 +48,25 @@ func TestParseTables(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 }
+
+// L-08 (external report): two programs on one address and port (SO_REUSEADDR)
+// leave the owner unknown; one program with two rows stays found.
+func TestFindAmbiguous(t *testing.T) {
+	lp := netip.MustParseAddrPort("192.0.2.10:5353")
+	two := []Row{{Local: lp, PID: 100}, {Local: lp, PID: 200}}
+	if pid, ok := find(two, lp); ok {
+		t.Fatalf("two owners must be unknown, got %d", pid)
+	}
+	same := []Row{{Local: lp, PID: 100}, {Local: lp, PID: 100}}
+	if pid, ok := find(same, lp); !ok || pid != 100 {
+		t.Fatalf("one owner: %d %v", pid, ok)
+	}
+	any := netip.MustParseAddrPort("0.0.0.0:5353")
+	wild := []Row{{Local: any, PID: 300}, {Local: any, PID: 400}}
+	if pid, ok := find(wild, lp); ok {
+		t.Fatalf("two wildcard owners must be unknown, got %d", pid)
+	}
+	if pid, ok := find(append(wild, Row{Local: lp, PID: 500}), lp); !ok || pid != 500 {
+		t.Fatalf("an exact owner wins over wildcards: %d %v", pid, ok)
+	}
+}
