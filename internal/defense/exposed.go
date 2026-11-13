@@ -36,7 +36,7 @@ type aggEntry struct {
 // findings (spoofing, hijack, certificate, exposure itself) always show.
 func aggregatable(k Kind) bool {
 	switch k {
-	case KindDecoyHit, KindTarpit, KindCowrie, KindScan, KindBruteForce, KindReputation, KindFirstSeen, KindObservation:
+	case KindDecoyHit, KindTarpit, KindCowrie, KindScan, KindBruteForce, KindBruteService, KindReputation, KindFirstSeen, KindObservation:
 		return true
 	}
 	return false

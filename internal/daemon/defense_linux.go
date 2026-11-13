@@ -20,6 +20,8 @@ import (
 
 	nflog "github.com/florianl/go-nflog/v2"
 	"github.com/miekg/dns"
+	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
@@ -37,7 +39,46 @@ func (d *Daemon) defenseOptions() []defense.Option {
 	return []defense.Option{
 		defense.WithListen(defense.LinuxListen(d.defIface, engine.MarkBypass)),
 		defense.WithBanHooks(d.nftBan, d.nftUnban),
+		defense.WithServiceProbe(conntrackServiceProbe),
 	}
+}
+
+// conntrackServiceProbe reads the connection table for the connections of
+// src to local TCP port: how many are established right now and whether any
+// finished a handshake (established, or closing after one: FIN_WAIT,
+// CLOSE_WAIT, LAST_ACK, TIME_WAIT; conntrack keeps TIME_WAIT for 120 s). A
+// bare SYN (SYN_SENT/SYN_RECV) or a refused one (CLOSE) is no handshake.
+// Only reads; nothing is changed.
+func conntrackServiceProbe(src netip.Addr, port int) (defense.ServiceFlows, bool) {
+	fam := netlink.InetFamily(unix.AF_INET6)
+	if src.Is4() {
+		fam = unix.AF_INET
+	}
+	flows, err := netlink.ConntrackTableList(netlink.ConntrackTable, fam)
+	if err != nil {
+		return defense.ServiceFlows{}, false
+	}
+	var out defense.ServiceFlows
+	for _, f := range flows {
+		if f.Forward.Protocol != unix.IPPROTO_TCP || int(f.Forward.DstPort) != port {
+			continue
+		}
+		if a, ok := netip.AddrFromSlice(f.Forward.SrcIP); !ok || a.Unmap() != src {
+			continue
+		}
+		tcp, ok := f.ProtoInfo.(*netlink.ProtoInfoTCP)
+		if !ok {
+			continue
+		}
+		switch tcp.State {
+		case nl.TCP_CONNTRACK_ESTABLISHED:
+			out.Open++
+			out.Handshake = true
+		case nl.TCP_CONNTRACK_FIN_WAIT, nl.TCP_CONNTRACK_CLOSE_WAIT, nl.TCP_CONNTRACK_LAST_ACK, nl.TCP_CONNTRACK_TIME_WAIT:
+			out.Handshake = true
+		}
+	}
+	return out, true
 }
 
 func (d *Daemon) nftBan(b defense.Ban) {
@@ -218,7 +259,9 @@ func (d *Daemon) dnsReference(ctx context.Context, name string) ([]netip.Addr, e
 // as scan/brute-force attempts (Manager.Observe); connections to a port that
 // really listens only go through the reputation check. Decoy ports are
 // skipped (the decoys report their own hits). It runs until the table is
-// removed. Limit: brute force on a real service is not seen this way.
+// removed. New TCP connections to a real service (the port monitor's open
+// ports, see servicePorts) are also counted for brute force on that
+// service (Manager.ObserveService); the service itself is never touched.
 func (d *Daemon) defenseLog(ctx context.Context) {
 	nf, err := nflog.Open(&nflog.Config{Group: nft.DefenseLogGroup, Copymode: nflog.CopyPacket, Bufsize: 128})
 	if err != nil {
@@ -245,7 +288,23 @@ func (d *Daemon) defenseLog(ctx context.Context) {
 // packets (read again every 5 s). Only the NFLOG reader goroutine uses it.
 type logState struct {
 	listen map[string]bool
+	svc    map[int]string // real services by TCP port (port monitor), see servicePorts
+	tun    map[uint32]bool
 	at     time.Time
+}
+
+// tunnelIfaces are the interface indexes of tunnels (point-to-point or
+// without a hardware address: WireGuard, OpenVPN tun, Tailscale). Peers
+// that come in through a tunnel are not counted as brute force.
+func tunnelIfaces() map[uint32]bool {
+	out := map[uint32]bool{}
+	ifs, _ := net.Interfaces()
+	for _, i := range ifs {
+		if i.Flags&net.FlagLoopback == 0 && (i.Flags&net.FlagPointToPoint != 0 || len(i.HardwareAddr) == 0) {
+			out[uint32(i.Index)] = true
+		}
+	}
+	return out
 }
 
 // defenseLogPacket handles one logged inbound packet (see defenseLog).
@@ -259,6 +318,8 @@ func (d *Daemon) defenseLogPacket(st *logState, a nflog.Attribute) {
 	}
 	if time.Since(st.at) > 5*time.Second || st.listen == nil {
 		st.listen, st.at = listeningPorts(), time.Now()
+		st.svc, _ = d.def.svcPorts.Load().(map[int]string)
+		st.tun = tunnelIfaces()
 	}
 	d.evidencePacket(*a.Payload, proto, port, st.listen)
 	if proto == "tcp" && defense.IsTCPReply(*a.Payload) {
@@ -273,6 +334,10 @@ func (d *Daemon) defenseLogPacket(st *logState, a nflog.Attribute) {
 		}
 	}
 	if st.listen[proto+"/"+fmt.Sprint(port)] {
+		if svc, ok := st.svc[port]; ok && proto == "tcp" && (a.InDev == nil || !st.tun[*a.InDev]) {
+			// a new connection to a real service: counted, never touched
+			d.def.m.ObserveService(src, port, proto, svc)
+		}
 		d.def.m.CheckPeer(src, port, proto)
 	} else {
 		d.def.m.ObserveState(src, port, proto, defense.StateS0) // logged before the drop: nothing answered

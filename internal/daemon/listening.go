@@ -8,6 +8,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/sockets"
@@ -15,6 +16,31 @@ import (
 
 // listening reports the open ports and where they can be reached from.
 func (d *Daemon) listening() api.Listening {
+	out := d.openPorts()
+	out.Firewalls = otherFirewalls()
+	return out
+}
+
+// servicePorts lists the real services the brute-force counter watches, by
+// TCP port, with the program that listens: the open ports of the port
+// monitor that the network can reach (not loopback-only, not blocked by
+// the inbound mode) and that are not The Shunt's own (decoys, proxy, DNS).
+func (d *Daemon) servicePorts() map[int]string {
+	out := map[int]string{}
+	for _, p := range d.openPorts().Ports {
+		if p.Proto != "tcp" || p.Reach == "localhost" || !p.Exposed || p.Blocked || defense.OwnApp(p.Owner.Name) {
+			continue
+		}
+		if _, has := out[int(p.Port)]; !has || out[int(p.Port)] == "" {
+			out[int(p.Port)] = p.Owner.Name
+		}
+	}
+	return out
+}
+
+// openPorts is listening without the scan for other firewalls (that one
+// runs nft; the brute-force counter reads the ports every 5 s).
+func (d *Daemon) openPorts() api.Listening {
 	d.mu.Lock()
 	out := api.Listening{Ports: []api.OpenPort{}}
 	var in *engine.Inbound
@@ -37,7 +63,6 @@ func (d *Daemon) listening() api.Listening {
 		}
 	}
 	d.mu.Unlock()
-	out.Firewalls = otherFirewalls()
 
 	ss, err := sockets.ListListening()
 	if err != nil {

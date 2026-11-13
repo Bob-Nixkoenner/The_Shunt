@@ -32,6 +32,7 @@ type Manager struct {
 	dns       dnsState
 	conn      connState
 	chain     chainState
+	svc       svcState
 	now       func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -173,6 +174,7 @@ func (m *Manager) tick() {
 	m.rep.Prune()
 	m.ver.prune(m.now())
 	m.chain.prune(m.now())
+	m.svc.prune(m.now())
 	m.flushAgg(false)
 	if err := m.rpts.Flush(); err != nil {
 		m.log.Debug("defense: report file", "err", err)
@@ -260,6 +262,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 		m.forgetDNS()
 		m.forgetConns()
 		m.chain.reset()
+		m.svc.reset()
 		m.names.Forget()
 	}
 	if changed && enabled {
@@ -460,7 +463,7 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 // banNow carries out a block that waited for the handshake.
 func (m *Manager) banNow(src netip.Addr, reason Kind, note string) {
 	feat := FeatScan
-	if reason == KindBruteForce {
+	if reason == KindBruteForce || reason == KindBruteService {
 		feat = FeatBrute
 	}
 	m.mu.Lock()

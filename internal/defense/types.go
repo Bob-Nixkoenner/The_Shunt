@@ -90,6 +90,7 @@ const (
 	KindAutomatedChain Kind = "automated_chain" // scan, decoy handshake and login try from one source within seconds
 	KindScan           Kind = "scan"            // many ports from one source
 	KindBruteForce     Kind = "brute_force"     // many failed connections
+	KindBruteService   Kind = "brute_service"   // many short connections of one source to a real open port
 	KindReputation     Kind = "reputation"      // peer or destination on a bad list
 	KindFirstSeen      Kind = "first_seen"      // an app contacted a new destination
 	KindARP            Kind = "arp"             // gateway MAC changed / ARP or NDP spoofing

@@ -163,6 +163,10 @@ var ownApps = map[string]bool{
 	"shuntd-win": true, "shunt-helper": true, "shunt-tray": true,
 }
 
+// OwnApp reports whether app (a socket owner name) is one of The Shunt's
+// own programs.
+func OwnApp(app string) bool { return ownApps[strings.ToLower(app)] }
+
 func (m *Manager) noteFirstSeen(app string, dst netip.AddrPort) {
 	if !appUsable(app) || ownApps[strings.ToLower(app)] {
 		return

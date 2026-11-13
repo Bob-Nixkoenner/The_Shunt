@@ -49,6 +49,7 @@ type defenseState struct {
 	tlsBusy     atomic.Bool   // a certificate check is running
 	outsideBusy atomic.Bool   // an outside check is running
 	tlsSoon     chan struct{} // a new network: check again soon
+	svcPorts    atomic.Value  // map[int]string: real services for the brute-force counter (servicePorts, every 5 s)
 
 	ev evState // evidence log and capture (evidence.go)
 }
@@ -373,6 +374,9 @@ func (d *Daemon) defenseLoops(ctx context.Context) {
 				return
 			case <-tk.C:
 				d.defensePushPorts()
+				// the port monitor's list for the brute-force counter;
+				// read here, not in the packet reader (it takes d.mu)
+				defense.Guard(d.Log, "service port list", func() { d.def.svcPorts.Store(d.servicePorts()) })
 			}
 		}
 	}()
