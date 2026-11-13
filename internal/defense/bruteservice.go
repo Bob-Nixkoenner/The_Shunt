@@ -46,6 +46,9 @@ const (
 	SvcBruteWindow = 60 * time.Second
 	SvcBruteConns  = 10
 	SvcBruteHigh   = 60
+	// SvcBruteProven: proven handshakes (open or closing) a medium finding
+	// needs to block.
+	SvcBruteProven = 20
 
 	// memory caps: the counter is fed by strangers
 	svcMaxEntries   = 2048 // (source, port) pairs in total
@@ -338,10 +341,18 @@ func (s *svcState) step(log *slog.Logger, src netip.Addr, port int, service stri
 		}
 		e.fired = level
 	}
-	// Only a high finding blocks (decision of the owner, 13.11.): an own device
-	// that makes many short real connections (a small web server without
-	// keep-alive, file transfers) reaches medium, rarely 60 in a minute.
-	if !e.banned && known && level == 2 && flows.proven() >= SvcBruteConns {
+	// When a finding blocks (decision of the owner, 13.11., after lab R10):
+	//   - high (60 short connections in a minute): with SvcBruteConns proven
+	//     handshakes (the floor against forged SYNs),
+	//   - medium: only with SvcBruteProven proven handshakes. hydra keeps its
+	//     16 connections open and tries several passwords on each, so it
+	//     reaches medium, not high (R10: conns=25 short=10 open=15); an own
+	//     device that opens a few short connections stays below 20.
+	need := SvcBruteProven
+	if level == 2 {
+		need = SvcBruteConns
+	}
+	if !e.banned && known && flows.proven() >= need {
 		d.ban, e.banned = true, true
 	}
 	return d, d.report || d.ban

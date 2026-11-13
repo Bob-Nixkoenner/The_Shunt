@@ -477,17 +477,34 @@ func TestSvcEntryClockBack(t *testing.T) {
 	}
 }
 
-// An own device with many short real connections (a small web server without
-// keep-alive, 30 files in a minute) is reported, not blocked.
+// An own device with a few short real connections (a small web server
+// without keep-alive, 15 files in a minute) is reported, not blocked: a
+// medium finding blocks only with SvcBruteProven proven handshakes.
 func TestBruteServiceOwnShortConnectionsNotBlocked(t *testing.T) {
 	tab := &fakeTable{}
-	tab.set("198.51.100.40", 8000, ServiceFlows{Done: 30})
+	tab.set("198.51.100.40", 8000, ServiceFlows{Done: 15})
 	m, clk, banCh := svcManager(t, true, tab)
-	conns(m, clk, "198.51.100.40", 8000, 30, 2*time.Second)
+	conns(m, clk, "198.51.100.40", 8000, 15, 3*time.Second)
 	if ev := svcEvents(m); len(ev) != 1 || ev[0].Severity != SevMedium {
 		t.Fatalf("events %+v", ev)
 	}
 	if b := bans(banCh); len(b) != 0 {
-		t.Fatalf("medium must not block: %+v", b)
+		t.Fatalf("medium with %d proven handshakes must not block: %+v", 15, b)
+	}
+}
+
+// Lab R10 (13.11.): hydra -t 16 against the real sshd for 40 s gave
+// conns=25 short=10 open=15. Medium, but 25 proven handshakes: blocked.
+func TestBruteServiceHydraLikeMediumBlocks(t *testing.T) {
+	tab := &fakeTable{}
+	tab.set("203.0.113.70", 22, ServiceFlows{Open: 15, Done: 10})
+	m, clk, banCh := svcManager(t, true, tab)
+	conns(m, clk, "203.0.113.70", 22, 25, 1600*time.Millisecond)
+	ev := svcEvents(m)
+	if len(ev) != 1 || ev[0].Severity != SevMedium || !strings.Contains(ev[0].Detail, "handshake=yes") {
+		t.Fatalf("events %+v", ev)
+	}
+	if b := bans(banCh); len(b) != 1 || b[0].Reason != KindBruteService {
+		t.Fatalf("hydra-like medium with 25 proven handshakes must block: %+v", b)
 	}
 }

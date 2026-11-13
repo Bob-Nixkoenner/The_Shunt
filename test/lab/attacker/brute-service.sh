@@ -5,8 +5,8 @@
 #   controls  6 short connections in 10 s (like a web client), then one connection held open 40 s with
 #             3 reconnects (like Syncthing). Both must give no brute_service event.
 #   attack    hydra (16 tasks) with a small harmless word list for DURATION seconds; without hydra
-#             4 x brute.py ssh in parallel (one login per connection). Expected: brute_service medium,
-#             then high (60 short connections in a minute) and a block (only high blocks).
+#             4 x brute.py ssh in parallel (one login per connection). Expected: brute_service and a block
+#             (medium with >= 20 proven handshakes, or high).
 # Lab only: the word list has no real credentials, the client's sshd refuses every try.
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
