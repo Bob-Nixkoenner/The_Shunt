@@ -46,7 +46,7 @@ jarr() { local o='' x; for x in "$@"; do o+="\"$x\","; done; echo "${o%,}"; }
 PASSED=()
 FOUND=()
 CLIENT_IF=${CLIENT_IF:-enp0s3}
-TUNNEL_IP=${TUNNEL_IP:-10.166.0.12}
+TUNNEL_IP=${TUNNEL_IP:-$LAB_TUNNEL_IP}
 
 resolve_test() {
 	local t=$1
@@ -75,10 +75,10 @@ ensure_ovpn() {
 }
 
 # Multi-hop (configs/hop*.toml): the inner tunnel of a hop needs its own config file in the client.
-#   hop.conf    WireGuard hop on CT130 wgt1 (10.166.0.1:51831, reachable only through wgt0): HOP_CONF
-#   hop.ovpn    OpenVPN hop inside WireGuard (remote 10.166.0.1 1194): OVPN_HOP_CONF
+#   hop.conf    WireGuard hop on CT130 wgt1 (LAB_WG_SRV:51831, reachable only through wgt0): HOP_CONF
+#   hop.ovpn    OpenVPN hop inside WireGuard (remote LAB_WG_SRV 1194): OVPN_HOP_CONF
 #   hopwg.conf  WireGuard inside OpenVPN: the VM's normal WireGuard config ($TUNNEL_CONF) with the
-#               endpoint 10.167.0.1:51830 (wgt0 as seen through the OpenVPN tunnel)
+#               endpoint LAB_OVPN_SRV:51830 (wgt0 as seen through the OpenVPN tunnel)
 # HOP_BADKEY=1 (set by a test file) writes hop.conf with a wrong server key (inner hop never comes up).
 HOP_DIR=${HOP_DIR:-${LAB_VPN_DIR:-$HERE/vpn}}
 HOP_CONF=${HOP_CONF:-$HOP_DIR/wg-hop-linux-test.conf}
@@ -93,7 +93,7 @@ ensure_hop() { # $1 = config name
 	fi
 	if grep -q 'tunnels/hop\.ovpn' "$cfg"; then install_tunnel_file "$OVPN_HOP_CONF" hop.ovpn; fi
 	if grep -q 'tunnels/hopwg\.conf' "$cfg"; then
-		sed "s|^Endpoint *=.*|Endpoint = 10.167.0.1:51830|" "$TUNNEL_CONF" >"$tmp"
+		sed "s|^Endpoint *=.*|Endpoint = ${LAB_OVPN_SRV}:51830|" "$TUNNEL_CONF" >"$tmp"
 		install_tunnel_file "$tmp" hopwg.conf
 	fi
 	rm -f "$tmp"
@@ -175,6 +175,13 @@ run_test() {
 	unset -f during
 	# shellcheck disable=SC1090
 	source "$file"
+	# @LAB_...@ placeholders (single-quoted bodies) -> values from lab-addr.sh / lab-addr.local.sh
+	local _v _i
+	for _v in TITLE NOTE CLIENT PREP EXIT_NET EXIT_IF CLIENT_RC_OK; do printf -v "$_v" '%s' "$(lab_subst "${!_v}")"; done
+	for _i in "${!ALLOW[@]}"; do ALLOW[_i]=$(lab_subst "${ALLOW[_i]}"); done
+	for _i in "${!ENDPOINTS[@]}"; do ENDPOINTS[_i]=$(lab_subst "${ENDPOINTS[_i]}"); done
+	for _i in "${!CHECKS[@]}"; do CHECKS[_i]=$(lab_subst "${CHECKS[_i]}"); done
+	for _i in "${!EXPECT_OPEN[@]}"; do EXPECT_OPEN[_i]=$(lab_subst "${EXPECT_OPEN[_i]}"); done
 	# CONFIG_FORCE: run a test with another config (e.g. ks = Windows kill switch on)
 	[[ -z ${CONFIG_FORCE:-} ]] || CONFIG=$CONFIG_FORCE
 	# EXIT_IF/EXIT_NET (test file): capture interface and address (prefix ends in ".") at the

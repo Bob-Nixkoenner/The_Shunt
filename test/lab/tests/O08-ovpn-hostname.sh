@@ -12,12 +12,12 @@ EOF2
 sudo -n bash /tmp/mk.sh
 '
 EXIT_IF=tun0
-EXIT_NET=10.167.0.
-NOTE="Der remote-Eintrag der .ovpn ist ein Hostname (ueber /etc/hosts aufgeloest, im Lab sieht man dafuer keine DNS-Anfrage). Erwartung: Tunnel kommt hoch, Tunnel-App geht ueber CT130, nichts im Klartext. Aufruf: CT130_IF=tun0 TUNNEL_IP=10.167.0."
+EXIT_NET=@LAB_NET_OVPN@
+NOTE="Der remote-Eintrag der .ovpn ist ein Hostname (ueber /etc/hosts aufgeloest, im Lab sieht man dafuer keine DNS-Anfrage). Erwartung: Tunnel kommt hoch, Tunnel-App geht ueber CT130, nichts im Klartext. Aufruf: CT130_IF=tun0 TUNNEL_IP=@LAB_NET_OVPN@"
 CLIENT='
 sleep 10
 ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Ausgangs-IP: $ip"
-[[ $ip == 198.51.100.230 ]] || echo "FAIL Tunnel-App nicht ueber den Tunnel (Ausgangs-IP $ip)"
+[[ $ip == @LAB_EXIT_IP@ ]] || echo "FAIL Tunnel-App nicht ueber den Tunnel (Ausgangs-IP $ip)"
 labtun -s -m5 -o /dev/null "http://$1/" || true
 true
 '

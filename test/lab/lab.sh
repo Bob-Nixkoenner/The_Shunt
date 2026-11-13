@@ -26,6 +26,8 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=/dev/null
+source "$HERE/lab-addr.sh"
 # machine-specific settings (user names, addresses of your own servers): not in git
 # shellcheck source=/dev/null
 [[ -f $HERE/local.env ]] && source "$HERE/local.env"
@@ -33,7 +35,7 @@ GW_VM=${GW_VM:-shunt-lab-gw}
 # CLIENT_OS=windows: client is the Windows VM, driven by PowerShell (winclient.sh, tests-win/)
 if [[ ${CLIENT_OS:-linux} == windows ]]; then
 	CLIENT_VM=${CLIENT_VM:-shunt-win11}
-	TUNNEL_IP=${TUNNEL_IP:-10.166.0.15}
+	TUNNEL_IP=${TUNNEL_IP:-$LAB_TUNNEL_IP_WIN}
 	CLIENT_IF=${CLIENT_IF:-Ethernet}
 	CLIENT_PING='exit 0'
 	CLIENT_BOOT=${CLIENT_BOOT:-900} # max wait for guest control after a restore (it answers within a few minutes)

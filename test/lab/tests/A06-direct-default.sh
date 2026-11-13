@@ -5,7 +5,7 @@ ALLOW=(comm:labdir comm:labfree comm:curl comm:chronyd dns net:2620:2d:4000::/46
 CLIENT='
 labtun -s -m8 -o /dev/null "http://$1/" || true
 ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Tunnel-App: $ip"
-[[ $ip == 198.51.100.230 ]] || echo "FAIL Tunnel-App kam als $ip raus"
+[[ $ip == @LAB_EXIT_IP@ ]] || echo "FAIL Tunnel-App kam als $ip raus"
 # same public IP as the tunnel exit: the gateway is only reachable directly
 labfree -s -m4 -o /dev/null http://10.77.0.1/ || echo "FAIL App ohne Regel ging in den Tunnel (Lab-Gateway nicht erreichbar)"
 labtun -s -m3 -o /dev/null http://10.77.0.1/ && echo "FAIL Tunnel-App erreicht das Lab-Gateway direkt"

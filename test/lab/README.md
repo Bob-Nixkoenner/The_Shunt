@@ -191,3 +191,12 @@ VCS stamp), runs `kali-sync`, checks Kali's link/IP and runs `suricata-update` o
 restarts `shuntd`, runs `lab.sh run <T>` with a limit (20 min, R07 30 min) and retries once on FUND/FEHLER.
 Results: `$LAB_OUT/<date>/suite-<time>/` with `suite-report.md` (table test, result, duration, heat max, events by kind,
 one-line note) and `suite.log`. Local only, never in git.
+
+## Addresses of your own lab
+
+The repo only has neutral addresses (`NEUTRAL-ADDRESSES.md`). `lab-addr.sh` defines them as variables and
+loads `lab-addr.local.sh` (ignored by git, template `lab-addr.local.sh.example`) with your real values;
+`lab.sh` and `run-mh.sh` source it. Test files use `@LAB_...@` placeholders that `run-test.sh` replaces
+on the host before anything is sent to a VM, so the Linux and Windows guests need no copy of the file.
+`lab-addr.ps1` / `lab-addr.local.ps1` are the same for your own PowerShell use. Without a local file
+the tests expect the neutral exit address and fail on a real lab.

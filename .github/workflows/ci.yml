@@ -98,7 +98,7 @@ jobs:
       - name: install
         run: |
           printf '[Interface]\nPrivateKey = %s\nAddress = 10.208.0.2/32\nDNS = 10.208.0.1\n\n[Peer]\nPublicKey = %s\nEndpoint = 192.0.2.1:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n' \
-            "$(wg genkey 2>/dev/null || echo yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=)" xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg= > /tmp/test-vpn.conf
+            "$(wg genkey 2>/dev/null || echo CMb/441By9P/9iN1L3SbzMYhMPbiNbkHhWB5geBO1Vk=)" xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg= > /tmp/test-vpn.conf
           sudo env "PATH=$PATH" SHUNT_YES=1 SHUNT_WG_CONF=/tmp/test-vpn.conf bash ./install.sh
       - name: verify
         run: |

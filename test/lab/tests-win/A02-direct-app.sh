@@ -9,5 +9,5 @@ NOTE="Direkt heißt unter Windows: der Datenverkehr der App geht direkt; ihr Nam
 CLIENT='
 & C:\lab\labdir.exe -s -m8 -o NUL "http://$c/"
 $ip = & C:\lab\labdir.exe -4 -s -m8 http://ifconfig.me/ip; "Ausgangs-IP: $ip"
-if (-not $ip -or $ip -eq "198.51.100.230") { "FAIL direkte App kam über den Tunnel raus ($ip)" }
+if (-not $ip -or $ip -eq "@LAB_EXIT_IP@") { "FAIL direkte App kam über den Tunnel raus ($ip)" }
 '

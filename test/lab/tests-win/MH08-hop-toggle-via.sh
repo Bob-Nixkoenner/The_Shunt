@@ -2,11 +2,11 @@ ID=MH08
 TITLE="Multi-Hop live umbauen: via entfernen und wieder setzen, nichts im Klartext"
 CONFIG=hop
 EXPECT_CANARY=any
-ALLOW=(dst:10.166.0.1:51831/udp)
+ALLOW=(dst:@LAB_WG_SRV@:51831/udp)
 PREP='Copy-Item -Force C:\Windows\System32\curl.exe C:\lab\labtog.exe'
-NOTE="Ohne via ist der Hop ein normaler Tunnel: sein WireGuard-Handshake zum Endpunkt 10.166.0.1:51831 geht dann direkt (erlaubt, verschluesselt, kein App-Verkehr). labtog (Regel auf tunnel:hop) fragt dauernd. Zwischendurch wird via aus C:\ProgramData\Shunt\shunt.toml genommen und wieder gesetzt (reload ueber die API). In der Luecke darf nichts im Klartext auftauchen; danach muss der Hop wieder tragen. Ohne Prozess-Trace: unter Linux erlaubt ALLOW comm:labtog, hier nicht moeglich, also zaehlt jeder Klartext."
+NOTE="Ohne via ist der Hop ein normaler Tunnel: sein WireGuard-Handshake zum Endpunkt @LAB_WG_SRV@:51831 geht dann direkt (erlaubt, verschluesselt, kein App-Verkehr). labtog (Regel auf tunnel:hop) fragt dauernd. Zwischendurch wird via aus C:\ProgramData\Shunt\shunt.toml genommen und wieder gesetzt (reload ueber die API). In der Luecke darf nichts im Klartext auftauchen; danach muss der Hop wieder tragen. Ohne Prozess-Trace: unter Linux erlaubt ALLOW comm:labtog, hier nicht moeglich, also zaehlt jeder Klartext."
 CLIENT='
-function HopOk { ((& C:\lab\labtog.exe -s -m4 http://10.169.0.1/) -join "") -match "tunnel=10.169.0.1" }
+function HopOk { ((& C:\lab\labtog.exe -s -m4 http://@LAB_HOP_SRV@/) -join "") -match "tunnel=@LAB_HOP_SRV@" }
 function SetVia($line) {
   $f="C:\ProgramData\Shunt\shunt.toml"; $txt = Get-Content -Raw $f
   $txt = [regex]::Replace($txt, "(?m)^(via = .*|# via entfernt)\r?$", $line)

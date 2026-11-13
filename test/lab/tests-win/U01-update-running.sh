@@ -24,7 +24,7 @@ $sb = {
 $ok=0;$fail=0
 for ($i=0;$i -lt 60;$i++) {
   $ip = (& C:\lab\labtun.exe -s -m3 http://ifconfig.me/ip) 2>$null
-  if ($ip -eq "198.51.100.230") { $ok++ } elseif ($ip) { "FAIL Tunnel-App meldet Ausgangs-IP $ip (nicht der Tunnel)" } else { $fail++ }
+  if ($ip -eq "@LAB_EXIT_IP@") { $ok++ } elseif ($ip) { "FAIL Tunnel-App meldet Ausgangs-IP $ip (nicht der Tunnel)" } else { $fail++ }
   & C:\lab\labtun.exe -s -m1 -o NUL "http://u$i-$c/" 2>$null
   Resolve-DnsName "u$i-$c" -Server 10.77.0.1 -DnsOnly -QuickTimeout -ErrorAction SilentlyContinue | Out-Null
   Start-Sleep 1
@@ -36,7 +36,7 @@ $svc=(Get-Service Shunt).Status; "Dienst: $svc"; if ($svc -ne "Running") { "FAIL
 $ver=(Select-String -Path C:\ProgramData\Shunt\*.log -Pattern "shuntd-win v[0-9A-Za-z.-]+" | Select -Last 1).Matches.Value; "Version nachher: $ver"
 $before=(Get-Content C:\lab\ver-before.txt -ErrorAction SilentlyContinue); if ($before -and $ver -eq $before) { "FAIL Version unveraendert ($ver)" }
 $h=(Get-FileHash C:\ProgramData\Shunt\shunt.toml).Hash; $hb=(Get-Content C:\lab\cfg-before.txt -ErrorAction SilentlyContinue); if ($hb -and $h -ne $hb) { "FAIL Konfiguration hat sich geaendert" }
-$ip=(& C:\lab\labtun.exe -s -m8 http://ifconfig.me/ip); "Ausgangs-IP nachher: $ip"; if ($ip -ne "198.51.100.230") { "FAIL Tunnel-App nach dem Update nicht ueber den Tunnel" }
+$ip=(& C:\lab\labtun.exe -s -m8 http://ifconfig.me/ip); "Ausgangs-IP nachher: $ip"; if ($ip -ne "@LAB_EXIT_IP@") { "FAIL Tunnel-App nach dem Update nicht ueber den Tunnel" }
 $p=(Get-Process shuntd-win -ErrorAction SilentlyContinue | Measure-Object).Count; if ($p -ne 1) { "FAIL shuntd-win Prozesse: $p" }
 } *> C:\lab\u01.out
 New-Item C:\lab\u01-end -ItemType File -Force | Out-Null

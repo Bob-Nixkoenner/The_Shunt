@@ -7,5 +7,5 @@ Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias Ethernet | ForEach-Object {
 & C:\lab\labtun.exe -s -m8 -o NUL "http://$c/"
 & C:\lab\labtun.exe -s -m8 -o NUL http://1.1.1.1/
 $ip = & C:\lab\labtun.exe -s -m8 http://ifconfig.me/ip; "Tunnel-App: $ip"
-if ($ip -ne "198.51.100.230") { "FAIL Tunnel-App kam als $ip raus" }
+if ($ip -ne "@LAB_EXIT_IP@") { "FAIL Tunnel-App kam als $ip raus" }
 '

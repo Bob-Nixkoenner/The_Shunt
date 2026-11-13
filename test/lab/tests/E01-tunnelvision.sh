@@ -7,5 +7,5 @@ ip route | head -5
 labtun -s -m8 -o /dev/null "http://$1/" || true
 labfree -s -m8 -o /dev/null "http://f-$1/" || true
 ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Tunnel-App: $ip"
-[[ $ip == 198.51.100.230 ]] || echo "FAIL Tunnel-App kam als $ip raus"
+[[ $ip == @LAB_EXIT_IP@ ]] || echo "FAIL Tunnel-App kam als $ip raus"
 '

@@ -7,5 +7,5 @@ ip -4 addr show scope global | grep inet
 labtun -s -m8 -o /dev/null "http://$1/" || true
 labtun -s -m8 -o /dev/null http://1.1.1.1/ || true
 ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Tunnel-App: $ip"
-[[ $ip == 198.51.100.230 ]] || echo "FAIL Tunnel-App kam als $ip raus"
+[[ $ip == @LAB_EXIT_IP@ ]] || echo "FAIL Tunnel-App kam als $ip raus"
 '

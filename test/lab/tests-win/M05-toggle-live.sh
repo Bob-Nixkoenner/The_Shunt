@@ -4,9 +4,9 @@ CONFIG=m-toggle
 EXPECT_CANARY=any
 ALLOW=(dst:34.160.111.145:80/tcp host:ifconfig.me:80/tcp) # host: covers IPv6 (curl tries it first) and a changed address
 PREP='Copy-Item -Force C:\Windows\System32\curl.exe C:\lab\labtog.exe'
-NOTE="labtog startet dauernd neu und fragt ifconfig.me/ip. Tunnel = Ausgangs-IP von CT130 (198.51.100.230), direkt = jede andere Antwort. Anders als Linux nicht ueber 10.77.0.1: unter Windows gehen LAN-Ziele immer direkt. Nach jedem reload (API) muss der Weg der Regel folgen, Gnadenfrist 3 s. Erlaubt am Gateway: labtogs direkte Abfrage von ifconfig.me (ALLOW mit der Adresse vom 08.11.; hat ifconfig.me eine andere, steht der Zugriff als Fund im Bericht und ist dann gewollt)."
+NOTE="labtog startet dauernd neu und fragt ifconfig.me/ip. Tunnel = Ausgangs-IP von CT130 (@LAB_EXIT_IP@), direkt = jede andere Antwort. Anders als Linux nicht ueber 10.77.0.1: unter Windows gehen LAN-Ziele immer direkt. Nach jedem reload (API) muss der Weg der Regel folgen, Gnadenfrist 3 s. Erlaubt am Gateway: labtogs direkte Abfrage von ifconfig.me (ALLOW mit der Adresse vom 08.11.; hat ifconfig.me eine andere, steht der Zugriff als Fund im Bericht und ist dann gewollt)."
 CLIENT='
-function Way { $ip = (& C:\lab\labtog.exe -s -m5 http://ifconfig.me/ip) 2>$null; if ($ip -eq "198.51.100.230") { "tunnel" } elseif ($ip) { "direct" } else { "none" } }
+function Way { $ip = (& C:\lab\labtog.exe -s -m5 http://ifconfig.me/ip) 2>$null; if ($ip -eq "@LAB_EXIT_IP@") { "tunnel" } elseif ($ip) { "direct" } else { "none" } }
 function SetRoute($r) {
   $f="C:\ProgramData\Shunt\shunt.toml"; $txt = Get-Content -Raw $f
   $txt = [regex]::Replace($txt, "(?s)(name = `"lab: toggle`".*?route = )`"[^`"]*`"", "`$1`"$r`"")

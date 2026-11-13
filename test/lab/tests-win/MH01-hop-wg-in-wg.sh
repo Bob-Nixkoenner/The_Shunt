@@ -9,8 +9,8 @@ CLIENT='
 function Status { $raw = & C:\Windows\System32\curl.exe -s -m 10 --unix-socket C:\ProgramData\Shunt\shuntd.sock http://shuntd/v1/status; if (-not $raw) { "FAIL Status ueber die API nicht lesbar (curl.exe --unix-socket)"; return }; $st = $raw | ConvertFrom-Json; foreach ($t in $st.tunnels) { "Tunnel $($t.name): up=$($t.up) via=$($t.via) health=$($t.health.state) error=$($t.error)" }; $script:hop = $st.tunnels | Where-Object { $_.name -eq "hop" } }
 Start-Sleep 6
 1..5 | ForEach-Object { & C:\lab\labtun.exe -s -m3 -o NUL "http://$_-$c/"; Start-Sleep 1 }
-$r = (& C:\lab\labtun.exe -s -m5 http://10.169.0.1/) -join ""
-if ($r -notmatch "tunnel=10.169.0.1") { "FAIL Testseite des inneren Hops nicht erreicht ($r)" }
+$r = (& C:\lab\labtun.exe -s -m5 http://@LAB_HOP_SRV@/) -join ""
+if ($r -notmatch "tunnel=@LAB_HOP_SRV@") { "FAIL Testseite des inneren Hops nicht erreicht ($r)" }
 Status
 if (-not $hop) { "FAIL Status kennt den Tunnel hop nicht" } elseif ($hop.via -notmatch "^(tunnel:)?intern$") { "FAIL Status zeigt den Hop nicht ueber intern (via=$($hop.via))" }
 '
