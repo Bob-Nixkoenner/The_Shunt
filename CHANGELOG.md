@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **DNS, login port (external report L-04):** the DNS port of the Wi-Fi login browser took TCP queries from any local process without a blocklist check, because a TCP query has no readable packet mark. A query to that port without a readable mark is now filtered like the direct route; a marked (login browser) query is still not filtered. On a kernel without `SO_RCVMARK` this also covers the login browser's UDP queries. Test extended: `TestFilter`.
 - **DNS, answers (external report L-03):** the answer of an upstream is now checked against the question (name, type, class, ID) before it is passed on or its addresses go into a set; a mismatch is a failed upstream. The ID sent upstream is random and not the client's (restored for the client). Test `TestUpstreamIDAndQuestionChecked`.
 - **Debian package (external report L-12):** the postinst of a first install stopped and disabled `tor.service` even when the admin had tor set up before. A new preinst notes whether tor was already installed; only a tor that came with this package has its system service switched off. Test `TestPostinstLeavesExistingTorAlone`.
 - **Tor control port (external report L-06):** a line with `PROGRESS=` and no value from the control port made the app panic (index out of range); a missing or bad value is now ignored. Test `TestParseProgress`.

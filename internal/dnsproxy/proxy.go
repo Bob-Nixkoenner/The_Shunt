@@ -436,9 +436,17 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 	}
 	// The blocklists: not for the login browser (portals live on odd
 	// names), not for names you routed on purpose with a domain rule.
-	if rule == nil && !src.Captive && src.Filter != "" && src.Filter != config.FilterOff {
-		if list := p.filter.Load().Check(src.Filter, name); list != "" {
-			b := Blocked{Time: time.Now(), Name: name, Level: src.Filter, List: list, Route: src.String()}
+	level := src.Filter
+	if src.Captive && mark == markUnknown {
+		// A TCP query carries no readable mark, so any local process can send
+		// it to the login port. Such a query is filtered like the direct route.
+		level = directFilter(plan)
+	} else if src.Captive {
+		level = ""
+	}
+	if rule == nil && level != "" && level != config.FilterOff {
+		if list := p.filter.Load().Check(level, name); list != "" {
+			b := Blocked{Time: time.Now(), Name: name, Level: level, List: list, Route: src.String()}
 			if who != nil {
 				b.App = who()
 			}
@@ -632,4 +640,14 @@ func answersQuestion(q, resp *dns.Msg) bool {
 	}
 	a, b := q.Question[0], resp.Question[0]
 	return a.Qtype == b.Qtype && a.Qclass == b.Qclass && strings.EqualFold(a.Name, b.Name)
+}
+
+// directFilter is the blocklist level of the direct route ("" if none).
+func directFilter(plan *engine.Plan) string {
+	for _, r := range plan.Routes {
+		if r.Kind == config.RouteDirect {
+			return r.Filter
+		}
+	}
+	return ""
 }

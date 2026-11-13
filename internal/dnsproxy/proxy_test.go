@@ -99,7 +99,6 @@ func TestFilter(t *testing.T) {
 		{1, "evil.example.", dns.RcodeSuccess},
 		{3, "evil.example.", dns.RcodeNameError},
 		{4, "x.ads.example.", dns.RcodeSuccess},
-		{2, "x.ads.example.", dns.RcodeSuccess},
 		{1, "routed.ads.example.", dns.RcodeSuccess},
 	} {
 		if got := ask(c.port, c.name); got != c.want {
@@ -111,6 +110,20 @@ func TestFilter(t *testing.T) {
 		t.Errorf("stats %+v", st)
 	}
 
+	// the login port: a query whose packet mark is known to come from the
+	// login browser is not filtered; one without a readable mark (TCP, any
+	// local process) is filtered like the direct route
+	askMark := func(port int, name string, mark uint32) int {
+		q := new(dns.Msg)
+		q.SetQuestion(name, dns.TypeA)
+		return p.handle(port, q, mark, nil).Rcode
+	}
+	if got := askMark(2, "x.ads.example.", 0); got != dns.RcodeSuccess {
+		t.Errorf("login port, marked: rcode %d", got)
+	}
+	if got := askMark(2, "x.ads.example.", markUnknown); got != dns.RcodeNameError {
+		t.Errorf("login port, no readable mark: rcode %d", got)
+	}
 	// per app: the sender is asked only for blocked queries
 	p.Owner = func(string, netip.AddrPort) string { return "never called" }
 	asked := 0
