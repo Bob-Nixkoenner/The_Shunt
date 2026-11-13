@@ -10,3 +10,9 @@ test/lab/vpn/
 # real lab addresses (see test/lab/NEUTRAL-ADDRESSES.md)
 test/lab/lab-addr.local.*
 !test/lab/lab-addr.local.sh.example
+
+# built binaries must never be committed (they carry the build path)
+/build/
+/mockd
+/shunt
+/shuntd
