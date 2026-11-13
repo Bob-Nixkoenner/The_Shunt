@@ -118,6 +118,14 @@ func TestBruteServiceLabR02(t *testing.T) {
 	if strings.Contains(e.Detail, "block=waits") {
 		t.Fatalf("handshake proven, nothing waits: %q", e.Detail)
 	}
+	// medium only reports: a block needs a high finding (60 in a minute)
+	if b := bans(banCh); len(b) != 0 {
+		t.Fatalf("medium must not block: %+v", b)
+	}
+	conns(m, clk, "203.0.113.7", 22, 60, 500*time.Millisecond)
+	if ev := svcEvents(m); len(ev) != 2 || ev[1].Severity != SevHigh {
+		t.Fatalf("want medium then high, got %+v", ev)
+	}
 	b := bans(banCh)
 	if len(b) != 1 || b[0].Src != "203.0.113.7" || b[0].Reason != KindBruteService {
 		t.Fatalf("bans %+v", b)
@@ -222,7 +230,7 @@ func TestBruteServiceSynOnlyNeverBlocks(t *testing.T) {
 	}
 	// now the source finishes handshakes with the service
 	tab.set("203.0.113.30", 22, ServiceFlows{Done: SvcBruteConns})
-	conns(m, clk, "203.0.113.30", 22, 6, time.Second)
+	conns(m, clk, "203.0.113.30", 22, 30, 500*time.Millisecond)
 	if b := bans(banCh); len(b) != 1 || b[0].Reason != KindBruteService {
 		t.Fatalf("block after the handshake: %+v", b)
 	}
@@ -466,5 +474,20 @@ func TestSvcEntryClockBack(t *testing.T) {
 	}
 	if n := e.count(); n >= SvcBruteConns+8 {
 		t.Fatalf("counted twice after the clock went back: %d", n)
+	}
+}
+
+// An own device with many short real connections (a small web server without
+// keep-alive, 30 files in a minute) is reported, not blocked.
+func TestBruteServiceOwnShortConnectionsNotBlocked(t *testing.T) {
+	tab := &fakeTable{}
+	tab.set("198.51.100.40", 8000, ServiceFlows{Done: 30})
+	m, clk, banCh := svcManager(t, true, tab)
+	conns(m, clk, "198.51.100.40", 8000, 30, 2*time.Second)
+	if ev := svcEvents(m); len(ev) != 1 || ev[0].Severity != SevMedium {
+		t.Fatalf("events %+v", ev)
+	}
+	if b := bans(banCh); len(b) != 0 {
+		t.Fatalf("medium must not block: %+v", b)
 	}
 }

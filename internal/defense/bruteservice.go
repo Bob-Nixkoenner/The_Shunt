@@ -338,7 +338,10 @@ func (s *svcState) step(log *slog.Logger, src netip.Addr, port int, service stri
 		}
 		e.fired = level
 	}
-	if !e.banned && known && flows.proven() >= SvcBruteConns {
+	// Only a high finding blocks (decision of the owner, 13.11.): an own device
+	// that makes many short real connections (a small web server without
+	// keep-alive, file transfers) reaches medium, rarely 60 in a minute.
+	if !e.banned && known && level == 2 && flows.proven() >= SvcBruteConns {
 		d.ban, e.banned = true, true
 	}
 	return d, d.report || d.ban

@@ -8,8 +8,8 @@ EXPECT_OPEN=("22/tcp" "23/tcp" "80/tcp" "445/tcp" "2222/tcp" "2323/tcp" "3389/tc
 NOTE="shunt-kali faehrt attacker/brute-service.sh gegen den ECHTEN sshd des Clients (Port 22, kein Koeder;
 Konfig defense-service: ohne Inbound-Schutz, damit 22 im Port-Monitor offen ist). Ablauf: erst die
 Gegenproben (6 kurze Verbindungen in 10 s wie ein Web-Client; eine 40 s offene Verbindung mit 3 Neuaufbauten
-wie Syncthing) -> der Client prueft: kein brute_service. Dann Angriff (hydra -t 4, sonst brute.py ssh) 40 s ->
-erwartet brute_service mit handshake=yes und eine Sperre mit reason brute_service. Abgleich ueber Marker-Dateien
+wie Syncthing) -> der Client prueft: kein brute_service. Dann Angriff (hydra -t 16, sonst 4x brute.py ssh) 40 s ->
+erwartet brute_service mit handshake=yes, Stufe hoch (ab 60/min) und eine Sperre (nur hoch sperrt) mit reason brute_service. Abgleich ueber Marker-Dateien
 im Client (/tmp/r10-*). Der Dienst selbst wird nicht angefasst. Nicht in der Lab-VM gelaufen (Stand 13.11.)."
 during() {
 	sleep 8

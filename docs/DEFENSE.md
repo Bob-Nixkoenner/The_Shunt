@@ -407,8 +407,10 @@ the service: nothing is delayed, answered, cut or proxied.
   Detail: `service=<program> conns=<n> short=<n> open=<n> window=60s handshake=yes|no|unknown`, plus
   `block=waits_for_handshake` when blocking is on and fewer than 10 handshakes were seen. One finding per pair and window;
   a medium finding can be followed by one high finding in the same window.
-- **Blocking:** only when blocking of login attempts (`brute`, Block; in unsafe networks automatic) is on
-  **and** the connection table shows at least `SvcBruteConns` = 10 connections of that source with the port
+- **Blocking:** only for a **high** finding (60 short connections in a minute; a medium one only reports, so an
+  own device with many short real connections, such as a small web server without keep-alive, is not blocked;
+  decision of the owner 13.11.), only when blocking of login attempts (`brute`, Block; in unsafe networks
+  automatic) is on **and** the connection table shows at least `SvcBruteConns` = 10 connections of that source with the port
   that finished a handshake (conntrack states ESTABLISHED, FIN_WAIT, CLOSE_WAIT, LAST_ACK or TIME_WAIT;
   TIME_WAIT stays 120 s). One is not enough: a forger on the network could otherwise send SYNs in the name
   of a device that holds one real connection (a phone with Syncthing or SSH open) and get it blocked

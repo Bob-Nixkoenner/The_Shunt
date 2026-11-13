@@ -4,8 +4,9 @@
 # Usage: TARGET=<ip> [PORT=22] [DURATION=40] ./brute-service.sh controls|attack
 #   controls  6 short connections in 10 s (like a web client), then one connection held open 40 s with
 #             3 reconnects (like Syncthing). Both must give no brute_service event.
-#   attack    hydra (4 tasks) with a small harmless word list for DURATION seconds; without hydra
-#             brute.py ssh (one login per connection). Expected: brute_service and a block.
+#   attack    hydra (16 tasks) with a small harmless word list for DURATION seconds; without hydra
+#             4 x brute.py ssh in parallel (one login per connection). Expected: brute_service medium,
+#             then high (60 short connections in a minute) and a block (only high blocks).
 # Lab only: the word list has no real credentials, the client's sshd refuses every try.
 set -euo pipefail
 . "$(dirname "$0")/common.sh"
@@ -32,10 +33,13 @@ attack)
 	for i in $(seq 1 300); do echo "lab-wrong-$i"; done >"$words"
 	echo "== attack on $PORT for ${DURATION}s =="
 	if command -v hydra >/dev/null; then
-		timeout "$DURATION" hydra -I -q -t 4 -l labnobody -P "$words" -s "$PORT" "ssh://$TARGET" || true
+		timeout "$DURATION" hydra -I -q -t 16 -l labnobody -P "$words" -s "$PORT" "ssh://$TARGET" || true
 	else
 		need python3
-		timeout "$DURATION" python3 "$HERE/brute.py" ssh "$TARGET" "$PORT" 200 || true
+		for _ in 1 2 3 4; do
+			timeout "$DURATION" python3 "$HERE/brute.py" ssh "$TARGET" "$PORT" 200 &
+		done
+		wait || true
 	fi
 	echo "attack done"
 	;;
