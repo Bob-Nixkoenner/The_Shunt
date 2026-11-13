@@ -316,7 +316,7 @@ The event list and the source detail show a host name next to the address when o
 - mDNS (UDP 5353) and LLMNR (UDP 5355) announcements: address records (A, AAAA) whose address equals the packet's own source, so a device can name itself but not another one. mDNS names must end in `.local`, LLMNR names are single labels.
 - A self-announced name (mDNS, LLMNR) ranks above a DHCP name. This machine's own addresses are skipped.
 
-Not built: neighbour table (it has no names), NetworkManager or lease files (root files), the DNS proxy (it only knows names this machine asked for, not names of attackers), IPv6 mDNS (the filter is IPv4 only).
+IPv6 mDNS/LLMNR is read since 2026-11-13 (`names6.go`, own filter, extension headers not followed). Not built: neighbour table (it has no names), NetworkManager or lease files (root files), the DNS proxy (it only knows names this machine asked for, not names of attackers).
 
 A name is untrusted input, chosen by the device. It is cut to 63 characters, only printable characters are kept, and it lives in memory only (at most 512 entries, 24 h, forgotten on a network change). The API carries it as `names` in the events answer; the UI shows it as plain text marked "Name given by the device, not verified". It never decides anything (no block, no allow, no ignore). The evidence log lines never contain it; the export adds `source_names.json` for the sources of the export (with the same warning) and leaves it out when "Anonymize" is set.
 
