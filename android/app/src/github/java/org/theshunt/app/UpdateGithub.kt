@@ -61,16 +61,22 @@ fun Updater.askInstallPermission(ctx: Context) {
 
 /** Hands the verified APK to the system installer (it asks the user to confirm). */
 fun Updater.install(ctx: Context, apk: File, done: (String) -> Unit) {
-    val action = "${ctx.packageName}.UPDATE_RESULT"
+    // Report L-10: before API 33 RECEIVER_NOT_EXPORTED has no effect, so any
+    // app could send this broadcast with an intent of its choice for us to
+    // start. A random action per install, the session id and the system
+    // installer as the target of the confirmation keep that out.
+    val action = "${ctx.packageName}.UPDATE_RESULT." + java.util.UUID.randomUUID()
     val inst = ctx.packageManager.packageInstaller
+    var session = -1
     val rx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
+            if (i.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -2) != session) return
             when (i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                     @Suppress("DEPRECATION")
                     val confirm = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
                     else i.getParcelableExtra(Intent.EXTRA_INTENT)
-                    confirm?.let { c.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    if (confirm != null && isSystemInstaller(c, confirm)) c.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
                 PackageInstaller.STATUS_SUCCESS -> { c.unregisterReceiver(this); done(T("Updated.")) }
                 else -> {
@@ -83,10 +89,22 @@ fun Updater.install(ctx: Context, apk: File, done: (String) -> Unit) {
     ctx.registerReceiver(rx, IntentFilter(action), Context.RECEIVER_NOT_EXPORTED)
     val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
     val id = inst.createSession(params)
+    session = id
     inst.openSession(id).use { s ->
         apk.inputStream().use { i -> s.openWrite("shunt.apk", 0, apk.length()).use { o -> i.copyTo(o); s.fsync(o) } }
         val pi = PendingIntent.getBroadcast(ctx, id, Intent(action).setPackage(ctx.packageName), PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         s.commit(pi.intentSender)
+    }
+}
+
+/** The confirmation must open the system's package installer, nothing else. */
+private fun isSystemInstaller(c: Context, confirm: Intent): Boolean {
+    val pkg = confirm.resolveActivity(c.packageManager)?.packageName ?: return false
+    return try {
+        val ai = c.packageManager.getApplicationInfo(pkg, 0)
+        ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+    } catch (e: Exception) {
+        false
     }
 }
 
