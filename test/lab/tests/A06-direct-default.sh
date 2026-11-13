@@ -8,5 +8,5 @@ ip=$(labtun -s -m8 http://ifconfig.me/ip); echo "Tunnel-App: $ip"
 [[ $ip == 198.51.100.230 ]] || echo "FAIL Tunnel-App kam als $ip raus"
 # same public IP as the tunnel exit: the gateway is only reachable directly
 labfree -s -m4 -o /dev/null http://10.77.0.1/ || echo "FAIL App ohne Regel ging in den Tunnel (Lab-Gateway nicht erreichbar)"
-labtun -s -m3 -o /dev/null http://10.77.0.1/ && echo "FAIL Tunnel-App erreicht das Lab-Gateway direkt"
+labtun -s -m3 -o /dev/null http://10.77.0.1/ && echo "FAIL Tunnel-App erreicht das Lab-Gateway direkt" || true
 '
