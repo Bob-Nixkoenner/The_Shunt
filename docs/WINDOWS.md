@@ -68,6 +68,13 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   and DHCP. It stays while the service is stopped, after a crash and across a reboot, so nothing
   leaks before the service runs; only `kill_switch = false` (Configure), uninstalling or
   `shuntd-win killswitch-off` as Administrator (emergency) lift it.
+  Windows' connectivity check (NCSI) could still go out in the first seconds of a boot, before
+  the filtering engine enforces the filters (lab 13.11., about 1 s after DHCP). So at shutdown,
+  with the kill switch on, the service sets the policy `NoActiveProbe=1`
+  (`HKLM\SOFTWARE\Policies\Microsoft\Windows\NetworkConnectivityStatusIndicator`) for the next
+  boot and takes it back as soon as it runs again (the earlier value is saved in the state
+  directory; a policy you set yourself is left alone). Uninstalling and `killswitch-off` take it
+  back too. A hard power-off without a shutdown sets no hold.
 
 ## Install
 

@@ -97,3 +97,38 @@ func TestQuietRegChangedMeanwhile(t *testing.T) {
 		t.Fatal("overwrote later user change")
 	}
 }
+
+// NCSI boot hold: set at shutdown, taken back at the next start; a policy the
+// administrator set is neither changed nor taken back.
+func TestNCSIBootHold(t *testing.T) {
+	st := &fakeReg{m: map[string]uint32{}}
+	g := newRegGuard(st, filepath.Join(t.TempDir(), "ncsi.json"), ncsiValues())
+	if err := g.apply(); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok, _ := st.GetDWORD(ncsiPolicyKey, "NoActiveProbe"); !ok || v != 1 {
+		t.Fatal("hold not set")
+	}
+	if err := g.restore(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := st.GetDWORD(ncsiPolicyKey, "NoActiveProbe"); ok {
+		t.Fatal("hold not taken back (the value did not exist before)")
+	}
+	// the administrator's own policy stays
+	_ = st.SetDWORD(ncsiPolicyKey, "NoActiveProbe", 1)
+	g2 := newRegGuard(st, filepath.Join(t.TempDir(), "ncsi.json"), ncsiValues())
+	_ = g2.apply()
+	_ = g2.restore()
+	if v, ok, _ := st.GetDWORD(ncsiPolicyKey, "NoActiveProbe"); !ok || v != 1 {
+		t.Fatal("a policy we did not set must stay")
+	}
+	// restore without an earlier apply (watchdog at start) changes nothing
+	g3 := newRegGuard(st, filepath.Join(t.TempDir(), "ncsi.json"), ncsiValues())
+	if err := g3.restore(); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, _ := st.GetDWORD(ncsiPolicyKey, "NoActiveProbe"); v != 1 {
+		t.Fatal("watchdog touched a foreign value")
+	}
+}

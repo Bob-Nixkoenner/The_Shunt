@@ -40,10 +40,16 @@ type quietReg struct {
 	mu    sync.Mutex
 	store RegStore
 	file  string
+	fixed []regPrev // set: these values instead of the quiet-mode ones
 }
 
 func newQuietReg(store RegStore, file string) *quietReg {
 	return &quietReg{store: store, file: file}
+}
+
+// newRegGuard is the same save-change-restore logic for a fixed list of values.
+func newRegGuard(store RegStore, file string, values []regPrev) *quietReg {
+	return &quietReg{store: store, file: file, fixed: values}
 }
 
 func (q *quietReg) load() []regPrev {
@@ -67,6 +73,9 @@ func (q *quietReg) save(l []regPrev) error {
 }
 
 func (q *quietReg) targets() []regPrev {
+	if q.fixed != nil {
+		return append([]regPrev(nil), q.fixed...)
+	}
 	t := []regPrev{
 		{Key: dnsClientPolicyKey, Name: "EnableMulticast", Want: 0},
 		{Key: dnsClientPolicyKey, Name: "EnableMDNS", Want: 0},

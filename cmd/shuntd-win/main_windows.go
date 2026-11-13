@@ -100,6 +100,7 @@ func main() {
 		err = control(func(s *mgr.Service) error { _, e := s.Control(svc.Stop); return e })
 	case "killswitch-off": // emergency: lift the firewall rules and policy
 		winsplit.DisableKillSwitch()
+		_ = winsplit.NCSIBootRelease()
 		winsplit.DisableDNSGuard()
 		winsplit.DisableQuiet()
 		fmt.Println("kill switch, DNS guard and quiet mode lifted")
@@ -145,6 +146,10 @@ type handler struct{}
 // quietBoot: quiet mode applies in general (daemon.quiet not off); on a
 // system shutdown the filters are put back for the next boot.
 var quietBoot atomic.Bool
+
+// ksBoot: the kill switch is on; at a system shutdown the NCSI boot hold is
+// set for the next boot (winsplit/ncsihold.go).
+var ksBoot atomic.Bool
 
 // resumed: the machine woke up (power event); runCore restarts the tunnel sessions.
 var resumed = make(chan struct{}, 1)
@@ -199,6 +204,15 @@ func (*handler) Execute(_ []string, req <-chan svc.ChangeRequest, st chan<- svc.
 					// the next boot starts before this service: cover it
 					if err := winsplit.EnableQuietBoot(); err != nil {
 						log.Printf("quiet boot filter: %v", err)
+					}
+				}
+				if c.Cmd == svc.Shutdown && ksBoot.Load() {
+					// NCSI can probe before BFE enforces the kill switch at
+					// the next boot: no active probe until this service runs
+					if err := winsplit.NCSIBootHold(); err != nil {
+						log.Printf("NCSI boot hold: %v", err)
+					} else {
+						log.Print("NCSI boot hold set for the next boot")
 					}
 				}
 				return false, 0
@@ -290,10 +304,12 @@ func runCore(ctx context.Context, ready func()) error {
 				return
 			}
 			ksOn = true
+			ksBoot.Store(true)
 			log.Print("kill switch on")
 		case !ksWant && ksOn:
 			winsplit.DisableKillSwitch()
 			ksOn = false
+			ksBoot.Store(false)
 			log.Print("kill switch off")
 		}
 	}
@@ -528,6 +544,11 @@ func runCore(ctx context.Context, ready func()) error {
 	}
 	ksMu.Unlock()
 	applyKS()
+	// the service runs and the kill switch stands: NCSI may probe again
+	// (through the tunnel); also takes back a hold left by a crash
+	if err := winsplit.NCSIBootRelease(); err != nil {
+		log.Printf("NCSI boot hold: taking it back: %v", err)
+	}
 	applyInbound()
 	applyQuiet()
 	if err := winsplit.EnableDNSGuard(netip.MustParseAddr(splitstack.DNSAddr)); err != nil {
@@ -878,6 +899,7 @@ func manageGroupFromFile() string {
 
 func uninstall() error {
 	winsplit.DisableKillSwitch()
+	_ = winsplit.NCSIBootRelease()
 	winsplit.DisableDNSGuard()
 	winsplit.DisableQuiet()
 	err := control(func(s *mgr.Service) error {

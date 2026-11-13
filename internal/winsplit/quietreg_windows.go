@@ -88,3 +88,15 @@ func QuietSourceRestore() error {
 	}
 	return realQuietReg().restore()
 }
+
+func realNCSIHold() *quietReg {
+	return newRegGuard(hklm{}, filepath.Join(quietStateDir, "ncsi-hold.json"), ncsiValues())
+}
+
+// NCSIBootHold sets the NCSI policy NoActiveProbe=1 for the next boot
+// (at shutdown, kill switch on; see ncsihold.go).
+func NCSIBootHold() error { return realNCSIHold().apply() }
+
+// NCSIBootRelease takes the hold back if we set it (at start, killswitch-off,
+// uninstall); a policy of the administrator stays.
+func NCSIBootRelease() error { return realNCSIHold().restore() }
