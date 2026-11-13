@@ -26,6 +26,8 @@ android {
         targetSdk = 36
         versionCode = gitVersionCode
         versionName = gitVersion
+        // instrumented tests (src/androidTest): the key store vault on a real device or emulator
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // the texts of the desktop apps are the texts of this app (one catalog,
@@ -105,4 +107,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // JVM unit tests only get stubs of org.json from android.jar (Defense.configJson uses JSONObject)
     testImplementation("org.json:json:20240303")
+    // instrumented tests only (not in the app): the real AndroidKeyStore, see VaultDeviceTest
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

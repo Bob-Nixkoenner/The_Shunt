@@ -2,10 +2,12 @@ package org.theshunt.app
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.UserManager
 import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.RandomAccessFile
 
 /**
  * One imported tunnel: a WireGuard wg-quick file or a cleaned .ovpn file
@@ -21,7 +23,16 @@ data class Tunnel(
     val via: String = "",
     /** Ports accepted from the tunnel and handed to this phone's apps ("tcp/1716"), empty = none. */
     val inbound: List<String> = emptyList(),
+    /**
+     * Set only when the sealed secret (conf, user, pass) could not be opened on this
+     * device (key store key gone, e.g. after moving to another phone): the value as it
+     * was stored, kept unchanged on every save. conf is empty then; see [locked].
+     */
+    val sealed: String = "",
 ) {
+    /** The tunnel's keys cannot be read here: the core never gets it, its routes block. */
+    val locked get() = sealed.isNotEmpty()
+
     val isOpenVPN get() = type == OPENVPN
     /** A Tor tunnel: TCP and names go to a Tor client on this phone (Orbot), see conf. */
     val isTor get() = type == TOR
@@ -30,6 +41,17 @@ data class Tunnel(
         if (inbound.isNotEmpty()) put("inbound", JSONArray(inbound))
         if (isOpenVPN) put("type", OPENVPN).put("user", user).put("pass", pass)
         if (isTor) put("type", TOR)
+    }
+
+    /** The secret part, sealed by [Vault] in settings.json: the file (keys, bridges), user and password. */
+    fun secretJson(): String = JSONObject().put("conf", conf).put("user", user).put("pass", pass).toString()
+
+    /** As stored in settings.json: everything but [secretJson] in clear, that one sealed. */
+    fun toStoreJson(v: Vault): JSONObject = JSONObject().put("name", name).put("via", via).apply {
+        if (inbound.isNotEmpty()) put("inbound", JSONArray(inbound))
+        if (isOpenVPN) put("type", OPENVPN)
+        if (isTor) put("type", TOR)
+        put("secret", if (locked) sealed else v.seal(secretJson()))
     }
 
     companion object {
@@ -43,6 +65,21 @@ data class Tunnel(
         /** The Tor the app brings along (libtor.so). */
         const val TOR_BUILTIN_CONF = "client = builtin\n"
         const val ORBOT = "org.torproject.android"
+
+        /**
+         * A tunnel from settings.json: new files hold "secret" (sealed), older ones
+         * "conf"/"user"/"pass" in clear (moved into "secret" by Store.load).
+         * A secret that does not open gives a locked tunnel, never an exception.
+         */
+        fun fromStoreJson(t: JSONObject, v: Vault?): Tunnel {
+            val base = Tunnel(t.getString("name"), "", t.optString("type", WIREGUARD), via = t.optString("via"),
+                inbound = t.optJSONArray("inbound")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList())
+            val secret = t.optString("secret")
+            if (secret.isEmpty()) return base.copy(conf = t.getString("conf"), user = t.optString("user"), pass = t.optString("pass"))
+            val o = v?.open(secret)?.let { runCatching { JSONObject(it) }.getOrNull() }
+                ?: return base.copy(sealed = secret)
+            return base.copy(conf = o.optString("conf"), user = o.optString("user"), pass = o.optString("pass"))
+        }
     }
 }
 
@@ -96,6 +133,37 @@ data class Settings(
     /** link:<kind> = direct, but only over that kind of network (blocked on the other). */
     fun routes(): List<String> = listOf("direct", "block") + tunnels.map { "tunnel:${it.name}" } + listOf("link:wifi", "link:mobile")
 
+    /** As stored in settings.json: the tunnels' secrets sealed by [v] (throws when it cannot seal). */
+    fun toStoreJson(v: Vault): JSONObject = toJson().put("tunnels", JSONArray(tunnels.map { it.toStoreJson(v) }))
+
+    /**
+     * Fail closed for locked tunnels (keys not readable on this device): they are left
+     * out, with every tunnel that goes through one (multi-hop), and every route that
+     * names one of them blocks instead. With Tor for everything on a locked Tor tunnel,
+     * everything blocks. Settings without locked tunnels come back unchanged.
+     */
+    fun withoutLocked(): Settings {
+        if (tunnels.none { it.locked }) return this
+        val gone = tunnels.filter { it.locked }.map { it.name }.toMutableSet()
+        while (true) {
+            val more = tunnels.filter { it.name !in gone && it.via in gone }.map { it.name }
+            if (more.isEmpty()) break
+            gone += more
+        }
+        val left = tunnels.filter { it.name !in gone }
+        if (torAll && tunnels.firstOrNull { it.isTor }?.name in gone) {
+            return copy(tunnels = left, defaultRoute = "block", apps = apps.mapValues { "block" }, networks = emptyList(), torAll = false)
+        }
+        fun r(route: String) = if (route.startsWith("tunnel:") && route.removePrefix("tunnel:") in gone) "block" else route
+        return copy(
+            tunnels = left,
+            defaultRoute = r(defaultRoute),
+            apps = apps.mapValues { (_, route) -> r(route) },
+            networks = networks.map { it.copy(route = r(it.route)) },
+        )
+    }
+
+    /** As the core gets it: the keys in clear (only in memory, handed to the Go core). */
     fun toJson(): JSONObject = JSONObject().apply {
         put("tunnels", JSONArray(tunnels.map { it.toJson() }))
         put("default", defaultRoute)
@@ -119,6 +187,7 @@ data class Settings(
 
     /** The core's config: app rules by UID instead of package name. */
     fun coreJson(ctx: Context): String {
+        if (tunnels.any { it.locked }) return withoutLocked().coreJson(ctx)
         val pm = ctx.packageManager
         fun uid(pkg: String): Int? = try {
             pm.getApplicationInfo(pkg, 0).uid
@@ -190,16 +259,19 @@ data class Settings(
     }
 
     companion object {
-        fun fromJson(o: JSONObject): Settings {
+        /** settings.json still holds a tunnel's keys in clear (written before the vault). */
+        fun hasClearSecrets(o: JSONObject): Boolean {
+            val ts = o.optJSONArray("tunnels") ?: return false
+            return (0 until ts.length()).any { ts.optJSONObject(it)?.has("conf") == true }
+        }
+
+        /** [v] opens the sealed secrets; null (or a key that does not fit) leaves those tunnels locked. */
+        fun fromJson(o: JSONObject, v: Vault? = null): Settings {
             val ts = o.optJSONArray("tunnels") ?: JSONArray()
             val apps = o.optJSONObject("apps") ?: JSONObject()
             fun strings(key: String): List<String>? = o.optJSONArray(key)?.let { a -> (0 until a.length()).map { a.getString(it) } }
             return Settings(
-                tunnels = (0 until ts.length()).map {
-                    val t = ts.getJSONObject(it)
-                    Tunnel(t.getString("name"), t.getString("conf"), t.optString("type", Tunnel.WIREGUARD), t.optString("user"), t.optString("pass"), t.optString("via"),
-                        t.optJSONArray("inbound")?.let { a -> (0 until a.length()).map { i -> a.getString(i) } } ?: emptyList())
-                },
+                tunnels = (0 until ts.length()).map { Tunnel.fromStoreJson(ts.getJSONObject(it), v) },
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },
                 directDns = o.optString("direct_dns", "1.1.1.1"),
@@ -237,18 +309,83 @@ object Store {
     // would start the VPN with the defaults (everything blocked, no tunnels).
     private fun file(ctx: Context) = AtomicFile(File(ctx.filesDir, FILE))
 
-    fun load(ctx: Context): Settings = try {
-        Settings.fromJson(JSONObject(String(file(ctx).readFully())))
-    } catch (e: Exception) {
-        Settings()
+    /** Before the first unlock after boot (Direct Boot) the app's files are not readable. */
+    private fun unlocked(ctx: Context) = ctx.getSystemService(UserManager::class.java)?.isUserUnlocked != false
+
+    /** The move of clear keys into the vault failed once in this process: not again on every load. */
+    @Volatile private var migrationFailed = false
+
+    /**
+     * The settings; tunnels whose keys cannot be opened come back locked (see
+     * [Settings.withoutLocked]). Not readable (locked phone, damaged file): the
+     * defaults, which block everything. A file from before the vault (keys in
+     * clear) is sealed and rewritten here, once.
+     */
+    @Synchronized
+    fun load(ctx: Context, v: Vault = Vault.keystore): Settings {
+        if (!unlocked(ctx)) return Settings()
+        val o = try {
+            JSONObject(String(file(ctx).readFully()))
+        } catch (e: Exception) {
+            return Settings()
+        }
+        val s = try {
+            Settings.fromJson(o, v)
+        } catch (e: Exception) {
+            return Settings()
+        }
+        if (Settings.hasClearSecrets(o) && !migrationFailed) migrate(ctx, s, v)
+        return s
     }
 
+    /**
+     * Rewrites a settings.json with keys in clear as sealed. The new file replaces the
+     * old one atomically (AtomicFile); afterwards the old file's bytes, still reachable
+     * through the handle opened before, are overwritten with zeros. Any failure (key
+     * store not available): the old file stays as it was, the app runs on with it.
+     * Flash storage may keep old blocks elsewhere (wear levelling); the overwrite is
+     * what an app can do, the key store protects every file written from now on.
+     */
+    private fun migrate(ctx: Context, s: Settings, v: Vault) {
+        val base = File(ctx.filesDir, FILE)
+        val old = runCatching { if (base.exists()) RandomAccessFile(base, "rw") else null }.getOrNull()
+        try {
+            save(ctx, s, v)
+        } catch (e: Exception) {
+            migrationFailed = true
+            android.util.Log.w("Shunt", "vault: tunnel keys stay in the old file for now: ${e.javaClass.simpleName}")
+            runCatching { old?.close() }
+            return
+        }
+        old?.use { runCatching { wipe(it) } }
+        android.util.Log.i("Shunt", "vault: tunnel keys moved into the key store")
+    }
+
+    /** Overwrites a file's bytes with zeros and syncs them to the disk. */
+    fun wipe(f: RandomAccessFile) {
+        val zeros = ByteArray(4096)
+        var left = f.length()
+        f.seek(0)
+        while (left > 0) {
+            val n = minOf(left, zeros.size.toLong()).toInt()
+            f.write(zeros, 0, n)
+            left -= n
+        }
+        f.fd.sync()
+    }
+
+    /**
+     * Writes the settings with the tunnels' secrets sealed. Sealed before the file is
+     * touched: when the key store cannot seal, this throws and the old file stays.
+     */
     @Synchronized
-    fun save(ctx: Context, s: Settings) {
+    fun save(ctx: Context, s: Settings, v: Vault = Vault.keystore) {
+        check(unlocked(ctx)) { "phone not unlocked yet" }
+        val bytes = s.toStoreJson(v).toString(2).toByteArray()
         val f = file(ctx)
         val out = f.startWrite()
         try {
-            out.write(s.toJson().toString(2).toByteArray())
+            out.write(bytes)
             f.finishWrite(out)
         } catch (e: Exception) {
             f.failWrite(out)

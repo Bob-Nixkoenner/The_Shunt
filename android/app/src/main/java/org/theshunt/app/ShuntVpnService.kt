@@ -113,6 +113,11 @@ class ShuntVpnService : VpnService() {
     private fun startEngine() {
         stopEngine()
         val settings = Store.load(this)
+        // tunnels whose keys this phone cannot open (key store key gone): the core does
+        // not get them and their apps block (Settings.withoutLocked), the VPN still comes up
+        settings.tunnels.filter { it.locked }.takeIf { it.isNotEmpty() }?.let { l ->
+            Log.w(TAG, "locked tunnels (keys not readable on this phone), their routes block: ${l.joinToString { it.name }}")
+        }
         try {
             val b = Builder()
                 .setSession("The Shunt")
