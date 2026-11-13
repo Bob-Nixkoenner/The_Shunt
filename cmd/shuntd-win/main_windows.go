@@ -123,7 +123,11 @@ func main() {
 // setupLog writes to shuntd.log (and to the console when there is one).
 func setupLog() {
 	log.SetFlags(log.Ldate | log.Ltime)
-	_ = os.MkdirAll(dataDir, 0o755)
+	if err := secureDataDir(dataDir); err != nil {
+		log.Printf("data folder: %v", err)
+		fmt.Fprintln(os.Stderr, "data folder:", err)
+		os.Exit(1) // never write or read a folder someone else controls
+	}
 	f, err := os.OpenFile(filepath.Join(dataDir, "shuntd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
 		log.SetOutput(logWriter{f})
@@ -268,7 +272,7 @@ func startDNSWatch() *winsplit.DNSWatch {
 // runCore brings everything up and blocks until ctx ends or the API asks for
 // a restart. ready (may be nil) is called once the API answers.
 func runCore(ctx context.Context, ready func()) error {
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := secureDataDir(dataDir); err != nil {
 		return err
 	}
 	// ProgramData grants every user read and create rights by default: the
@@ -860,7 +864,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+	if err := secureDataDir(dataDir); err != nil {
 		return err
 	}
 	m, err := mgr.Connect()
