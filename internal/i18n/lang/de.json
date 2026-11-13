@@ -1780,6 +1780,9 @@
   "ignored": "ignoriert",
   "test, {n} min left": "Test, noch {n} Min.",
   "test over": "Test vorbei",
-  "(known source)": "(bekannte Quelle)"
+  "(known source)": "(bekannte Quelle)",
+  "Not saved: the archive stays in the case folder of the service.": "Nicht gespeichert: Das Archiv bleibt im Fallordner des Dienstes.",
+  "Not saved.": "Nicht gespeichert.",
+  "Saved: {path}": "Gespeichert: {path}"
  }
 }

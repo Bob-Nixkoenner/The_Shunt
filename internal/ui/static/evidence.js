@@ -150,6 +150,7 @@ async function evExportRun(body) {
     const name = String(r.path || "").split(/[\\/]/).pop();
     // the desktop window cannot take a browser download: the app saves the file itself
     const sv = await api("POST", "/api/defense/evidence/save", { name });
+    if (sv.cancelled) { toast(T("Not saved: the archive stays in the case folder of the service.")); return; }
     const box = $("#ev-exp-box"), host = $("#ev-exp");
     box.replaceChildren(
       el("div", { style: "font-weight:700" }, T("Evidence saved")),

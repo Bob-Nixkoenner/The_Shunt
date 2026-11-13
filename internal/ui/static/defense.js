@@ -761,9 +761,8 @@ async function loadDefReports() {
 }
 $("#def-rep-export").addEventListener("click", async () => {
   try {
-    const r = await api("GET", "/api/defense/reports?export=1");
-    const a = el("a", { href: URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: "application/json" })), download: "shunt-network-report.json" });
-    document.body.appendChild(a); a.click(); a.remove();
+    const r = await api("POST", "/api/defense/reports/save", {});
+    toast(r.cancelled ? T("Not saved.") : T("Saved: {path}", { path: r.path }));
   } catch (e) { toast(e.message); }
 });
 setInterval(() => { if (!document.hidden && level() === "opsec" && defSt) loadDefReports(); }, 15000);

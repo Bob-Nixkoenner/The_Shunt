@@ -68,6 +68,7 @@ func (s *Server) evidenceRoutes(mux *http.ServeMux) {
 		return "?src=" + url.QueryEscape(src), err == nil
 	}, false))
 	mux.HandleFunc("POST /api/defense/evidence/save", s.evidenceSave)
+	mux.HandleFunc("POST /api/defense/reports/save", s.reportsSave)
 }
 
 // downloadsDir is where a saved archive goes: the user's download folder
@@ -126,21 +127,65 @@ func (s *Server) evidenceSave(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, fmt.Errorf("the archive could not be read"))
 		return
 	}
+	path, err := saveAs(in.Name, ".tar.gz", raw)
+	if errors.Is(err, errCancelled) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"cancelled": true})
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	dir := filepath.Dir(path)
+	openFolderFn(path)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "dir": dir, "size": len(raw)})
+}
+
+// saveAs lets the user pick the place with the system's save dialog (the
+// suggestion is the download folder, never overwriting an earlier export).
+// Without a dialog it saves to that suggestion. errCancelled: nothing written.
+func saveAs(name, ext string, raw []byte) (string, error) {
 	dir := downloadsDirFn()
-	path := filepath.Join(dir, in.Name)
+	path := filepath.Join(dir, name)
 	for i := 1; ; i++ { // never overwrite an earlier export
 		if _, err := os.Lstat(path); err != nil {
 			break
 		}
-		path = filepath.Join(dir, strings.TrimSuffix(in.Name, ".tar.gz")+fmt.Sprintf("-%d.tar.gz", i))
+		path = filepath.Join(dir, strings.TrimSuffix(name, ext)+fmt.Sprintf("-%d%s", i, ext))
+	}
+	switch chosen, err := saveDialogFn(path); {
+	case errors.Is(err, errCancelled):
+		return "", err
+	case err == nil:
+		path = chosen // the dialog asked about overwriting
 	}
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		return "", err
+	}
+	return path, nil
+}
+
+// reportsSave writes the network reports through the same dialog.
+func (s *Server) reportsSave(w http.ResponseWriter, r *http.Request) {
+	rep, err := s.Client.DefenseReports(true)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
-	openFolderFn(path)
+	raw, _ := json.MarshalIndent(rep, "", "  ")
+	path, err := saveAs("shunt-network-report.json", ".json", raw)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "dir": dir, "size": len(raw)})
+	switch {
+	case errors.Is(err, errCancelled):
+		_ = json.NewEncoder(w).Encode(map[string]any{"cancelled": true})
+	case err != nil:
+		writeErr(w, http.StatusInternalServerError, err)
+	default:
+		openFolderFn(path)
+		_ = json.NewEncoder(w).Encode(map[string]any{"path": path})
+	}
 }
 
 // openFolder shows the file in the file manager; failures are not an error.
