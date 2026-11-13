@@ -503,7 +503,3 @@ func nmOwner(conn *dbus.Conn, name string) string {
 	}
 	return owner
 }
-
-// fromOwner: a signal counts only from the current owner of NetworkManager's
-// name (never when nobody owns it).
-func fromOwner(sender, owner string) bool { return owner != "" && sender == owner }

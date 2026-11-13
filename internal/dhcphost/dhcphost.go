@@ -212,3 +212,7 @@ func contains(l []string, s string) bool {
 	}
 	return false
 }
+
+// fromOwner: a D-Bus signal counts only from the current owner of
+// NetworkManager's name (never when nobody owns it); see WatchNew.
+func fromOwner(sender, owner string) bool { return owner != "" && sender == owner }
