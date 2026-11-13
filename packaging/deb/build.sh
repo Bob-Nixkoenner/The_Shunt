@@ -56,6 +56,21 @@ Description: Per-app split tunneling with WireGuard and OpenVPN
  tunnel. Multi-hop, DNS per route, DNS filter, kill switch, network profiles.
  Config: /etc/shunt/shunt.toml (see /usr/share/doc/the-shunt/shunt.toml.example).
 EOF
+# preinst: remember whether tor was already installed (and configured) before
+# this package; postinst then leaves its service alone.
+cat >"$P/DEBIAN/preinst" <<'EOF'
+#!/bin/sh
+set -e
+if [ "$1" = install ] && [ -d /run/systemd/system ]; then
+	if [ "$(dpkg-query -W -f='${db:Status-Status}' tor 2>/dev/null)" = installed ]; then
+		mkdir -p /run/the-shunt && : >/run/the-shunt/tor-was-installed
+	else
+		rm -f /run/the-shunt/tor-was-installed
+	fi
+fi
+exit 0
+EOF
+chmod 755 "$P/DEBIAN/preinst"
 cat >"$P/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
@@ -86,11 +101,13 @@ if [ "$1" = configure ]; then
 		else echo "The Shunt: leftovers of an install.sh installation would have hidden this package; moved aside (suffix .from-install-sh, not deleted):$aside"; fi
 	fi
 	# The Shunt runs its own tor for Tor tunnels; the system service (SOCKS
-	# on 9050) that the tor package starts is not needed. Only on a fresh
-	# install, so a tor someone set up on purpose is left alone.
-	if [ -z "$2" ] && [ -d /run/systemd/system ]; then
+	# on 9050) that the tor package starts is not needed. Only when tor came
+	# with this package (not installed before, see preinst), so a tor someone
+	# set up on purpose is left alone.
+	if [ -z "$2" ] && [ -d /run/systemd/system ] && [ ! -e /run/the-shunt/tor-was-installed ]; then
 		systemctl disable --now tor.service tor@default.service >/dev/null 2>&1 || true
 	fi
+	rm -f /run/the-shunt/tor-was-installed; rmdir /run/the-shunt 2>/dev/null || true
 	install -d -m755 /etc/shunt
 	install -d -m700 /etc/shunt/tunnels
 	# daemon_privacy FILE: adds dhcp_hostname = "none" and mac = "random" to
