@@ -234,13 +234,14 @@ func TestParseCapEff(t *testing.T) {
 // stubPrepare swaps the process-wide steps of prepare for one test.
 func stubPrepare(t *testing.T, caps uint64, capsErr, memlock error) *int {
 	t.Helper()
-	oldCaps, oldRm := effectiveCaps, removeMemlock
+	oldCaps, oldRm, oldNS := effectiveCaps, removeMemlock, hostUserNS
 	calls := 0
+	hostUserNS = func() bool { return true }
 	effectiveCaps = func() (uint64, error) { return caps, capsErr }
 	removeMemlock = func() error { calls++; return memlock }
 	memlockOnce, memlockErr = sync.Once{}, nil
 	t.Cleanup(func() {
-		effectiveCaps, removeMemlock = oldCaps, oldRm
+		effectiveCaps, removeMemlock, hostUserNS = oldCaps, oldRm, oldNS
 		memlockOnce, memlockErr = sync.Once{}, nil
 	})
 	return &calls
@@ -301,5 +302,28 @@ func TestMemlockFailureNamedOnEPERM(t *testing.T) {
 	}
 	if e := mapError("shunt_names", unix.EPERM, nil); errors.Is(e, ErrMemlock) {
 		t.Fatalf("lifted limit called memlock: %v", e)
+	}
+}
+
+// An unprivileged container (CT130) has every capability in its own user
+// namespace, but the kernel refuses bpf() there all the same.
+func TestPrepareInContainer(t *testing.T) {
+	calls := stubPrepare(t, 1<<capBPF|1<<capSysAdmin, nil, nil)
+	hostUserNS = func() bool { return false }
+	if _, err := prepare(); !errors.Is(err, ErrUserNS) {
+		t.Fatalf("got %v, want ErrUserNS", err)
+	}
+	if *calls != 0 {
+		t.Fatal("memlock lifted in a container")
+	}
+	for m, want := range map[string]bool{
+		"         0          0 4294967295\n": true,
+		"         0     100000      65536\n": false,
+		"0 0 4294967295\n1 2 3\n":            false,
+		"":                                   false,
+	} {
+		if fullUIDMap(m) != want {
+			t.Errorf("%q: got %v", m, !want)
+		}
 	}
 }

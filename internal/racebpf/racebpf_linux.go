@@ -276,6 +276,7 @@ const (
 // The process-wide steps before the first map, as variables for tests.
 var (
 	effectiveCaps = readEffectiveCaps
+	hostUserNS    = inHostUserNS
 	removeMemlock = rlimit.RemoveMemlock
 	memlockOnce   sync.Once
 	memlockErr    error
@@ -288,6 +289,18 @@ func readEffectiveCaps() (uint64, error) {
 		return 0, err
 	}
 	return parseCapEff(string(raw))
+}
+
+// inHostUserNS: whether this process sees the host's full uid range (an
+// unreadable map counts as yes: let the kernel decide).
+func inHostUserNS() bool {
+	raw, err := os.ReadFile("/proc/self/uid_map")
+	return err != nil || fullUIDMap(string(raw))
+}
+
+func fullUIDMap(m string) bool {
+	f := strings.Fields(m)
+	return len(f) == 3 && f[0] == "0" && f[1] == "0" && f[2] == "4294967295"
 }
 
 func parseCapEff(status string) (uint64, error) {
@@ -305,6 +318,9 @@ func parseCapEff(status string) (uint64, error) {
 // A failed lift is not fatal by itself: it is returned so that a later
 // EPERM can name it.
 func prepare() (memlock error, err error) {
+	if !hostUserNS() {
+		return nil, ErrUserNS
+	}
 	caps, cerr := effectiveCaps()
 	if cerr == nil && caps&(1<<capBPF|1<<capSysAdmin) == 0 {
 		return nil, ErrNoCaps

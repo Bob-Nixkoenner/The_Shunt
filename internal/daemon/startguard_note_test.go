@@ -16,6 +16,7 @@ import (
 // and the advice must match the reason (capabilities, memlock, kernel).
 func TestStartGuardFinding(t *testing.T) {
 	noCaps := fmt.Errorf("x: %w", racebpf.ErrNoCaps)
+	userNS := fmt.Errorf("x: %w", racebpf.ErrUserNS)
 	memlock := fmt.Errorf("map shunt_names: %w", racebpf.ErrMemlock)
 	other := errors.New("program shunt_sock: invalid argument")
 	for _, c := range []struct {
@@ -32,6 +33,7 @@ func TestStartGuardFinding(t *testing.T) {
 		{"app rules", other, true, config.FirewallOff, true, check.Warn, "6.1"},
 		{"firewall ask alone", noCaps, false, config.FirewallAsk, true, check.Bad, "CAP_BPF"},
 		{"firewall block", memlock, true, config.FirewallBlock, true, check.Bad, "LimitMEMLOCK"},
+		{"container", userNS, true, "", true, check.Warn, "container"},
 		{"no caps, app rules", noCaps, true, "", true, check.Warn, "CapabilityBoundingSet"},
 	} {
 		f, ok := startGuardFinding(c.err, c.apps, c.fw)

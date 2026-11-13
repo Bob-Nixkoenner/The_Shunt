@@ -2342,6 +2342,8 @@ func startGuardFinding(err error, appRules bool, fwMode string) (check.Finding, 
 	switch {
 	case errors.Is(err, racebpf.ErrNoCaps):
 		f = check.Note("startguard", "eBPF start guard not available: shuntd lacks the capability CAP_BPF ({err}). Programs with an app rule and programs the app firewall should ask about may send their first packets over the default route. The service file (CapabilityBoundingSet) or the way shuntd was started removed it: start shuntd with CAP_BPF and CAP_PERFMON.", "err", err.Error())
+	case errors.Is(err, racebpf.ErrUserNS):
+		f = check.Note("startguard", "eBPF start guard not available: shuntd runs in a container without eBPF rights on the host ({err}). Programs with an app rule and programs the app firewall should ask about may send their first packets over the default route. Run shuntd on the host, or start such programs with shunt run.", "err", err.Error())
 	case errors.Is(err, racebpf.ErrMemlock):
 		f = check.Note("startguard", "eBPF start guard not available: the memory lock limit is too low ({err}). Programs with an app rule and programs the app firewall should ask about may send their first packets over the default route. Set LimitMEMLOCK=infinity for the service.", "err", err.Error())
 	default:

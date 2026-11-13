@@ -298,8 +298,14 @@ chmod +x "$BIN/apptest"
 NOBODY=(setpriv --reuid=65534 --regid=65534 --clear-groups)
 check "app rule moves a normally started program" 10.166.0.2 "$(fetch "${NOBODY[@]}" "$BIN/apptest" $URL)"
 # the start tests below rely on the eBPF start guard (it loads with the
-# first app rule); without it they pass or fail by timing alone
-check "eBPF start guard loaded" yes "$(gq 'eBPF start guard loaded' "$WORK/shuntd.log" && echo yes || grep -m1 -i 'start guard' "$WORK/shuntd.log" || echo 'no log line')"
+# first app rule); without it they pass or fail by timing alone. In an
+# unprivileged container (own uid map) the kernel never allows eBPF.
+if [[ $(tr -s ' ' </proc/self/uid_map) == " 0 0 4294967295" ]]; then
+	check "eBPF start guard loaded" yes "$(gq 'eBPF start guard loaded' "$WORK/shuntd.log" && echo yes || grep -m1 -i 'start guard' "$WORK/shuntd.log" || echo 'no log line')"
+else
+	echo "  skip eBPF start guard (user namespace: container)"
+	check "container: start guard missing is said loudly" yes "$(gq 'START GUARD NOT AVAILABLE.*container' "$WORK/shuntd.log" && echo yes || echo no)"
+fi
 check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
 printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
 chmod +x "$BIN/proftest"
