@@ -817,7 +817,11 @@ EOF
 	for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 	sleep 1
 }
-fwd0=$(cat /proc/sys/net/ipv4/ip_forward)
+# forwarding as the host had it before the gateway (inside the test's
+# namespace: a new namespace inherits it from the machine, so it differs
+# between hosts); turning the gateway off must give exactly this back
+fwd0=$(cli cat /proc/sys/net/ipv4/ip_forward)
+gwfwd0=$(cli cat /proc/sys/net/ipv4/conf/gw0/forwarding)
 if [[ $fwd0 == 0 ]]; then
 	check "gateway off: nothing is forwarded" "" "$(gwc curl -s $URL)"
 fi
@@ -836,7 +840,7 @@ if [[ $(gwc curl -s $URL) != 10.166.0.2 ]]; then
 fi
 check "gateway: client DNS goes the route too" yes "$(gwc "$BIN/fakedns" query -server 10.99.0.1:53 -type TXT whoami.test | gq 10.166.0.2 && echo yes || echo no)"
 if [[ $fwd0 == 0 ]]; then
-	check "gateway: no global ip_forward" 0 "$(cat /proc/sys/net/ipv4/ip_forward)"
+	check "gateway: no global ip_forward" 0 "$(cli cat /proc/sys/net/ipv4/ip_forward)"
 fi
 check "gateway: nothing leaked so far" 0 "$(leaked)"
 # the host's own services are not for clients (DHCP and DNS only)
@@ -871,8 +875,14 @@ cp "$WORK/etc/shunt.toml.nogw" "$WORK/etc/shunt.toml"
 shunt reload
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
 sleep 1
-# gateway off: the client network is an ordinary network behind the host
-# now; the default route (the tunnel) decides for it (see below)
+# gateway off: gw0 gets its own forwarding setting back. Off before: the
+# client gets nothing. On: the client network is an ordinary network behind
+# the host and the default route (the tunnel) decides for it (see below)
+check "gateway off again: forwarding on gw0 as before" "$gwfwd0" "$(cli cat /proc/sys/net/ipv4/conf/gw0/forwarding)"
+if [[ $gwfwd0 == 0 ]]; then
+	check "gateway off again: client gets nothing" "" "$(gwc curl -s $URL)"
+	cli sysctl -qw net.ipv4.conf.gw0.forwarding=1
+fi
 check "gateway off again: client follows the default route" 10.166.0.2 "$(gw_wait 10.166.0.2)"
 check "gateway off: status says so" yes "$(shunt gateway status | gq 'off' && echo yes || echo no)"
 cli nft delete table ip gwleak
