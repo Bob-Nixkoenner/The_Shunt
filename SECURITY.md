@@ -6,9 +6,10 @@ traffic, so security reports are welcome and taken seriously.
 ## Reporting
 
 Please use GitHub's **private vulnerability reporting** (Security → Report a
-vulnerability) instead of a public issue. Include what you did, what leaked
-or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
-(remove anything private).
+vulnerability) instead of a public issue, or write to
+**shunt@isst.pizza**. We acknowledge a report within 7 days. Include what you
+did, what leaked or broke, and the output of `shunt status --json` and
+`journalctl -u shuntd` (remove anything private).
 
 ## What The Shunt protects against
 
