@@ -301,6 +301,26 @@ never a reason to block on its own**: the agent can change it in a second, and c
 browser are used by honest people too. The `probe` event is not fed to the scan detector (the
 connection was already counted once).
 
+### Tempo: automated attack chains (`automated_chain`)
+
+Agent frameworks run scan, connect and login in one go. The chain **scan finding -> finished
+handshake with a decoy -> login try** (SSH, telnet, HTTP form/header, or the bait credentials) from
+one source is reported as `automated_chain`, **severity high**, detail
+`scan_to_login=<s> connect_to_login=<ms> via=ssh|telnet|http|bait`, when
+
+| Condition | Threshold | From the lab |
+|---|---|---|
+| scan finding to login try | at most `ChainWindow` = 20 s | R01: nmap SYN + connect scan of 1024 ports at 500/s took 11 s, first full handshake 6.3 s after the scan finding |
+| last handshake to login try | at most `ChainLoginGap` = 3 s | R02: scripted telnet login about 1 ms after the handshake; an SSH key exchange adds well under a second; a person typing a password needs longer |
+
+R01 alone (no login) and R02 alone (logins, but only two ports, no scan finding) give no chain; the unit
+test `TestAutomatedChain` holds both as controls. One finding per chain; half-done chains are forgotten
+after 20 s and on a network change (at most 4096 sources followed). The source is blocked when blocking
+of login attempts (`brute`, Block) is on, at once (it finished a handshake). Ignored devices
+(`defense.ignore`) never start or finish a chain (the check sees only events that passed the list), and
+replies to this machine's own connections never make a scan finding (see below), so they cannot
+start one. Limit: a person with a script (scan, then `sshpass`) is a chain as well - which is what it is.
+
 ### Optional lists (`defense.reputation_sources`, default empty)
 
 Nothing optional is downloaded unless it is named here:

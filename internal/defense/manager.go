@@ -31,6 +31,7 @@ type Manager struct {
 	rpts      *Reports
 	dns       dnsState
 	conn      connState
+	chain     chainState
 	now       func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -171,6 +172,7 @@ func (m *Manager) tick() {
 	}
 	m.rep.Prune()
 	m.ver.prune(m.now())
+	m.chain.prune(m.now())
 	m.flushAgg(false)
 	if err := m.rpts.Flush(); err != nil {
 		m.log.Debug("defense: report file", "err", err)
@@ -257,6 +259,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	if changed {
 		m.forgetDNS()
 		m.forgetConns()
+		m.chain.reset()
 		m.names.Forget()
 	}
 	if changed && enabled {
@@ -304,6 +307,11 @@ func (m *Manager) Report(ev Event) {
 		if a, err := netip.ParseAddr(ev.Src); err == nil && m.ignore.Match(a, ev.Port) {
 			return
 		}
+	}
+	// tempo detection sees only what passed the ignore list; a finished
+	// chain is reported after this event
+	if h, ok := m.chain.step(ev, m.now()); ok {
+		defer m.chainFound(h)
 	}
 	if m.fold(ev) {
 		// folded: counts for heat and the report, but takes no ring slot

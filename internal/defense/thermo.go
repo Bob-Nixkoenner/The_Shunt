@@ -48,7 +48,7 @@ func eventPoints(k Kind, s Severity) float64 {
 	switch k {
 	case KindCowrie:
 		p *= 1.5
-	case KindBait, KindARP, KindRogueDHCP, KindDHCPOption, KindRogueRA, KindDNSHijack, KindEvilTwin, KindTLS:
+	case KindBait, KindAutomatedChain, KindARP, KindRogueDHCP, KindDHCPOption, KindRogueRA, KindDNSHijack, KindEvilTwin, KindTLS:
 		p *= 2
 	}
 	return p
