@@ -64,6 +64,11 @@ func (p *pairSets) ensure(base string, addrs []netip.Addr, ttl time.Duration) (t
 	}
 	add := [2][]netip.Addr{}
 	safe := ttl
+	// the set entry lives at most maxLifetime: the client must ask again
+	// before it is gone, or its cached answer outlives the set entry
+	if life-grace < safe {
+		safe = life - grace
+	}
 	for _, a := range addrs {
 		e := m[a]
 		if e[0].After(want) || e[1].After(want) {

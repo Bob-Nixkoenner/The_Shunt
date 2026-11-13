@@ -46,3 +46,15 @@ func TestReplayDropsOtherDomains(t *testing.T) {
 		t.Fatalf("other domains got the old addresses: %v", w.adds)
 	}
 }
+
+// A client must never cache an answer longer than the set entry lives.
+func TestEnsureTTLCappedToSetLife(t *testing.T) {
+	p := newPairSets(&recWriter{adds: map[string]int{}})
+	safe, err := p.ensure("dom1_v4", []netip.Addr{netip.MustParseAddr("192.0.2.1")}, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if safe > maxLifetime-grace {
+		t.Fatalf("client TTL %v outlives the set entry (%v)", safe, maxLifetime-grace)
+	}
+}

@@ -198,3 +198,14 @@ func TestTorrcGeoIP(t *testing.T) {
 		}
 	}
 }
+
+func TestParseProgress(t *testing.T) {
+	for _, l := range []string{"250-status/bootstrap-phase=NOTICE BOOTSTRAP PROGRESS=", "PROGRESS= TAG=x", "PROGRESS=abc"} {
+		if _, ok := parseProgress(l); ok {
+			t.Errorf("%q accepted", l)
+		}
+	}
+	if n, ok := parseProgress("NOTICE BOOTSTRAP PROGRESS=85 TAG=x"); !ok || n != 85 {
+		t.Errorf("got %d %v", n, ok)
+	}
+}
