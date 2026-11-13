@@ -80,7 +80,7 @@ func ValidateEvidence(e EvidenceConfig) error {
 func WithEventHook(f func(Event, Class)) Option { return func(m *Manager) { m.onEvent = f } }
 
 func (m *Manager) emitEvent(ev Event) {
-	if m.onEvent == nil {
+	if m.onEvent == nil || ev.Trust != "" { // known/test sources are shown, not reported
 		return
 	}
 	m.mu.Lock()

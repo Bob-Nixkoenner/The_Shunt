@@ -299,6 +299,9 @@ func (m *Manager) Report(ev Event) {
 		if a, err := netip.ParseAddr(ev.Src); err == nil && m.ignore.Match(a, ev.Port) {
 			return
 		}
+		if a, err := netip.ParseAddr(ev.Src); err == nil {
+			ev.Trust = m.ignore.Trust(a, ev.Port, m.now())
+		}
 	}
 	if m.fold(ev) {
 		// folded: counts for heat and the report, but takes no ring slot
@@ -418,7 +421,7 @@ func (m *Manager) maybeBan(src netip.Addr, reason Kind, feat string) {
 	unverified := m.cfg.BanUnverified
 	m.mu.Unlock()
 	src = src.Unmap()
-	if !f.Watch || !f.Block || !m.Bannable(src) {
+	if !f.Watch || !f.Block || !m.Bannable(src) || (reason != KindReputation && m.ignore.TrustAny(src, m.now()) != "") {
 		return
 	}
 	// Findings built from packets alone (scan, brute force) wait for a
@@ -440,7 +443,7 @@ func (m *Manager) banNow(src netip.Addr, reason Kind, note string) {
 	m.mu.Lock()
 	f := m.featureLocked(feat)
 	m.mu.Unlock()
-	if !f.Watch || !f.Block || !m.Bannable(src) {
+	if !f.Watch || !f.Block || !m.Bannable(src) || m.ignore.TrustAny(src, m.now()) != "" {
 		return
 	}
 	m.addBan(src, reason, 0, note)

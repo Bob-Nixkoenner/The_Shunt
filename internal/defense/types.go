@@ -131,6 +131,9 @@ type Event struct {
 	Port     int       `json:"port,omitempty"` // local port that was hit, if any
 	Proto    string    `json:"proto,omitempty"`
 	Detail   string    `json:"detail,omitempty"`
+	// Trust is "known" or "test" when the source is on the ignore list at
+	// that step: shown, but not reported, blocked or (test) counted for heat.
+	Trust string `json:"trust,omitempty"`
 }
 
 // Level is the coarse reading of the heat gauge.
