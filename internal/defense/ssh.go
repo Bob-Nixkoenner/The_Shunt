@@ -96,7 +96,7 @@ func (d *Decoys) sshConfig(ctx context.Context, src netip.Addr, port int, signer
 		banner = DefaultSSHBanner
 	}
 	report := func(md ssh.ConnMetadata, pw string) error {
-		d.login(src, port, "ssh", md.User(), pw, " client="+cleanName(string(md.ClientVersion()))+toolDetail(ToolFromSSHClient(string(md.ClientVersion()))))
+		d.login(src, port, "ssh", md.User(), pw, " client="+cleanField(string(md.ClientVersion()))+toolDetail(ToolFromSSHClient(string(md.ClientVersion()))))
 		_ = conn.SetDeadline(time.Now().Add(sshStepTimeout))
 		if d.SSHDelay > 0 {
 			t := time.NewTimer(d.SSHDelay)

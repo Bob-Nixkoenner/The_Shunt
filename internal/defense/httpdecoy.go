@@ -125,7 +125,7 @@ func (d *Decoys) httpTrap(c net.Conn, src netip.Addr, port int) {
 // body was not read to its end (the connection cannot go on).
 func (d *Decoys) httpServe(req *http.Request, src netip.Addr, port int) (status int, ctype, body string, done bool) {
 	p := path.Clean("/" + req.URL.Path)
-	method := cleanName(req.Method)
+	method := cleanField(req.Method)
 	extra := toolDetail(toolFromRequest(req.RequestURI, req.UserAgent()))
 
 	// credentials in the header count like a form login
@@ -144,7 +144,7 @@ func (d *Decoys) httpServe(req *http.Request, src netip.Addr, port int) (status 
 		if user, pw, ok := formCreds(req.Header.Get("Content-Type"), raw[:min(len(raw), httpMaxBody)]); ok {
 			d.login(src, port, "http", user, pw, extra)
 		} else {
-			d.hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevLow, Detail: "http " + method + " path=" + cleanName(p) + extra})
+			d.hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevLow, Detail: "http " + method + " path=" + cleanField(p) + extra})
 		}
 		return http.StatusOK, "text/html", loginPage(true), done
 	}
@@ -155,7 +155,7 @@ func (d *Decoys) httpServe(req *http.Request, src netip.Addr, port int) (status 
 			return http.StatusOK, ctype, body, false
 		}
 	}
-	d.hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevLow, Detail: "http " + method + " path=" + cleanName(p) + extra})
+	d.hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevLow, Detail: "http " + method + " path=" + cleanField(p) + extra})
 	if loginPaths[p] {
 		return http.StatusOK, "text/html", loginPage(false), false
 	}

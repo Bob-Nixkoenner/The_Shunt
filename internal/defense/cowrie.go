@@ -24,6 +24,11 @@ func cleanName(s string) string {
 	return sb.String()
 }
 
+// cleanField is cleanName for one value inside an event detail: spaces
+// become "_", so what a visitor sends (user name, path, client version)
+// cannot add fields of its own (" tool=nmap", " via=...") to the detail.
+func cleanField(s string) string { return strings.ReplaceAll(cleanName(s), " ", "_") }
+
 // PasswordDigest returns "len=N h=xxxxxxxx" (4-byte SHA-256 prefix).
 func PasswordDigest(pw string) string {
 	h := sha256.Sum256([]byte(pw))

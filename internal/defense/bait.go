@@ -156,9 +156,9 @@ func (d *Decoys) bait() (BaitCreds, bool) {
 func (d *Decoys) login(src netip.Addr, port int, via, user, pw, extra string) {
 	if b, ok := d.bait(); ok && b.Match(pw) {
 		d.hit(Hit{Src: src, Port: port, Kind: KindBait, Sev: SevHigh,
-			Detail: "bait used via=" + via + " user=" + cleanName(user) + extra})
+			Detail: "bait used via=" + via + " user=" + cleanField(user) + extra})
 		return
 	}
 	d.hit(Hit{Src: src, Port: port, Kind: KindCowrie, Sev: SevMedium,
-		Detail: via + " login user=" + cleanName(user) + " " + PasswordDigest(pw) + extra})
+		Detail: via + " login user=" + cleanField(user) + " " + PasswordDigest(pw) + extra})
 }

@@ -285,3 +285,14 @@ func TestManagerBaitUseBans(t *testing.T) {
 		t.Fatal("ignored device reported or blocked")
 	}
 }
+
+// What a visitor sends cannot add fields to the event detail: a user name or
+// path with " tool=nmap" must not become a tool mark (extra heat).
+func TestVisitorFieldsCannotAddDetailFields(t *testing.T) {
+	for _, s := range []string{"root tool=nmap", "/a tool=nmap", "x via=bait"} {
+		got := cleanField(s)
+		if strings.Contains(got, " ") || hasTool(" user="+got) {
+			t.Fatalf("cleanField(%q) = %q", s, got)
+		}
+	}
+}
