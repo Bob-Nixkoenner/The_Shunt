@@ -56,6 +56,20 @@ The client needs the VirtualBox Guest Additions, passwordless sudo and the
 WireGuard config of the internal test server (`TUNNEL_CONF`, test keys, not in
 git). The rogue DHCP/RA modes only ever run on the internal network `shuntlab`.
 
+**Arch, CachyOS, Fedora clients take a `.tar`, not the `.deb`.** Build it only
+with the script, never by packing the `.deb` data yourself:
+
+```sh
+test/lab/make-files-tar.sh the-shunt_<version>_amd64.deb the-shunt-files.tar arch   # or fedora
+lab.sh client-prep the-shunt-files.tar
+```
+
+The `.deb` data has `./lib/systemd/...` and `./usr/sbin/...`. On those systems
+`/lib` and `/usr/sbin` are symlinks, and `tar -C / -xf` replaces a symlink by a
+real directory: the client then boots into emergency mode and the snapshot is
+lost. The script moves `lib/` to `usr/lib/`, leaves out `usr/sbin` and checks
+that the tar has no entry that would replace a system symlink.
+
 ## Machine-specific files (not in git)
 
 `local.env.example` lists every variable (placeholders only). `local.env` holds the account (`USER_VM`), the test server (`CT130=user@address`) and `LAB_VPN_DIR`: the folder with the
