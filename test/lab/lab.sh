@@ -227,7 +227,12 @@ run)
 	source "$HERE/run-test.sh"
 	build_check || exit 1
 	(($#)) || set -- "${TESTS_DIR:-$HERE/tests}"/*."${TEST_EXT:-sh}"
-	for t in "$@"; do run_test "$t" || FOUND+=("$t(error)"); done
+	n=0
+	for t in "$@"; do
+		n=$((n + 1))
+		run_test "$t" || FOUND+=("$t(error)")
+		((n < $#)) && after_tor_pause "$t" # no pause after the last test
+	done
 	summary ;;
 *) sed -n '2,/^set -e/p' "$0" | sed 's/^# \{0,1\}//;$d'; exit 1 ;;
 esac
