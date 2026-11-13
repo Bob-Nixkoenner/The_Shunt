@@ -33,6 +33,9 @@ type Hit struct {
 	Sev    Severity
 	Detail string
 	JA3    string // TLS client fingerprint when the hit carried a ClientHello
+	// Extra marks a follow-up on a connection that was already counted
+	// (tool mark of its payload): reported, not fed to the scan detector.
+	Extra bool
 }
 
 // DecoyOptions says which extras are on.
@@ -296,8 +299,11 @@ func (d *Decoys) handle(ctx context.Context, c net.Conn, port int, opt DecoyOpti
 		_, _ = c.Write([]byte(b))
 	}
 	buf := make([]byte, 512)
-	_, _ = c.Read(buf)
+	n, _ := c.Read(buf)
 	c.Close()
+	if tool := toolFromPayload(buf[:n]); tool != "" {
+		d.hit(Hit{Src: src, Port: port, Kind: KindDecoyHit, Sev: SevLow, Detail: "probe" + toolDetail(tool), Extra: true})
+	}
 }
 
 func addrOf(a net.Addr) netip.Addr {

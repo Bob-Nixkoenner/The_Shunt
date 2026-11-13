@@ -126,7 +126,7 @@ func (d *Decoys) httpTrap(c net.Conn, src netip.Addr, port int) {
 func (d *Decoys) httpServe(req *http.Request, src netip.Addr, port int) (status int, ctype, body string, done bool) {
 	p := path.Clean("/" + req.URL.Path)
 	method := cleanName(req.Method)
-	extra := ""
+	extra := toolDetail(toolFromRequest(req.RequestURI, req.UserAgent()))
 
 	// credentials in the header count like a form login
 	if u, pw, ok := req.BasicAuth(); ok {

@@ -368,7 +368,9 @@ func (m *Manager) decoyHit(h Hit) {
 	m.Report(Event{Kind: h.Kind, Severity: h.Sev, Src: h.Src.String(), Port: h.Port, Proto: "tcp", Detail: h.Detail})
 	switch h.Kind {
 	case KindDecoyHit:
-		m.Observe(h.Src, h.Port, "tcp", false)
+		if !h.Extra {
+			m.Observe(h.Src, h.Port, "tcp", false)
+		}
 	case KindBait:
 		// someone read a bait file and uses what it found: block at once
 		// (the source finished a handshake, nothing waits) when blocking of

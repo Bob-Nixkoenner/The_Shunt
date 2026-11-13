@@ -1773,6 +1773,9 @@
   "Someone used the lock credentials from a bait file at a fake login ({via}). Proof of an attack: blocked at once when blocking of login attempts is on.": "Jemand hat die Lock-Zugangsdaten aus einer Köder-Datei an einer Schein-Anmeldung benutzt ({via}). Beweis für einen Angriff: sofort gesperrt, wenn das Sperren von Anmeldeversuchen an ist.",
   "Fetched the bait file {path}": "Köder-Datei {path} abgerufen",
   "Tried to log in on the fake web login as {user} (password of {n} characters)": "Anmeldeversuch an der Schein-Webanmeldung als {user} (Passwort mit {n} Zeichen)",
-  "Asked the fake web server for {path}": "Den Schein-Webserver nach {path} gefragt"
+  "Asked the fake web server for {path}": "Den Schein-Webserver nach {path} gefragt",
+  "Tool: {tool}": "Werkzeug: {tool}",
+  "The visitor names a scripted tool ({tool}). Raises the heat, never blocks on its own.": "Der Besucher nennt ein Skript-Werkzeug ({tool}). Erhöht die Hitze, sperrt nie allein.",
+  "Sent a probe of the tool {tool} to a decoy port": "Hat eine Probe des Werkzeugs {tool} an einen Köder-Port geschickt"
  }
 }

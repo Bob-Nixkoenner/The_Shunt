@@ -283,6 +283,24 @@ source is blocked at once when blocking of login attempts (`brute`, Block) is on
 it is on by itself. No handshake wait: the source has finished one. Ignored devices (`defense.ignore`)
 cause no `bait` event and no block. The comparison is constant-time.
 
+### Tool marks (`tool=`)
+
+The decoys read what a visitor sends anyway and name the program when it is a known scripted tool
+(`tool.go`); the event detail then ends in `tool=<name>`:
+
+| Where | Seen | Names |
+|---|---|---|
+| HTTP decoy | User-Agent | `nmap` (NSE), `curl`, `wget`, `python_requests`, `python_urllib`, `python_httpx`, `python_aiohttp`, `go_http`, `headless_chromium`, `playwright`, `puppeteer`, `masscan`, `zgrab`, `nikto`, `sqlmap`, `nuclei`, `gobuster`, `ffuf` |
+| HTTP decoy | nmap's fixed 404 probe `/nice%20ports%2C/Tri%6Eity.txt%2ebak` | `nmap` |
+| SSH decoy | client version | `nmap`, `python_paramiko`, `python_asyncssh`, `libssh` (hydra, medusa), `go_ssh`, `zgrab` |
+| other decoy ports (no tarpit) | first bytes: nmap's SIP or 404 probe, or an HTTP request with such a User-Agent | as above; event `decoy_hit` low, detail `probe tool=<name>` |
+
+A normal browser, OpenSSH or PuTTY gives no mark. An event with a mark adds 6 extra heat points
+(times the class factor), so a scripted visitor raises the gauge and its alarms sooner. **A mark is
+never a reason to block on its own**: the agent can change it in a second, and curl or a headless
+browser are used by honest people too. The `probe` event is not fed to the scan detector (the
+connection was already counted once).
+
 ### Optional lists (`defense.reputation_sources`, default empty)
 
 Nothing optional is downloaded unless it is named here:
