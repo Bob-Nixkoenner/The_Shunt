@@ -170,7 +170,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   Removed again when the defense is switched off or shuntd stops.
 - Scan/brute-force observation: the same table logs new inbound connections (rate limited) to
   NFLOG group 5302; shuntd counts connections to ports nothing listens on per source
-  (`Manager.ObserveState`). Limit: brute force on a real service (for example SSH) is not seen this way.
+  (`Manager.ObserveState`). New TCP connections to a real open service are counted from the same log for
+  `brute_service` (see "Brute force on real services" below).
 - Sensors (`sniff_linux.go`): gateway MAC change (netlink neighbour events, ARP and NDP), a second DHCP
   server (passive AF_PACKET with a BPF filter, needs `CAP_NET_RAW`), DNS comparison (the network's
   resolvers against DoH over the default route and a public resolver asked through the tunnel), evil
@@ -374,6 +375,62 @@ Read 2026-11-11 (spamhaus.org/drop, drop-fair-use-policy, terms-conditions):
 5. Only high quality lists may block (`feodo`, `sslbl`, `sslbl_ja3`); `et_compromised` and any list with known false alarms only report, even when Block is on.
 6. A hit can be allowed for good in the UI ("Always allow": adds the address to `defense.never` and lifts the block). Built-in lists are switched off with `defense.reputation_off`.
 
+### Brute force on real services (`brute_service`)
+
+Guessing passwords at a service that really runs here (sshd, a web login, a database) does not show in
+the scan detection, which counts only ports nothing listens on. `brute_service` counts it without touching
+the service: nothing is delayed, answered, cut or proxied.
+
+- **Input:** the packet log the table already has (NFLOG group 5302, the first packet of each new inbound
+  connection, rate limited). No new nft rule, no new reader, no packet socket. A packet counts when it is a
+  bare SYN (replies to own connections are skipped as for scans) to a TCP port that the **port monitor**
+  ("Open ports", `shunt ports`) lists as open to the network: listening, not loopback-only, reachable from the
+  uplink, not blocked by the inbound mode, not a decoy and not owned by The Shunt itself (proxy, DNS, UI). The
+  list is read every 5 s outside the packet reader.
+- **Why this way:** the existing sensors read NFLOG and the socket list; conntrack is already used by the
+  daemon. A sniffer would see the same packets at higher cost; nft counters per source would need a dynamic
+  set per address and still no handshake proof.
+- **Short connections:** per source and port, one-second buckets over `SvcBruteWindow` = 60 s. Once a pair
+  reaches the threshold, the connection table (conntrack, read only, at most once per second over all
+  pairs and every 5 s per pair) is asked how many of that source's connections to the port are **still
+  established**; those are not short and are subtracted. A client that keeps its connections (keep-alive
+  pool, Syncthing, an SSH session) never adds up.
+- **Thresholds (from the lab):**
+
+| Finding | Short connections in 60 s on one port | From the lab |
+|---|---|---|
+| `brute_service`, medium | >= `SvcBruteConns` = 10 | R02 (run 2026-11-11 21:10): the scripted guesser (`brute.py`, one login per connection, no parallel tasks, N=10) sent 19 SYNs to telnet and 31 to ssh (with retransmissions and the port check) within its 30 s limit - the slowest scripted guessing seen. R01 (port scan): at most 5 SYNs on any one port; Q01-Q03 (no attacker): at most 2. Same number as `BruteConns` of the scan detection. |
+| `brute_service`, high | >= `SvcBruteHigh` = 60 | one per second on average; hydra-like tools with 4-16 parallel tasks get there in seconds, a person who mistypes never does |
+| nothing | a web client with 6 connections in 10 s (the browser limit per host); Syncthing-like long-running traffic; R01 (a port scan touches each port once or a few times); the Q runs (normal traffic of the test client) | unit tests `TestBruteServiceControls`, `TestBruteServiceLabR02` |
+
+  Detail: `service=<program> conns=<n> short=<n> open=<n> window=60s handshake=yes|no|unknown`, plus
+  `block=waits_for_handshake` when blocking is on and no handshake was seen. One finding per pair and window;
+  a medium finding can be followed by one high finding in the same window.
+- **Blocking:** only when blocking of login attempts (`brute`, Block; in unsafe networks automatic) is on
+  **and** the connection table shows a finished handshake of that source with the port (conntrack states
+  ESTABLISHED, FIN_WAIT, CLOSE_WAIT, LAST_ACK or TIME_WAIT; TIME_WAIT stays 120 s). Bare SYNs (SYN_RECV,
+  or CLOSE after a reset) are reported but **never block**; without a readable table (`handshake=unknown`)
+  nothing is blocked either. A handshake seen here also confirms the source for blocks that waited for one
+  (see "Ban spoofing").
+- **Never counted:** ignored devices (`defense.ignore`) at every trust step (full, **known**, **test**: they are
+  not even counted, so nothing is shown), the never list (gateway, system DNS servers, tunnel endpoints,
+  `defense.never`), loopback, this machine's own addresses, peers that come in through a tunnel interface
+  (point-to-point or without hardware address: WireGuard, OpenVPN tun, Tailscale), UDP. In the first 30 s
+  after shuntd starts it only observes.
+- **Memory and errors:** at most 8 ports per source and 2048 source/port pairs in total (60 counters each);
+  a full table first drops pairs quiet for a window, else the new pair is not counted. Pairs are dropped
+  after a quiet window and on a network change. A panic in the table read is caught (counted as unreadable);
+  the packet reader itself runs under `defense.Guard`.
+- **Limits:** a guesser slower than 10 connections a minute is not seen; one that keeps a single connection
+  and tries many passwords inside it (SSH allows several per connection) shows as one connection - the
+  service's own limit (`MaxAuthTries`) and its log are the place for that. Many sources with a few tries
+  each (a botnet) stay below the threshold per source. The rate limit of the log rule (300/s) caps the
+  counts in a flood; the finding comes all the same.
+- **Lab:** test R10 (`test/lab/tests/R10-defense-brute-service.sh`, attacker script
+  `attacker/brute-service.sh`) runs a hydra-like guesser from the Kali VM against the client's real sshd,
+  with blocking on, and the two controls (6 web connections in 10 s; one long connection). Run it with
+  `test/lab/run-defense-suite.sh --only R10`. Not run in a VM yet (2026-11-13).
+
 ### Ignored devices (`defense.ignore`) and false alarms from own traffic
 
 `defense.never` only stops blocks ("Always allow"). The separate list `defense.ignore` (Defense tab, "Ignored devices") is for devices that must not be reported at all. An entry is `{addr, name, ports}`: `addr` an address or CIDR (IPv4 at least /8, IPv6 at least /32), `name` a note of the user (at most 64 printable characters), `ports` up to 16 local ports (empty = all ports). At most 64 entries; the config is refused otherwise.
@@ -503,7 +560,7 @@ Manager is configured with the features that work here and nothing else.
 | `beacon` | yes | New outgoing TCP flows per app and destination; NTP/DNS/DHCP ports exempt, like on Linux. Better than Linux: the UID comes from `getConnectionOwnerUid`, no cgroup guessing. The Shunt itself is outside its own VPN and never appears. |
 | `first_seen` | yes | Same 10 minute learning phase and 6 notes per minute as on the PC. Memory in `files/defense/first-seen.json` (mode 0600, hashed targets). The app is the package name (`PackageManager.getPackagesForUid`, looked up in the worker, not in the packet path). |
 | `reputation` | yes, report only | Feodo and SSLBL (`defense.reputation_sources` and `reputation_off` as on the PC). Go has no system resolver on Android, so Kotlin downloads the list files like the filter lists (by the app itself, outside its VPN, a copy older than 12 h is fetched again) into `files/defense/rep-<name>.txt` and the core loads them (`DefenseSources`, `DefenseReload`, expiry from the file age as on the PC). A hit is one `reputation` event (high) that names the app. |
-| decoys, tarpit, cowrie, scan, brute | no | Need listeners; forced off. |
+| decoys, tarpit, cowrie, scan, brute (also `brute_service`) | no | Need listeners or the packet log; forced off. |
 | `arp`, `dhcp`, `dhcp_option`, `rogue_ra`, `new_iface` | no | Need packet sockets or netlink, which apps may not use without root. The app says so. |
 | `tls`, `dns_rebind` | not built | The TLS check would have to dial through the direct route and pin per network; left out. Rebind needs an answer hook that can drop; this one only watches. |
 | `evil_twin` | not built, open | The BSSID needs `ACCESS_FINE_LOCATION` (and a location switch); no new permission is requested for it. A later version could ask in the user's own time. |

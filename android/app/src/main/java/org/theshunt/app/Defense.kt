@@ -124,6 +124,8 @@ object Defense {
             "net_enter" -> T("Network joined, class {class}.", "class" to T(classLabel(migrate(f["class"] ?: "unknown"))))
             "bait" -> T("Bait credentials used") + (if (dst.isNotEmpty()) " $dst" else "")
             "automated_chain" -> T("Automated attack") + (if (dst.isNotEmpty()) " $dst" else "")
+            "brute_service" -> T("Brute force on a service") + (if (dst.isNotEmpty()) " $dst" else "") + " " +
+                T("{n} short connections to {service} (port {port}) within {s} s", "n" to (f["short"] ?: "?"), "service" to (f["service"] ?: "?"), "port" to ev.port, "s" to (f["window"]?.removeSuffix("s") ?: "60"))
             else -> ev.kind
         }
     }

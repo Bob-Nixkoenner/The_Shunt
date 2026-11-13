@@ -37,7 +37,7 @@ const defClassId = (c) => ({ public: "unknown", trusted: "safe", managed: "safe"
 const defKindText = () => ({
   decoy_hit: T("Decoy port hit"), tarpit: T("Held in the tarpit"), cowrie: T("Login attempt on fake service"),
   bait: T("Bait credentials used"), automated_chain: T("Automated attack"),
-  scan: T("Port scan"), brute_force: T("Brute force"), reputation: T("Known bad address"), first_seen: T("New destination"),
+  scan: T("Port scan"), brute_force: T("Brute force"), brute_service: T("Brute force on a service"), reputation: T("Known bad address"), first_seen: T("New destination"),
   arp: T("ARP/NDP spoofing"), rogue_dhcp: T("Second DHCP server"), dns_hijack: T("DNS answers differ"), tls: T("Certificate changed"),
   beacon: T("Regular beacon traffic"), dns_tunnel: T("DNS tunnel"), evil_twin: T("Evil twin Wi-Fi"),
   dhcp_option: T("DHCP options"), rogue_ra: T("Rogue IPv6 router"), dns_rebind: T("DNS rebind"), new_iface: T("New network interface"), ban: T("Blocked"),
@@ -204,6 +204,10 @@ function defDetailText(e) {
   }
   if (e.kind === "bait" && d.startsWith("bait used")) {
     return T("Someone used the lock credentials from a bait file at a fake login ({via}). Proof of an attack: blocked at once when blocking of login attempts is on.", { via: kv.via || "?" });
+  }
+  if (e.kind === "brute_service" && kv.short) {
+    const line = T("{n} short connections to {service} (port {port}) within {s} s", { n: kv.short, service: kv.service || "?", port: e.port || "?", s: parseInt(kv.window, 10) || 60 });
+    return kv.block === "waits_for_handshake" ? line + " " + T("No finished handshake seen yet: not blocked.") : line;
   }
   if (e.kind === "automated_chain" && kv.scan_to_login) {
     return T("Scan, connection and login try within {s} s: machine speed ({via}).", { s: parseFloat(kv.scan_to_login) || kv.scan_to_login, via: kv.via || "?" });

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Full defense lab run: Q01-Q03 and R01-R09 in one go (Linux client), with pre-checks, cool-down and a summary report.
+# Full defense lab run: Q01-Q03 and R01-R10 in one go (Linux client), with pre-checks, cool-down and a summary report.
 #
 #   run-defense-suite.sh [options]
-#     --only T1,T2        run only these tests (default order: Q01 Q02 Q03 R01 ... R09)
+#     --only T1,T2        run only these tests (default order: Q01 Q02 Q03 R01 ... R10)
 #     --skip T1,T2        leave these out (R07 waits 660 s for the learning phase: --skip R07)
 #     --client VM         client VM name (default CLIENT_VM from local.env, e.g. shunt-popos / shunt-debian)
 #     --cooldown SEC      pause between tests (default 60)
@@ -26,7 +26,7 @@ KALI_PORT=${KALI_PORT:-2226}; KALI_USER=${KALI_USER:-lab}; KALI_VM=${KALI_VM:-sh
 KALI_IP=${KALI_IP:-10.77.0.222}; GW_VM=${GW_VM:-shunt-lab-gw}
 KEY=${KEY:-$HOME/.ssh/shunt-vm}
 BELEGUNG=${BELEGUNG:-$HOME/Nextcloud/Shared/PC/Linux/_postfach/belegung/belegung.sh}
-ALL_TESTS=(Q01 Q02 Q03 R01 R02 R03 R04 R05 R06 R07 R08 R09)
+ALL_TESTS=(Q01 Q02 Q03 R01 R02 R03 R04 R05 R06 R07 R08 R09 R10)
 ONLY=""; SKIP=""; COOLDOWN=60; SNAP=""; SHUT=0; IGN=0; DRY=0
 TEMP_HIGH=75; TEMP_LOW=68; TEMP_MAXWAIT=900
 STARTED_VMS=()

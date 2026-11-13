@@ -1793,6 +1793,9 @@
   "The visitor names a scripted tool ({tool}). Raises the alert level, never blocks on its own.": "Der Besucher nennt ein Skript-Werkzeug ({tool}). Erhöht die Alarmstufe, sperrt nie allein.",
   "Sent a probe of the tool {tool} to a decoy port": "Hat eine Probe des Werkzeugs {tool} an einen Köder-Port geschickt",
   "Automated attack": "Automatisierter Angriff",
-  "Scan, connection and login try within {s} s: machine speed ({via}).": "Scan, Verbindung und Anmeldeversuch innerhalb von {s} s: Maschinentempo ({via})."
+  "Scan, connection and login try within {s} s: machine speed ({via}).": "Scan, Verbindung und Anmeldeversuch innerhalb von {s} s: Maschinentempo ({via}).",
+  "Brute force on a service": "Brute Force auf einen Dienst",
+  "{n} short connections to {service} (port {port}) within {s} s": "{n} kurze Verbindungen zu {service} (Port {port}) innerhalb von {s} s",
+  "No finished handshake seen yet: not blocked.": "Noch kein vollständiger Verbindungsaufbau gesehen: nicht gesperrt."
  }
 }
