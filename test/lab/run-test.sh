@@ -158,6 +158,13 @@ ensure_link() {
 	renew_client
 }
 
+# clock_probe: three pings from the client to the gateway on the direct route. iputils ping puts its
+# send time (client clock) in the first 16 payload bytes; -p adds the mark LABCLOCK. analyze.py takes
+# gateway receive time minus send time as the clock offset and leaves the probes out of the findings.
+clock_probe() {
+	client "p='ping -n -c3 -i0.2 -W1 -s 32 -p 4c4142434c4f434b ${LAB_GW4:-10.77.0.1}'; sudo -n shunt run --via direct -- \$p >/dev/null 2>&1 || sudo -n \$p >/dev/null 2>&1" || true
+}
+
 run_test() {
 	local file
 	file=$(resolve_test "$1")
@@ -235,7 +242,11 @@ run_test() {
 	((SCAN)) && gw labctl scan "$run" >/dev/null 2>&1 &
 	local spid=$!
 	local crc=0
+	# LABMARK times are the client's clock, gw.pcap the gateway's (they differ by up to ~1 s):
+	# clock probes before and after let analyze.py line them up
+	[[ $CLIENT != *LABMARK* || ${CLIENT_OS:-linux} == windows ]] || clock_probe
 	printf '%s\n' "$CLIENT" | client_script "$canary" >"$out/client.out" 2>&1 || crc=$?
+	[[ $CLIENT != *LABMARK* || ${CLIENT_OS:-linux} == windows ]] || clock_probe
 	# a client script that dies (`${VAR:?}`, syntax error, command not found at the end) must not look like a pass
 	if ((crc != 0)) && [[ -z ${CLIENT_RC_OK:-} ]] && ! grep -q '^FAIL' "$out/client.out" 2>/dev/null; then
 		echo "FAIL Client-Skript endete mit Exit-Code $crc ohne FAIL-Zeile (Skriptfehler?)" >>"$out/client.out"

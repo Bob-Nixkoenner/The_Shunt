@@ -2,3 +2,7 @@ dist/
 
 # lab: VPN client configs of the test server (test keys), see test/lab/README.md
 test/lab/vpn/
+
+# built binary and pid file of a local run
+/shunt
+/ui.pid

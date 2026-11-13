@@ -281,8 +281,7 @@ func (p *torProc) watchBootstrap(pid int) {
 			continue
 		}
 		for _, l := range lines {
-			if i := strings.Index(l, "PROGRESS="); i >= 0 {
-				n, _ := strconv.Atoi(strings.Fields(l[i+9:])[0])
+			if n, ok := parseProgress(l); ok {
 				p.mu.Lock()
 				p.bootstrap = n
 				if n == 100 {
@@ -430,4 +429,19 @@ func (p *torProc) Close() {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.Mode().IsRegular()
+}
+
+// parseProgress reads the value after PROGRESS= in a control port line. The
+// peer on the control port is not trusted: a missing or bad value is no hit.
+func parseProgress(l string) (int, bool) {
+	i := strings.Index(l, "PROGRESS=")
+	if i < 0 {
+		return 0, false
+	}
+	f := strings.Fields(l[i+len("PROGRESS="):])
+	if len(f) == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(f[0])
+	return n, err == nil
 }
