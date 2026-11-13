@@ -39,7 +39,7 @@ const OPSEC_ITEMS = [
     os: ["linux", "windows"], sets: [[["inbound", "enabled"], true]] },
   // needs a service with the defense module (the page asks it, defense.js)
   { id: "defense", text: "Defense: watch for attacks, decoy ports in foreign networks",
-    help: "Watches for scans, spoofed gateways and tampered DNS, lets decoy ports and a fake login catch snoopers, and shows a heat gauge on the Defense tab. Blocking stays off until you switch it on there. Events stay on this computer.",
+    help: "Watches for scans, spoofed gateways and tampered DNS, lets decoy ports and a fake login catch snoopers, and shows an alert-level gauge on the Defense tab. Blocking stays off until you switch it on there. Events stay on this computer.",
     os: ["linux"], sets: [[["defense", "enabled"], true]], requires: () => typeof defSupported === "function" && defSupported(),
     na: { windows: "Not available on Windows yet." } },
   { id: "clock", text: "Clock check through the tunnel",

@@ -92,13 +92,13 @@ object Defense {
     }
 
     /** One event of the core. [detail] has the app's package name and a destination, never anything of the user's own network. */
-    data class Event(val seq: Long, val time: Long, val kind: String, val severity: Int, val src: String, val port: Int, val detail: String)
+    data class Event(val seq: Long, val time: Long, val kind: String, val severity: Int, val src: String, val port: Int, val detail: String, val trust: String = "")
 
     fun parseEvents(json: String): List<Event> {
         val a = JSONObject(json).optJSONArray("events") ?: return emptyList()
         return (0 until a.length()).map {
             val o = a.getJSONObject(it)
-            Event(o.optLong("seq"), parseTime(o.optString("time")), o.optString("kind"), o.optInt("severity"), o.optString("src"), o.optInt("port"), o.optString("detail"))
+            Event(o.optLong("seq"), parseTime(o.optString("time")), o.optString("kind"), o.optInt("severity"), o.optString("src"), o.optInt("port"), o.optString("detail"), o.optString("trust"))
         }
     }
 
@@ -135,7 +135,7 @@ object Defense {
     /** Thermometer reading of a level: label for the tile. */
     fun levelLabel(level: String) = when (level) {
         "noticed" -> "Noticed"
-        "hot" -> "Hot"
+        "hot" -> "Elevated"
         "attack" -> "Attack"
         else -> "Quiet"
     }

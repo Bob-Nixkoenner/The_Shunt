@@ -166,11 +166,11 @@ func defenseNote(prev, cur View) []Notification {
 	}
 	switch cur.DefLevel {
 	case defense.LevelAttack:
-		return []Notification{{i18n.T("Defense: network under attack"), i18n.T("Heat {heat}. Open the Defense tab to see who is knocking and what was blocked.", "heat", fmt.Sprint(cur.DefHeat)), true}}
+		return []Notification{{i18n.T("Defense: network under attack"), i18n.T("Alert level {heat}. Open the Defense tab to see who is knocking and what was blocked.", "heat", fmt.Sprint(cur.DefHeat)), true}}
 	case defense.LevelHot:
-		return []Notification{{i18n.T("Defense: network is hot"), i18n.T("Heat {heat}. Several hostile events in this network.", "heat", fmt.Sprint(cur.DefHeat)), false}}
+		return []Notification{{i18n.T("Defense: alert level elevated"), i18n.T("Alert level {heat}. Several hostile events in this network.", "heat", fmt.Sprint(cur.DefHeat)), false}}
 	}
-	return []Notification{{i18n.T("Defense: something unusual in this network"), i18n.T("Heat {heat}. Details in the Defense tab.", "heat", fmt.Sprint(cur.DefHeat)), false}}
+	return []Notification{{i18n.T("Defense: something unusual in this network"), i18n.T("Alert level {heat}. Details in the Defense tab.", "heat", fmt.Sprint(cur.DefHeat)), false}}
 }
 
 // Notification is a desktop notification to show.

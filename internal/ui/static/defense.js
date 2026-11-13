@@ -30,7 +30,7 @@ const DEF_LEVELS = ["quiet", "noticed", "hot", "attack"];
 // supported: the service answers /v1/defense (the Opsec assistant asks this)
 function defSupported() { return !!defSt; }
 
-const defLevelText = () => ({ quiet: T("Quiet"), noticed: T("Noticed"), hot: T("Hot"), attack: T("Attack") });
+const defLevelText = () => ({ quiet: T("Quiet"), noticed: T("Noticed"), hot: T("Elevated"), attack: T("Attack") });
 const defClassText = () => ({ unknown: T("Unclear network"), unsafe: T("Unsafe network"), safe: T("Safe network"),
   public: T("Unclear network"), trusted: T("Safe network"), managed: T("Safe network") }); // the last three: lines of older versions
 const defClassId = (c) => ({ public: "unknown", trusted: "safe", managed: "safe" })[c] || (["unknown", "unsafe", "safe"].includes(c) ? c : "unknown");
@@ -128,7 +128,7 @@ function renderBanTimes(on) {
 function defThermo(st, small) {
   const lv = DEF_LEVELS.includes(st.level) ? st.level : "quiet";
   const heat = Math.max(0, Math.min(100, st.heat | 0));
-  return el("div", { class: "thermo heat-" + lv + (small ? " small" : ""), title: T("Heat 0–100: quiet below 25, noticed from 25, hot from 50, attack from 80") },
+  return el("div", { class: "thermo heat-" + lv + (small ? " small" : ""), title: T("Alert level 0–100: quiet below 25, noticed from 25, elevated from 50, attack from 80") },
     el("div", { class: "head" }, el("span", { class: "num" }, heat), el("span", { class: "lvl" }, defLevelText()[lv]),
       small ? el("span", { class: "pill" }, defClassText()[st.class] || defClassText().public) : ""),
     el("div", { class: "track" }, el("div", { class: "fill", style: "width:" + Math.max(2, heat) + "%" }),
@@ -296,7 +296,7 @@ function defEventRow(e, compact) {
   const where = [e.src, e.port ? (e.proto || "") + (e.port ? ":" + e.port : "") : ""].filter(Boolean).join(" ");
   return el("div", { class: "ev s" + (e.severity | 0) },
     el("span", { class: "t" }, defTime(e.time)), el("span", { class: "dot" }),
-    el("span", { class: "x" }, el("b", {}, kind),
+    el("span", { class: "x" }, el("b", {}, kind), e.trust ? el("span", { class: "muted" }, " (" + (e.trust === "test" ? T("test") : T("known")) + ")") : "",
       e.src ? el("span", { class: "mono" }, " ", el("button", { class: "srclink", type: "button", title: T("Show everything from this source"), onclick: () => defOpenSource(e.src) }, e.src), defNameTag(e.src), e.port ? " " + (e.proto || "") + ":" + e.port : "")
         : where ? el("span", { class: "mono" }, " " + where) : "",
       e.detail && !compact ? el("div", { class: "muted" }, defDetail(e)) : ""));
@@ -460,6 +460,7 @@ function renderIgnore() {
     el("td", { class: "mono" }, e.addr),
     el("td", {}, e.name || ""),
     el("td", { class: "mono" }, (e.ports || []).length ? e.ports.join(", ") : T("all ports")),
+    el("td", { class: "muted" }, ignLevelText(e)),
     el("td", { style: "text-align:right" }, el("button", { onclick: () => ignRemove(i) }, T("Remove"))))));
   (c.never || []).forEach((a, i) => rows.push(el("tr", {},
     el("td", { class: "mono" }, a),
@@ -467,6 +468,11 @@ function renderIgnore() {
     el("td", {}, ""),
     el("td", { style: "text-align:right" }, el("button", { onclick: () => ignRemoveNever(i) }, T("Remove"))))));
   $("#ign-list").replaceChildren(rows.length ? el("table", { class: "deftable" }, el("tbody", {}, ...rows)) : el("div", { class: "muted" }, T("No devices ignored.")));
+}
+function ignLevelText(e) {
+  if (e.level === "known") return T("known");
+  if (e.level === "test") return (e.until | 0) * 1000 > Date.now() ? T("test, {n} min left", { n: Math.max(1, Math.round((e.until * 1000 - Date.now()) / 60000)) }) : T("test over");
+  return T("ignored");
 }
 function ignRemove(i) {
   const cfg = JSON.parse(JSON.stringify(defSt.config));
@@ -492,10 +498,25 @@ $("#ign-add").addEventListener("click", async () => {
   cfg.ignore = cfg.ignore || [];
   const entry = { addr, name: $("#ign-name").value.trim() };
   if (ports.length) entry.ports = ports;
+  const level = $("#ign-level").value;
+  if (level) entry.level = level;
+  if (level === "test") entry.until = Math.floor(Date.now() / 1000) + 3600;
   cfg.ignore.push(entry);
   try { await api("POST", "/api/defense/config", cfg); } catch (e) { msg.textContent = T("Nothing was changed: {error}", { error: e.message }); return; }
   msg.textContent = "";
   $("#ign-addr").value = ""; $("#ign-name").value = ""; $("#ign-ports").value = "";
+  await loadDefense();
+});
+$("#nev-add").addEventListener("click", async () => {
+  const msg = $("#nev-msg");
+  const addr = $("#nev-addr").value.trim();
+  if (!addr) { msg.textContent = T("Enter an address or range first."); return; }
+  const cfg = JSON.parse(JSON.stringify(defSt.config));
+  cfg.never = cfg.never || [];
+  if (!cfg.never.includes(addr)) cfg.never.push(addr);
+  try { await api("POST", "/api/defense/config", cfg); } catch (e) { msg.textContent = T("Nothing was changed: {error}", { error: e.message }); return; }
+  msg.textContent = "";
+  $("#nev-addr").value = "";
   await loadDefense();
 });
 let defOutBusy = false;
@@ -720,7 +741,7 @@ function defRenderReports() {
     return el("div", { class: "repcard" },
       el("div", { class: "hd" }, el("b", { class: "mono" }, r.key.slice(0, 8)), el("span", { class: "pill" }, defClassText()[r.class] || defClassText().unknown),
         r.key === defRepCur ? el("span", { class: "pill ok" }, T("now")) : "", el("span", { class: "spacer" }),
-        el("span", { class: "pill heat-" + lv, title: T("Highest heat") }, T("Peak {n}", { n: r.peak_heat | 0 }))),
+        el("span", { class: "pill heat-" + lv, title: T("Highest alert level") }, T("Peak {n}", { n: r.peak_heat | 0 }))),
       el("div", { class: "muted" }, T("First seen {a}, last seen {b}", { a: day(r.first_seen), b: day(r.last_seen) })),
       el("div", { class: "chips" }, ...(counts.length ? counts.map((k) => el("span", { class: "pill" }, (kinds[k] || k) + " × " + r.counts[k])) : [el("span", { class: "muted" }, T("Nothing seen yet."))])),
       el("div", {}, el("span", { class: "muted" }, T("DNS redirected") + ": "), pr[r.dns_redirect] || pr.unknown, "  ·  ",
