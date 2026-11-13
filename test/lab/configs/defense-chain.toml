@@ -1,0 +1,43 @@
+# Lab R11: defense on, the HTTP decoy (cowrie) with bait files, blocking of login attempts on, blocking of scans OFF:
+# a scan block would cut the attacker before the chain (scan, bait file, login) is complete.
+# Unknown network (the lab LAN) = class public: decoy ports listen.
+[daemon]
+socket_group = "shunt"
+default_route = "tunnel:intern"
+
+[tunnel.intern]
+config = "tunnels/intern.conf"
+
+[[rule]]
+name = "lab: tunnel"
+app = ["labtun", "labtun-dig", "labtun-nc", "labtun-sh"]
+route = "tunnel:intern"
+
+[[rule]]
+name = "lab: direct"
+app = ["labdir", "labdir-dig", "labdir-nc"]
+route = "direct"
+
+[defense]
+enabled = true
+decoy_ports = [23, 80, 445, 2222, 2323, 3389]
+ban_seconds = 300
+dhcp_probe = "on"
+dns_probe = "on"
+
+[defense.features.decoy]
+watch = true
+[defense.features.cowrie]
+watch = true
+[defense.features.scan]
+watch = true
+block = false
+[defense.features.brute]
+watch = true
+block = true
+[defense.features.arp]
+watch = true
+[defense.features.dhcp]
+watch = true
+[defense.features.dns]
+watch = true
