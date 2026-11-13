@@ -2,7 +2,7 @@ ID=W03
 TITLE="Blocklisten-Speicher: knapp 5 Mio. synthetische Namen in drei lokalen Listen"
 CONFIG=filter-big
 EXPECT_CANARY=any
-NOTE="Erzeugt im Gast drei Listen mit zusammen 4,8 Mio. Namen (Adblock-Format; eine Liste ueber 64 MB wird abgeschnitten, deshalb drei), startet den Dienst neu und misst WorkingSet/Peak von shuntd-win.exe. Danach muss ein Name aus der Liste NXDOMAIN bekommen und ein anderer nicht. Ziel: deutlich unter 1 GB."
+NOTE="Erzeugt im Gast drei Listen mit zusammen 4,8 Mio. Namen (Adblock-Format; drei Listen, weil bis h15 eine Liste ueber 64 MB still abgeschnitten wurde; seit h15 gilt 256 MiB mit Warnung), startet den Dienst neu und misst WorkingSet/Peak von shuntd-win.exe. Danach muss ein Name aus der Liste NXDOMAIN bekommen und ein anderer nicht. Ziel: deutlich unter 1 GB."
 PREP='
 Add-Type -TypeDefinition @"
 using System.IO;

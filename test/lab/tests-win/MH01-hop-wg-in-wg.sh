@@ -2,6 +2,9 @@ ID=MH01
 TITLE="Multi-Hop WG in WG: das fremde Netz sieht nur den aeusseren Tunnel"
 CONFIG=hop
 NOTE="labtun auf tunnel:hop (CT130 wgt1) ueber tunnel:intern (wgt0); unter Windows laut docs/WINDOWS.md noch nie erprobt. Mitschnitt CT130 mit CT130_IF=wgt1 TUNNEL_IP=<Address aus wg-hop-lab-win.conf>. Gateway darf nur CT130:51830 sehen; :51831 am Gateway = innerer Hop am aeusseren vorbei. Der Name der Canary geht ueber Dnscache und den Standardweg (intern, wgt0), am wgt1-Mitschnitt fehlt er deshalb evtl.: dann zaehlt die HTTP-Anfrage."
+# Aufruf: CLIENT_OS=windows CT130_IF=wgt1 TUNNEL_IP=<Address aus wg-hop-lab-win.conf> ./lab.sh run MH01
+# (ohne die beiden schneidet CT130 auf wgt0 mit: Canary-Name und HTTP am Hop sind dann nicht zu sehen)
+[[ ${CT130_IF:-} == wgt1 && -n ${TUNNEL_IP:-} ]] || echo "WARNUNG MH01: CT130_IF=wgt1 und TUNNEL_IP=<Hop-Adresse> setzen, sonst sieht der Mitschnitt den Hop nicht" >&2
 CLIENT='
 function Status { $raw = & C:\Windows\System32\curl.exe -s -m 10 --unix-socket C:\ProgramData\Shunt\shuntd.sock http://shuntd/v1/status; if (-not $raw) { "FAIL Status ueber die API nicht lesbar (curl.exe --unix-socket)"; return }; $st = $raw | ConvertFrom-Json; foreach ($t in $st.tunnels) { "Tunnel $($t.name): up=$($t.up) via=$($t.via) health=$($t.health.state) error=$($t.error)" }; $script:hop = $st.tunnels | Where-Object { $_.name -eq "hop" } }
 Start-Sleep 6
