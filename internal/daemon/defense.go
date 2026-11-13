@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -63,9 +64,13 @@ func (d *Daemon) defIface() string {
 func (d *Daemon) startDefense(ctx context.Context) {
 	opts := append(d.defenseOptions(), defense.WithOwnAddr(ownAddr), defense.WithReportFile(filepath.Join(d.defenseDir(), "reports.json")),
 		defense.WithFirstSeenFile(filepath.Join(d.defenseDir(), "firstseen.json")),
-		defense.WithSSHHostKey(filepath.Join(d.defenseDir(), "ssh_host_ed25519_key")),
-		defense.WithBaitFile(filepath.Join(d.defenseDir(), "bait.json")),
+		defense.WithDecoySecret(filepath.Join(d.defenseDir(), "decoy-secret")),
 		defense.WithEventHook(d.evidenceEvent), defense.WithStartGrace(30*time.Second))
+	// the fixed decoy identity of earlier versions (one per installation, the
+	// same in every network) is replaced by the per-network one: remove it
+	for _, f := range []string{"bait.json", "bait.json.bad", "ssh_host_ed25519_key", "ssh_host_ed25519_key.bad"} {
+		_ = os.Remove(filepath.Join(d.defenseDir(), f))
+	}
 	d.def.m = defense.NewManager(d.Log, opts...)
 	d.def.sensors = d.newSensors()
 	d.def.iface.Store("")

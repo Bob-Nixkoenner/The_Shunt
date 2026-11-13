@@ -107,6 +107,12 @@ func WithSSHHostKey(path string) Option { return func(m *Manager) { m.dec.HostKe
 // memory only and change with every start.
 func WithBaitFile(path string) Option { return func(m *Manager) { m.dec.BaitPath = path } }
 
+// WithDecoySecret keeps the installation secret in this file (created with
+// mode 0600 on first use): the lock credentials and the ssh decoy host key
+// are derived from it per network (netsecret.go). It replaces the fixed files
+// of WithSSHHostKey and WithBaitFile.
+func WithDecoySecret(path string) Option { return func(m *Manager) { m.dec.SecretPath = path } }
+
 // WithReportFile keeps the per-network reports in this file (mode 0600).
 // Without it they stay in memory.
 func WithReportFile(path string) Option { return func(m *Manager) { m.rpts = NewReports(path) } }
@@ -251,6 +257,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	changed := key != m.key
 	m.key, m.class = key, class
 	m.therm.SetNetwork(key, class)
+	m.dec.SetNetKey(key)
 	enabled := m.cfg.Enabled
 	watchDNS := featureOf(m.cfg, FeatDNS).Watch
 	m.mu.Unlock()

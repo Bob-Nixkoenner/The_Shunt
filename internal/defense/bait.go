@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/netip"
 	"os"
@@ -30,8 +31,8 @@ var baitUsers = []string{"deploy", "backup", "svc_web", "appuser", "dbadmin", "c
 
 const baitAlphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-func randomIndex(n int) (int, error) {
-	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+func randomIndex(r io.Reader, n int) (int, error) {
+	v, err := rand.Int(r, big.NewInt(int64(n)))
 	if err != nil {
 		return 0, err
 	}
@@ -40,25 +41,29 @@ func randomIndex(n int) (int, error) {
 
 // NewBaitCreds makes a fresh random set: a user name with a number, a
 // 20-character password and a 32-hex-digit token.
-func NewBaitCreds() (BaitCreds, error) {
-	i, err := randomIndex(len(baitUsers))
+func NewBaitCreds() (BaitCreds, error) { return newBaitCreds(rand.Reader) }
+
+// newBaitCreds makes a set from the bytes of r (crypto/rand, or a derived
+// per-network stream, see netsecret.go).
+func newBaitCreds(r io.Reader) (BaitCreds, error) {
+	i, err := randomIndex(r, len(baitUsers))
 	if err != nil {
 		return BaitCreds{}, err
 	}
-	n, err := randomIndex(90)
+	n, err := randomIndex(r, 90)
 	if err != nil {
 		return BaitCreds{}, err
 	}
 	pw := make([]byte, 20)
 	for k := range pw {
-		j, err := randomIndex(len(baitAlphabet))
+		j, err := randomIndex(r, len(baitAlphabet))
 		if err != nil {
 			return BaitCreds{}, err
 		}
 		pw[k] = baitAlphabet[j]
 	}
 	tok := make([]byte, 16)
-	if _, err := rand.Read(tok); err != nil {
+	if _, err := io.ReadFull(r, tok); err != nil {
 		return BaitCreds{}, err
 	}
 	return BaitCreds{User: fmt.Sprintf("%s%02d", baitUsers[i], n+10), Password: string(pw), Token: "ak_" + hex.EncodeToString(tok)}, nil
@@ -137,6 +142,20 @@ func (d *Decoys) bait() (BaitCreds, bool) {
 	d.keyMu.Lock()
 	defer d.keyMu.Unlock()
 	if d.baitCreds == nil {
+		if d.netDerived() {
+			secret, err := d.secretLocked()
+			if err == nil {
+				var b BaitCreds
+				if b, err = netBait(secret, d.netKey); err == nil {
+					d.baitCreds = &b
+					return b, true
+				}
+			}
+			if d.Log != nil {
+				d.Log.Debug("defense: bait credentials", "err", err)
+			}
+			return BaitCreds{}, false
+		}
 		b, err := LoadOrCreateBait(d.BaitPath)
 		if err != nil {
 			if d.Log != nil {

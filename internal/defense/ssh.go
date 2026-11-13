@@ -131,7 +131,16 @@ func (d *Decoys) hostKey() (ssh.Signer, error) {
 	d.keyMu.Lock()
 	defer d.keyMu.Unlock()
 	if d.signer == nil {
-		s, err := LoadOrCreateHostKey(d.HostKeyPath)
+		var s ssh.Signer
+		var err error
+		if d.netDerived() {
+			var secret []byte
+			if secret, err = d.secretLocked(); err == nil {
+				s, err = netHostKey(secret, d.netKey)
+			}
+		} else {
+			s, err = LoadOrCreateHostKey(d.HostKeyPath)
+		}
 		if err != nil {
 			return nil, err
 		}

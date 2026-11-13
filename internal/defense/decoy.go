@@ -68,9 +68,17 @@ type Decoys struct {
 
 	BaitPath string // lock credentials file ("" = memory only, see bait.go)
 
+	// SecretPath: the installation secret the per-network lock credentials
+	// and ssh host key are derived from (netsecret.go). Production sets it;
+	// with it HostKeyPath and BaitPath are not used. Without any of the three
+	// a random in-memory secret is used.
+	SecretPath string
+
 	keyMu     sync.Mutex
 	signer    ssh.Signer
 	baitCreds *BaitCreds
+	secret    []byte
+	netKey    string // network the derived identity belongs to
 	sshSem    chan struct{}
 }
 
@@ -331,4 +339,32 @@ func (d *Decoys) tlsHello(c net.Conn, src netip.Addr, port int) {
 	if _, h, ok := JA3(buf[:n]); ok {
 		d.hit(Hit{Src: src, Port: port, Kind: KindObservation, Sev: SevInfo, Detail: "ja3=" + h, JA3: h})
 	}
+}
+
+// SetNetKey switches the derived decoy identity (lock credentials, ssh host
+// key) to network key k; the next use derives the ones of that network.
+func (d *Decoys) SetNetKey(k string) {
+	d.keyMu.Lock()
+	defer d.keyMu.Unlock()
+	if k != d.netKey {
+		d.netKey, d.signer, d.baitCreds = k, nil, nil
+	}
+}
+
+// netDerived: the identity is derived per network (always, unless only the
+// old fixed files are configured, as some tests do).
+func (d *Decoys) netDerived() bool {
+	return d.SecretPath != "" || (d.HostKeyPath == "" && d.BaitPath == "")
+}
+
+// secretLocked returns the installation secret (keyMu held).
+func (d *Decoys) secretLocked() ([]byte, error) {
+	if d.secret == nil {
+		s, err := LoadOrCreateSecret(d.SecretPath)
+		if err != nil {
+			return nil, err
+		}
+		d.secret = s
+	}
+	return d.secret, nil
 }

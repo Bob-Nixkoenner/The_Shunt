@@ -138,9 +138,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   logins always fail; there is no public-key method, no shell, no exec, no channel. Limits: 16
   connections at once, 10 s per step, 6 tries per connection, 1 s pause after each refused try.
   Every try is one `cowrie` event with user name, password length and a 4-byte SHA-256 prefix, never
-  the password. The ed25519 host key is created on first start in the defense directory
-  (`ssh_host_ed25519_key`, mode 0600, never through a link; looser rights are cut back, a damaged
-  file is moved to `.bad` and replaced). 2222/2323 exist so there are decoys where a real sshd/telnetd
+  the password. The ed25519 host key is derived per network (see "Per-network decoy identity"
+  below), so it differs between networks and stays the same in one network. 2222/2323 exist so there are decoys where a real sshd/telnetd
   holds 22/23 (a busy port is skipped); all listening decoy ports go into the nft set `decoy_ports`.
   HTTP decoy ports (80, 8080, 8000, 8888) show a fake login page and bait files, see
   "HTTP decoy, bait files and lock credentials" below.
@@ -270,9 +269,16 @@ against them is decoys, tarpits and "fake wins". With the feature `cowrie` on, t
   `username`/`user`/`login`/`email` and `password`/`pass`/`passwd`/`pwd`) is a login try like at the SSH
   and telnet decoys. Basic and Bearer credentials in the `Authorization` header count the same way.
 - `/.env`, `/.git/config` and `/config.php.bak` are bait files. They carry the **lock credentials**: a
-  user name, a 20-character password and a token, random per installation, kept only in
-  `<defense dir>/bait.json` (mode 0600, never through a link, a damaged file is moved to `.bad` and
-  replaced). No real service knows them; they open nothing. Fetching a bait file is a `cowrie` event
+  user name, a 20-character password and a token, derived per network (below). No real service knows
+  them; they open nothing.
+- **Per-network decoy identity:** lock credentials and the ssh host key come from HKDF-SHA256 over one
+  random secret of this installation (`<defense dir>/decoy-secret`, 32 bytes, mode 0600, never through a
+  link, a damaged file is moved to `.bad`) and the key of the network the machine is in (a hash of
+  interface, SSID and gateway, never stored or logged in clear). The same network gives the same ones
+  after every restart; two networks give unrelated ones, so whoever fetches `/.env` or the host key in
+  two places cannot tell it is the same device. Nothing is stored per network (forgetting a network
+  leaves nothing behind). In gateway mode the decoys belong to the machine, so they use the network of
+  its uplink. The fixed `bait.json` and `ssh_host_ed25519_key` of earlier versions are removed at start. Fetching a bait file is a `cowrie` event
   (medium, `bait=served`).
 - Every other path answers 404 (`cowrie`, low, `path=` with at most 32 printable characters).
 - Limits: 8 requests per connection, 64 KiB read per connection, 4 KiB of a form body looked at,
