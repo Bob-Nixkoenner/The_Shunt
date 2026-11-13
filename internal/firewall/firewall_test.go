@@ -168,3 +168,26 @@ func TestUnaskedGoneDropsRule(t *testing.T) {
 		t.Fatalf("block rule of a gone program left behind: %v", g)
 	}
 }
+
+// M-01 (external report): a program that names itself like a desktop
+// component (prctl PR_SET_NAME) is still asked about; only the real one,
+// whose file lies where only root writes, is not.
+func TestNeverAskNeedsSystemFile(t *testing.T) {
+	cases := []struct {
+		p    appwatch.Proc
+		want bool
+	}{
+		{appwatch.Proc{Comm: "gnome-shell", Exe: "/usr/bin/gnome-shell"}, true},
+		{appwatch.Proc{Comm: "pipewire", Exe: "/usr/bin/pipewire"}, true},
+		{appwatch.Proc{Comm: "gnome-shell", Exe: "/home/user/.local/bin/gnome-shell"}, false},
+		{appwatch.Proc{Comm: "systemd", Exe: "/tmp/x"}, false},
+		{appwatch.Proc{Comm: "shunt", Exe: ""}, false},
+		{appwatch.Proc{Comm: "firefox", Exe: "/usr/bin/firefox"}, false},
+		{appwatch.Proc{Comm: "dbus", Exe: "/usr/../home/user/dbus"}, false},
+	}
+	for _, c := range cases {
+		if got := neverAskProc(c.p); got != c.want {
+			t.Errorf("%+v: got %v, want %v", c.p, got, c.want)
+		}
+	}
+}

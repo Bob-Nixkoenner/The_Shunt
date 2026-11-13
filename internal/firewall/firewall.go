@@ -144,6 +144,21 @@ func (m *Manager) changed() {
 // the session, not "apps", and asking about them helps nobody.
 var neverAsk = regexp.MustCompile(`^(cosmic-|gnome-|gsd-|xfce4-|xfwm4|xfdesktop|xfsettingsd|plasmashell|kwin|ksmserver|kded|pipewire|wireplumber|pulseaudio|dbus|gvfs|at-spi|ibus|fcitx|xdg-|polkit|evolution-|tracker|nm-applet|blueman|shunt|systemd|Xwayland|Xorg|gdm|sddm|lightdm|bwrap$|flatpak-|xdg-dbus-proxy|snapd|update-notifier|gjs|tumblerd|light-locker|xiccd|udisks)`)
 
+// neverAskProc: a desktop component by name whose program file lies where
+// only root may write (report M-01: comm is free to set with prctl, so the
+// name alone let any program skip the question).
+func neverAskProc(p appwatch.Proc) bool {
+	if !neverAsk.MatchString(p.Comm) || p.Exe == "" {
+		return false
+	}
+	for _, dir := range []string{"/usr/", "/bin/", "/sbin/", "/lib/", "/lib64/", "/opt/", "/snap/", "/var/lib/flatpak/", "/nix/store/"} {
+		if strings.HasPrefix(p.Exe, dir) && !strings.Contains(p.Exe, "/../") {
+			return true
+		}
+	}
+	return false
+}
+
 var sessionScope = regexp.MustCompile(`^user\.slice/user-\d+\.slice/(session-\d+\.scope|user@\d+\.service/app\.slice/)`)
 
 // Unknown is the app watcher's callback for programs without a rule.
@@ -157,7 +172,7 @@ func (m *Manager) Unknown(pid int, p appwatch.Proc) {
 	// held already: a waiting wrapper exec'd the real program, which gets
 	// its own decision
 	held := strings.HasPrefix(p.Cgroup, path.Join(m.set.Root, "apps", "ask")+"/")
-	if !held && (!sessionScope.MatchString(p.Cgroup) || neverAsk.MatchString(p.Comm) || (p.TTY && !m.set.AskTerminal)) {
+	if !held && (!sessionScope.MatchString(p.Cgroup) || neverAskProc(p) || (p.TTY && !m.set.AskTerminal)) {
 		return
 	}
 	key, name := keyOf(p)

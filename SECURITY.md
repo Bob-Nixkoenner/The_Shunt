@@ -68,7 +68,11 @@ or broke, and the output of `shunt status --json` and `journalctl -u shuntd`
   its DNS lookup for that domain is still answered by the domain rule's resolver.
 - **The app firewall holds programs of the desktop session only.** Its first packets
   are rejected (not delayed); programs that talk through an already running process
-  (D-Bus services, browser handover) take that process's route.
+  (D-Bus services, browser handover) take that process's route. Desktop components
+  (shell, audio, portals) are never asked about; that exception needs both the name and
+  a program file in a system directory (`/usr`, `/opt`, …), so a program that only
+  names itself like one is still asked about. It is a question for honest apps, not a
+  sandbox: a program may still connect in the moment before it is held.
 - **root on the machine** can do anything, including turning Shunt off.
 
 ## Android: tunnel keys at rest
