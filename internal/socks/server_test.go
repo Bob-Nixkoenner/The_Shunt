@@ -183,3 +183,68 @@ func TestDialViaRemoteName(t *testing.T) {
 		t.Fatalf("host %q client %v", gotHost, gotClient)
 	}
 }
+
+// M-06 (external report): another program on the same machine shares the
+// loopback address; it must not take over an association (the answers went
+// to the last sender).
+func TestUDPAssociateOneSender(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	go func() {
+		b := make([]byte, 2048)
+		for {
+			n, a, err := pc.ReadFrom(b)
+			if err != nil {
+				return
+			}
+			pc.WriteTo(b[:n], a)
+		}
+	}()
+	s := &Server{Dial: dialer, ListenPacket: func(ctx context.Context, n, a string) (net.PacketConn, error) {
+		return net.ListenPacket(n, "127.0.0.1:0")
+	}}
+	p := start(t, s)
+	c, err := net.Dial("tcp", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	c.Write([]byte{5, 1, 0})
+	var m [2]byte
+	io.ReadFull(c, m[:])
+	c.Write([]byte{5, 3, 0, 1, 0, 0, 0, 0, 0, 0})
+	var r [10]byte
+	if _, err := io.ReadFull(c, r[:]); err != nil || r[1] != 0 {
+		t.Fatalf("assoc %v %v", r, err)
+	}
+	relay := &net.UDPAddr{IP: net.IP(r[4:8]), Port: int(r[8])<<8 | int(r[9])}
+	dst := pc.LocalAddr().(*net.UDPAddr)
+	pkt := func(s string) []byte {
+		return append([]byte{0, 0, 0, 1, 127, 0, 0, 1, byte(dst.Port >> 8), byte(dst.Port)}, s...)
+	}
+	owner, _ := net.DialUDP("udp", nil, relay)
+	defer owner.Close()
+	thief, _ := net.DialUDP("udp", nil, relay)
+	defer thief.Close()
+	owner.Write(pkt("mine"))
+	buf := make([]byte, 100)
+	owner.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if n, err := owner.Read(buf); err != nil || string(buf[n-4:n]) != "mine" {
+		t.Fatalf("owner: %v %v", buf[:n], err)
+	}
+	// another program sends from its own port: dropped, and the owner keeps
+	// getting the answers
+	thief.Write(pkt("evil"))
+	thief.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	if n, err := thief.Read(buf); err == nil {
+		t.Fatalf("thief got an answer: %q", buf[:n])
+	}
+	owner.Write(pkt("again"))
+	owner.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if n, err := owner.Read(buf); err != nil || string(buf[n-5:n]) != "again" {
+		t.Fatalf("owner lost the association: %v %v", buf[:n], err)
+	}
+}

@@ -15,8 +15,11 @@ const maxDatagram = 65535
 
 // associate serves UDP ASSOCIATE: a loopback UDP socket for the client and a
 // marked one towards the world. It lives as long as the TCP control
-// connection c. Only the client's own address may use it.
-func (s *Server) associate(c net.Conn) {
+// connection c. Only one sender may use it (report M-06: every local user
+// shares the loopback address, and the last sender used to get the
+// answers): the port the client named in its request (RFC 1928 DST.PORT), or
+// else the first one that sends.
+func (s *Server) associate(c net.Conn, clientPort int) {
 	if s.ListenPacket == nil {
 		reply(c, repBadCommand)
 		return
@@ -71,7 +74,14 @@ func (s *Server) associate(c net.Conn) {
 			if !fa.IP.Equal(ra.IP) {
 				continue // not the client that opened the association
 			}
-			client.Store(fa)
+			if clientPort != 0 && fa.Port != clientPort {
+				continue // not the port the client announced
+			}
+			if cur := client.Load(); cur == nil {
+				client.Store(fa) // the first sender owns the association
+			} else if cur.Port != fa.Port {
+				continue // another program on the same machine
+			}
 			host, port, data, err := parseUDP(buf[:n])
 			if err != nil {
 				continue

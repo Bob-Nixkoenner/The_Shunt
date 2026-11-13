@@ -120,7 +120,7 @@ func (s *Server) handle(c net.Conn) {
 		return
 	}
 	if cmd == cmdUDP {
-		s.associate(c)
+		s.associate(c, port)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), ctxKey{}, c.RemoteAddr()), handshakeTimeout)
