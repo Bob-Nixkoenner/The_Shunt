@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,6 +49,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/sys/unix"
 )
 
@@ -265,6 +267,77 @@ func taskPidOffset() (int32, error) {
 	return 0, errors.New("kernel BTF: no task_struct.pid")
 }
 
+// Capability numbers (linux/capability.h).
+const (
+	capSysAdmin = 21
+	capBPF      = 39
+)
+
+// The process-wide steps before the first map, as variables for tests.
+var (
+	effectiveCaps = readEffectiveCaps
+	hostUserNS    = inHostUserNS
+	removeMemlock = rlimit.RemoveMemlock
+	memlockOnce   sync.Once
+	memlockErr    error
+)
+
+// readEffectiveCaps: CapEff of this process from /proc/self/status.
+func readEffectiveCaps() (uint64, error) {
+	raw, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 0, err
+	}
+	return parseCapEff(string(raw))
+}
+
+// inHostUserNS: whether this process sees the host's full uid range (an
+// unreadable map counts as yes: let the kernel decide).
+func inHostUserNS() bool {
+	raw, err := os.ReadFile("/proc/self/uid_map")
+	return err != nil || fullUIDMap(string(raw))
+}
+
+func fullUIDMap(m string) bool {
+	f := strings.Fields(m)
+	return len(f) == 3 && f[0] == "0" && f[1] == "0" && f[2] == "4294967295"
+}
+
+func parseCapEff(status string) (uint64, error) {
+	for line := range strings.SplitSeq(status, "\n") {
+		if v, ok := strings.CutPrefix(line, "CapEff:"); ok {
+			return strconv.ParseUint(strings.TrimSpace(v), 16, 64)
+		}
+	}
+	return 0, errors.New("no CapEff line")
+}
+
+// prepare runs before the first map: it refuses early, with a clear
+// reason, when the process cannot use bpf() at all, and lifts the memlock
+// limit once (a no-op on kernels with memcg accounting, 5.11 and later).
+// A failed lift is not fatal by itself: it is returned so that a later
+// EPERM can name it.
+func prepare() (memlock error, err error) {
+	if !hostUserNS() {
+		return nil, ErrUserNS
+	}
+	caps, cerr := effectiveCaps()
+	if cerr == nil && caps&(1<<capBPF|1<<capSysAdmin) == 0 {
+		return nil, ErrNoCaps
+	}
+	memlockOnce.Do(func() { memlockErr = removeMemlock() })
+	return memlockErr, nil
+}
+
+// mapError words a failed map create: EPERM after a failed memlock lift is
+// the memlock limit, otherwise the kernel's answer stays as it is.
+func mapError(name string, err, memlock error) error {
+	if memlock != nil && errors.Is(err, unix.EPERM) {
+		return fmt.Errorf("map %s: %w (%v; set LimitMEMLOCK=infinity): %v", name, ErrMemlock, memlock, err)
+	}
+	return fmt.Errorf("map %s: %w", name, err)
+}
+
 // Start loads the programs and attaches them. root is shuntd's cgroup
 // (relative to the cgroup2 mount): processes below it are left alone.
 func Start(mount, root string) (g *Guard, err error) {
@@ -282,6 +355,11 @@ func Start(mount, root string) (g *Guard, err error) {
 	// a cgroup's id is the inode of its directory; level 0 is the root
 	id, level := st.Ino, int32(len(strings.Split(strings.Trim(root, "/"), "/")))
 
+	memlock, err := prepare()
+	if err != nil {
+		return nil, err
+	}
+
 	g = &Guard{}
 	defer func() {
 		if err != nil {
@@ -292,7 +370,7 @@ func Start(mount, root string) (g *Guard, err error) {
 	newMap := func(name string, t ebpf.MapType, k, v, n uint32) (*ebpf.Map, error) {
 		m, err := ebpf.NewMap(&ebpf.MapSpec{Name: name, Type: t, KeySize: k, ValueSize: v, MaxEntries: n})
 		if err != nil {
-			return nil, fmt.Errorf("map %s: %w", name, err)
+			return nil, mapError(name, err, memlock)
 		}
 		return m, nil
 	}

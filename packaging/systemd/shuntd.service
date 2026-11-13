@@ -37,6 +37,9 @@ ExecStartPre=-+/usr/bin/mkdir -p /run/NetworkManager/conf.d
 # CAP_NET_BIND_SERVICE: decoy ports below 1024 (defense, public networks
 # only); CAP_NET_RAW + AF_PACKET: watching ARP/DHCP replies (defense).
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON CAP_NET_BIND_SERVICE CAP_NET_RAW
+# kernels before 5.11 charge eBPF maps to RLIMIT_MEMLOCK; shuntd cannot
+# raise it itself (no CAP_SYS_RESOURCE), so the start guard needs room here
+LimitMEMLOCK=infinity
 NoNewPrivileges=yes
 ProtectSystem=strict
 # -/run/NetworkManager: connection defaults for new networks (daemon.mac);

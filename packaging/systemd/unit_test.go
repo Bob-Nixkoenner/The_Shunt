@@ -216,3 +216,41 @@ func syscallGroups(t *testing.T) (map[string][]string, map[string]bool) {
 	}
 	return groups, known
 }
+
+// The start guard (internal/racebpf) needs bpf() and, on kernels before
+// 5.11, room under RLIMIT_MEMLOCK that shuntd cannot raise itself. The
+// integration test starts shuntd with the same bounding set; drifting
+// apart left the guard out of every test run (2026-11-13).
+func TestUnitLetsTheStartGuardLoad(t *testing.T) {
+	u := unit(t)
+	for _, c := range []string{"CAP_BPF", "CAP_PERFMON"} {
+		if !has(u["CapabilityBoundingSet"], c) {
+			t.Errorf("CapabilityBoundingSet lacks %s", c)
+		}
+	}
+	if !has(u["LimitMEMLOCK"], "infinity") {
+		t.Error("LimitMEMLOCK=infinity missing")
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", "test", "integration", "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`--bounding-set=-all,(\S+)`).FindSubmatch(b)
+	if m == nil {
+		t.Fatal("run.sh: no setpriv --bounding-set for shuntd")
+	}
+	var test []string
+	for _, c := range strings.Split(string(m[1]), ",") {
+		test = append(test, "CAP_"+strings.ToUpper(strings.TrimPrefix(c, "+")))
+	}
+	for _, c := range u["CapabilityBoundingSet"] {
+		if !has(test, c) {
+			t.Errorf("run.sh starts shuntd without %s (the unit has it)", c)
+		}
+	}
+	for _, c := range test {
+		if !has(u["CapabilityBoundingSet"], c) {
+			t.Errorf("run.sh gives shuntd %s (the unit does not)", c)
+		}
+	}
+}

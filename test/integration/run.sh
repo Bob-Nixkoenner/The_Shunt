@@ -10,6 +10,9 @@
 # A request that left directly shows up as 10.99.0.2, one that went through
 # the tunnel as 10.166.0.2. Anything else (or nothing) is what we test for.
 set -euo pipefail
+# the checks compare English output (WARNING, "0s ago"): a German system
+# (or a language picked in the UI) would fail them
+export LC_ALL=C SHUNT_LANG=en
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=$(mktemp -d)
@@ -234,10 +237,12 @@ check() { # name expected actual
 start_shuntd() {
 	# shuntd and the nft binary it calls must see cgroup2 at /sys/fs/cgroup
 	# no shell function here: $! must be shuntd itself (exec chain), not a subshell
-	# same capabilities as the systemd unit: nothing but CAP_NET_ADMIN and
-	# CAP_CHOWN (no CAP_SYS_PTRACE, no CAP_DAC_OVERRIDE, ...)
+	# same capabilities as the systemd unit (CapabilityBoundingSet, kept in
+	# step by packaging/systemd/unit_test.go): no CAP_SYS_PTRACE, no
+	# CAP_DAC_OVERRIDE, ...; CAP_BPF + CAP_PERFMON for the start guard, which
+	# without them never loaded here (the start tests passed by timing)
 	ip netns exec $CLI unshare -m sh -c 'mount -t cgroup2 none /sys/fs/cgroup && exec "$@"' _ \
-		setpriv --bounding-set=-all,+net_admin,+chown --inh-caps=-all \
+		setpriv --bounding-set=-all,+net_admin,+chown,+bpf,+perfmon,+net_bind_service,+net_raw --inh-caps=-all \
 		"$BIN/shuntd" -c "$WORK/etc/shunt.toml" run 2>"$WORK/shuntd.log" &
 	SHUNTD_PID=$!
 	for _ in $(seq 50); do [[ -S $SOCK ]] && return; sleep 0.1; done
@@ -292,6 +297,15 @@ chmod +x "$BIN/apptest"
 # apps run as another user, like desktop apps vs. the root daemon
 NOBODY=(setpriv --reuid=65534 --regid=65534 --clear-groups)
 check "app rule moves a normally started program" 10.166.0.2 "$(fetch "${NOBODY[@]}" "$BIN/apptest" $URL)"
+# the start tests below rely on the eBPF start guard (it loads with the
+# first app rule); without it they pass or fail by timing alone. In an
+# unprivileged container (own uid map) the kernel never allows eBPF.
+if [[ $(tr -s ' ' </proc/self/uid_map) == " 0 0 4294967295" ]]; then
+	check "eBPF start guard loaded" yes "$(gq 'eBPF start guard loaded' "$WORK/shuntd.log" && echo yes || grep -m1 -i 'start guard' "$WORK/shuntd.log" || echo 'no log line')"
+else
+	echo "  skip eBPF start guard (user namespace: container)"
+	check "container: start guard missing is said loudly" yes "$(gq 'START GUARD NOT AVAILABLE.*container' "$WORK/shuntd.log" && echo yes || echo no)"
+fi
 check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
 printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
 chmod +x "$BIN/proftest"
