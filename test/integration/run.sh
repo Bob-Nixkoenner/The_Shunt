@@ -292,11 +292,17 @@ else
 fi
 check "wg-quick PostUp ignored" no "$([[ -e /tmp/pwned ]] && echo yes || echo no)"
 echo "== app rules (auto-detected, no shunt run)"
-printf '#!/bin/sh\nsleep 1\nexec curl -s "$1"\n' >"$BIN/apptest"
+# the test namespace has no process connector (it exists only in the initial
+# network namespace), so the watcher finds a new program by its /proc scan
+# every 250 ms; under load one scan can take longer than a second. The test
+# program waits 3 s before its first connection so the move is not a race.
+# (On a desktop the connector reports the exec at once and the eBPF start
+# guard holds sockets until the watcher decided.)
+printf '#!/bin/sh\nsleep 3\nexec curl -s "$1"\n' >"$BIN/apptest"
 chmod +x "$BIN/apptest"
 # apps run as another user, like desktop apps vs. the root daemon
 NOBODY=(setpriv --reuid=65534 --regid=65534 --clear-groups)
-check "app rule moves a normally started program" 10.166.0.2 "$(fetch "${NOBODY[@]}" "$BIN/apptest" $URL)"
+check "app rule moves a normally started program" 10.166.0.2 "$(fetch_long "${NOBODY[@]}" "$BIN/apptest" $URL)"
 # the start tests below rely on the eBPF start guard (it loads with the
 # first app rule); without it they pass or fail by timing alone. In an
 # unprivileged container (own uid map) the kernel never allows eBPF.
@@ -306,11 +312,11 @@ else
 	echo "  skip eBPF start guard (user namespace: container)"
 	check "container: start guard missing is said loudly" yes "$(gq 'START GUARD NOT AVAILABLE.*container' "$WORK/shuntd.log" && echo yes || echo no)"
 fi
-check "shunt run wins over app rule" 10.99.0.2 "$(fetch "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
-printf '#!/bin/sh\nsleep 1\nexec curl -s "$3"\n' >"$BIN/proftest"
+check "shunt run wins over app rule" 10.99.0.2 "$(fetch_long "$BIN/shunt" -s "$SOCK" run --via direct -- "$BIN/apptest" $URL)"
+printf '#!/bin/sh\nsleep 3\nexec curl -s "$3"\n' >"$BIN/proftest"
 chmod +x "$BIN/proftest"
-check "args rule: profile sm tunnelled" 10.166.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P sm $URL)"
-check "args rule: other profile untouched" 10.99.0.2 "$(fetch "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
+check "args rule: profile sm tunnelled" 10.166.0.2 "$(fetch_long "${NOBODY[@]}" "$BIN/proftest" -P sm $URL)"
+check "args rule: other profile untouched" 10.99.0.2 "$(fetch_long "${NOBODY[@]}" "$BIN/proftest" -P smart $URL)"
 check "status shows app group" yes "$(shunt status | gq '^app:apptest auto-detected' && echo yes || echo no)"
 
 cli "$BIN/shunt" -s "$SOCK" run --via tunnel:vps -- sleep 20 &
