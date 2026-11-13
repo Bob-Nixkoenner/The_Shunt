@@ -141,6 +141,8 @@ proof. Linux only: Windows and Android have no port list (the UI says so and poi
   (`ssh_host_ed25519_key`, mode 0600, never through a link; looser rights are cut back, a damaged
   file is moved to `.bad` and replaced). 2222/2323 exist so there are decoys where a real sshd/telnetd
   holds 22/23 (a busy port is skipped); all listening decoy ports go into the nft set `decoy_ports`.
+  HTTP decoy ports (80, 8080, 8000, 8888) show a fake login page and bait files, see
+  "HTTP decoy, bait files and lock credentials" below.
 - Blocking: nft table `shunt_defense` (sets `ban4`/`ban6` with timeout, `never4`/`never6`,
   input chain at priority -10). Gateway, system DNS servers and the addresses the tunnels talk to
   (WireGuard/OpenVPN peer endpoints, Tailscale peers with a direct path; read with the health check,
@@ -255,6 +257,69 @@ specification (BSD-3-Clause, checked 2026-11-11): `SSLVersion,Ciphers,Extensions
 decimal values, `-` between values, GREASE values (RFC 8701) left out, MD5 of the string. JA4+ is not
 used (FoxIO licence 1.1: non-commercial only). A hash on a JA3 list is a `reputation` event with
 severity high (`list=<name> ja3=<md5>`) and can ban the source like any listed address.
+
+### HTTP decoy, bait files and lock credentials
+
+Background: agent frameworks scan, try logins and use misconfigurations at machine speed; the advice
+against them is decoys, tarpits and "fake wins". With the feature `cowrie` on, the decoy ports 80, 8080,
+8000 and 8888 (of `decoy_ports`; the default list has 80) speak HTTP/1.x (`httpdecoy.go`):
+
+- `/`, `/login`, `/admin` (and a few more) show a fake login page; a POST there (form or JSON, fields
+  `username`/`user`/`login`/`email` and `password`/`pass`/`passwd`/`pwd`) is a login try like at the SSH
+  and telnet decoys. Basic and Bearer credentials in the `Authorization` header count the same way.
+- `/.env`, `/.git/config` and `/config.php.bak` are bait files. They carry the **lock credentials**: a
+  user name, a 20-character password and a token, random per installation, kept only in
+  `<defense dir>/bait.json` (mode 0600, never through a link, a damaged file is moved to `.bad` and
+  replaced). No real service knows them; they open nothing. Fetching a bait file is a `cowrie` event
+  (medium, `bait=served`).
+- Every other path answers 404 (`cowrie`, low, `path=` with at most 32 printable characters).
+- Limits: 8 requests per connection, 64 KiB read per connection, 4 KiB of a form body looked at,
+  10 s per request; the general decoy limits (64 handlers, 8 per source) apply.
+
+Whoever presents the bait password or token at any login decoy (SSH, telnet, HTTP form, Basic or Bearer;
+the user name does not matter) has read a bait file and uses what it found. That is a `bait` event,
+**severity high** (`bait used via=ssh|telnet|http user=...`; the secret itself is never logged), and the
+source is blocked at once when blocking of login attempts (`brute`, Block) is on - in unsafe networks
+it is on by itself. No handshake wait: the source has finished one. Ignored devices (`defense.ignore`)
+cause no `bait` event and no block. The comparison is constant-time.
+
+### Tool marks (`tool=`)
+
+The decoys read what a visitor sends anyway and name the program when it is a known scripted tool
+(`tool.go`); the event detail then ends in `tool=<name>`:
+
+| Where | Seen | Names |
+|---|---|---|
+| HTTP decoy | User-Agent | `nmap` (NSE), `curl`, `wget`, `python_requests`, `python_urllib`, `python_httpx`, `python_aiohttp`, `go_http`, `headless_chromium`, `playwright`, `puppeteer`, `masscan`, `zgrab`, `nikto`, `sqlmap`, `nuclei`, `gobuster`, `ffuf` |
+| HTTP decoy | nmap's fixed 404 probe `/nice%20ports%2C/Tri%6Eity.txt%2ebak` | `nmap` |
+| SSH decoy | client version | `nmap`, `python_paramiko`, `python_asyncssh`, `libssh` (hydra, medusa), `go_ssh`, `zgrab` |
+| other decoy ports (no tarpit) | first bytes: nmap's SIP or 404 probe, or an HTTP request with such a User-Agent | as above; event `decoy_hit` low, detail `probe tool=<name>` |
+
+A normal browser, OpenSSH or PuTTY gives no mark. An event with a mark adds 6 extra heat points
+(times the class factor), so a scripted visitor raises the gauge and its alarms sooner. **A mark is
+never a reason to block on its own**: the agent can change it in a second, and curl or a headless
+browser are used by honest people too. The `probe` event is not fed to the scan detector (the
+connection was already counted once).
+
+### Tempo: automated attack chains (`automated_chain`)
+
+Agent frameworks run scan, connect and login in one go. The chain **scan finding -> finished
+handshake with a decoy -> login try** (SSH, telnet, HTTP form/header, or the bait credentials) from
+one source is reported as `automated_chain`, **severity high**, detail
+`scan_to_login=<s> connect_to_login=<ms> via=ssh|telnet|http|bait`, when
+
+| Condition | Threshold | From the lab |
+|---|---|---|
+| scan finding to login try | at most `ChainWindow` = 20 s | R01: nmap SYN + connect scan of 1024 ports at 500/s took 11 s, first full handshake 6.3 s after the scan finding |
+| last handshake to login try | at most `ChainLoginGap` = 3 s | R02: scripted telnet login about 1 ms after the handshake; an SSH key exchange adds well under a second; a person typing a password needs longer |
+
+R01 alone (no login) and R02 alone (logins, but only two ports, no scan finding) give no chain; the unit
+test `TestAutomatedChain` holds both as controls. One finding per chain; half-done chains are forgotten
+after 20 s and on a network change (at most 4096 sources followed). The source is blocked when blocking
+of login attempts (`brute`, Block) is on, at once (it finished a handshake). Ignored devices
+(`defense.ignore`) never start or finish a chain (the check sees only events that passed the list), and
+replies to this machine's own connections never make a scan finding (see below), so they cannot
+start one. Limit: a person with a script (scan, then `sshpass`) is a chain as well - which is what it is.
 
 ### Optional lists (`defense.reputation_sources`, default empty)
 

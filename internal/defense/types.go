@@ -83,31 +83,33 @@ func (c Class) Decoys() bool { return c.Normalize() != ClassSafe }
 type Kind string
 
 const (
-	KindDecoyHit    Kind = "decoy_hit"   // someone connected to a decoy port
-	KindTarpit      Kind = "tarpit"      // a peer is being held in the tarpit
-	KindCowrie      Kind = "cowrie"      // login attempt on the fake service
-	KindScan        Kind = "scan"        // many ports from one source
-	KindBruteForce  Kind = "brute_force" // many failed connections
-	KindReputation  Kind = "reputation"  // peer or destination on a bad list
-	KindFirstSeen   Kind = "first_seen"  // an app contacted a new destination
-	KindARP         Kind = "arp"         // gateway MAC changed / ARP or NDP spoofing
-	KindRogueDHCP   Kind = "rogue_dhcp"  // second DHCP server answered
-	KindDNSHijack   Kind = "dns_hijack"  // DNS answers differ or port 53 is diverted
-	KindTLS         Kind = "tls"         // certificate of a known target changed
-	KindBeacon      Kind = "beacon"      // regular-interval traffic
-	KindDNSTunnel   Kind = "dns_tunnel"  // long/random names, many TXT queries
-	KindEvilTwin    Kind = "evil_twin"   // same SSID, different BSSID/gateway
-	KindDHCPOption  Kind = "dhcp_option" // DHCP options that reroute traffic (121/249) or point at other services
-	KindRogueRA     Kind = "rogue_ra"    // second IPv6 router / odd router advertisement / second DHCPv6 server
-	KindDNSRebind   Kind = "dns_rebind"  // public name answered with a private address
-	KindNewIface    Kind = "new_iface"   // a network interface appeared that was not there at start
-	KindBan         Kind = "ban"         // a source was blocked
-	KindManual      Kind = "manual"      // ban reason: the user blocked it
-	KindUnban       Kind = "unban"       // a block was lifted
-	KindNetEnter    Kind = "net_enter"   // network joined (class in Detail)
-	KindObservation Kind = "observation" // passive finding (broadcast chatter, captive portal, ...)
-	KindExposed     Kind = "exposed"     // the uplink has a public address: directly reachable from the internet
-	KindOutside     Kind = "outside"     // result of the outside check (ports that answer from the internet)
+	KindDecoyHit       Kind = "decoy_hit"       // someone connected to a decoy port
+	KindTarpit         Kind = "tarpit"          // a peer is being held in the tarpit
+	KindCowrie         Kind = "cowrie"          // login attempt on the fake service
+	KindBait           Kind = "bait"            // the lock credentials from a bait file were used at a login decoy
+	KindAutomatedChain Kind = "automated_chain" // scan, decoy handshake and login try from one source within seconds
+	KindScan           Kind = "scan"            // many ports from one source
+	KindBruteForce     Kind = "brute_force"     // many failed connections
+	KindReputation     Kind = "reputation"      // peer or destination on a bad list
+	KindFirstSeen      Kind = "first_seen"      // an app contacted a new destination
+	KindARP            Kind = "arp"             // gateway MAC changed / ARP or NDP spoofing
+	KindRogueDHCP      Kind = "rogue_dhcp"      // second DHCP server answered
+	KindDNSHijack      Kind = "dns_hijack"      // DNS answers differ or port 53 is diverted
+	KindTLS            Kind = "tls"             // certificate of a known target changed
+	KindBeacon         Kind = "beacon"          // regular-interval traffic
+	KindDNSTunnel      Kind = "dns_tunnel"      // long/random names, many TXT queries
+	KindEvilTwin       Kind = "evil_twin"       // same SSID, different BSSID/gateway
+	KindDHCPOption     Kind = "dhcp_option"     // DHCP options that reroute traffic (121/249) or point at other services
+	KindRogueRA        Kind = "rogue_ra"        // second IPv6 router / odd router advertisement / second DHCPv6 server
+	KindDNSRebind      Kind = "dns_rebind"      // public name answered with a private address
+	KindNewIface       Kind = "new_iface"       // a network interface appeared that was not there at start
+	KindBan            Kind = "ban"             // a source was blocked
+	KindManual         Kind = "manual"          // ban reason: the user blocked it
+	KindUnban          Kind = "unban"           // a block was lifted
+	KindNetEnter       Kind = "net_enter"       // network joined (class in Detail)
+	KindObservation    Kind = "observation"     // passive finding (broadcast chatter, captive portal, ...)
+	KindExposed        Kind = "exposed"         // the uplink has a public address: directly reachable from the internet
+	KindOutside        Kind = "outside"         // result of the outside check (ports that answer from the internet)
 )
 
 // Severity of an event. It feeds the heat gauge.

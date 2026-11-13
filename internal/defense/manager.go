@@ -31,6 +31,7 @@ type Manager struct {
 	rpts      *Reports
 	dns       dnsState
 	conn      connState
+	chain     chainState
 	now       func() time.Time
 
 	syncMu sync.Mutex // serialises decoy start/stop; never taken with mu held
@@ -100,6 +101,11 @@ func (m *Manager) Bannable(a netip.Addr) bool {
 // mode 0600 on first use). Without it the key lives in memory only.
 func WithSSHHostKey(path string) Option { return func(m *Manager) { m.dec.HostKeyPath = path } }
 
+// WithBaitFile keeps the lock credentials of the bait files in this file
+// (created with mode 0600 on first use, see bait.go). Without it they live in
+// memory only and change with every start.
+func WithBaitFile(path string) Option { return func(m *Manager) { m.dec.BaitPath = path } }
+
 // WithReportFile keeps the per-network reports in this file (mode 0600).
 // Without it they stay in memory.
 func WithReportFile(path string) Option { return func(m *Manager) { m.rpts = NewReports(path) } }
@@ -166,6 +172,7 @@ func (m *Manager) tick() {
 	}
 	m.rep.Prune()
 	m.ver.prune(m.now())
+	m.chain.prune(m.now())
 	m.flushAgg(false)
 	if err := m.rpts.Flush(); err != nil {
 		m.log.Debug("defense: report file", "err", err)
@@ -252,6 +259,7 @@ func (m *Manager) SetNetwork(key string, class Class) {
 	if changed {
 		m.forgetDNS()
 		m.forgetConns()
+		m.chain.reset()
 		m.names.Forget()
 	}
 	if changed && enabled {
@@ -302,6 +310,11 @@ func (m *Manager) Report(ev Event) {
 		if a, err := netip.ParseAddr(ev.Src); err == nil {
 			ev.Trust = m.ignore.Trust(a, ev.Port, m.now())
 		}
+	}
+	// tempo detection sees only what passed the ignore list; a finished
+	// chain is reported after this event
+	if h, ok := m.chain.step(ev, m.now()); ok {
+		defer m.chainFound(h)
 	}
 	if m.fold(ev) {
 		// folded: counts for heat and the report, but takes no ring slot
@@ -364,8 +377,18 @@ func (m *Manager) decoyHit(h Hit) {
 		return
 	}
 	m.Report(Event{Kind: h.Kind, Severity: h.Sev, Src: h.Src.String(), Port: h.Port, Proto: "tcp", Detail: h.Detail})
-	if h.Kind == KindDecoyHit {
-		m.Observe(h.Src, h.Port, "tcp", false)
+	switch h.Kind {
+	case KindDecoyHit:
+		if !h.Extra {
+			m.Observe(h.Src, h.Port, "tcp", false)
+		}
+	case KindBait:
+		// someone read a bait file and uses what it found: block at once
+		// (the source finished a handshake, nothing waits) when blocking of
+		// login attempts is on; ignored devices never get here
+		if !m.ignore.Match(h.Src.Unmap(), h.Port) {
+			m.maybeBan(h.Src, KindBait, FeatBrute)
+		}
 	}
 }
 

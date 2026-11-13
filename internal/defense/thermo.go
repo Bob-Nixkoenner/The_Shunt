@@ -10,6 +10,10 @@ import (
 // HeatHalfLife is how fast the gauge cools down.
 const HeatHalfLife = 10 * time.Minute
 
+// toolPoints is added for an event that carries a tool mark ("tool=", see
+// tool.go): a scripted visitor is hotter than an unknown one.
+const toolPoints = 6.0
+
 // heatScale: raw points (after class factor) that give about 63 heat.
 const heatScale = 40.0
 
@@ -44,7 +48,7 @@ func eventPoints(k Kind, s Severity) float64 {
 	switch k {
 	case KindCowrie:
 		p *= 1.5
-	case KindARP, KindRogueDHCP, KindDHCPOption, KindRogueRA, KindDNSHijack, KindEvilTwin, KindTLS:
+	case KindBait, KindAutomatedChain, KindARP, KindRogueDHCP, KindDHCPOption, KindRogueRA, KindDNSHijack, KindEvilTwin, KindTLS:
 		p *= 2
 	}
 	return p
@@ -102,7 +106,11 @@ func (t *Thermo) Add(ev Event) {
 	if ev.Trust == TrustTest {
 		return
 	}
-	p := eventPoints(ev.Kind, ev.Severity) * ClassFactor(t.class)
+	p := eventPoints(ev.Kind, ev.Severity)
+	if p > 0 && hasTool(ev.Detail) {
+		p += toolPoints
+	}
+	p *= ClassFactor(t.class)
 	if ev.Kind == KindExposed && !strings.Contains(ev.Detail, "inbound=closed") && !strings.Contains(ev.Detail, "inbound=lan") {
 		p *= 2 // nothing stops the internet: open or not filtered
 	}
