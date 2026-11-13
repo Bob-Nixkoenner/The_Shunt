@@ -16,3 +16,4 @@ test/lab/lab-addr.local.*
 /mockd
 /shunt
 /shuntd
+/shuntd-win.exe
