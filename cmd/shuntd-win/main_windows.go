@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,7 +104,8 @@ func main() {
 		_ = winsplit.NCSIBootRelease()
 		winsplit.DisableDNSGuard()
 		winsplit.DisableQuiet()
-		fmt.Println("kill switch, DNS guard and quiet mode lifted")
+		_ = winsplit.SetExitGuard(nil)
+		fmt.Println("kill switch, DNS guard, quiet mode and exit guard lifted")
 	case "version":
 		fmt.Println(version)
 	default:
@@ -331,6 +333,52 @@ func runCore(ctx context.Context, ready func()) error {
 		eng      *splitstack.Engine
 		sm       = &socks.Manager{Log: slog.Default()}
 	)
+	// exit guard (report M-04): WFP lets only the service accept on the
+	// SOCKS exit addresses and only tor.exe on its SOCKS ports; an exit
+	// address another program holds cannot be reached at all (fail closed)
+	var guardMu sync.Mutex
+	var guardSocks []winsplit.ExitGuard
+	guardTor := map[string]netip.AddrPort{}
+	guardKey, guardDone := "", false
+	applyGuard := func() {
+		guardMu.Lock()
+		defer guardMu.Unlock()
+		if guardDone {
+			return
+		}
+		gs := append([]winsplit.ExitGuard(nil), guardSocks...)
+		if tor := tunnel.FindTor(); tor != "" {
+			names := make([]string, 0, len(guardTor))
+			for n := range guardTor {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				gs = append(gs, winsplit.ExitGuard{Addr: guardTor[n], Owners: []string{tor}})
+			}
+		}
+		key := fmt.Sprintf("%+v", gs)
+		if key == guardKey {
+			return
+		}
+		if err := winsplit.SetExitGuard(gs); err != nil {
+			log.Printf("EXIT GUARD NOT SET (SOCKS exit / Tor addresses unprotected): %v", err)
+			guardKey = ""
+			return
+		}
+		guardKey = key
+		log.Printf("exit guard: %d addresses", len(gs))
+	}
+	defer func() {
+		// a clean stop lifts it (like the inbound protection); after a crash
+		// it stays until the next run or a reboot (not persistent)
+		guardMu.Lock()
+		defer guardMu.Unlock()
+		guardDone = true
+		if err := winsplit.SetExitGuard(nil); err != nil {
+			log.Printf("exit guard: %v", err)
+		}
+	}()
 	// inbound protection ([inbound], mode per network profile): WFP filters
 	// that block new connections from the network; off unless enabled
 	var inNetwork atomic.Value
@@ -468,9 +516,22 @@ func runCore(ctx context.Context, ready func()) error {
 			}}
 		}
 		// an address another program holds is not handed over (M-04, logged
-		// by the manager), but unlike Linux (nft guard) nothing blocks the
-		// programs set up for the exit from reaching that program
-		sm.Update(exits)
+		// by the manager); the exit guard blocks reaching it
+		taken := map[netip.AddrPort]bool{}
+		for _, ap := range sm.Update(exits) {
+			taken[ap] = true
+		}
+		var gs []winsplit.ExitGuard
+		for _, e := range exits {
+			if ap, err := netip.ParseAddrPort(e.Listen); err == nil {
+				gs = append(gs, winsplit.ExitGuard{Addr: ap, Taken: taken[ap]})
+			}
+		}
+		sort.Slice(gs, func(i, j int) bool { return gs[i].Addr.Compare(gs[j].Addr) < 0 })
+		guardMu.Lock()
+		guardSocks = gs
+		guardMu.Unlock()
+		go applyGuard()
 	}
 	defer sm.Close()
 	defer func() {
@@ -513,6 +574,12 @@ func runCore(ctx context.Context, ready func()) error {
 		torMu.Lock()
 		torByName[name] = tr
 		torMu.Unlock()
+		if ap, err := netip.ParseAddrPort(tr.SocksAddr()); err == nil {
+			guardMu.Lock()
+			guardTor[name] = ap
+			guardMu.Unlock()
+			go applyGuard()
+		}
 		return tr.SocksAddr(), nil
 	}
 	defer func() {
@@ -912,6 +979,7 @@ func uninstall() error {
 	_ = winsplit.NCSIBootRelease()
 	winsplit.DisableDNSGuard()
 	winsplit.DisableQuiet()
+	_ = winsplit.SetExitGuard(nil)
 	err := control(func(s *mgr.Service) error {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(time.Second)
