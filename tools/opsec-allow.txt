@@ -1,0 +1,48 @@
+# Allowlist for tools/opsec-scan.sh. One regex per line, matched against the
+# whole matched value (anchored). Only placeholder patterns belong here,
+# never real values. Lines starting with # are comments.
+# --- e-mail ---
+.*@example\.(com|org|net|invalid)
+.*@.*\.example
+.*@localhost
+noreply@anthropic\.com
+bob@isst\.pizza
+shunt@isst\.pizza
+[0-9]*\+?[A-Za-z0-9-]+@users\.noreply\.github\.com
+.*@[A-Za-z0-9._-]+\.(service|socket|timer|mount|target|path)
+[Gg]it@github\.com
+.*@github\.com
+# --- ipv4 (documentation ranges, unspecified, loopback, masks, public DNS) ---
+0\.0\.0\.0
+127\.\d+\.\d+\.\d+
+255\.\d+\.\d+\.\d+
+192\.0\.2\.\d+
+198\.51\.100\.\d+
+203\.0\.113\.\d+
+1\.1\.1\.1
+1\.0\.0\.1
+8\.8\.8\.8
+8\.8\.4\.4
+9\.9\.9\.9
+(22[4-9]|23\d)\.\d+\.\d+\.\d+
+169\.254\.\d+\.\d+
+198\.1[89]\.\d+\.\d+
+1\.2\.3\.4
+2\.2\.2\.2
+# public distro / hosting infrastructure
+91\.189\.\d+\.\d+
+185\.125\.\d+\.\d+
+185\.199\.\d+\.\d+
+151\.101\.\d+\.\d+
+# --- mac (placeholders) ---
+(00[:-]){5}00
+(ff[:-]){5}ff
+(?i:aa[:-]bb[:-]cc[:-]dd[:-]ee[:-]ff)
+(?i:de[:-]ad[:-]be[:-]ef[:-]\w\w[:-]\w\w)
+# --- home paths (placeholders) ---
+/home/(user|username|example|name|you|youruser|runner|build|builder)
+# --- ipv4: generic private network bases / gateways used in code and docs (not real addresses) ---
+(10|172\.16|192\.168|100\.64)\.0\.0
+192\.168\.\d+\.[01]
+10\.\d+\.\d+\.[01]
+172\.(1[6-9]|2\d|3[01])\.0\.[01]
