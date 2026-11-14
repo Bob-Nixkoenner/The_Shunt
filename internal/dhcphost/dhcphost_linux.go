@@ -288,7 +288,67 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 			}
 			log.Info("network privacy: MAC from the next connection", "uuid", p.UUID, "set", strings.Join(next, " "), "in_use", p.Device != "")
 		}
+		if p.Device != "" && p.Activated && pol.MACMode(p) == config.MACPermanent {
+			reconnectReal(ctx, p, len(next) > 0, log)
+		}
 	}
+}
+
+// reconnectReal connects a profile in use again once it has the real MAC.
+// A trusted network found by its gateway MAC is only known after the
+// connection is up, with the random MAC (no frame with the real one went
+// out before); "from the next connection" never comes, because the profile
+// is set back to random when it disconnects. So it connects again right
+// away, once: only while the device still runs with a locally administered
+// (random or stable) address, and at most once per guardAgain, so a network
+// that comes and goes cannot make it loop.
+// changed: the MAC was just set in the profile; when the device address
+// cannot be read, only then.
+func reconnectReal(ctx context.Context, p Profile, changed bool, log *slog.Logger) {
+	out, err := nmcli(ctx, "-g", "GENERAL.HWADDR", "device", "show", p.Device)
+	switch {
+	case err != nil && !changed:
+		return
+	case err == nil && !localMAC(unescape(strings.TrimSpace(out))):
+		return // runs with the real one already
+	}
+	if !reconnectOnce(p.UUID, time.Now()) {
+		return
+	}
+	if _, err := nmcli(ctx, "-w", "10", "connection", "up", "uuid", p.UUID, "ifname", p.Device); err != nil {
+		log.Warn("network privacy: trusted network, the real MAC applies from the next connection", "uuid", p.UUID, "err", err)
+		return
+	}
+	log.Info("network privacy: trusted network, connected again with the real MAC", "uuid", p.UUID, "device", p.Device)
+}
+
+var reconnected struct {
+	sync.Mutex
+	at map[string]time.Time
+}
+
+// reconnectOnce reports whether uuid may be connected again now (and notes it).
+func reconnectOnce(uuid string, now time.Time) bool {
+	reconnected.Lock()
+	defer reconnected.Unlock()
+	if reconnected.at == nil {
+		reconnected.at = map[string]time.Time{}
+	}
+	if t, ok := reconnected.at[uuid]; ok && now.Sub(t) < guardAgain {
+		return false
+	}
+	reconnected.at[uuid] = now
+	return true
+}
+
+// localMAC tells whether mac is locally administered (random or stable from
+// NetworkManager); "" or junk counts as unknown = local.
+func localMAC(mac string) bool {
+	var b byte
+	if _, err := fmt.Sscanf(mac, "%02x:", &b); err != nil {
+		return true
+	}
+	return b&0x02 != 0
 }
 
 // unchanged tells whether p is still in the state list saw. Listing all
