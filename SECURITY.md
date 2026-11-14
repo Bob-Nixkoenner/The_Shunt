@@ -30,6 +30,11 @@ did, what leaked or broke, and the output of `shunt status --json` and
   `systemd-run --user`, D-Bus activation, a browser handing a link to
   another program). Shunt stops the obvious way (its own API needs the admin
   password to move a process out of its route), but not the whole desktop.
+  One deliberate exception: a process that sits in the default route (no group,
+  not held by the app firewall) may move into another tunnel without the
+  password. It stays inside a tunnel with its kill switch; moving to direct, a
+  link, the block route or anything with Tor, or while tor-all is on, still
+  needs the password.
   If an application must never reach the internet except through the tunnel,
   route *everything* through the tunnel (`default_route = "tunnel:<name>"`)
   or run it as a separate user or in a VM.
