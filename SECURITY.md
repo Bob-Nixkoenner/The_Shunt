@@ -107,7 +107,7 @@ did, what leaked or broke, and the output of `shunt status --json` and
 - **Android, connections whose owner stays unknown.** The app learns which
   app opened a connection from Android (`getConnectionOwnerUid`). A miss is
   asked again twice, about 20 ms apart; if the owner is still unknown, the
-  connection gets the default route in Simple and Pro (rest window: an app
+  connection gets the default route in Simple and Pro (remaining gap: an app
   with a tunnel rule can then go out direct when the default is direct). Max
   Security drops such connections instead (the app tries again). Misses are
   logged as counts only.
@@ -191,8 +191,8 @@ listener is not started and the log says so loudly.
   place until the service starts again, a clean stop or a reboot lifts it.
   Tor's control port is not guarded (a program holding it can only fake the
   bootstrap; the SOCKS port stays guarded), and apps using the loopback fast
-  path (`SIO_LOOPBACK_FAST_PATH`) may pass WFP. Its runtime behaviour has not
-  yet been verified on real Windows.
+  path (`SIO_LOOPBACK_FAST_PATH`) may pass WFP. Its runtime behaviour was checked in a
+  Windows 11 lab VM (the M-04 cases, L-07, a smoke test), not on physical hardware.
 - **`shunt socks`** shows an exit whose address another program holds as
   BLOCKED.
 - **While shuntd is not running (Linux):** on a clean stop shuntd leaves the
@@ -208,7 +208,8 @@ listener is not started and the log says so loudly.
 
 ## Fixed findings of the external report on 755f910
 
-All 27 findings were checked against the code. 25 have a change in the code
+All 27 IDs were checked against the code: the 23 findings of the external
+report plus L-01, L-07, L-13 and M-10 from our own review. 25 have a change in the code
 (for L-13 a warning, for M-01 without the start race); M-10 and L-09 are not
 fixed and listed under known limits above with the reason. The CHANGELOG
 names the tests.

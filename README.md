@@ -8,10 +8,9 @@ multi-hop if you like. Built-in **Tor and SOCKS exits**, a DNS filter, three lev
 Pro, Max Security**) and an optional network **defense**. The apps speak **English and German**.
 
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard, OpenVPN und Tailscale/Headscale
-> (Linux, Windows, Android) – fail-closed, ohne Telemetrie. Mit Tor- und SOCKS-Ausgängen, DNS-Filter,
+> (Linux, Windows, Android; je nach Plattform) – fail-closed, ohne Telemetrie. Mit Tor- und SOCKS-Ausgängen, DNS-Filter,
 > drei Stufen (Einfach, Profi, Max. Sicherheit) und optionaler Netzwerk-Abwehr; Oberfläche auf Deutsch
-> und Englisch. Design-Dokument (deutsch):
-> [docs/DESIGN.md](docs/DESIGN.md)*
+> und Englisch. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md).*
 
 > ⚠️ **Status: early beta.** Linux is the most tested (CI, a real install on a systemd host,
 > one security review); Windows and Android are younger. Read [SECURITY.md](SECURITY.md) –
@@ -29,7 +28,7 @@ still be wrong, and nobody has reviewed every line the way a seasoned maintainer
 
 - Don't take my word for it – the code is open, read it, run the tests, break it.
 - Security-relevant parts have tests, an automatic CI (vet, race detector, fuzzing,
-  `govulncheck`, integration tests in network namespaces) and one outside-style review. A first external report is worked through (see
+  `govulncheck`, integration tests in network namespaces) and one internal security review. A first external report is worked through (see
   [SECURITY.md](SECURITY.md)); an independent audit is requested but **has not happened**. Treat it as beta software.
 - That is also why everything is under permissive, standard licences (see
   [License](#license)): use it, fork it, fix it, and tell me what is wrong.
@@ -107,7 +106,7 @@ line (broken IPv6, common in VMs), or check DNS with `getent hosts raw.githubuse
 The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
 verified release, imports your WireGuard config, writes
 `/etc/shunt/shunt.toml`, does a dry run and starts the service.
-`sudo bash install.sh --dry-run` only shows what it would do. It takes the newest release
+`sudo bash install.sh --dry-run` only shows what it would do. Each release also carries `the-shunt_*.deb` packages and a CycloneDX SBOM (`*.cdx.json`), both listed in `SHA256SUMS`. It takes the newest release
 (pre-releases included) whose `SHA256SUMS` carry the release signature (`ssh-keygen -Y
 verify`, key in `install.sh`) and hands over to the installer of that release, so code
 merged after a release is not installed until it is released. The signed list names its
@@ -150,8 +149,7 @@ Details and limits: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Download `shunt-<version>-android.apk` from the
 [latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) and open it (Android
-asks to allow installs from your browser or file manager; the APK is debug-signed).
-<!-- TODO: state whether the release APK is release-signed (not checked). --> Details: [docs/ANDROID.md](docs/ANDROID.md).
+asks to allow installs from your browser or file manager; the release APK is signed with the fixed release key; see docs/ANDROID.md). Details: [docs/ANDROID.md](docs/ANDROID.md).
 
 ## What works
 
@@ -273,7 +271,6 @@ asks to allow installs from your browser or file manager; the APK is debug-signe
   and an evidence log, all local. Android has a lighter watcher (no decoys, no blocking, code only,
   not yet run on a device when this was written); Windows has no defense yet. Details and limits:
   [docs/DEFENSE.md](docs/DEFENSE.md)
-<!-- TODO: re-check the Android defense status against CHANGELOG before release. -->
 - **Languages:** the window, tray, Android app and the Windows setup are in English and German
   (follows the system); the command line and `install.sh` are still English
 - Unprivileged CLI talking JSON over a Unix socket; GUIs can plug in the same way
@@ -303,7 +300,7 @@ No account, no telemetry.
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
   can be added, and the DNS lines of the tunnels can be ignored.
-- **Tor** built in (GitHub APK; the F-Droid build uses Orbot), with bridges.
+- **Tor** built in (GitHub APK and Play build; the F-Droid build uses Orbot), with bridges.
 - **Levels** Simple, Pro and Max Security; from Pro on, *Known Wi-Fi networks* (Apps tab) give a
   Wi-Fi its own route and DNS filter; only a hash of the name is stored, reading the name needs the
   optional location permission.
@@ -311,7 +308,7 @@ No account, no telemetry.
 - English and German; light and dark theme follow the system.
 
 Beta. The APK is in the [releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases)
-(debug-signed).
+(signed with the fixed release key when the CI signing secret is set, otherwise with a debug key and then without in-place updates).
 Details:
 [docs/ANDROID.md](docs/ANDROID.md).
 
@@ -326,7 +323,7 @@ Tell me what matters to you.
 - Android: Tailscale/Headscale
 - Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
 - A start button and route check for launchers everywhere, default browser through a launcher
-- `.deb` package, SBOM, reproducible builds, an independent security review
+- SBOM, reproducible builds, an independent security review
 - macOS (only if someone wants to help), Rosenpass / AmneziaWG, an eBPF backend
 - Per-app LAN blocking, more block lists, a panic hotkey that works out of the box
 
@@ -545,7 +542,8 @@ Fedora and Debian containers) spread over machines reachable by SSH, listed in
 
 Short version of [SECURITY.md](SECURITY.md):
 - fail-closed everywhere (tunnel down, daemon stopped or crashed, boot)
-- the daemon runs with two capabilities (`CAP_NET_ADMIN`, `CAP_CHOWN`) in a
+- the daemon runs with a short list of capabilities (network admin, eBPF and
+  perf monitoring, raw and low-port sockets, chown; see `packaging/systemd/shuntd.service`) in a
   tight systemd sandbox; the CLI and UI never run as root
 - changes need root or polkit (admin password); status, starting apps and
   PANIC never wait for a password
