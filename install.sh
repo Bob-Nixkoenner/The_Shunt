@@ -101,6 +101,7 @@ _de() {
 	'release %s: continuing with its own installer') printf %s 'Release %s: weiter mit dessen eigenem Installer' ;;
 	'could not download the checksums of release %s') printf %s 'Prüfsummen von Release %s konnten nicht geladen werden' ;;
 	'release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)') printf %s 'Release %s: install.sh passt nicht zur signierten Prüfsumme – Download manipuliert? (daraus wurde nichts installiert)' ;;
+	'release %s: its signed SHA256SUMS lists no install.sh - an unchecked installer is not run (name an older release with SHUNT_REF=<tag> or use --from-source)') printf %s 'Release %s: die signierte SHA256SUMS nennt kein install.sh – ein ungeprüfter Installer wird nicht ausgeführt (älteres Release mit SHUNT_REF=<tag> wählen oder --from-source)' ;;
 	'release %s: the signature of SHA256SUMS is wrong - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die Signatur von SHA256SUMS ist falsch – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'release %s: its signed checksums belong to release %s - download tampered with? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen gehören zu Release %s – Download manipuliert? (daraus wurde nichts installiert)' ;;
 	'release %s: its signed checksums do not name the release - an old release under a new name? (nothing was installed from it)') printf %s 'Release %s: Die signierten Prüfsummen nennen kein Release – ein altes Release unter neuem Namen? (daraus wurde nichts installiert)' ;;
@@ -551,15 +552,14 @@ use_release_installer() {
 	fetch_sums
 	d=$(mktemp -d)
 	want=$(awk '$2 == "install.sh" || $2 == "*install.sh" {print $1}' "$WORK/SHA256SUMS")
-	if [[ -n $want ]]; then
-		curl -fsSLo "$d/install.sh" "https://github.com/$REPO/releases/download/$tag/install.sh" ||
-			die "could not download the installer of release %s" "$tag"
-		printf '%s  %s\n' "$want" "$d/install.sh" | sha256sum -c --quiet - >>"$LOG" 2>&1 ||
-			die "release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)" "$tag"
-	else
-		curl -fsSLo "$d/install.sh" "https://raw.githubusercontent.com/$REPO/$tag/install.sh" ||
-			die "could not download the installer of release %s" "$tag"
-	fi
+	# no install.sh line: never run an installer the signature does not
+	# cover (report L-01; the old fallback took the tag's file unchecked)
+	[[ -n $want ]] ||
+		die "release %s: its signed SHA256SUMS lists no install.sh - an unchecked installer is not run (name an older release with SHUNT_REF=<tag> or use --from-source)" "$tag"
+	curl -fsSLo "$d/install.sh" "https://github.com/$REPO/releases/download/$tag/install.sh" ||
+		die "could not download the installer of release %s" "$tag"
+	printf '%s  %s\n' "$want" "$d/install.sh" | sha256sum -c --quiet - >>"$LOG" 2>&1 ||
+		die "release %s: install.sh does not match the signed checksum - download tampered with? (nothing was installed from it)" "$tag"
 	ok "release %s: continuing with its own installer" "$tag"
 	rm -rf "$WORK"
 	exec env SHUNT_REF="$tag" SHUNT_RELEASE_INSTALLER=1 bash "$d/install.sh" "${ARGS[@]}"

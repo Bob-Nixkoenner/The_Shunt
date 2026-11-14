@@ -12,9 +12,10 @@ trap 'rm -rf "$T"' EXIT
 # helpers (no actions) and the release functions of the installer
 {
 	sed -n '/^# -* helpers/,/^SRC_DIR=/p' "$src/install.sh" | grep -v '^SRC_DIR='
-	sed -n '/^fetch_sums() {/,/^}/p; /^fetch_extras() {/,/^}/p; /^check_extras() {/,/^}/p' "$src/install.sh"
+	sed -n '/^fetch_sums() {/,/^}/p; /^fetch_extras() {/,/^}/p; /^check_extras() {/,/^}/p; /^use_release_installer() {/,/^}/p' "$src/install.sh"
 } >"$T/fns.sh"
 grep -q '^check_extras() {' "$T/fns.sh" || { echo "release functions not found in install.sh"; exit 1; }
+grep -q '^use_release_installer() {' "$T/fns.sh" || { echo "use_release_installer not found in install.sh"; exit 1; }
 
 ssh-keygen -q -t ed25519 -N '' -C test -f "$T/key"
 RELEASE_SIGNER="release@the-shunt $(cut -d' ' -f1-2 "$T/key.pub")"
@@ -28,13 +29,15 @@ for f in systemd/shuntd.service systemd/shunt-lockdown.service systemd/shuntd-ta
 	echo "test $f" >"$T/pkg/$f"
 done
 
-# mkrel tag taglines extras: a signed release served from $T/srv/<tag>.
+# mkrel tag taglines extras [inst]: a signed release served from $T/srv/<tag>.
 # taglines: the "# tag" lines of SHA256SUMS ("" none);
-# extras: good | tampered | unlisted | missing-file | not-served
+# extras: good | tampered | unlisted | missing-file | not-served;
+# inst (its install.sh): none (default, not served) | good | tampered | unlisted
 mkrel() {
-	local tag=$1 lines=$2 extras=$3 d=$T/srv/$1
+	local tag=$1 lines=$2 extras=$3 inst=${4:-none} d=$T/srv/$1
 	rm -rf "$d" && mkdir -p "$d"
 	echo bin >"$d/shunt_linux_amd64.tar.gz"
+	[[ $inst == none ]] || printf '#!/usr/bin/env bash\necho "RELEASE INSTALLER RAN $SHUNT_REF"\n' >"$d/install.sh"
 	case $extras in
 	missing-file) tar -czf "$d/shunt_linux_extras.tar.gz" -C "$T/pkg" systemd desktop ;;
 	*) tar -czf "$d/shunt_linux_extras.tar.gz" -C "$T/pkg" systemd desktop polkit ;;
@@ -43,8 +46,10 @@ mkrel() {
 		cd "$d"
 		[[ -z $lines ]] || printf '%s\n' "$lines"
 		if [[ $extras == unlisted ]]; then sha256sum shunt_linux_amd64.tar.gz; else sha256sum shunt_linux_amd64.tar.gz shunt_linux_extras.tar.gz; fi
+		[[ $inst == none || $inst == unlisted ]] || sha256sum install.sh
 	) >"$d/SHA256SUMS"
 	ssh-keygen -Y sign -q -f "$T/key" -n "$RELEASE_NS" "$d/SHA256SUMS"
+	[[ $inst != tampered ]] || echo 'echo evil' >>"$d/install.sh"
 	[[ $extras != tampered ]] || echo evil >>"$d/shunt_linux_extras.tar.gz"
 	[[ $extras != not-served ]] || rm "$d/shunt_linux_extras.tar.gz"
 }
@@ -115,6 +120,44 @@ run "extras not signed, from a checkout" 0 "PKG_DIR=$T/checkout/packaging" tag=v
 mkrel v1.2.3 '# tag v1.2.3' good
 echo "# extra" >>"$T/srv/v1.2.3/SHA256SUMS"
 run "signature wrong" 1 "signature of SHA256SUMS is wrong" tag=v1.2.3 REF=HEAD SRC_DIR="$T/nosrc"
+
+# use_release_installer: the release's own installer runs only when the
+# signed list names it and it matches (report L-01: no unchecked fallback to
+# the tag's file on raw.githubusercontent.com)
+runinst() {
+	local name=$1 want=$2 text=$3 out rc
+	shift 3
+	rm -rf "$T/work" && mkdir -p "$T/work"
+	out=$(env "$@" WORK="$T/work" T="$T" RELEASE_SIGNER="$RELEASE_SIGNER" RELEASE_NS="$RELEASE_NS" REPO="$REPO" \
+		SHUNT_LANG=en bash -c '
+		set -euo pipefail
+		source "$T/fns.sh"
+		LOG=$T/log LOG_ON=0 ARGS=()
+		curl() { # curl -fsSLo FILE URL: served from $T/srv, nothing else
+			local o=${@: -2:1} u=${@: -1}
+			[[ $u == https://github.com/$REPO/releases/download/* ]] || { echo "CURL OUTSIDE THE RELEASE: $u"; return 22; }
+			u=${u#https://github.com/$REPO/releases/download/}
+			[[ -f $T/srv/$u ]] || return 22
+			cp "$T/srv/$u" "$o"
+		}
+		pkg_install() { echo "pkg_install $*"; }
+		use_release_installer
+		echo "NOT HANDED OVER"
+	' 2>&1) && rc=0 || rc=$?
+	if [[ $rc != "$want" || $out != *"$text"* || $out == *"CURL OUTSIDE"* || ($want != 0 && $out == *"INSTALLER RAN"*) ]]; then
+		echo "FAIL $name: exit $rc (want $want), output:"
+		printf '%s\n' "$out" | sed 's/^/    /'
+		fail=1
+	else
+		echo "ok   $name"
+	fi
+}
+mkrel v1.2.3 '# tag v1.2.3' good good
+runinst "release installer listed" 0 "RELEASE INSTALLER RAN v1.2.3" tag=v1.2.3 REF=HEAD SRC_DIR="$T/nosrc"
+mkrel v1.2.3 '# tag v1.2.3' good tampered
+runinst "release installer tampered" 1 "does not match the signed checksum" tag=v1.2.3 REF=HEAD SRC_DIR="$T/nosrc"
+mkrel v1.2.3 '# tag v1.2.3' good unlisted
+runinst "release installer not in the signed list" 1 "lists no install.sh" tag=v1.2.3 REF=HEAD SRC_DIR="$T/nosrc"
 
 # sha256sum -c skips the "# tag" line
 mkrel v1.2.3 '# tag v1.2.3' good
