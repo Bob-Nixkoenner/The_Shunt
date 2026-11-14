@@ -2,9 +2,11 @@ package winsplit
 
 import (
 	"fmt"
+	"log"
 	"net/netip"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit/wfp"
 )
@@ -19,11 +21,7 @@ import (
 // DisableKillSwitch.
 //
 // Before 0.7.1 the kill switch was a set of Windows Firewall rules plus a
-// "block outbound" policy; legacyCleanup removes them.
-
-const ksPrefix = "Shunt KS "
-
-var ksRules = []string{"service", "tunnel v4", "tunnel v6", "lan", "dhcp", "dhcp6"} // legacy rule names
+// "block outbound" policy; legacyCleanup removes them (killswitch_legacy.go).
 
 func fw(args ...string) error {
 	if out, err := exec.Command("netsh", append([]string{"advfirewall"}, args...)...).CombinedOutput(); err != nil {
@@ -47,10 +45,15 @@ func DisableKillSwitch() {
 }
 
 // legacyCleanup removes the Windows Firewall kill switch of earlier versions
-// and restores Windows' default policy (outgoing allowed).
+// and, only if it was there, restores Windows' default policy (outgoing
+// allowed); a policy the user set is left alone (report L-07). Once per
+// process: the old version cannot add its rules again while this one runs.
 func legacyCleanup() {
-	_ = fw("set", "allprofiles", "firewallpolicy", "blockinbound,allowoutbound")
-	for _, n := range ksRules {
-		_ = fw("firewall", "delete", "rule", "name="+ksPrefix+n)
-	}
+	legacyOnce.Do(func() {
+		if legacyCleanupWith(fw) {
+			log.Print("kill switch: removed the Windows Firewall kill switch of an earlier version, outgoing policy allowed again")
+		}
+	})
 }
+
+var legacyOnce sync.Once
