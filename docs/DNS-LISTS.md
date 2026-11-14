@@ -47,8 +47,6 @@ contains the one before); the levels still use a bigger one each, which keeps Lo
 | `proxies` | Public proxies and anonymizers |  |
 | `DomainSquatting1` | Domain squatting, part 1 |  |
 | `DomainSquatting2` | Domain squatting, part 2 |  |
-| `DomainSquatting3` | Domain squatting, part 3 |  |
-| `DomainSquatting4` | Domain squatting, part 4 |  |
 | `pornblock1` | Adult content, part 1 |  |
 | `pornblock2` | Adult content, part 2 |  |
 | `pornblock3` | Adult content, part 3 |  |

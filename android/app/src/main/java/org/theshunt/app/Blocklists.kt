@@ -62,7 +62,6 @@ object Blocklists {
         "Fake shops and subscription traps" to listOf(Entry("notserious", "Dubious shops and sites", 2.2), Entry("Streaming", "Streaming sites", 0.5)),
         "Domain squatting" to listOf(
             Entry("DomainSquatting1", "Domain squatting 1", 32.9), Entry("DomainSquatting2", "Domain squatting 2", 18.8),
-            Entry("DomainSquatting3", "Domain squatting 3"), Entry("DomainSquatting4", "Domain squatting 4"),
         ),
         "Tracking and telemetry" to listOf(Entry("samsung", "Samsung telemetry")),
         "Youth protection" to listOf(
