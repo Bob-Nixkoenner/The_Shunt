@@ -79,6 +79,9 @@ type Daemon struct {
 	proxy     *dnsproxy.Proxy
 	socks     *socks.Manager // SOCKS5 exits of tunnels with `socks` set
 	torProxy  torProxy       // transparent proxies of the Tor routes
+	// resolvedWarned: the systemd-resolved protections last warned about
+	// (direct DNS through the system resolvers bypasses them, L-13)
+	resolvedWarned string
 	// sockets names the programs behind sockets (DNS blocks per app, open ports).
 	sockets     sockets.Resolver
 	filter      *blocklist.Manager
@@ -844,6 +847,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if err := d.proxy.Update(p.Plan, ups); err != nil {
 		return err
 	}
+	d.warnResolvedBypass(p.DirectSystem)
 	d.dnsUps = ups
 	if d.socks == nil {
 		d.socks = &socks.Manager{Log: d.Log}
@@ -1345,6 +1349,23 @@ func (d *Daemon) linkAbsent(route string) bool {
 		}
 	}
 	return false
+}
+
+// warnResolvedBypass logs once per setting when direct DNS goes to the
+// system resolvers while systemd-resolved is set to use DNS-over-TLS or
+// DNSSEC: shuntd asks resolved's upstreams itself in plain UDP (the stub on
+// loopback would loop back into the proxy), so those protections do not
+// apply to direct queries (report L-13).
+func (d *Daemon) warnResolvedBypass(directSystem bool) {
+	if !directSystem || runtime.GOOS != "linux" {
+		d.resolvedWarned = ""
+		return
+	}
+	prot := strings.Join(dnsproxy.ResolvedProtections(), ", ")
+	if prot != "" && prot != d.resolvedWarned {
+		d.Log.Warn("direct DNS goes to the system resolvers in plain UDP, past systemd-resolved: its settings do not apply to it; set dns.direct to a DoT or DoH upstream to keep them", "resolved", prot)
+	}
+	d.resolvedWarned = prot
 }
 
 // shutdown removes tunnels but leaves nft rules and kill switch tables in
