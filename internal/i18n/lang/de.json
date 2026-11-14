@@ -8,7 +8,7 @@
   "To tell Wi-Fi networks apart Android needs the location permission (only to read the Wi-Fi name; The Shunt uses no location).": "Um WLANs zu unterscheiden, verlangt Android die Standort-Berechtigung (nur zum Lesen des WLAN-Namens; The Shunt nutzt keinen Standort).",
   "Set up this Wi-Fi": "Dieses WLAN einstellen",
   "Not allowed: all Wi-Fi networks take the Wi-Fi row.": "Nicht erlaubt: alle WLANs nehmen die WLAN-Zeile.",
-  "Not connected to a Wi-Fi (or location is switched off).": "Nicht mit einem WLAN verbunden (oder Standort ist aus).",
+  "No Wi-Fi name available: not on a Wi-Fi, location switched off, or Android hides the name.": "Kein WLAN-Name verfügbar: nicht im WLAN, Standort aus oder Android verbirgt den Namen.",
   "This Wi-Fi": "Dieses WLAN",
   "this one": "dieses",
  "Safe": "Sicher",

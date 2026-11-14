@@ -1291,7 +1291,7 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
             ButtonRow { m -> ShuntButton("Set up this Wi-Fi", { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }, modifier = m) }
             if (asked) Hint("Not allowed: all Wi-Fi networks take the Wi-Fi row.")
         }
-        here.isEmpty() -> Hint("Not connected to a Wi-Fi (or location is switched off).")
+        here.isEmpty() -> Hint("No Wi-Fi name available: not on a Wi-Fi, location switched off, or Android hides the name.")
         here !in Defense.knownWifis(settings) -> ButtonRow { m ->
             ShuntButton("Set up this Wi-Fi", { update(settings.copy(networks = settings.networks + NetProfile("wifi", "", here))) }, modifier = m)
         }

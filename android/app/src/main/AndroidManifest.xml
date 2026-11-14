@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- without it Android refuses WifiManager.connectionInfo, so the Wi-Fi name stays unreadable even with the location permission -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- only to read the Wi-Fi name for the per-Wi-Fi settings (Pro and up), asked when the user taps "Set up this Wi-Fi"; no background location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.CAMERA" />
