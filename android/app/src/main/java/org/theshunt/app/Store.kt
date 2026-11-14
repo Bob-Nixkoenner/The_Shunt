@@ -247,6 +247,7 @@ data class Settings(
                 .put("unfiltered", JSONArray(unfiltered.mapNotNull { uid(it)?.toString() }))
                 .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
                 .put("block_doh", true)
+                .put("owner_unknown", Levels.ownerUnknown(level))
                 .apply { engineExes(ctx) }
                 .toString()
         }
@@ -259,6 +260,8 @@ data class Settings(
             // as on the desktop: public DoH endpoints and Firefox's canary get NXDOMAIN,
             // so browsers stay on our DNS (route + filter)
             .put("block_doh", true)
+            // a connection whose owner Android cannot name: default route, dropped in Opsec
+            .put("owner_unknown", Levels.ownerUnknown(level))
             .apply { engineExes(ctx) }
             .toString()
     }

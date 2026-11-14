@@ -97,6 +97,11 @@ func (e *Engine) newFlow(proto int, id stack.TransportEndpointID) *flow {
 		f.pinned, f.app = splitPinned(e.o.Owner(proto, f.src, f.dst))
 	}
 	normal, byDefault := e.routeFor(f.app, f.pinned, proto, f.dst, f.isDNS(e))
+	if byDefault && f.app == "" && f.pinned == "" && e.o.Owner != nil && e.dropUnknown() {
+		// owner unknown (lookup failed): the default could be the wrong
+		// route for this app, e.g. direct for an app with a tunnel rule
+		normal, byDefault = RouteBlock, false
+	}
 	f.byDefault = byDefault
 	normal, f.viaLink = e.resolveLink(normal)
 	f.route = e.ov.Route(normal, time.Now())
@@ -153,6 +158,13 @@ func (e *Engine) resolveLink(route string) (resolved, kind string) {
 		return RouteDirect, k
 	}
 	return RouteBlock, k
+}
+
+// dropUnknown: connections without a known owner are blocked (owner_unknown "drop").
+func (e *Engine) dropUnknown() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.ownerDrop
 }
 
 func (f *flow) isDNS(e *Engine) bool { return f.dst.Addr() == e.dns && f.dst.Port() == 53 }
@@ -246,9 +258,12 @@ func relayTCP(a, b net.Conn) {
 	b.Close()
 }
 
+// handleUDP runs on the goroutine that reads packets from the TUN (gVisor's
+// UDP forwarder calls it inline, unlike the TCP one): it only creates the
+// endpoint; the owner lookup (which may retry, see Owner) and the route
+// follow on the flow's own goroutine.
 func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
-	f := e.newFlow(17, r.ID())
-	e.observeConn(f) // OPUS-REVIEW: hot path, non-blocking send (observe.go)
+	id := r.ID()
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
 	if terr != nil {
@@ -256,6 +271,8 @@ func (e *Engine) handleUDP(r *udp.ForwarderRequest) {
 	}
 	in := gonet.NewUDPConn(&wq, ep)
 	go func() {
+		f := e.newFlow(17, id)
+		e.observeConn(f) // OPUS-REVIEW: hot path, non-blocking send (observe.go)
 		ctx, cancel := context.WithTimeout(context.Background(), dialTimout)
 		out, err := e.dial(ctx, f)
 		cancel()

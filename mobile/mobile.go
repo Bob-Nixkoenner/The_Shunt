@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/netip"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
@@ -31,7 +32,8 @@ import (
 // Platform is implemented by the Android app.
 type Platform interface {
 	// OwnerUid returns the owner of a connection (proto 6 = TCP, 17 = UDP),
-	// or -1 if unknown.
+	// -1 if unknown, -2 if the lookup failed with an error. A negative
+	// answer is asked again up to twice (see ownerLookup).
 	OwnerUid(proto int, srcIP string, srcPort int, dstIP string, dstPort int) int
 	Log(msg string)
 	// AppName returns the package name for a UID (first package that uses
@@ -77,13 +79,7 @@ func Start(tunFD int, configJSON string, p Platform) (*Engine, error) {
 	}
 	if p != nil {
 		o.Log = p.Log
-		o.Owner = func(proto int, src, dst netip.AddrPort) string {
-			uid := p.OwnerUid(proto, src.Addr().String(), int(src.Port()), dst.Addr().String(), int(dst.Port()))
-			if uid < 0 {
-				return ""
-			}
-			return strconv.Itoa(uid)
-		}
+		o.Owner = (&ownerLookup{p: p, pause: ownerPause, log: p.Log}).owner
 	}
 	// rests of a crashed run (OpenVPN config, torrc with keys/bridges) and
 	// folders of removed tunnels; the app starts one engine at a time
@@ -214,4 +210,76 @@ func VerifyUpdate(sums, sig, name string) (string, error) {
 	}
 	h, _ := update.SumFor([]byte(sums), name)
 	return h, nil
+}
+
+// Owner lookups: Android's getConnectionOwnerUid can miss a connection that
+// is only just being set up. A miss is asked again; a connection whose owner
+// stays unknown gets the default route, or is dropped with owner_unknown
+// "drop" (Max Security), see splitstack.Owner.
+const (
+	ownerTries    = 3 // 1 + 2 retries: at most ~2*ownerPause extra per connection
+	ownerPause    = 20 * time.Millisecond
+	ownerErr      = -2 // OwnerUid: the lookup threw
+	ownerLogEvery = time.Minute
+)
+
+// ownerLookup asks the platform for the owner of a connection, with
+// retries. It runs on the connection's own goroutine (splitstack calls Owner
+// there, not on the TUN reader), so the pauses hold up only that connection.
+// Misses are logged as counts at most once per ownerLogEvery: no app,
+// address or port.
+type ownerLookup struct {
+	p     Platform
+	pause time.Duration
+	log   func(string)
+
+	mu                         sync.Mutex
+	last                       time.Time // last log line
+	unknown, errs, nouid, late int       // since then
+}
+
+func (l *ownerLookup) owner(proto int, src, dst netip.AddrPort) string {
+	s, d := src.Addr().String(), dst.Addr().String()
+	errs, nouid := 0, 0
+	for i := 0; i < ownerTries; i++ {
+		if i > 0 {
+			time.Sleep(l.pause)
+		}
+		uid := l.p.OwnerUid(proto, s, int(src.Port()), d, int(dst.Port()))
+		if uid >= 0 {
+			if i > 0 {
+				l.note(false, errs, nouid)
+			}
+			return strconv.Itoa(uid)
+		}
+		if uid == ownerErr {
+			errs++
+		} else {
+			nouid++
+		}
+	}
+	l.note(true, errs, nouid)
+	return ""
+}
+
+// note counts misses of one connection (unknown: none of the tries found
+// the owner) and logs the counts when the last line is old enough.
+func (l *ownerLookup) note(unknown bool, errs, nouid int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if unknown {
+		l.unknown++
+	} else {
+		l.late++
+	}
+	l.errs += errs
+	l.nouid += nouid
+	now := time.Now()
+	if l.log == nil || now.Sub(l.last) < ownerLogEvery {
+		return
+	}
+	l.last = now
+	l.log(fmt.Sprintf("owner lookup: %d connections without owner, %d found on a retry (misses: %d errors, %d unknown)",
+		l.unknown, l.late, l.errs, l.nouid))
+	l.unknown, l.late, l.errs, l.nouid = 0, 0, 0, 0
 }

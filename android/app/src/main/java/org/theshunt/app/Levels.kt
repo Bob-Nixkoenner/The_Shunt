@@ -64,6 +64,14 @@ object Levels {
     )
 
     fun shows(key: String, level: Level): Boolean = TABLE[key]?.contains(level) ?: true
+
+    /**
+     * The core's owner_unknown: what a connection gets whose owner Android cannot name
+     * (getConnectionOwnerUid fails even after the core's retries). Simple and Pro: the
+     * default route, as before; Opsec: dropped (fail closed, the app tries again), so an
+     * app with a tunnel rule never goes out on a direct default.
+     */
+    fun ownerUnknown(level: Level): String = if (level == Level.Opsec) "drop" else "default"
 }
 
 /**
