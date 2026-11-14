@@ -1468,6 +1468,7 @@ func (d *Daemon) routes() http.Handler {
 		d.mu.Lock()
 		g, ok := d.plan.Group(req.Group)
 		from, to := d.leaveRoute(int(p.pid)), d.groupRoute(g)
+		hop := d.tunnelHopFromDefault(int(p.pid), from, to)
 		// a Wi-Fi login page: the tunnels can't connect anyway, and the
 		// login browser (shunt captive) has to go direct
 		portal := portalException(d.captive, req.Group, to)
@@ -1478,7 +1479,10 @@ func (d *Daemon) routes() http.Handler {
 		}
 		// A process that already runs in a route may only move to the same
 		// route or to block; anything else is an escape and needs manage.
-		if from != "" && from != to && to != "block" && !portal {
+		// Exception: from the default route (not placed anywhere) into
+		// another non-Tor tunnel – menu entries "through tunnel X" would
+		// otherwise ask for the admin password on every start.
+		if from != "" && from != to && to != "block" && !portal && !hop {
 			if err := d.authorize(r.Context(), p); err != nil {
 				writeErr(w, http.StatusForbidden, fmt.Errorf("leaving route %s: %w", from, err))
 				return
@@ -2164,6 +2168,47 @@ func (d *Daemon) leaveRoute(pid int) string {
 		return "block"
 	}
 	return fromRoute(cg, d.plan, d.groupRoute)
+}
+
+// tunnelHopFromDefault reports whether pid sits in the default route only
+// (no group, not held by the app firewall) and asks to move into another
+// tunnel. That is no escape from the tunnels – traffic stays in one, with
+// its kill switch – so it needs no password. Not when Tor is involved
+// (leaving Tor costs anonymity; tor-all is the emergency "everything over
+// Tor"), and never into direct, a link or block. Caller holds d.mu.
+func (d *Daemon) tunnelHopFromDefault(pid int, from, to string) bool {
+	if d.torAll != "" || from == "" || from == to {
+		return false
+	}
+	cg, ok := d.Backend.CgroupOf(pid)
+	if !ok || !inDefaultRoute(cg, d.plan) {
+		return false
+	}
+	return tunnelHop(d.cfg, from, to)
+}
+
+// inDefaultRoute: cg is in no Shunt group and not held by the app firewall.
+func inDefaultRoute(cg string, p *engine.Plan) bool {
+	for _, g := range p.Groups {
+		if under(cg, g.Path) {
+			return false
+		}
+	}
+	return !under(cg, path.Join(p.CgroupRoot, "apps", "ask"))
+}
+
+// tunnelHop: from and to are both tunnels and neither is Tor.
+func tunnelHop(c *config.Config, from, to string) bool {
+	if c == nil {
+		return false
+	}
+	for _, s := range []string{from, to} {
+		r, err := c.ParseRoute(s)
+		if err != nil || r.Kind != config.RouteTunnel || c.Tunnels[r.Tunnel].IsTor() {
+			return false
+		}
+	}
+	return true
 }
 
 func fromRoute(cg string, p *engine.Plan, groupRoute func(engine.Group) string) string {

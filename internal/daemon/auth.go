@@ -17,7 +17,9 @@ import (
 //   - read status/config, start apps in a route, panic ON: any member.
 //     Panic must never wait for a password.
 //   - change config, reload, tunnels, panic OFF, and moving a process that
-//     already runs in one route into another: "manage" – root, or a user
+//     already runs in one route into another (except from the default
+//     route into another non-Tor tunnel, see tunnelHopFromDefault):
+//     "manage" – root, or a user
 //     polkit authorizes for org.theshunt.manage (default: admin password,
 //     remembered for a few minutes). With daemon.api_auth = "group" every
 //     member may manage (the pre-polkit behaviour).
