@@ -191,8 +191,8 @@ listener is not started and the log says so loudly.
   place until the service starts again, a clean stop or a reboot lifts it.
   Tor's control port is not guarded (a program holding it can only fake the
   bootstrap; the SOCKS port stays guarded), and apps using the loopback fast
-  path (`SIO_LOOPBACK_FAST_PATH`) may pass WFP. Its runtime behaviour has not
-  yet been verified on real Windows.
+  path (`SIO_LOOPBACK_FAST_PATH`) may pass WFP. Its runtime behaviour was checked in a
+  Windows 11 lab VM (the M-04 cases, L-07, a smoke test), not on physical hardware.
 - **`shunt socks`** shows an exit whose address another program holds as
   BLOCKED.
 - **While shuntd is not running (Linux):** on a clean stop shuntd leaves the

@@ -106,7 +106,7 @@ line (broken IPv6, common in VMs), or check DNS with `getent hosts raw.githubuse
 The installer checks the system, installs `nftables` + `wireguard-tools`, fetches a
 verified release, imports your WireGuard config, writes
 `/etc/shunt/shunt.toml`, does a dry run and starts the service.
-`sudo bash install.sh --dry-run` only shows what it would do. It takes the newest release
+`sudo bash install.sh --dry-run` only shows what it would do. Each release also carries `the-shunt_*.deb` packages and a CycloneDX SBOM (`*.cdx.json`), both listed in `SHA256SUMS`. It takes the newest release
 (pre-releases included) whose `SHA256SUMS` carry the release signature (`ssh-keygen -Y
 verify`, key in `install.sh`) and hands over to the installer of that release, so code
 merged after a release is not installed until it is released. The signed list names its
@@ -300,7 +300,7 @@ No account, no telemetry.
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
   can be added, and the DNS lines of the tunnels can be ignored.
-- **Tor** built in (GitHub APK; the F-Droid build uses Orbot), with bridges.
+- **Tor** built in (GitHub APK and Play build; the F-Droid build uses Orbot), with bridges.
 - **Levels** Simple, Pro and Max Security; from Pro on, *Known Wi-Fi networks* (Apps tab) give a
   Wi-Fi its own route and DNS filter; only a hash of the name is stored, reading the name needs the
   optional location permission.
@@ -542,7 +542,8 @@ Fedora and Debian containers) spread over machines reachable by SSH, listed in
 
 Short version of [SECURITY.md](SECURITY.md):
 - fail-closed everywhere (tunnel down, daemon stopped or crashed, boot)
-- the daemon runs with two capabilities (`CAP_NET_ADMIN`, `CAP_CHOWN`) in a
+- the daemon runs with a short list of capabilities (network admin, eBPF and
+  perf monitoring, raw and low-port sockets, chown; see `packaging/systemd/shuntd.service`) in a
   tight systemd sandbox; the CLI and UI never run as root
 - changes need root or polkit (admin password); status, starting apps and
   PANIC never wait for a password

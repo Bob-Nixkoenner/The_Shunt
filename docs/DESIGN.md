@@ -70,7 +70,7 @@ Kurz: *Rethink DNS für den Desktop, mit Kernel-Speed.*
 
 | Prozess | Rechte | Aufgabe |
 |---|---|---|
-| `shuntd` | systemd-Service, nur `CAP_NET_ADMIN` (+`CAP_NET_BIND_SERVICE`), gehärtet | Tunnel, nftables, Routing, DNS-Proxy, API |
+| `shuntd` | systemd-Service, wenige Capabilities (siehe Unit), gehärtet | Tunnel, nftables, Routing, DNS-Proxy, API |
 | `shunt` (CLI) | User | API-Client, `shunt run --via X -- app` |
 | `shunt-ui` | User | Lokale Web-UI, spricht nur mit dem Socket |
 
@@ -296,7 +296,7 @@ Hotel-WLAN `192.168.1.0/24` vs. Homelab hinter dem Tunnel ebenfalls `192.168.1.0
 
 ### 6.7 Härtung des Daemons
 
-- systemd: `CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only`*, `PrivateTmp`, `SystemCallFilter=@system-service`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`
+- systemd: `CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON CAP_NET_BIND_SERVICE CAP_NET_RAW`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only`*, `PrivateTmp`, `SystemCallFilter=@system-service`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK`
   (*Lesen von `/proc/<pid>` für `exe:` nötig, sonst kein Home-Zugriff.)
 - Scope-/Slice-Steuerung für User-Sessions über D-Bus des User-Managers bzw. durch die CLI selbst (läuft als der User → keine Rechteausweitung).
 - API: Unix-Socket `/run/shunt/api.sock`, Gruppe `shunt`; schreibende Aktionen über **polkit**.
@@ -445,7 +445,7 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 6. **DNS-Antworten mit Sonderadressen** in Domain-Sets (gering): `0.0.0.0`, Loopback, Link-Local, Multicast werden nie geroutet.
 7. **CI-Lücke**: `! befehl` wird von `set -e` ignoriert – negative Prüfungen in der CI hätten nie Alarm geschlagen. Korrigiert.
 
-**Gehärtet:** Capabilities auf `CAP_NET_ADMIN CAP_CHOWN` reduziert (dazu `CAP_BPF` + Syscall `bpf` für den Start-Schutz, `internal/racebpf`), `ProtectHome=yes`, `DevicePolicy=closed` (nur `/dev/net/tun`), `UMask=0077`, `PrivateIPC`, Header-/Idle-Timeouts und Body-Limits an der API, Panic-Recovery im DNS-Handler, Fuzzing der Parser in der CI, govulncheck in der CI, Build-Provenance (sigstore) für Releases.
+**Gehärtet:** Capabilities auf eine kurze Liste reduziert (`CAP_NET_ADMIN CAP_CHOWN CAP_BPF CAP_PERFMON CAP_NET_BIND_SERVICE CAP_NET_RAW`, Stand der Unit; `CAP_BPF`/`CAP_PERFMON` + Syscall `bpf` für den Start-Schutz, `internal/racebpf`), `ProtectHome=yes`, `DevicePolicy=closed` (nur `/dev/net/tun`), `UMask=0077`, `PrivateIPC`, Header-/Idle-Timeouts und Body-Limits an der API, Panic-Recovery im DNS-Handler, Fuzzing der Parser in der CI, govulncheck in der CI, Build-Provenance (sigstore) für Releases.
 
 **Bewusst nicht behoben, dokumentiert (SECURITY.md):** App-Routing ist keine Sandbox (Ausbruch über `systemd-run --user`, D-Bus-Aktivierung, Browser-Handover); App-Regeln haben ein Startfenster; Domain-Regeln vertrauen dem DNS ihrer Route (Warnung bei Klartext-DNS auf `direct`).
 
