@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0-rc51
 
 - **Android, unknown connection owner:** when Android could not name the app behind a connection (`getConnectionOwnerUid` failed or answered no UID, for example right after the connection was opened), the core took the default route without a word, so an app with a tunnel rule could go out direct when the default was direct. The core now asks up to three times, 20 ms apart, on the connection's own goroutine (the UDP lookup no longer runs on the TUN reader), and logs misses as counts only, at most once a minute. A connection whose owner stays unknown still gets the default route in Simple and Pro; Max Security drops it (new core option `owner_unknown: "drop"`, set by the app in that level). Tests `TestOwnerRetryAndUnknown`, `TestOwnerLookupLog`, `LevelsTest.ownerUnknown`.
 - **Windows, WFP exit guard (external report M-04):** SOCKS exit addresses and tor.exe's SOCKS port are now guarded in WFP, in a sublayer of their own: only the service may accept on its exit addresses and only tor.exe on its SOCKS port, both running as the service's account; an exit address another program holds cannot be reached at all. Before, shuntd-win only refused and logged a taken address. Not persistent: a crash leaves it in place, a clean stop or reboot lifts it. Tests `TestExitFiltersOwnedAndTaken`, `TestExitFiltersSkipAndBound`.
