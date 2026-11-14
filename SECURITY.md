@@ -107,7 +107,7 @@ did, what leaked or broke, and the output of `shunt status --json` and
 - **Android, connections whose owner stays unknown.** The app learns which
   app opened a connection from Android (`getConnectionOwnerUid`). A miss is
   asked again twice, about 20 ms apart; if the owner is still unknown, the
-  connection gets the default route in Simple and Pro (rest window: an app
+  connection gets the default route in Simple and Pro (remaining gap: an app
   with a tunnel rule can then go out direct when the default is direct). Max
   Security drops such connections instead (the app tries again). Misses are
   logged as counts only.
@@ -208,7 +208,8 @@ listener is not started and the log says so loudly.
 
 ## Fixed findings of the external report on 755f910
 
-All 27 findings were checked against the code. 25 have a change in the code
+All 27 IDs were checked against the code: the 23 findings of the external
+report plus L-01, L-07, L-13 and M-10 from our own review. 25 have a change in the code
 (for L-13 a warning, for M-01 without the start race); M-10 and L-09 are not
 fixed and listed under known limits above with the reason. The CHANGELOG
 names the tests.
