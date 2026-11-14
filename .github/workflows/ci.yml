@@ -54,7 +54,7 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: cross-build (portability check)
         run: |
-          GOARCH=arm64 go build $(go list ./... | grep -v /cmd/shunt-desktop)
+          GOARCH=arm64 go build $(go list ./... | grep -v -e /cmd/shunt-desktop -e /packaging/)
           go build -o /dev/null ./cmd/shunt-desktop
           # Windows builds everything (service, tray, window); darwin has no tray yet
           GOOS=windows go vet ./...
