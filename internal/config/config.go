@@ -639,7 +639,9 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("%s: invalid gateway_mac %q", where, m)
 			}
 		}
-		if _, err := c.ParseRoute(n.DefaultRoute); err != nil {
+		// no default_route: the network keeps [daemon] default_route (a
+		// network may only set mac, quiet, inbound, …)
+		if _, err := c.ParseRoute(n.DefaultRoute); n.DefaultRoute != "" && err != nil {
 			return fmt.Errorf("%s: default_route: %w", where, err)
 		}
 		if _, ok := c.DNS.Upstream[n.DNSDirect]; n.DNSDirect != "" && n.DNSDirect != DNSSystem && !ok {

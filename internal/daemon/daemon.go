@@ -283,7 +283,9 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	if net != nil {
 		if n := c.MatchNetwork(net.SSID, net.GatewayMAC); n != nil {
 			cc := *c
-			cc.Daemon.DefaultRoute = n.DefaultRoute
+			if n.DefaultRoute != "" {
+				cc.Daemon.DefaultRoute = n.DefaultRoute
+			}
 			switch n.DNSDirect {
 			case "":
 			case config.DNSSystem:

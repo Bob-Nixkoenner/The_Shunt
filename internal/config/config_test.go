@@ -386,3 +386,32 @@ func TestCaptiveCheckOn(t *testing.T) {
 		}
 	}
 }
+
+// A network that only sets privacy options (no default_route) is valid and
+// keeps [daemon] default_route; seen in the lab: shuntd did not start.
+func TestNetworkWithoutDefaultRoute(t *testing.T) {
+	c, err := Parse(`
+[daemon]
+default_route = "block"
+
+[[network]]
+name = "home"
+gateway_mac = ["AA:BB:CC:DD:EE:FF"]
+ssid = ["Home"]
+mac = "permanent"
+`)
+	if err != nil {
+		t.Fatalf("network without default_route: %v", err)
+	}
+	if n := c.MatchNetwork("Home", "aa:bb:cc:dd:ee:ff"); n == nil || n.DefaultRoute != "" {
+		t.Fatalf("match: %+v", n)
+	}
+	if _, err := Parse(`
+[[network]]
+name = "x"
+ssid = ["X"]
+default_route = "nonsense"
+`); err == nil {
+		t.Fatal("a wrong default_route must still be refused")
+	}
+}
