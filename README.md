@@ -8,10 +8,9 @@ multi-hop if you like. Built-in **Tor and SOCKS exits**, a DNS filter, three lev
 Pro, Max Security**) and an optional network **defense**. The apps speak **English and German**.
 
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard, OpenVPN und Tailscale/Headscale
-> (Linux, Windows, Android) – fail-closed, ohne Telemetrie. Mit Tor- und SOCKS-Ausgängen, DNS-Filter,
+> (Linux, Windows, Android; je nach Plattform) – fail-closed, ohne Telemetrie. Mit Tor- und SOCKS-Ausgängen, DNS-Filter,
 > drei Stufen (Einfach, Profi, Max. Sicherheit) und optionaler Netzwerk-Abwehr; Oberfläche auf Deutsch
-> und Englisch. Design-Dokument (deutsch):
-> [docs/DESIGN.md](docs/DESIGN.md)*
+> und Englisch. Design-Dokument (deutsch): [docs/DESIGN.md](docs/DESIGN.md).*
 
 > ⚠️ **Status: early beta.** Linux is the most tested (CI, a real install on a systemd host,
 > one security review); Windows and Android are younger. Read [SECURITY.md](SECURITY.md) –
@@ -29,7 +28,7 @@ still be wrong, and nobody has reviewed every line the way a seasoned maintainer
 
 - Don't take my word for it – the code is open, read it, run the tests, break it.
 - Security-relevant parts have tests, an automatic CI (vet, race detector, fuzzing,
-  `govulncheck`, integration tests in network namespaces) and one outside-style review. A first external report is worked through (see
+  `govulncheck`, integration tests in network namespaces) and one internal security review. A first external report is worked through (see
   [SECURITY.md](SECURITY.md)); an independent audit is requested but **has not happened**. Treat it as beta software.
 - That is also why everything is under permissive, standard licences (see
   [License](#license)): use it, fork it, fix it, and tell me what is wrong.
@@ -150,8 +149,7 @@ Details and limits: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Download `shunt-<version>-android.apk` from the
 [latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) and open it (Android
-asks to allow installs from your browser or file manager; the APK is debug-signed).
-<!-- TODO: state whether the release APK is release-signed (not checked). --> Details: [docs/ANDROID.md](docs/ANDROID.md).
+asks to allow installs from your browser or file manager; the release APK is signed with the fixed release key; see docs/ANDROID.md). Details: [docs/ANDROID.md](docs/ANDROID.md).
 
 ## What works
 
@@ -273,7 +271,6 @@ asks to allow installs from your browser or file manager; the APK is debug-signe
   and an evidence log, all local. Android has a lighter watcher (no decoys, no blocking, code only,
   not yet run on a device when this was written); Windows has no defense yet. Details and limits:
   [docs/DEFENSE.md](docs/DEFENSE.md)
-<!-- TODO: re-check the Android defense status against CHANGELOG before release. -->
 - **Languages:** the window, tray, Android app and the Windows setup are in English and German
   (follows the system); the command line and `install.sh` are still English
 - Unprivileged CLI talking JSON over a Unix socket; GUIs can plug in the same way
@@ -311,7 +308,7 @@ No account, no telemetry.
 - English and German; light and dark theme follow the system.
 
 Beta. The APK is in the [releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases)
-(debug-signed).
+(signed with the fixed release key when the CI signing secret is set, otherwise with a debug key and then without in-place updates).
 Details:
 [docs/ANDROID.md](docs/ANDROID.md).
 
@@ -326,7 +323,7 @@ Tell me what matters to you.
 - Android: Tailscale/Headscale
 - Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
 - A start button and route check for launchers everywhere, default browser through a launcher
-- `.deb` package, SBOM, reproducible builds, an independent security review
+- SBOM, reproducible builds, an independent security review
 - macOS (only if someone wants to help), Rosenpass / AmneziaWG, an eBPF backend
 - Per-app LAN blocking, more block lists, a panic hotkey that works out of the box
 
