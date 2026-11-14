@@ -41,3 +41,8 @@ shunt@isst\.pizza
 (?i:de[:-]ad[:-]be[:-]ef[:-]\w\w[:-]\w\w)
 # --- home paths (placeholders) ---
 /home/(user|username|example|name|you|youruser|runner|build|builder)
+# --- ipv4: generic private network bases / gateways used in code and docs (not real addresses) ---
+(10|172\.16|192\.168|100\.64)\.0\.0
+192\.168\.\d+\.[01]
+10\.\d+\.\d+\.[01]
+172\.(1[6-9]|2\d|3[01])\.0\.[01]

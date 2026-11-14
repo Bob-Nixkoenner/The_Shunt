@@ -76,6 +76,8 @@ sub check {
       next if grep { $v =~ $_ } @allow;
       $kind = "ipv4-private" if $kind eq "ipv4" and $v =~ /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/;
       next if $kind eq "wgkey" and $v !~ /[A-Z]/ || $v !~ /[a-z]/ || $v !~ /\d/;
+      # Test fixtures (lab configs, unit tests) use private-range IPs, test keys and placeholder MACs on purpose.
+      next if $kind =~ /^(?:ipv4-private|mac|wgkey|token)$/ and $loc =~ m{(?:^|:)(?:test/|tests-win/|[^:]*_test\.go:|[^:]*Test\.kt:|android/app/src/test/)};
       next if $seen{"$loc $kind"}++;
       print "$loc [$kind]\n"; $cnt{$kind}++;
     }
