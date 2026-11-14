@@ -23,7 +23,10 @@ if [[ -z ${NOBUILD:-} ]]; then
 	android/build-core.sh
 	(cd android && $GRADLE -q assembleGithubDebug)
 fi
-$ADB install -r android/app/build/outputs/apk/github/debug/app-github-debug.apk >/dev/null
+APK=android/app/build/outputs/apk/github/debug/app-github-debug.apk
+# an old build with another signature would make "install -r" fail: start clean
+$ADB uninstall $PKG >/dev/null 2>&1 || true
+$ADB install -r "$APK" >/dev/null || { $ADB uninstall $PKG >/dev/null 2>&1 || true; $ADB install "$APK" >/dev/null; }
 
 go build -o "$W/wgserver" ./test/android/wgserver
 "$W/wgserver" -out "$W" 2>"$W/server.log" &
@@ -43,6 +46,10 @@ printf '||blocked.test^\n' >"$W/easylist"
 $ADB push "$W/settings.json" /data/local/tmp/shunt-settings.json >/dev/null
 $ADB push "$W/easylist" /data/local/tmp/shunt-easylist >/dev/null
 $ADB shell "run-as $PKG sh -c 'mkdir -p files/blocklists && cp /data/local/tmp/shunt-settings.json files/settings.json && cp /data/local/tmp/shunt-easylist files/blocklists/easylist && touch files/blocklists/easylist'"
+# accept the "Before you start" disclosure (Consent.kt: prefs "consent", key vpn_disclosure_v1)
+printf '<?xml version=%s encoding=%s standalone=%s?>\n<map><boolean name="vpn_disclosure_v1" value="true" /></map>\n' "'1.0'" "'utf-8'" "'yes'" >"$W/consent.xml"
+$ADB push "$W/consent.xml" /data/local/tmp/shunt-consent.xml >/dev/null
+$ADB shell "run-as $PKG sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/shunt-consent.xml shared_prefs/consent.xml'"
 $ADB shell appops set $PKG ACTIVATE_VPN allow
 # no notification permission dialog in front of the switch (Android 13+)
 $ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
