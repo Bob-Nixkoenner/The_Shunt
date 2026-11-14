@@ -848,15 +848,18 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.socks == nil {
 		d.socks = &socks.Manager{Log: d.Log}
 	}
-	d.socks.Update(d.socksExits(p, ups))
+	socksTaken := d.socks.Update(d.socksExits(p, ups))
 	taken := d.torProxy.Update(p, d.torDial)
-	if g, ok := d.Backend.(torPortGuard); ok {
-		if err := g.GuardTorPorts(taken); err != nil {
-			return fmt.Errorf("tor proxy ports %v are taken by another program and could not be blocked: %w", taken, err)
+	if g, ok := d.Backend.(loopbackGuard); ok {
+		if err := g.GuardLoopback(taken, socksTaken); err != nil {
+			return fmt.Errorf("tor proxy ports %v / socks exits %v are taken by another program and could not be blocked: %w", taken, socksTaken, err)
 		}
 	}
 	if len(taken) > 0 {
 		d.Log.Error("TOR PROXY PORT TAKEN BY ANOTHER PROGRAM: traffic of these Tor routes is blocked", "ports", taken)
+	}
+	if len(socksTaken) > 0 {
+		d.Log.Error("SOCKS EXIT ADDRESS TAKEN BY ANOTHER PROGRAM: traffic to it is blocked", "addrs", socksTaken)
 	}
 	if d.filter != nil {
 		var used []string

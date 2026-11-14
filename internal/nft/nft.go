@@ -1010,23 +1010,40 @@ func loSet(gwo string) string {
 	return `{ "lo"` + gwo + ` }`
 }
 
-// TorGuardTable blocks Tor proxy ports another program holds (daemon/tor.go).
+// TorGuardTable blocks loopback ports another program holds: Tor proxy
+// ports (daemon/tor.go) and SOCKS exit addresses (socks.Manager, M-04).
 const TorGuardTable = "shunt_torguard"
 
 // TorGuardScript replaces the guard table: every TCP packet to one of ports
 // on loopback is dropped (no ports: the table goes).
-func TorGuardScript(ports []int) string {
+func TorGuardScript(ports []int) string { return GuardScript(ports, nil) }
+
+// GuardScript replaces the guard table: TCP to the Tor proxy ports on any
+// loopback address and to the exact SOCKS exit addresses is dropped (both
+// empty: the table goes).
+func GuardScript(ports []int, socks []netip.AddrPort) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", TorGuardTable, TorGuardTable)
-	if len(ports) == 0 {
+	if len(ports) == 0 && len(socks) == 0 {
 		return b.String()
 	}
-	set := make([]string, len(ports))
-	for i, p := range ports {
-		set[i] = strconv.Itoa(p)
-	}
 	fmt.Fprintf(&b, "table inet %s {\n\tchain out {\n\t\ttype filter hook output priority filter - 5; policy accept;\n", TorGuardTable)
-	fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", strings.Join(set, ", "))
-	fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n\t}\n}\n", strings.Join(set, ", "))
+	if len(ports) > 0 {
+		set := make([]string, len(ports))
+		for i, p := range ports {
+			set[i] = strconv.Itoa(p)
+		}
+		fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", strings.Join(set, ", "))
+		fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n", strings.Join(set, ", "))
+	}
+	for _, ap := range socks {
+		a := ap.Addr().Unmap()
+		fam := "ip"
+		if a.Is6() {
+			fam = "ip6"
+		}
+		fmt.Fprintf(&b, "\t\t%s daddr %s tcp dport %d drop\n", fam, a, ap.Port())
+	}
+	b.WriteString("\t}\n}\n")
 	return b.String()
 }

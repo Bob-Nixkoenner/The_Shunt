@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"sort"
 	"sync"
 )
 
@@ -34,7 +35,12 @@ type run struct {
 
 // Update starts, restarts and stops listeners so they match exits (tunnel
 // name -> exit). A listener that cannot bind is logged; the others go on.
-func (m *Manager) Update(exits map[string]Exit) {
+//
+// It returns the listen addresses another program already holds (report
+// M-04): programs set up to use the exit would talk to that program's
+// listener instead, in plain text and outside the tunnel. The caller blocks
+// them (fail closed); a free address is bound on the next Update.
+func (m *Manager) Update(exits map[string]Exit) (taken []netip.AddrPort) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.runs == nil {
@@ -53,6 +59,13 @@ func (m *Manager) Update(exits map[string]Exit) {
 		}
 		l, err := net.Listen("tcp", e.Listen)
 		if err != nil {
+			if addrInUse(err) {
+				if ap, perr := netip.ParseAddrPort(e.Listen); perr == nil {
+					taken = append(taken, ap)
+				}
+				m.Log.Error("SOCKS EXIT ADDRESS TAKEN BY ANOTHER PROGRAM: not handed over", "tunnel", name, "listen", e.Listen, "err", err)
+				continue
+			}
 			m.Log.Warn("socks exit", "tunnel", name, "listen", e.Listen, "err", err)
 			continue
 		}
@@ -64,6 +77,8 @@ func (m *Manager) Update(exits map[string]Exit) {
 		m.runs[name] = &run{exit: e, l: l, srv: srv}
 		m.Log.Info("socks exit", "tunnel", name, "listen", e.Listen)
 	}
+	sort.Slice(taken, func(i, j int) bool { return taken[i].Compare(taken[j]) < 0 })
+	return taken
 }
 
 // Addrs returns tunnel name -> listen address.

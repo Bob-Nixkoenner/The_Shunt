@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -159,5 +160,29 @@ route = "tunnel:tor"
 	}
 	if s := nft.TorGuardScript(nil); strings.Contains(s, "drop") {
 		t.Fatalf("empty guard must only delete the table: %s", s)
+	}
+}
+
+// M-04 for tunnel.socks: a SOCKS exit address another program holds is
+// dropped by the guard table together with taken Tor ports.
+func TestGuardScriptSocks(t *testing.T) {
+	s := nft.GuardScript([]int{53001}, []netip.AddrPort{
+		netip.MustParseAddrPort("127.0.0.1:1080"),
+		netip.MustParseAddrPort("[::1]:1081"),
+	})
+	for _, want := range []string{
+		"tcp dport { 53001 } drop",
+		"ip daddr 127.0.0.1 tcp dport 1080 drop",
+		"ip6 daddr ::1 tcp dport 1081 drop",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("guard script lacks %q:\n%s", want, s)
+		}
+	}
+	if s := nft.GuardScript(nil, nil); strings.Contains(s, "drop") {
+		t.Fatalf("empty guard must only delete the table: %s", s)
+	}
+	if s := nft.GuardScript(nil, []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:1080")}); strings.Contains(s, "53001") || !strings.Contains(s, "1080 drop") {
+		t.Fatalf("socks-only guard: %s", s)
 	}
 }

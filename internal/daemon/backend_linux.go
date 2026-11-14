@@ -295,6 +295,6 @@ func (b *linuxBackend) release(pid int, since int64) {
 	}
 }
 
-func (b *linuxBackend) GuardTorPorts(ports []int) error {
-	return nft.Apply(nft.TorGuardScript(ports))
+func (b *linuxBackend) GuardLoopback(torPorts []int, socks []netip.AddrPort) error {
+	return nft.Apply(nft.GuardScript(torPorts, socks))
 }

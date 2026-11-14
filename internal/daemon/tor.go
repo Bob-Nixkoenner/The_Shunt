@@ -68,11 +68,12 @@ func appOf(a net.Addr) string {
 	return procapp.Unknown
 }
 
-// torPortGuard blocks loopback ports a Tor proxy listener could not bind
-// (another program holds them): the redirected Tor traffic must not reach
-// that program. An empty list lifts the block.
-type torPortGuard interface {
-	GuardTorPorts(ports []int) error
+// loopbackGuard blocks loopback ports a Tor proxy listener could not bind
+// and SOCKS exit addresses (another program holds them): the Tor traffic
+// and the traffic of programs set up for the exit must not reach that
+// program (report M-04). Empty lists lift the block.
+type loopbackGuard interface {
+	GuardLoopback(torPorts []int, socks []netip.AddrPort) error
 }
 
 // torProxy runs the transparent listener of every Tor route: nft redirects

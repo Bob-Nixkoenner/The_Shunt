@@ -467,6 +467,9 @@ func runCore(ctx context.Context, ready func()) error {
 				return eng.DialRoute(ctx, route, network, addr)
 			}}
 		}
+		// an address another program holds is not handed over (M-04, logged
+		// by the manager), but unlike Linux (nft guard) nothing blocks the
+		// programs set up for the exit from reaching that program
 		sm.Update(exits)
 	}
 	defer sm.Close()
