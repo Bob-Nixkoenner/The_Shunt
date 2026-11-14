@@ -1,13 +1,16 @@
 # The Shunt
 
-**Per-app and per-destination split tunneling for WireGuard, OpenVPN and Tailscale/Headscale –
-on Linux, Windows and Android.** Decide which traffic takes which tunnel – by application,
+**Per-app and per-destination split tunneling for WireGuard, OpenVPN, Tailscale/Headscale and Tor –
+on Linux, Windows and Android** (OpenVPN: Linux and Android; Tailscale/Headscale: Linux and Windows). Decide which traffic takes which tunnel – by application,
 IP range, port or domain – with a kill switch that holds even when the daemon crashes.
 Open source (Apache-2.0), no telemetry, no accounts, bring your own servers – chained into
-multi-hop if you like.
+multi-hop if you like. Built-in **Tor and SOCKS exits**, a DNS filter, three levels (**Simple,
+Pro, Max Security**) and an optional network **defense**. The apps speak **English and German**.
 
 > 🇩🇪 *Split-Tunneling pro App, IP und Port für WireGuard, OpenVPN und Tailscale/Headscale
-> (Linux, Windows, Android) – fail-closed, ohne Telemetrie. Design-Dokument (deutsch):
+> (Linux, Windows, Android) – fail-closed, ohne Telemetrie. Mit Tor- und SOCKS-Ausgängen, DNS-Filter,
+> drei Stufen (Einfach, Profi, Max. Sicherheit) und optionaler Netzwerk-Abwehr; Oberfläche auf Deutsch
+> und Englisch. Design-Dokument (deutsch):
 > [docs/DESIGN.md](docs/DESIGN.md)*
 
 > ⚠️ **Status: early beta.** Linux is the most tested (CI, a real install on a systemd host,
@@ -26,8 +29,8 @@ still be wrong, and nobody has reviewed every line the way a seasoned maintainer
 
 - Don't take my word for it – the code is open, read it, run the tests, break it.
 - Security-relevant parts have tests, an automatic CI (vet, race detector, fuzzing,
-  `govulncheck`, integration tests in network namespaces) and one outside-style review, but
-  **no independent professional audit**. Treat it as beta software.
+  `govulncheck`, integration tests in network namespaces) and one outside-style review. A first external report is worked through (see
+  [SECURITY.md](SECURITY.md)); an independent audit is requested but **has not happened**. Treat it as beta software.
 - That is also why everything is under permissive, standard licences (see
   [License](#license)): use it, fork it, fix it, and tell me what is wrong.
 
@@ -148,7 +151,8 @@ Details and limits: [docs/WINDOWS.md](docs/WINDOWS.md).
 Download `shunt-<version>-android.apk` from the
 [latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) and open it (Android
 asks to allow installs from your browser or file manager; the APK is debug-signed, a Play
-Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
+Store version is in preparation).
+<!-- TODO: once the Play listing is public: Play link; state whether the release APK is release-signed (not checked). --> Details: [docs/ANDROID.md](docs/ANDROID.md).
 
 ## What works
 
@@ -256,13 +260,32 @@ Store version is on the roadmap). Details: [docs/ANDROID.md](docs/ANDROID.md).
 - Kernel WireGuard, with in-process wireguard-go as fallback
 - wg-quick files are imported; `PostUp` & co. are **ignored** (no root shell
   hooks from config files you got from somewhere)
+- **Tor and SOCKS** (Linux; details for Windows and Android below): a tunnel with
+  `driver = "tor"` runs a Tor client (built in or system tor) with optional bridges (obfs4, snowflake,
+  meek, webtunnel), one circuit per rule, `.onion` names; `shunt tor-all` sends everything through Tor
+  and the kill switch then lets only Tor's own relay connections out. `socks = "127.0.0.1:1080"` on any
+  tunnel opens a local SOCKS5 proxy that leaves through that tunnel. Tor's connections to its relays use
+  the normal network (see [SECURITY.md](SECURITY.md)); on Linux a Tor tunnel can sit behind another
+  tunnel with `via`. Tor does not make The Shunt an anonymity tool by itself
+- **Levels:** *Simple* (default), *Pro* and *Max Security* in the window and the Android app. Pro
+  shows more settings; Max Security turns on strict config checks and the defense below
+- **Defense** (Linux, off by default, on in Max Security): decoy ports, sensors for scans, ARP/DHCP/DNS
+  tricks and brute force, alert level, network classes (unclear / unsafe / safe), optional blocking
+  and an evidence log, all local. Android has a lighter watcher (no decoys, no blocking, code only,
+  not yet run on a device when this was written); Windows has no defense yet. Details and limits:
+  [docs/DEFENSE.md](docs/DEFENSE.md)
+<!-- TODO: re-check the Android defense status against CHANGELOG before release. -->
+- **Languages:** the window, tray, Android app and the Windows setup are in English and German
+  (follows the system); the command line and `install.sh` are still English
 - Unprivileged CLI talking JSON over a Unix socket; GUIs can plug in the same way
 
 ## Windows (beta)
 
 Windows 10/11: a service plus a tray app and window, with the same `shunt.toml`, web UI,
 per-program routes (by file name or path), rules by address/port/domain, WireGuard,
-Tailscale/Headscale, panic, pass, leak test and an optional kill switch (Windows Firewall).
+Tailscale/Headscale, **Tor and SOCKS exits** (a Tor tunnel behind another tunnel with `via` does not work yet),
+disguise in foreign networks (MAC, host name), the three levels, panic, pass, leak test and a kill switch
+(Windows Filtering Platform).
 Install: see [Install on Windows](#install-on-windows-1011-beta). Screenshots: [above](#screenshots). DNS filter: default level only. Not yet: OpenVPN, groups, app
 firewall. Details in [docs/WINDOWS.md](docs/WINDOWS.md).
 
@@ -281,10 +304,16 @@ No account, no telemetry.
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
   can be added, and the DNS lines of the tunnels can be ignored.
-- Light and dark theme follow the system.
+- **Tor** built in (GitHub and Google Play builds; the F-Droid build uses Orbot), with bridges.
+- **Levels** Simple, Pro and Max Security; from Pro on, *Known Wi-Fi networks* (Apps tab) give a
+  Wi-Fi its own route and DNS filter; only a hash of the name is stored, reading the name needs the
+  optional location permission.
+- **Tunnel keys** are sealed with a key in the Android Keystore.
+- English and German; light and dark theme follow the system.
 
 Beta. The APK is in the [releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases)
-(debug-signed); a Google Play version is in preparation. Details:
+(debug-signed); a Google Play version is in preparation.
+<!-- TODO: state the Play status (internal testing or public) once confirmed; not documented in the repo. --> Details:
 [docs/ANDROID.md](docs/ANDROID.md).
 
 <img src="docs/screenshots/android-status-light.png" alt="Android: status in the light theme" width="220">
@@ -295,7 +324,7 @@ Nothing here is promised; it is the list I would like to get to, in no strict or
 Tell me what matters to you.
 
 - Windows: OpenVPN, DNS filter per rule/tunnel/network, app firewall, groups, code signing; test on real hardware
-- Android: Tailscale/Headscale, Play Store release
+- Android: Tailscale/Headscale, public Play Store release
 - Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
 - A start button and route check for launchers everywhere, default browser through a launcher
 - `.deb` package, SBOM, reproducible builds, an independent security review
@@ -521,6 +550,8 @@ Short version of [SECURITY.md](SECURITY.md):
   tight systemd sandbox; the CLI and UI never run as root
 - changes need root or polkit (admin password); status, starting apps and
   PANIC never wait for a password
+- Tor connects to its relays over the normal network; known limits and the fixed findings of the
+  external report are listed in [SECURITY.md](SECURITY.md)
 - **per-app routing is not a sandbox** against a program that actively tries
   to get out – for that, route everything through the tunnel
 
