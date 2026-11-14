@@ -4,7 +4,7 @@
 <nav><a href="index.html">The Shunt</a><a href="privacy.html">Privacy policy</a><a href="datenschutz.html">Datenschutz</a><a href="impressum.html">Impressum</a></nav>
 <main>
 <h1>Privacy policy</h1>
-<p>Last updated: 25 October 2026. Applies to the app <strong>The Shunt</strong> (package <code>org.theshunt.app</code>) and the Linux and Windows versions.</p>
+<p>Last updated: 14 November 2026. Applies to the app <strong>The Shunt</strong> (package <code>org.theshunt.app</code>) and the Linux and Windows versions.</p>
 
 <h2>In short</h2>
 <p>The Shunt has no accounts, no servers of its own, no advertising, no analytics and no crash reporting. The developer receives no data from your use of the app. Settings, keys and statistics stay on your device.</p>
@@ -13,7 +13,7 @@
 <p>Bob Nixkoenner, address see <a href="impressum.html">legal notice</a>. Contact: <a href="mailto:shunt@isst.pizza">shunt@isst.pizza</a></p>
 
 <h2>What the app does with the VPN permission</h2>
-<p>The app uses Android's VPN service to send traffic of the apps you choose through tunnels you configure (WireGuard, OpenVPN, Tailscale/Headscale). The app decides per app, address, port or domain which tunnel is used. This happens on your device. The traffic content is not read, stored or passed on by the developer. It is sent, encrypted by the tunnel protocol, to the server <em>you</em> entered. That server's operator (for example your VPN provider) processes it under their own privacy policy.</p>
+<p>The app uses Android's VPN service to send traffic of the apps you choose through tunnels you configure (WireGuard, OpenVPN, Tor). The app decides per app, address, port or domain which tunnel is used. This happens on your device. The traffic content is not read, stored or passed on by the developer. It is sent, encrypted by the tunnel protocol, to the server <em>you</em> entered. That server's operator (for example your VPN provider) processes it under their own privacy policy.</p>
 
 <h2>Data stored on your device</h2>
 <ul>
@@ -42,6 +42,7 @@
 <tr><td><code>raw.githubusercontent.com</code> (GitHub, USA)</td><td>When you enable DNS filter lists</td><td>Download of public block lists. Privacy policy: <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</td></tr>
 <tr><td><code>api.ipify.org</code> and Google Public DNS</td><td>Only when you start the leak test</td><td>Shows which public IP address and DNS resolver the outside world sees through each route.</td></tr>
 <tr><td><code>api.github.com</code></td><td>Only in the version distributed outside Google Play, to check for updates</td><td>Update check. The Google Play version has no such check.</td></tr>
+<tr><td>Tor relays and bridges (operated by the Tor network and volunteers, not by the developer)</td><td>Only when you use a Tor tunnel or the Tor route for everything</td><td>The built-in Tor client connects to Tor relays, or to the bridges you entered, to carry your traffic through Tor. With the bridge types snowflake or meek it contacts the bridge helper services of those transports (for example a broker or a content delivery network) first. The local network and these parties can see that you use Tor, not what you do. Your traffic leaves Tor at an exit relay, whose operator is neither the developer nor The Shunt. Privacy information: <a href="https://support.torproject.org/">Tor Project</a>. Tor connects directly, not through your other tunnels, unless you set it up behind one (Linux).</td></tr>
 </table>
 <p>The app also connects to the tunnel servers you configured, and to the DNS servers you set.</p>
 
