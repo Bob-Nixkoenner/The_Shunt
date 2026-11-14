@@ -150,9 +150,8 @@ Details and limits: [docs/WINDOWS.md](docs/WINDOWS.md).
 
 Download `shunt-<version>-android.apk` from the
 [latest release](https://github.com/Bob-Nixkoenner/The_Shunt/releases) and open it (Android
-asks to allow installs from your browser or file manager; the APK is debug-signed, a Play
-Store version is in preparation).
-<!-- TODO: once the Play listing is public: Play link; state whether the release APK is release-signed (not checked). --> Details: [docs/ANDROID.md](docs/ANDROID.md).
+asks to allow installs from your browser or file manager; the APK is debug-signed).
+<!-- TODO: state whether the release APK is release-signed (not checked). --> Details: [docs/ANDROID.md](docs/ANDROID.md).
 
 ## What works
 
@@ -304,7 +303,7 @@ No account, no telemetry.
   minutes and made again on the first connection, so it costs no battery while idle.
 - **DNS servers**: a query without an answer is asked of the next server; your own servers
   can be added, and the DNS lines of the tunnels can be ignored.
-- **Tor** built in (GitHub and Google Play builds; the F-Droid build uses Orbot), with bridges.
+- **Tor** built in (GitHub APK; the F-Droid build uses Orbot), with bridges.
 - **Levels** Simple, Pro and Max Security; from Pro on, *Known Wi-Fi networks* (Apps tab) give a
   Wi-Fi its own route and DNS filter; only a hash of the name is stored, reading the name needs the
   optional location permission.
@@ -312,8 +311,8 @@ No account, no telemetry.
 - English and German; light and dark theme follow the system.
 
 Beta. The APK is in the [releases](https://github.com/Bob-Nixkoenner/The_Shunt/releases)
-(debug-signed); a Google Play version is in preparation.
-<!-- TODO: state the Play status (internal testing or public) once confirmed; not documented in the repo. --> Details:
+(debug-signed).
+Details:
 [docs/ANDROID.md](docs/ANDROID.md).
 
 <img src="docs/screenshots/android-status-light.png" alt="Android: status in the light theme" width="220">
@@ -324,7 +323,7 @@ Nothing here is promised; it is the list I would like to get to, in no strict or
 Tell me what matters to you.
 
 - Windows: OpenVPN, DNS filter per rule/tunnel/network, app firewall, groups, code signing; test on real hardware
-- Android: Tailscale/Headscale, public Play Store release
+- Android: Tailscale/Headscale
 - Provider wizard (Mullvad automatic, Proton guided) instead of hand-made config files
 - A start button and route check for launchers everywhere, default browser through a launcher
 - `.deb` package, SBOM, reproducible builds, an independent security review
