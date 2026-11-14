@@ -123,6 +123,21 @@ export SHUNT_SPEEDTEST_URL=http://10.99.0.1:8080
 ip netns exec $WAN "$BIN/fakedns" serve -tag direct -listen 10.99.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 ip netns exec $WAN "$BIN/fakedns" serve -tag tunnel -listen 10.166.0.1:53 -a site.test=10.99.0.3 -a blocked.site.test=0.0.0.0 &
 
+# Wait until the servers answer, before shuntd runs: right after a fresh
+# boot python needs seconds to start whoami (cold page cache), and the
+# first checks then got '' (a closed port) though shuntd was fine
+# (2026-11-14, lab VM: up to 8 FAIL in "daemon up", only in the first run).
+wait_up() { # name command...
+	local i
+	for i in $(seq 150); do "${@:2}" >/dev/null 2>&1 && return; sleep 0.2; done
+	echo "$1 did not come up within 30 s"; exit 1
+}
+wait_up "whoami :8080" ip netns exec $CLI curl -sf -m 1 http://10.99.0.1:8080
+wait_up "whoami :8081" ip netns exec $CLI curl -sf -m 1 http://10.99.0.1:8081
+((HAVE_V6)) && wait_up "whoami IPv6" ip netns exec $CLI curl -sf -m 1 'http://[fd99::1]:8080'
+# fakedns query exits 0 on errors too: look at the answer
+wait_up "direct DNS server" sh -c "ip netns exec $CLI '$BIN/fakedns' query -server 10.99.0.1:53 -type TXT whoami.test | grep -q '^direct'"
+
 mkdir -p "$WORK/etc"
 cat >"$WORK/etc/vps.conf" <<EOF
 [Interface]
@@ -274,6 +289,7 @@ chmod 600 "$WORK/etc/vps.conf"
 echo "== daemon up, default direct"
 start_shuntd
 for _ in $(seq 50); do shunt status | gq 'up/' && break; sleep 0.1; done
+shunt status | gq 'up/' || echo "  note tunnel not up 5 s after start (checks below may fail for that)"
 # debugging aid: SHUNT_HOLD=/path/to/file keeps the setup alive until the file exists
 if [[ -n ${SHUNT_HOLD:-} ]]; then
 	echo "holding, work dir $WORK; touch $SHUNT_HOLD to continue"
