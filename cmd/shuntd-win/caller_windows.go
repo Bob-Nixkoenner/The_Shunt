@@ -71,8 +71,15 @@ func identify(c net.Conn, group string) *winsvc.Caller {
 		log.Printf("api: caller pid %d: %v", pid, err)
 		return nil
 	}
-	// the process must be older than the connection: a PID recycled
-	// between connect and now is not the caller
+	// the process must be older than the accept: a PID recycled between
+	// the accept and OpenProcess in callerOf is not the caller (from there
+	// the open handle pins it). Not covered (report L-09, accepted risk):
+	// a client that connects, sends and exits before the accept, and whose
+	// PID goes to a newly started privileged process in that window, is
+	// taken for that process. AF_UNIX tells no connect time, so the
+	// process's creation time cannot rule this out; the attacker cannot
+	// choose which process gets the PID. Closing it needs another transport
+	// (a named pipe with ImpersonateNamedPipeClient checks the token, not a PID).
 	if who.Created.After(accepted) {
 		log.Printf("api: caller pid %d is younger than its connection", pid)
 		return nil
