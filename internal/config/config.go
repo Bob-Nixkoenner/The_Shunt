@@ -404,6 +404,11 @@ type Tunnel struct {
 	// whose connections leave through this tunnel (names are resolved
 	// inside it). Empty = off.
 	Socks string `toml:"socks,omitempty" json:"socks,omitempty"`
+	// SocksUsers: only programs of these users (names or numeric UIDs)
+	// may use the SOCKS exit; empty = every local user. Programs the app
+	// firewall holds and programs whose rule blocks them never may.
+	// Linux only (enforced in nft); other systems do not restrict it.
+	SocksUsers []string `toml:"socks_users,omitempty" json:"socks_users,omitempty"`
 	// Tor (driver = "tor"): Bridges are bridge lines as in the Tor Browser
 	// ("obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0") or the words
 	// obfs4, snowflake, meek for the built-in sets; Isolate says
@@ -601,6 +606,14 @@ func (c *Config) Validate() error {
 		}
 		if err := validSocksAddr(t.Socks); err != nil {
 			return fmt.Errorf("tunnel %q: socks: %w", n, err)
+		}
+		for _, u := range t.SocksUsers {
+			if u == "" || strings.ContainsAny(u, " \t\n\r\"\\;{}:/") {
+				return fmt.Errorf("tunnel %q: socks_users: bad user %q", n, u)
+			}
+		}
+		if len(t.SocksUsers) > 0 && t.Socks == "" {
+			return fmt.Errorf("tunnel %q: socks_users needs socks = \"127.0.0.1:<port>\"", n)
 		}
 		if !validFilterLevel(t.DNSFilter, true) {
 			return fmt.Errorf("tunnel %q: dns_filter %q (off | low | normal | paranoid)", n, t.DNSFilter)

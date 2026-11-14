@@ -851,7 +851,17 @@ func (d *Daemon) reload(selfCgroup string) error {
 	socksTaken := d.socks.Update(d.socksExits(p, ups))
 	taken := d.torProxy.Update(p, d.torDial)
 	if g, ok := d.Backend.(loopbackGuard); ok {
-		if err := g.GuardLoopback(taken, socksTaken); err != nil {
+		lg := LoopbackGuard{TorPorts: taken, Socks: socksTaken, Plan: p.Plan, Exits: d.exitUsers(p.Config, d.socks.States())}
+		err := g.GuardLoopback(lg)
+		if err != nil && len(lg.Exits) > 0 {
+			// the exits must not run unguarded (M-06): stop them, keep
+			// blocking what is taken
+			d.Log.Error("SOCKS EXITS STOPPED: their guard could not be set", "err", err)
+			d.socks.Fail()
+			lg.Exits = nil
+			err = g.GuardLoopback(lg)
+		}
+		if err != nil {
 			return fmt.Errorf("tor proxy ports %v / socks exits %v are taken by another program and could not be blocked: %w", taken, socksTaken, err)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -1010,9 +1011,34 @@ func loSet(gwo string) string {
 	return `{ "lo"` + gwo + ` }`
 }
 
-// TorGuardTable blocks loopback ports another program holds: Tor proxy
-// ports (daemon/tor.go) and SOCKS exit addresses (socks.Manager, M-04).
+// TorGuardTable is the loopback guard: it blocks loopback ports another
+// program holds (Tor proxy ports, daemon/tor.go; SOCKS exit addresses,
+// socks.Manager; report M-04), keeps held and blocked programs and other
+// users off the SOCKS exits (M-06).
 const TorGuardTable = "shunt_torguard"
+
+// Guard is the content of TorGuardTable. All of it empty: the table goes.
+type Guard struct {
+	// TCP to these ports on any loopback address is dropped (taken Tor
+	// proxy ports).
+	TorPorts []int
+	// TCP to these exact addresses is dropped (taken SOCKS exits).
+	Socks []netip.AddrPort
+	// Exits: running SOCKS exits and who may not use them.
+	Exits []ExitGuard
+}
+
+// ExitGuard keeps programs off one running SOCKS exit (report M-06): a
+// program the app firewall holds or a rule blocks must not get out through
+// the exit's tunnel instead, and with Users set only those users' programs
+// may connect at all.
+type ExitGuard struct {
+	Addr netip.AddrPort
+	Deny []engine.Group // their sockets are rejected
+	// Users: only sockets of these UIDs pass (an empty list: none).
+	Users bool
+	UIDs  []uint32
+}
 
 // TorGuardScript replaces the guard table: every TCP packet to one of ports
 // on loopback is dropped (no ports: the table goes).
@@ -1022,28 +1048,100 @@ func TorGuardScript(ports []int) string { return GuardScript(ports, nil) }
 // loopback address and to the exact SOCKS exit addresses is dropped (both
 // empty: the table goes).
 func GuardScript(ports []int, socks []netip.AddrPort) string {
+	s, _ := RenderGuard(Guard{TorPorts: ports, Socks: socks})
+	return s
+}
+
+func portSet(ports []int) string {
+	set := make([]string, len(ports))
+	for i, p := range ports {
+		set[i] = strconv.Itoa(p)
+	}
+	return strings.Join(set, ", ")
+}
+
+func addrMatch(ap netip.AddrPort) string {
+	a := ap.Addr().Unmap()
+	fam := "ip"
+	if a.Is6() {
+		fam = "ip6"
+	}
+	return fmt.Sprintf("%s daddr %s tcp dport %d", fam, a, ap.Port())
+}
+
+// RenderGuard renders the script that replaces TorGuardTable with g.
+func RenderGuard(g Guard) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", TorGuardTable, TorGuardTable)
-	if len(ports) == 0 && len(socks) == 0 {
-		return b.String()
+	if len(g.TorPorts) == 0 && len(g.Socks) == 0 && len(g.Exits) == 0 {
+		return b.String(), nil
 	}
+	var chains strings.Builder
 	fmt.Fprintf(&b, "table inet %s {\n\tchain out {\n\t\ttype filter hook output priority filter - 5; policy accept;\n", TorGuardTable)
-	if len(ports) > 0 {
-		set := make([]string, len(ports))
-		for i, p := range ports {
-			set[i] = strconv.Itoa(p)
-		}
-		fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", strings.Join(set, ", "))
-		fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n", strings.Join(set, ", "))
+	if len(g.TorPorts) > 0 {
+		fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", portSet(g.TorPorts))
+		fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n", portSet(g.TorPorts))
 	}
-	for _, ap := range socks {
-		a := ap.Addr().Unmap()
-		fam := "ip"
-		if a.Is6() {
-			fam = "ip6"
-		}
-		fmt.Fprintf(&b, "\t\t%s daddr %s tcp dport %d drop\n", fam, a, ap.Port())
+	for _, ap := range g.Socks {
+		fmt.Fprintf(&b, "\t\t%s drop\n", addrMatch(ap))
 	}
-	b.WriteString("\t}\n}\n")
-	return b.String()
+	for i, e := range g.Exits {
+		if len(e.Deny) == 0 && !e.Users {
+			continue
+		}
+		fmt.Fprintf(&b, "\t\t%s jump exit%d\n", addrMatch(e.Addr), i)
+		fmt.Fprintf(&chains, "\tchain exit%d {\n", i)
+		for _, grp := range e.Deny {
+			m, err := cgroupMatch(grp)
+			if err != nil {
+				return "", err
+			}
+			fmt.Fprintf(&chains, "\t\t%s counter reject with tcp reset\n", m)
+		}
+		if e.Users {
+			if len(e.UIDs) > 0 {
+				ids := make([]int, len(e.UIDs))
+				for j, u := range e.UIDs {
+					ids[j] = int(u)
+				}
+				slices.Sort(ids)
+				ids = slices.Compact(ids)
+				fmt.Fprintf(&chains, "\t\tmeta skuid != { %s } counter reject with tcp reset\n", portSet(ids))
+			} else {
+				chains.WriteString("\t\tcounter reject with tcp reset\n")
+			}
+		}
+		chains.WriteString("\t}\n")
+	}
+	b.WriteString("\t}\n")
+	b.WriteString(chains.String())
+	b.WriteString("}\n")
+	return b.String(), nil
+}
+
+// ExitDeny lists the groups that may not use a SOCKS exit (report M-06):
+// the app firewall's waiting programs (all of <root>/apps/ask) and the
+// groups whose catch-all rule (no destination, port or domain selector)
+// is the block route, the first such rule of a group deciding as in
+// route_out. Rules without a group (every program) are not counted: with
+// the default route blocked, a SOCKS exit is how apps without a rule get
+// out on purpose.
+func ExitDeny(p *engine.Plan) []engine.Group {
+	out := []engine.Group{{Name: "ask", Path: path.Join(p.CgroupRoot, "apps", "ask")}}
+	decided := map[string]bool{}
+	for _, r := range p.Rules {
+		if r.Route == nil || !r.AnyFamily || len(r.Ports) > 0 || len(r.Domains) > 0 {
+			continue
+		}
+		for _, g := range r.Groups {
+			if decided[g.Path] {
+				continue
+			}
+			decided[g.Path] = true
+			if r.Route.Kind == config.RouteBlock {
+				out = append(out, g)
+			}
+		}
+	}
+	return out
 }

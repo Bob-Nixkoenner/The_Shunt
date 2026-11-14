@@ -295,6 +295,24 @@ func (b *linuxBackend) release(pid int, since int64) {
 	}
 }
 
-func (b *linuxBackend) GuardLoopback(torPorts []int, socks []netip.AddrPort) error {
-	return nft.Apply(nft.GuardScript(torPorts, socks))
+func (b *linuxBackend) GuardLoopback(g LoopbackGuard) error {
+	ng := nft.Guard{TorPorts: g.TorPorts, Socks: g.Socks}
+	if len(g.Exits) > 0 && g.Plan != nil {
+		deny := nft.ExitDeny(g.Plan)
+		for _, grp := range deny {
+			// nft resolves a cgroup path when it loads the rule: the
+			// app firewall's ask folder may not exist yet
+			if err := b.cg.Ensure(grp.Path); err != nil {
+				return err
+			}
+		}
+		for _, e := range g.Exits {
+			ng.Exits = append(ng.Exits, nft.ExitGuard{Addr: e.Addr, Deny: deny, Users: e.Users, UIDs: e.UIDs})
+		}
+	}
+	s, err := nft.RenderGuard(ng)
+	if err != nil {
+		return err
+	}
+	return nft.Apply(s)
 }

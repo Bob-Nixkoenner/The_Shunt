@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -68,12 +69,78 @@ func appOf(a net.Addr) string {
 	return procapp.Unknown
 }
 
-// loopbackGuard blocks loopback ports a Tor proxy listener could not bind
-// and SOCKS exit addresses (another program holds them): the Tor traffic
-// and the traffic of programs set up for the exit must not reach that
-// program (report M-04). Empty lists lift the block.
+// loopbackGuard sets the loopback guard (Linux: nft table shunt_torguard).
 type loopbackGuard interface {
-	GuardLoopback(torPorts []int, socks []netip.AddrPort) error
+	GuardLoopback(g LoopbackGuard) error
+}
+
+// LoopbackGuard is what the loopback guard enforces. An empty one lifts it.
+type LoopbackGuard struct {
+	// TorPorts and Socks are dropped: loopback ports a Tor proxy listener
+	// could not bind and SOCKS exit addresses another program holds; the
+	// Tor traffic and the traffic of programs set up for the exit must not
+	// reach that program (report M-04).
+	TorPorts []int
+	Socks    []netip.AddrPort
+	// Exits are the running SOCKS exits: held and blocked programs (Plan)
+	// and, with Users, other users may not use them (report M-06).
+	Exits []ExitUsers
+	Plan  *engine.Plan
+}
+
+// ExitUsers is one running SOCKS exit and the users allowed on it.
+type ExitUsers struct {
+	Addr  netip.AddrPort
+	Users bool     // socks_users set: only UIDs (an empty list: nobody)
+	UIDs  []uint32 // resolved socks_users
+}
+
+// lookupUID resolves a user name or numeric UID.
+var lookupUID = func(name string) (uint32, error) {
+	if n, err := strconv.ParseUint(name, 10, 32); err == nil {
+		return uint32(n), nil
+	}
+	u, err := user.Lookup(name)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseUint(u.Uid, 10, 32)
+	return uint32(n), err
+}
+
+// exitUsers lists the exits the manager runs (states) with their allowed
+// users. A name that does not resolve is left out and logged: the exit
+// stays closed to it (and, if none resolves, to everybody).
+func (d *Daemon) exitUsers(c *config.Config, states map[string]string) []ExitUsers {
+	names := make([]string, 0, len(states))
+	for n, st := range states {
+		if st == socks.StateListening {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	var out []ExitUsers
+	for _, n := range names {
+		t, ok := c.Tunnels[n]
+		if !ok {
+			continue
+		}
+		ap, err := netip.ParseAddrPort(t.Socks)
+		if err != nil {
+			continue
+		}
+		e := ExitUsers{Addr: ap, Users: len(t.SocksUsers) > 0}
+		for _, u := range t.SocksUsers {
+			uid, err := lookupUID(u)
+			if err != nil {
+				d.Log.Error("socks_users: unknown user, not allowed on the exit", "tunnel", n, "user", u, "err", err)
+				continue
+			}
+			e.UIDs = append(e.UIDs, uid)
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // torProxy runs the transparent listener of every Tor route: nft redirects

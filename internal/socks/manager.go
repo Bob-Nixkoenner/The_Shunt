@@ -117,6 +117,18 @@ func (m *Manager) States() map[string]string {
 	return out
 }
 
+// Fail stops every listener and marks the exits failed (their guard could
+// not be set); the next Update starts them again.
+func (m *Manager) Fail() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, r := range m.runs {
+		r.stop()
+		delete(m.runs, name)
+		m.states[name] = StateFailed
+	}
+}
+
 // Close stops every listener and drops open connections.
 func (m *Manager) Close() { m.Update(nil) }
 
