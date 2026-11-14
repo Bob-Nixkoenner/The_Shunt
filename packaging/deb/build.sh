@@ -95,6 +95,13 @@ if [ "$1" = configure ]; then
 		if [ -f "$f" ] && [ ! -L "$f" ]; then
 			mv "$f" "$f.from-install-sh" && aside="$aside $f"
 		fi
+		# Menu entries, panel launchers and the autostart entry that
+		# install.sh's shunt wrote call /usr/local/bin/... by full path;
+		# without this link they no longer start. Also for machines that
+		# were moved aside by an earlier version of this script.
+		if [ -e "$f.from-install-sh" ] && [ ! -e "$f" ] && [ ! -L "$f" ]; then
+			ln -s "/usr/bin/$b" "$f"
+		fi
 	done
 	if [ -n "$aside" ]; then
 		if [ -n "$DE" ]; then echo "The Shunt: Reste einer Installation mit install.sh hätten dieses Paket verdeckt und wurden beiseitegelegt (Endung .from-install-sh, nicht gelöscht):$aside"
@@ -224,6 +231,10 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
 	# drop-in of 'shuntd setup-tailscale' (kept on upgrades)
 	rm -f /etc/systemd/system/shuntd.service.d/50-tailscale.conf
 	rmdir /etc/systemd/system/shuntd.service.d 2>/dev/null || true
+	# links left by postinst for launchers of an install.sh setup
+	for b in shunt shuntd shunt-desktop; do
+		if [ "$(readlink "/usr/local/bin/$b" 2>/dev/null)" = "/usr/bin/$b" ]; then rm -f "/usr/local/bin/$b"; fi
+	done
 fi
 systemctl daemon-reload >/dev/null 2>&1 || true
 if [ "$1" = remove ] || [ "$1" = purge ]; then
