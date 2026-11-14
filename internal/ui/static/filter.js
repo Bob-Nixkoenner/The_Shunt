@@ -48,8 +48,6 @@ const RPILIST_GROUPS = [
   ["Domain squatting", [
     ["DomainSquatting1", "domain squatting 1", 32.9],
     ["DomainSquatting2", "domain squatting 2", 18.8],
-    ["DomainSquatting3", "domain squatting 3", 0],
-    ["DomainSquatting4", "domain squatting 4", 0],
   ]],
   ["Tracking and telemetry", [
     ["Win10Telemetry", "Windows telemetry", 0],

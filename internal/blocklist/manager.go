@@ -200,8 +200,10 @@ func (m *Manager) refresh(ctx context.Context) {
 		m.mu.Lock()
 		e.tried = m.clock()
 		if err != nil {
+			if repeat := e.err == err.Error(); !repeat { // same error again: stay quiet
+				m.Log.Warn("dns filter: list download failed", "list", e.ref, "err", err)
+			}
 			e.err = err.Error()
-			m.Log.Warn("dns filter: list download failed", "list", e.ref, "err", err)
 		} else {
 			e.err, e.updated = "", m.clock()
 			if l != nil {

@@ -30,6 +30,11 @@ const DefaultFilterSource = "https://raw.githubusercontent.com/RPiList/specials/
 // (https://github.com/hagezi/dns-blocklists, GPL-3.0; downloaded when used,
 // not part of this program): "hagezi:pro" is adblock/pro.txt there. The
 // adblock format is used because "||name^" also covers the subdomains.
+// retiredLists are RPiList files that are empty upstream (since 2026-11-06)
+// and no longer offered. Old configs may still name them: they load fine and
+// the name is skipped in Lists.
+var retiredLists = map[string]bool{"domainsquatting3": true, "domainsquatting4": true}
+
 const HageziPrefix = "hagezi:"
 
 const hageziBase = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/"
@@ -123,6 +128,9 @@ func (f DNSFilter) Lists(level string) []string {
 	seen := map[string]bool{}
 	for _, l := range own {
 		for _, name := range l {
+			if retiredLists[strings.ToLower(name)] {
+				continue
+			}
 			if k := f.listKey(name); !seen[k] { // "easylist" and its full URL are one list
 				seen[k] = true
 				out = append(out, name)

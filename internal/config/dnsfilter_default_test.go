@@ -92,3 +92,14 @@ func TestHageziDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestRetiredListsSkipped(t *testing.T) {
+	c, err := Parse("[dns_filter]\nnormal = [\"malware\", \"DomainSquatting3\"]\nparanoid = [\"domainsquatting4\", \"DomainSquatting1\"]\n")
+	if err != nil {
+		t.Fatalf("old config with retired lists must load: %v", err)
+	}
+	got := c.DNSFilter.Lists(FilterParanoid)
+	if len(got) != 2 || got[0] != "malware" || got[1] != "DomainSquatting1" {
+		t.Errorf("lists = %v, want [malware DomainSquatting1]", got)
+	}
+}
