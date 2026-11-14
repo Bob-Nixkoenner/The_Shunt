@@ -1014,16 +1014,23 @@ func loSet(gwo string) string {
 // TorGuardTable is the loopback guard: it blocks loopback ports another
 // program holds (Tor proxy ports, daemon/tor.go; SOCKS exit addresses,
 // socks.Manager; report M-04), keeps held and blocked programs and other
-// users off the SOCKS exits (M-06).
+// users off the SOCKS exits (M-06), and, once shuntd has stopped, closes
+// every loopback port its listeners used (nothing may take them over).
 const TorGuardTable = "shunt_torguard"
 
 // Guard is the content of TorGuardTable. All of it empty: the table goes.
 type Guard struct {
 	// TCP to these ports on any loopback address is dropped (taken Tor
-	// proxy ports).
+	// proxy ports; with shuntd stopped all of them).
 	TorPorts []int
-	// TCP to these exact addresses is dropped (taken SOCKS exits).
+	// TCP to these exact addresses is dropped (taken SOCKS exits; with
+	// shuntd stopped all of them).
 	Socks []netip.AddrPort
+	// UDP and TCP to these ports on any loopback address is rejected (the
+	// DNS proxy listeners, only while shuntd is stopped: the tunnels'
+	// queries are still redirected there and must not reach another
+	// program).
+	DNSPorts []int
 	// Exits: running SOCKS exits and who may not use them.
 	Exits []ExitGuard
 }
@@ -1073,7 +1080,7 @@ func addrMatch(ap netip.AddrPort) string {
 func RenderGuard(g Guard) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s\ndelete table inet %s\n", TorGuardTable, TorGuardTable)
-	if len(g.TorPorts) == 0 && len(g.Socks) == 0 && len(g.Exits) == 0 {
+	if len(g.TorPorts) == 0 && len(g.Socks) == 0 && len(g.DNSPorts) == 0 && len(g.Exits) == 0 {
 		return b.String(), nil
 	}
 	var chains strings.Builder
@@ -1081,6 +1088,12 @@ func RenderGuard(g Guard) (string, error) {
 	if len(g.TorPorts) > 0 {
 		fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 tcp dport { %s } drop\n", portSet(g.TorPorts))
 		fmt.Fprintf(&b, "\t\tip6 daddr ::1 tcp dport { %s } drop\n", portSet(g.TorPorts))
+	}
+	if len(g.DNSPorts) > 0 {
+		// rejected, not dropped: resolvers give up at once instead of
+		// waiting for a timeout
+		fmt.Fprintf(&b, "\t\tip daddr 127.0.0.0/8 meta l4proto { tcp, udp } th dport { %s } reject with icmpx port-unreachable\n", portSet(g.DNSPorts))
+		fmt.Fprintf(&b, "\t\tip6 daddr ::1 meta l4proto { tcp, udp } th dport { %s } reject with icmpx port-unreachable\n", portSet(g.DNSPorts))
 	}
 	for _, ap := range g.Socks {
 		fmt.Fprintf(&b, "\t\t%s drop\n", addrMatch(ap))
@@ -1117,6 +1130,26 @@ func RenderGuard(g Guard) (string, error) {
 	b.WriteString(chains.String())
 	b.WriteString("}\n")
 	return b.String(), nil
+}
+
+// BootGuard is the guard `shuntd lockdown` sets at boot, before shuntd
+// runs: TCP to every configured SOCKS exit address is dropped. Nothing
+// else: without shuntd's main table nothing is redirected to its other
+// loopback ports yet. No exit: only the table delete.
+func BootGuard(c *config.Config) string {
+	var g Guard
+	names := make([]string, 0, len(c.Tunnels))
+	for n := range c.Tunnels {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if ap, err := netip.ParseAddrPort(c.Tunnels[n].Socks); err == nil && !slices.Contains(g.Socks, ap) {
+			g.Socks = append(g.Socks, ap)
+		}
+	}
+	s, _ := RenderGuard(g)
+	return s
 }
 
 // ExitDeny lists the groups that may not use a SOCKS exit (report M-06):

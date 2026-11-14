@@ -40,6 +40,53 @@ socks = "[::1]:1081"
 	return c, p
 }
 
+// With shuntd stopped every loopback port of its listeners is closed: the
+// DNS listener ports, the Tor proxy ports and the SOCKS exits.
+func TestStoppedGuard(t *testing.T) {
+	c, p := guardPlan(t)
+	r := p.RouteByName("tunnel:home")
+	r.Tor, r.ProxyPort = true, 53001 // as a Tor route would have it
+	g := stoppedGuard(c, p)
+	if !slices.Equal(g.TorPorts, []int{53001}) {
+		t.Errorf("tor ports %v", g.TorPorts)
+	}
+	want := []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:1080"), netip.MustParseAddrPort("[::1]:1081")}
+	if !slices.Equal(g.Socks, want) {
+		t.Errorf("socks %v, want %v", g.Socks, want)
+	}
+	if !p.DNS || len(g.DNSPorts) == 0 {
+		t.Fatalf("dns ports %v (plan DNS %v)", g.DNSPorts, p.DNS)
+	}
+	for _, r := range p.Routes {
+		if r.DNSPort > 0 && !slices.Contains(g.DNSPorts, r.DNSPort) {
+			t.Errorf("listener port %d of %s stays open", r.DNSPort, r)
+		}
+	}
+	if len(g.Exits) != 0 {
+		t.Error("no exit runs while shuntd is stopped")
+	}
+}
+
+type guardFake struct {
+	*fakeBackend
+	guards []LoopbackGuard
+}
+
+func (g *guardFake) GuardLoopback(lg LoopbackGuard) error {
+	g.guards = append(g.guards, lg)
+	return nil
+}
+
+func TestShutdownSetsStoppedGuard(t *testing.T) {
+	c, p := guardPlan(t)
+	f := &guardFake{fakeBackend: newFake()}
+	d := &Daemon{Backend: f, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), cfg: c, plan: p}
+	d.shutdown()
+	if len(f.guards) != 1 || len(f.guards[0].Socks) != 2 || len(f.guards[0].DNSPorts) == 0 {
+		t.Fatalf("guards set on shutdown: %+v", f.guards)
+	}
+}
+
 // M-06: only running exits get a guard; socks_users resolve to UIDs, and a
 // name that does not resolve is left out (closed to it), never ignored.
 func TestExitUsers(t *testing.T) {

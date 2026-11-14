@@ -100,6 +100,16 @@ func main() {
 		default:
 			err = nft.Apply(nft.RenderLockdown())
 		}
+		if cerr == nil {
+			// SOCKS exits are closed until shuntd binds them, whatever
+			// boot_lockdown says (only loopback, nobody goes offline):
+			// a program that binds an exit address first at boot must not
+			// get the traffic of programs set up for it (M-04). shuntd
+			// replaces the guard on its first reload.
+			if gerr := nft.Apply(nft.BootGuard(c)); gerr != nil {
+				log.Warn("SOCKS exits not guarded until shuntd runs", "err", gerr)
+			}
+		}
 	case "cleanup":
 		err = daemon.Cleanup()
 	case "fix-nsswitch":

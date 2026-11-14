@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,9 +80,12 @@ type LoopbackGuard struct {
 	// TorPorts and Socks are dropped: loopback ports a Tor proxy listener
 	// could not bind and SOCKS exit addresses another program holds; the
 	// Tor traffic and the traffic of programs set up for the exit must not
-	// reach that program (report M-04).
+	// reach that program (report M-04). With shuntd stopped: all of them.
 	TorPorts []int
 	Socks    []netip.AddrPort
+	// DNSPorts are closed while shuntd is stopped: the DNS proxy listener
+	// ports, where the tunnels' queries are still redirected.
+	DNSPorts []int
 	// Exits are the running SOCKS exits: held and blocked programs (Plan)
 	// and, with Users, other users may not use them (report M-06).
 	Exits []ExitUsers
@@ -141,6 +145,52 @@ func (d *Daemon) exitUsers(c *config.Config, states map[string]string) []ExitUse
 		out = append(out, e)
 	}
 	return out
+}
+
+// stoppedGuard closes every loopback port shuntd's listeners used, for the
+// time it is not running (fail closed): the main table still redirects the
+// tunnels' DNS and the Tor routes' TCP there, and programs set up for a
+// SOCKS exit still connect to it. Without the block another local program
+// could bind such a port and take that traffic in plain text.
+func stoppedGuard(c *config.Config, p *engine.Plan) LoopbackGuard {
+	var g LoopbackGuard
+	add := func(l *[]int, port int) {
+		if port > 0 && !slices.Contains(*l, port) {
+			*l = append(*l, port)
+		}
+	}
+	for _, r := range p.Routes {
+		if r.Kind == config.RouteTunnel && r.Tor {
+			add(&g.TorPorts, r.ProxyPort)
+		}
+	}
+	for _, ru := range p.Rules {
+		if ru.ProxyPort != 0 && ru.Route != nil && ru.Route.Tor {
+			add(&g.TorPorts, ru.ProxyPort)
+		}
+	}
+	if p.DNS {
+		for _, r := range p.Routes {
+			add(&g.DNSPorts, r.DNSPort)
+		}
+		for _, r := range p.FilterRoutes {
+			add(&g.DNSPorts, r.DNSPort)
+		}
+		if p.Captive != nil {
+			add(&g.DNSPorts, p.Captive.DNSPort)
+		}
+	}
+	if c != nil {
+		for _, t := range c.Tunnels {
+			if ap, err := netip.ParseAddrPort(t.Socks); err == nil && !slices.Contains(g.Socks, ap) {
+				g.Socks = append(g.Socks, ap)
+			}
+		}
+	}
+	sort.Ints(g.TorPorts)
+	sort.Ints(g.DNSPorts)
+	sort.Slice(g.Socks, func(i, j int) bool { return g.Socks[i].Compare(g.Socks[j]) < 0 })
+	return g
 }
 
 // torProxy runs the transparent listener of every Tor route: nft redirects

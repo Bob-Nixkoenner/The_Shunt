@@ -93,3 +93,44 @@ func TestRenderGuardExits(t *testing.T) {
 		t.Error("unsafe cgroup path accepted")
 	}
 }
+
+// With shuntd stopped the DNS listener ports are rejected (UDP and TCP, so
+// resolvers give up at once), Tor ports and exits dropped.
+func TestRenderGuardStopped(t *testing.T) {
+	s, err := RenderGuard(Guard{TorPorts: []int{53001}, DNSPorts: []int{5300, 5301}, Socks: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:1080")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"ip daddr 127.0.0.0/8 meta l4proto { tcp, udp } th dport { 5300, 5301 } reject with icmpx port-unreachable",
+		"ip6 daddr ::1 meta l4proto { tcp, udp } th dport { 5300, 5301 } reject with icmpx port-unreachable",
+		"ip daddr 127.0.0.0/8 tcp dport { 53001 } drop",
+		"ip daddr 127.0.0.1 tcp dport 1080 drop",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("guard lacks %q:\n%s", want, s)
+		}
+	}
+	if empty, _ := RenderGuard(Guard{}); strings.Contains(empty, "chain") {
+		t.Errorf("empty guard must only delete the table: %s", empty)
+	}
+}
+
+// At boot (`shuntd lockdown`) every configured exit address is closed
+// until shuntd binds it; without exits the guard only deletes the table.
+func TestBootGuard(t *testing.T) {
+	c, err := config.Parse("[tunnel.a]\nconfig = \"a.conf\"\nsocks = \"127.0.0.1:1080\"\n[tunnel.b]\nconfig = \"b.conf\"\nsocks = \"[::1]:1081\"\n[tunnel.c]\nconfig = \"c.conf\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := BootGuard(c)
+	for _, want := range []string{"ip daddr 127.0.0.1 tcp dport 1080 drop", "ip6 daddr ::1 tcp dport 1081 drop"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("boot guard lacks %q:\n%s", want, s)
+		}
+	}
+	c, _ = config.Parse("[tunnel.c]\nconfig = \"c.conf\"\n")
+	if s := BootGuard(c); strings.Contains(s, "chain") {
+		t.Errorf("no exit: %s", s)
+	}
+}

@@ -296,7 +296,7 @@ func (b *linuxBackend) release(pid int, since int64) {
 }
 
 func (b *linuxBackend) GuardLoopback(g LoopbackGuard) error {
-	ng := nft.Guard{TorPorts: g.TorPorts, Socks: g.Socks}
+	ng := nft.Guard{TorPorts: g.TorPorts, Socks: g.Socks, DNSPorts: g.DNSPorts}
 	if len(g.Exits) > 0 && g.Plan != nil {
 		deny := nft.ExitDeny(g.Plan)
 		for _, grp := range deny {

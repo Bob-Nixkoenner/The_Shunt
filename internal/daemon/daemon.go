@@ -1378,6 +1378,11 @@ func (d *Daemon) shutdown() {
 		d.socks.Close()
 	}
 	d.torProxy.Close()
+	if g, ok := d.Backend.(loopbackGuard); ok && d.plan != nil {
+		if err := g.GuardLoopback(stoppedGuard(d.cfg, d.plan)); err != nil {
+			d.Log.Warn("loopback ports of shuntd stay open to other programs while it is down", "err", err)
+		}
+	}
 	_ = os.Remove(d.cfg.Daemon.Socket)
 	d.Log.Info("shuntd stopped; kill switch stays active for tunnels, direct goes on")
 }
