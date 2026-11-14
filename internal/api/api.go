@@ -138,10 +138,14 @@ type TunnelStatus struct {
 	Bootstrap *int `json:"bootstrap,omitempty"`
 	// Circuit: tor tunnels only, once connected: the path new connections take
 	// (exit country/relay/address, number of hops). For display on this computer only.
-	Circuit *tunnel.TorCircuit  `json:"circuit,omitempty"`
-	Socks   string              `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
-	Peers   []tunnel.PeerStatus `json:"peers,omitempty"`
-	Health  *health.Report      `json:"health,omitempty"` // nil until the first check
+	Circuit *tunnel.TorCircuit `json:"circuit,omitempty"`
+	Socks   string             `json:"socks,omitempty"` // loopback address of its SOCKS5 exit
+	// SocksState: "listening", "taken" (another program holds the address;
+	// blocked on Linux, see SECURITY.md) or "failed"; empty from a daemon
+	// that does not report it, or while the tunnel's exit is not set up.
+	SocksState string              `json:"socks_state,omitempty"`
+	Peers      []tunnel.PeerStatus `json:"peers,omitempty"`
+	Health     *health.Report      `json:"health,omitempty"` // nil until the first check
 }
 
 // GroupStatus describes one process group.

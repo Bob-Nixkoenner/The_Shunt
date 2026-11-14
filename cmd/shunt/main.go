@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -1143,23 +1144,39 @@ func socksCmd(c *api.Client) error {
 	if err := c.Do("GET", "/v1/status", nil, &st); err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	return writeSocks(os.Stdout, st)
+}
+
+// writeSocks prints one line per SOCKS5 exit. An exit whose address another
+// program holds is never shown as up (report M-04): shuntd did not bind it.
+func writeSocks(out io.Writer, st api.Status) error {
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	n := 0
 	for _, t := range st.Tunnels {
 		if t.Socks == "" {
 			continue
 		}
-		state := "up"
-		if !t.Up {
-			state = i18n.T("tunnel down (connections are refused)")
-		}
-		fmt.Fprintf(w, "tunnel:%s\tsocks5h://%s\t%s\n", t.Name, t.Socks, state)
+		fmt.Fprintf(w, "tunnel:%s\tsocks5h://%s\t%s\n", t.Name, t.Socks, socksState(t))
 		n++
 	}
 	if n == 0 {
 		fmt.Fprintln(w, i18n.T("no tunnel has a SOCKS5 exit; set socks = \"127.0.0.1:1080\" in its [tunnel.<name>] section"))
 	}
 	return w.Flush()
+}
+
+func socksState(t api.TunnelStatus) string {
+	switch {
+	case t.SocksState == "taken":
+		return i18n.T("BLOCKED: another program holds this address (not handed over; see the shuntd log)")
+	case t.SocksState == "failed":
+		return i18n.T("not listening (see the shuntd log)")
+	case t.Disabled:
+		return i18n.T("tunnel switched off (no exit)")
+	case !t.Up:
+		return i18n.T("tunnel down (connections are refused)")
+	}
+	return "up"
 }
 
 // torHelp prints what bridges, "new identity" and the emergency switch are, in plain words.

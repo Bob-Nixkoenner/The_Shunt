@@ -19,12 +19,20 @@ type Exit struct {
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
+// States of an exit as Update left it (States, for status and `shunt socks`).
+const (
+	StateListening = "listening" // ours: bound and served
+	StateTaken     = "taken"     // another program holds the address (M-04: blocked, not handed over)
+	StateFailed    = "failed"    // not bound for another reason (see the log)
+)
+
 // Manager keeps one listener per tunnel with a socks address.
 type Manager struct {
 	Log *slog.Logger
 
-	mu   sync.Mutex
-	runs map[string]*run
+	mu     sync.Mutex
+	runs   map[string]*run
+	states map[string]string
 }
 
 type run struct {
@@ -46,6 +54,7 @@ func (m *Manager) Update(exits map[string]Exit) (taken []netip.AddrPort) {
 	if m.runs == nil {
 		m.runs = map[string]*run{}
 	}
+	m.states = map[string]string{}
 	for name, r := range m.runs {
 		if e, ok := exits[name]; !ok || e.Listen != r.exit.Listen || e.Mark != r.exit.Mark || (e.Dial == nil) != (r.exit.Dial == nil) {
 			r.stop()
@@ -55,6 +64,7 @@ func (m *Manager) Update(exits map[string]Exit) (taken []netip.AddrPort) {
 	for name, e := range exits {
 		if r, ok := m.runs[name]; ok {
 			r.srv.SetResolve(e.Resolve)
+			m.states[name] = StateListening
 			continue
 		}
 		l, err := net.Listen("tcp", e.Listen)
@@ -63,9 +73,11 @@ func (m *Manager) Update(exits map[string]Exit) (taken []netip.AddrPort) {
 				if ap, perr := netip.ParseAddrPort(e.Listen); perr == nil {
 					taken = append(taken, ap)
 				}
+				m.states[name] = StateTaken
 				m.Log.Error("SOCKS EXIT ADDRESS TAKEN BY ANOTHER PROGRAM: not handed over", "tunnel", name, "listen", e.Listen, "err", err)
 				continue
 			}
+			m.states[name] = StateFailed
 			m.Log.Warn("socks exit", "tunnel", name, "listen", e.Listen, "err", err)
 			continue
 		}
@@ -75,6 +87,7 @@ func (m *Manager) Update(exits map[string]Exit) (taken []netip.AddrPort) {
 		}
 		go func() { _ = srv.Serve(l) }()
 		m.runs[name] = &run{exit: e, l: l, srv: srv}
+		m.states[name] = StateListening
 		m.Log.Info("socks exit", "tunnel", name, "listen", e.Listen)
 	}
 	sort.Slice(taken, func(i, j int) bool { return taken[i].Compare(taken[j]) < 0 })
@@ -88,6 +101,18 @@ func (m *Manager) Addrs() map[string]string {
 	out := map[string]string{}
 	for n, r := range m.runs {
 		out[n] = r.exit.Listen
+	}
+	return out
+}
+
+// States returns tunnel name -> state (StateListening, StateTaken,
+// StateFailed) of every exit the last Update was given.
+func (m *Manager) States() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]string, len(m.states))
+	for n, s := range m.states {
+		out[n] = s
 	}
 	return out
 }

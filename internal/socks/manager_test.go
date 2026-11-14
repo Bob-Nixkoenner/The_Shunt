@@ -45,6 +45,9 @@ func TestManagerReportsTakenAddress(t *testing.T) {
 	if addrs["ours"] != freeAddr {
 		t.Fatalf("free exit not running: %v", addrs)
 	}
+	if st := m.States(); st["squatted"] != StateTaken || st["ours"] != StateListening {
+		t.Fatalf("states = %v, want squatted taken, ours listening", st)
+	}
 	// once the other program is gone the next update binds it
 	squat.Close()
 	if got := m.Update(map[string]Exit{"squatted": {Listen: taken, Dial: dial}}); len(got) != 0 {
@@ -52,5 +55,8 @@ func TestManagerReportsTakenAddress(t *testing.T) {
 	}
 	if m.Addrs()["squatted"] != taken {
 		t.Fatal("freed address not bound")
+	}
+	if st := m.States(); st["squatted"] != StateListening || len(st) != 1 {
+		t.Fatalf("states after the squatter left = %v", st)
 	}
 }

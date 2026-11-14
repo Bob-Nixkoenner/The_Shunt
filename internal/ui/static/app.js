@@ -24,6 +24,8 @@ function el(tag, attrs = {}, ...kids) {
 function tunnelTypes(t) {
   const d = t.driver || "";
   const kind = isTor(t) || d === "tor" ? "Tor" : d === "openvpn" ? "OpenVPN" : d === "tailscale" ? "Tailscale" : "WireGuard";
+  // a SOCKS exit another program holds is blocked, not running (M-04)
+  if (t.socks && t.socks_state === "taken") return [kind, "SOCKS " + T("blocked")];
   return t.socks ? [kind, "SOCKS"] : [kind];
 }
 
