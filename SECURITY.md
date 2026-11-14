@@ -80,7 +80,30 @@ did, what leaked or broke, and the output of `shunt status --json` and
   (shell, audio, portals) are never asked about; that exception needs both the name and
   a program file in a system directory (`/usr`, `/opt`, …), so a program that only
   names itself like one is still asked about. It is a question for honest apps, not a
-  sandbox: a program may still connect in the moment before it is held.
+  sandbox: a program may still connect in the moment before it is held. This
+  start race stays (external report M-01): holding every new program until the
+  watcher has decided would need an eBPF hold for all programs started outside
+  shuntd (system services included), which could refuse their sockets for up to
+  2 s after every start. For apps that must never touch the default route, make
+  the default route a tunnel.
+- **`dns.direct = "system"` bypasses systemd-resolved** (external report L-13):
+  shuntd asks resolved's upstreams itself in plain UDP (the stub on 127.0.0.53
+  would loop back into the proxy), so DNS-over-TLS and DNSSEC set in resolved do
+  not apply to direct queries; shuntd logs a warning when they are on. Set
+  `dns.direct` to a DoT or DoH upstream to keep them encrypted.
+- **Boot lockdown unit** (external report M-10): `shunt-lockdown.service` runs
+  before `network-pre.target` but does not make it fail: if `shuntd lockdown`
+  itself fails (nft missing or broken), the network starts unlocked. Making it a
+  hard requirement would not stop NetworkManager (it only orders after
+  `network-pre.target`), and binding it to NetworkManager could leave the
+  machine offline with no way back but a console; an unreadable config does not
+  lock on purpose for the same reason.
+- **Windows, caller check of the local API** (external report L-09): AF_UNIX on
+  Windows tells no connect time, so the caller's process creation time cannot
+  rule out a process ID reused between connect and accept; the open handle pins
+  the process only from the accept on. The window is milliseconds and an
+  attacker cannot choose which process gets the ID. Closing it needs a named
+  pipe with client impersonation, a larger change; not fixed.
 - **root on the machine** can do anything, including turning Shunt off.
 
 ## Android: tunnel keys at rest
@@ -154,22 +177,85 @@ listener is not started and the log says so loudly.
   connection instead of talking to the other program. A free address is
   bound on the next reload and lifts the block. If the block cannot be set,
   the reload fails.
-- **Windows:** a taken SOCKS exit address is only refused and logged; there
-  is no firewall block yet, so a program set up for that exit reaches the
-  other program. On a machine shared with other users, check the service
-  log for "SOCKS EXIT ADDRESS TAKEN" before relying on a SOCKS exit.
-- **While shuntd is not running** nothing guards these addresses.
+- **Windows:** a WFP exit guard in its own sublayer lets only the service
+  accept on its SOCKS exit addresses and only tor.exe on its SOCKS port, both
+  running as the service's account; an exit address another program holds
+  cannot be reached at all. The guard is not persistent: a crash leaves it in
+  place until the service starts again, a clean stop or a reboot lifts it.
+  Tor's control port is not guarded (a program holding it can only fake the
+  bootstrap; the SOCKS port stays guarded), and apps using the loopback fast
+  path (`SIO_LOOPBACK_FAST_PATH`) may pass WFP. Its runtime behaviour has not
+  yet been verified on real Windows.
+- **`shunt socks`** shows an exit whose address another program holds as
+  BLOCKED.
+- **While shuntd is not running (Linux):** on a clean stop shuntd leaves the
+  guard table with all its loopback ports closed (DNS listener ports
+  rejected, Tor proxy ports and SOCKS exits dropped); at boot `shuntd
+  lockdown` closes the configured SOCKS exits until shuntd has bound them.
+  After a crash only the last running guard stays (taken addresses) until
+  systemd restarts shuntd (2 s). `shuntd cleanup` removes the guard.
+- **Who may use a SOCKS exit (Linux):** every local program by default (that
+  is what the exits are for), except programs the app firewall holds and
+  programs whose rule blocks them. `socks_users = [...]` on a tunnel limits
+  its exit to those users. Windows does not restrict who may use an exit.
 
 ## Fixed findings of the external report on 755f910
 
-- **M-02** (client caches an answer longer than the address stays in the
-  domain set, then its traffic takes the default route): capped on Linux
-  (c008c2e) and in the Android/Windows core (a2ef83b): an app never gets a
-  TTL over the entry life minus grace (2 h − 30 s).
-- **M-04** (proxy ports can be taken by local users): Tor proxy ports
-  (cea8f86) and SOCKS exits (44ee55d), see the section above.
-- **L-02** (a program could send queries to a route's DNS proxy listener
-  directly): only redirected queries and shuntd's own reach them (786c26d).
+All 27 findings were checked against the code. 25 have a change in the code
+(for L-13 a warning, for M-01 without the start race); M-10 and L-09 are not
+fixed and listed under known limits above with the reason. The CHANGELOG
+names the tests.
+
+- **H-01** `.ovpn` check passed with a byte order mark or a close tag with
+  text after it: files are read the way openvpn reads them.
+- **H-02** install.sh took the current directory as its source: only a
+  checkout owned by root or the sudo user, not writable by others.
+- **H-03** start guard gave an `exe:` rule's open route by program name:
+  never by name now, the watcher checks the path.
+- **H-04** Windows data folder could be made by a user first: made with a
+  protected DACL, a foreign-owned folder is moved aside.
+- **M-01** never-ask exception by process name alone: needs a program file
+  in a system directory too; the start race stays (known limits).
+- **M-02** client cached an answer longer than the domain set entry: TTL
+  capped to entry life minus grace (2 h − 30 s) on Linux, Android and Windows.
+- **M-03** login page exception let any socket group move to the direct
+  route: only the login browser's group.
+- **M-04** Tor proxy ports and SOCKS exits could be taken by local users:
+  blocked on Linux (nft), WFP exit guard on Windows, see the section above.
+- **M-05** dhcphost took NetworkManager-like D-Bus signals from anyone: only
+  from NetworkManager's current bus name.
+- **M-06** SOCKS exits without local authentication: a UDP association
+  belongs to one sender; on Linux held and blocked programs are rejected for
+  TCP, optional `socks_users`.
+- **M-07** Windows kill switch let the service and tor past by path alone:
+  also requires the SYSTEM account.
+- **M-08** Windows update could be swapped between check and start: locked
+  and hashed again through the same handle.
+- **M-09** F-Droid repo build could leave the keystore in the output: built
+  in a private work folder, the output gets only `repo/` and `metadata/`.
+- **L-01** installer fallback to an unchecked release installer: removed,
+  the installer stops instead.
+- **L-02** a program could query a route's DNS proxy listener directly: only
+  redirected queries and shuntd's own reach it.
+- **L-03** upstream answers not matched to the question: checked, random ID
+  upstream.
+- **L-04** login browser's DNS port took unmarked TCP queries unfiltered:
+  now filtered.
+- **L-05** no limit on names per DNS list: 20 million, cut loudly beyond.
+- **L-06** malformed `PROGRESS=` line from Tor's control port crashed the
+  app: ignored.
+- **L-07** Windows kill switch reset a stricter firewall policy: kept,
+  reset only to clean up the old kill switch.
+- **L-08** Windows: two programs on one address and port picked by chance:
+  owner unknown, default route.
+- **L-10** Android (github flavor) update receiver open to other apps on
+  Android 10–12: random action, own session only.
+- **L-11** built binary and `ui.pid` in the repository: removed and
+  ignored.
+- **L-12** Debian postinst disabled a tor the admin had set up: only a tor
+  that came with the package.
+- **L-13** `dns.direct = "system"` bypasses resolved's DoT/DNSSEC: kept,
+  warned about in the log (known limits).
 
 ## Verifying downloads
 
