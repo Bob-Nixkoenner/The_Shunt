@@ -334,14 +334,19 @@ class ShuntVpnService : VpnService() {
             ""
         }
 
+        /**
+         * Owner of a connection: -1 unknown (INVALID_UID), -2 the lookup threw. The core asks
+         * again after a miss and logs the misses as counts (mobile.go ownerLookup), so nothing
+         * is logged here: no addresses or ports reach the log.
+         */
         override fun ownerUid(proto: Long, srcIP: String, srcPort: Long, dstIP: String, dstPort: Long): Long = try {
             cm.getConnectionOwnerUid(
                 proto.toInt(),
                 InetSocketAddress(InetAddress.getByName(srcIP), srcPort.toInt()),
                 InetSocketAddress(InetAddress.getByName(dstIP), dstPort.toInt()),
-            ).toLong()
+            ).toLong().coerceAtLeast(-1)
         } catch (e: Exception) {
-            -1
+            -2
         }
 
         override fun log(msg: String) {

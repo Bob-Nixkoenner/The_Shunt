@@ -104,6 +104,13 @@ did, what leaked or broke, and the output of `shunt status --json` and
   the process only from the accept on. The window is milliseconds and an
   attacker cannot choose which process gets the ID. Closing it needs a named
   pipe with client impersonation, a larger change; not fixed.
+- **Android, connections whose owner stays unknown.** The app learns which
+  app opened a connection from Android (`getConnectionOwnerUid`). A miss is
+  asked again twice, about 20 ms apart; if the owner is still unknown, the
+  connection gets the default route in Simple and Pro (rest window: an app
+  with a tunnel rule can then go out direct when the default is direct). Max
+  Security drops such connections instead (the app tries again). Misses are
+  logged as counts only.
 - **root on the machine** can do anything, including turning Shunt off.
 
 ## Android: tunnel keys at rest

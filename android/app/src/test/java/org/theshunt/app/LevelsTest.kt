@@ -35,6 +35,13 @@ class LevelsTest {
     }
 
     @Test
+    fun ownerUnknown() {
+        assertEquals("default", Levels.ownerUnknown(Level.Simple))
+        assertEquals("default", Levels.ownerUnknown(Level.Pro))
+        assertEquals("drop", Levels.ownerUnknown(Level.Opsec))
+    }
+
+    @Test
     fun opsecOnOff() {
         val s = Settings(level = Level.Pro)
         val on = Opsec.switchOn(s, setOf("strict"))

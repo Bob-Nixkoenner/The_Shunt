@@ -80,6 +80,11 @@ type config struct {
 	// BlockDoH: well-known DNS-over-HTTPS endpoints get NXDOMAIN, so
 	// browsers stay on our DNS (Firefox's canary domain always does)
 	BlockDoH bool `json:"block_doh,omitempty"`
+	// OwnerUnknown: what a connection gets whose owner the platform cannot
+	// name (Owner returns "") and that no destination rule routes:
+	// "default" (or "") the default route, "drop" blocked (fail closed; the
+	// app tries again). Only used with an Owner.
+	OwnerUnknown string `json:"owner_unknown,omitempty"`
 	// autoDirect: direct_dns was not set; the network's own server
 	// (SetSystemDNS) is used when the platform reports one
 	autoDirect bool
@@ -130,6 +135,11 @@ func parseConfig(js string) (*config, error) {
 	}
 	if c.MTU == 0 {
 		c.MTU = 1280
+	}
+	switch c.OwnerUnknown {
+	case "", OwnerDefault, OwnerDrop:
+	default:
+		return nil, fmt.Errorf("owner_unknown: %q (default | drop)", c.OwnerUnknown)
 	}
 	if len(c.DNSServers) > maxDNSServers {
 		return nil, fmt.Errorf("dns_servers: at most %d", maxDNSServers)
@@ -199,8 +209,17 @@ func parseConfig(js string) (*config, error) {
 }
 
 // Owner returns the app ID of a connection (proto 6 = TCP, 17 = UDP), or
-// "" if unknown (then the default route applies).
+// "" if unknown (then the default route applies, or with owner_unknown
+// "drop" the connection is blocked). It runs on the connection's own
+// goroutine, never on the one that reads packets from the TUN, so it may
+// take a few milliseconds (the Android core retries a failed lookup).
 type Owner func(proto int, src, dst netip.AddrPort) string
+
+// Values of owner_unknown.
+const (
+	OwnerDefault = "default"
+	OwnerDrop    = "drop"
+)
 
 // Options are the platform's parts.
 type Options struct {
@@ -253,6 +272,7 @@ type Engine struct {
 	baseDef    string     // from the config, without profile
 	baseDirect netip.Addr
 	blockDoH   bool       // see config.BlockDoH
+	ownerDrop  bool       // config.OwnerUnknown == "drop"
 	autoDirect bool       // the config names no direct DNS
 	sysDNS     netip.Addr // the network's DNS server (SetSystemDNS), invalid = none
 	rules      []rule
@@ -461,6 +481,7 @@ func (e *Engine) setRules(c *config) error {
 	e.apps, e.baseFilter, e.unfiltered, e.rules, e.networks = apps, filter, unf, rules, nets
 	e.baseDef, e.baseDirect = c.Default, netip.MustParseAddr(c.DirectDNS)
 	e.autoDirect, e.blockDoH = c.autoDirect, c.BlockDoH
+	e.ownerDrop = c.OwnerUnknown == OwnerDrop
 	if c.autoDirect && e.sysDNS.IsValid() {
 		e.baseDirect = e.sysDNS
 	}
