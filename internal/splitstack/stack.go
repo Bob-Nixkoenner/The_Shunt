@@ -409,7 +409,11 @@ func (e *Engine) forwardDNS(f *flow, query []byte, in, out net.Conn, pending *sy
 // resolveForRule sends one query for a domain rule's name over the rule's
 // route, remembers the addresses for the rule and answers the app.
 func (e *Engine) resolveForRule(f *flow, r *rule, query []byte, in net.Conn) {
-	e.resolveOn(f, r.route, query, in, func(resp *dns.Msg) { e.domains.add(r.key, resp, time.Now()) })
+	e.resolveOn(f, r.route, query, in, func(resp *dns.Msg) bool {
+		changed := capAnswerTTL(resp, domClientTTL)
+		e.domains.add(r.key, resp, time.Now())
+		return changed
+	})
 }
 
 // routeDNSWait is how long resolveOn waits for the answer.
@@ -455,7 +459,9 @@ func (e *Engine) askedRoute(f *flow, name string, arrived time.Time) (route stri
 // resolveOn sends one query over route and answers the app (answered, if
 // not nil, sees the answer first). A route that cannot be reached answers
 // SERVFAIL, block REFUSED: the name must not leak out on the app's own route.
-func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, answered func(*dns.Msg)) {
+// answered may change the answer and returns true then: the app gets the
+// changed answer.
+func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, answered func(*dns.Msg) bool) {
 	route, _ = e.resolveLink(route) // link:<kind> is direct or block right now
 	var q dns.Msg
 	q.Unpack(query)
@@ -495,11 +501,17 @@ func (e *Engine) resolveOn(f *flow, route string, query []byte, in net.Conn, ans
 		if resp.Unpack(buf[:n]) != nil || resp.Id != q.Id {
 			continue
 		}
-		if answered != nil {
-			answered(&resp)
+		ans := buf[:n]
+		if answered != nil && answered(&resp) {
+			b, err := resp.Pack()
+			if err != nil {
+				fail(dns.RcodeServerFailure)
+				return
+			}
+			ans = b
 		}
-		e.observeAnswer(buf[:n]) // OPUS-REVIEW
-		in.Write(buf[:n])
+		e.observeAnswer(ans) // OPUS-REVIEW
+		in.Write(ans)
 		return
 	}
 }

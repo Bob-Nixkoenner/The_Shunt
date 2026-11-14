@@ -171,6 +171,26 @@ const (
 	domGrace = 30 * time.Second
 )
 
+// domClientTTL is the most an app may cache a domain rule's answer: the
+// entry lives at least TTL+grace, at most domMax, so a client TTL of at most
+// domMax-grace always runs out before the entry does (M-02, like the
+// desktop's dnsproxy). Otherwise the app keeps using the address after the
+// entry is gone and its traffic silently falls back to the default route.
+const domClientTTL = uint32((domMax - domGrace) / time.Second)
+
+// capAnswerTTL lowers the TTL of every answer record to at most max; true if
+// anything changed.
+func capAnswerTTL(resp *dns.Msg, max uint32) bool {
+	changed := false
+	for _, rr := range resp.Answer {
+		if h := rr.Header(); h.Ttl > max {
+			h.Ttl = max
+			changed = true
+		}
+	}
+	return changed
+}
+
 // domainAddrs remembers which addresses DNS answered for which rule (by
 // rule.key; a rule set swap keeps entries of rules that stay).
 type domainAddrs struct {
