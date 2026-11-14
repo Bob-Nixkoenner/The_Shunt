@@ -142,6 +142,35 @@ and fail closed without the key.
   (`./gradlew connectedPlayDebugAndroidTest`, emulator with `-no-window`); it
   overwrites `settings.json`, so never on a phone in use.
 
+## Loopback listeners taken by another program (Linux and Windows differ)
+
+The Tor proxy ports (53000+, 52000+) and the SOCKS exits of tunnels
+(`socks = "127.0.0.1:1080"`) listen on fixed loopback addresses that any
+local user could bind first. Shunt never hands such an address over: the
+listener is not started and the log says so loudly.
+
+- **Linux:** shuntd also drops all TCP to a taken address in its own nft
+  table `shunt_torguard` (fail closed); programs set up for it get no
+  connection instead of talking to the other program. A free address is
+  bound on the next reload and lifts the block. If the block cannot be set,
+  the reload fails.
+- **Windows:** a taken SOCKS exit address is only refused and logged; there
+  is no firewall block yet, so a program set up for that exit reaches the
+  other program. On a machine shared with other users, check the service
+  log for "SOCKS EXIT ADDRESS TAKEN" before relying on a SOCKS exit.
+- **While shuntd is not running** nothing guards these addresses.
+
+## Fixed findings of the external report on 755f910
+
+- **M-02** (client caches an answer longer than the address stays in the
+  domain set, then its traffic takes the default route): capped on Linux
+  (c008c2e) and in the Android/Windows core (a2ef83b): an app never gets a
+  TTL over the entry life minus grace (2 h − 30 s).
+- **M-04** (proxy ports can be taken by local users): Tor proxy ports
+  (cea8f86) and SOCKS exits (44ee55d), see the section above.
+- **L-02** (a program could send queries to a route's DNS proxy listener
+  directly): only redirected queries and shuntd's own reach them (786c26d).
+
 ## Verifying downloads
 
 Release tarballs come with `SHA256SUMS` (checked by the installer) and a
