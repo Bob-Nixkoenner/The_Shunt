@@ -305,11 +305,11 @@ func Apply(ctx context.Context, pol Policy, log *slog.Logger) {
 // changed: the MAC was just set in the profile; when the device address
 // cannot be read, only then.
 func reconnectReal(ctx context.Context, p Profile, changed bool, log *slog.Logger) {
-	out, err := nmcli(ctx, "-g", "GENERAL.HWADDR", "device", "show", p.Device)
+	mac, err := deviceMAC(p.Device)
 	switch {
 	case err != nil && !changed:
 		return
-	case err == nil && !localMAC(unescape(strings.TrimSpace(out))):
+	case err == nil && !localMAC(mac):
 		return // runs with the real one already
 	}
 	if !reconnectOnce(p.UUID, time.Now()) {
@@ -320,6 +320,20 @@ func reconnectReal(ctx context.Context, p Profile, changed bool, log *slog.Logge
 		return
 	}
 	log.Info("network privacy: trusted network, connected again with the real MAC", "uuid", p.UUID, "device", p.Device)
+}
+
+// deviceMAC is the address the device runs with right now. Not nmcli's
+// GENERAL.HWADDR: that is the permanent hardware address, also while a
+// random MAC is in use (seen in the lab with NetworkManager 1.5x).
+var deviceMAC = func(dev string) (string, error) {
+	if dev == "" || strings.ContainsAny(dev, "/\x00") || dev == "." || dev == ".." {
+		return "", fmt.Errorf("bad device name %q", dev)
+	}
+	b, err := os.ReadFile("/sys/class/net/" + dev + "/address")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 var reconnected struct {

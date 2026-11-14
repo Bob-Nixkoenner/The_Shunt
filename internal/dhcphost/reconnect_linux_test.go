@@ -28,7 +28,9 @@ func (f *macNM) run(_ context.Context, args ...string) (string, error) {
 	case strings.HasPrefix(line, "-t -f UUID,STATE"):
 		return "u-lan:activated\n", nil
 	case strings.HasPrefix(line, "-g GENERAL.HWADDR"):
-		return strings.ReplaceAll(f.deviceMAC, ":", `\:`) + "\n", nil
+		// the permanent hardware address, whatever the device runs with:
+		// reconnectReal must not trust it (lab finding)
+		return `00\:11\:22\:33\:44\:55` + "\n", nil
 	case strings.HasPrefix(line, "-g "):
 		// send4, send6, MAC, DUID, client ID, addr-gen, privacy
 		return "no\nno\n" + f.profileMAC + "\nstable-uuid\nmac\nstable-privacy\n2\n", nil
@@ -50,14 +52,15 @@ func (f *macNM) run(_ context.Context, args ...string) (string, error) {
 
 func macSetup(t *testing.T, f *macNM) {
 	t.Helper()
-	oldN, oldL, oldF := nmcli, lookPath, defaultsFile
+	oldN, oldL, oldF, oldD := nmcli, lookPath, defaultsFile, deviceMAC
 	t.Cleanup(func() {
-		nmcli, lookPath, defaultsFile = oldN, oldL, oldF
+		nmcli, lookPath, defaultsFile, deviceMAC = oldN, oldL, oldF, oldD
 		reconnected.Lock()
 		reconnected.at = nil
 		reconnected.Unlock()
 	})
 	nmcli = f.run
+	deviceMAC = func(string) (string, error) { return f.deviceMAC, nil }
 	lookPath = func(string) (string, error) { return "nmcli", nil }
 	defaultsFile = filepath.Join(t.TempDir(), "conf.d", "95.conf")
 }
