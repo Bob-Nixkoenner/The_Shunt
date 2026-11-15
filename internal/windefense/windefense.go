@@ -248,13 +248,15 @@ func (r *Runner) neverAll() (auto, all []netip.Prefix, haveGW bool) {
 	return auto, all, haveGW
 }
 
+var errNoGateway = errors.New("gateway not known yet")
+
 func (r *Runner) pushNever() {
 	auto, all, haveGW := r.neverAll()
 	r.M.SetNever(auto)
 	norm, err := wfp.NormNever(all)
 	if err == nil && !haveGW {
 		// the gateway is not known yet: it could be blocked, so nothing is
-		err = errors.New("gateway not known yet")
+		err = errNoGateway
 	}
 	key := fmt.Sprint(norm)
 	r.fwMu.Lock()
@@ -271,7 +273,10 @@ func (r *Runner) pushNever() {
 		r.neverOn = key
 	}
 	r.fwMu.Unlock()
-	if err != nil {
+	switch {
+	case errors.Is(err, errNoGateway):
+		r.log.Debug("defense: no blocking until the gateway is known")
+	case err != nil:
 		r.log.Warn("defense: never-block list not in place, blocking is off", "err", err)
 	}
 	if was != (err == nil) {
