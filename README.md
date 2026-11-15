@@ -242,7 +242,10 @@ asks to allow installs from your browser or file manager; the release APK is sig
   that can go past the tunnels, a disabled kill switch … (exit status 1 when something is
   bad). `daemon.config_check = "strict"` (set by the Max Security level) raises every finding one
   level and makes OpenVPN without tls-crypt, allowed DoH/DoT and everything-else-direct "bad"
-  and direct rules warnings
+  and direct rules warnings. Notes about your own settings (an app that goes direct on
+  purpose, a provider's OpenVPN file) can be hidden for a day, a week or for good (UI, tray,
+  Android, `shunt warnings`); "bad" findings, a tunnel down or a leak never can. Hidden ones
+  stay listed ("n warnings hidden") and the list never leaves the device
 - **Configure in the UI**: rules (apps, profiles, domains, IPs, ports), DNS servers, default
   route, WireGuard import by drag & drop – every change is checked like `shuntd check`
   before it is written, the old file is kept as `shunt.toml.bak`, and a config that cannot

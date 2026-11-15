@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Hide warnings (all systems):** a note about your own settings can be hidden for 1 day, 1 week or for good, per warning and per rule, tunnel or network ("Strict check: rule … sends traffic direct" for an app that goes past the tunnel on purpose no longer shows every day). Only notes can be hidden (`check.Hideable`: direct rules, plain DNS of a direct rule, a direct default route, Wi-Fi-name-only profiles, gateway groups, disguise/quiet/inbound off, the login page check, redundant list entries, OpenVPN file hints except a broken cipher; on Android also "All other apps are blocked"); never anything "bad" (also when the strict check raises a note), never a state of the moment (tunnel down, DNS failing, login page, clock, pass, panic, Tor emergency) and never a leak path (DNS off, DoH, kill switch, boot lockdown, nsswitch, start guard). Hidden warnings stay listed: window and web UI "n warnings hidden" with "Show again", a tray line, `shunt warnings`, `shunt status`/`shunt check`, and the Android Status tab. The list is local only (`ignored.json` in the state directory or next to the config, `ProgramData\Shunt\ignored.json` on Windows, the app's `settings.json` on Android, never in the core's config), mode 0600, never sent. API: `POST /v1/warnings/ignore {key, for}` (manage permission), `DELETE /v1/warnings/ignore?key=`, `GET /v1/warnings/ignored`; the status carries `key` on hideable findings and notices, `ignored` and `hidden`. Windows has no config check in its status yet, so there is little to hide there for now. Tests `TestHideKey`, `TestIgnoreExpires`, `TestIgnoreRefusesAndKeepsBad`, `TestIgnorePersists`, `TestIgnoreDamagedFile`, `TestParseFor`, `TestHideableSameOnAndroid`, `TestHideWarningRoutes`, `TestIgnoreRoutesWindows`, `TestCompute`, `HiddenWarningsTest` (Android, not run here).
+
 ## v0.8.0-rc51
 
 Versions between v0.7.1-rc24 and v0.8.0-rc51 were internal test builds and were not published on GitHub.
