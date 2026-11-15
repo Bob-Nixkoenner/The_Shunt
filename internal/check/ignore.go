@@ -76,7 +76,10 @@ func Hideable() []string {
 // not be hidden (not in the list, or "bad").
 func HideKey(f Finding) (key string, ok bool) {
 	subj, listed := hideable[f.ID]
-	if !listed || f.Level == Bad {
+	// "bad" is never hidden, with one exception: the strict check raises a
+	// note about a provider's OpenVPN file (which the user cannot change) to
+	// "bad"; that stays hideable, it was a note to begin with.
+	if !listed || (f.Level == Bad && !(f.Strict && strings.HasPrefix(f.ID, "ovpn."))) {
 		return "", false
 	}
 	if subj == "" {
@@ -262,7 +265,8 @@ func (l *IgnoreList) List() []Ignored {
 
 // Filter splits fs into what is shown and what is hidden. Shown findings
 // that could be hidden get their Key, so a front end can offer the button.
-// A finding at level "bad" is always shown, even if its key is listed.
+// A finding at level "bad" is always shown, even if its key is listed
+// (except a strict-raised OpenVPN file note, see HideKey).
 func (l *IgnoreList) Filter(fs []Finding) (shown, hidden []Finding) {
 	var on map[string]Ignored
 	if l != nil {

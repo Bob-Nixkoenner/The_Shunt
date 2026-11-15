@@ -108,6 +108,11 @@ function ago(ts) {
 }
 
 function render() {
+  // A drop-down that is open keeps focus; building the page again would
+  // replace it and close it after a moment. Wait until it is closed (at
+  // most 30 s, so a forgotten drop-down does not freeze the page).
+  const picking = document.activeElement;
+  if (picking && picking.tagName === "SELECT" && Date.now() - Number(picking.dataset.pick || 0) < 30000) return;
   const st = status;
   const win = !!st && st.platform === "windows";
   document.body.classList.toggle("windows", win);
@@ -145,7 +150,7 @@ function render() {
 
   const inq = st.inbound_ask;
   $("#banners").replaceChildren(...noticeBanners(st),
-    ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
+    ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}), hideCtl(f))),
     ...(st.findings || []).filter(strictFinding).map((f) => el("div", { class: "banner" }, "⚠ ", T(f.msg, f.vals || {}), hideCtl(f))),
     ...(inq && shows("inbound") ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
@@ -210,9 +215,10 @@ function render() {
             await refresh();
           } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
         } }, t.disabled ? T("Switch on") : T("Switch off")),
-        ...(t.disabled && !t.sleep_left ? [] : [el("select", { title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
+        ...(t.disabled && !t.sleep_left ? [] : [el("select", { onfocus: (e) => { e.target.dataset.pick = Date.now(); }, title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
           const secs = parseInt(e.target.value, 10);
           e.target.value = "";
+          e.target.blur();
           if (!secs) return;
           try {
             await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: "sleep", seconds: secs });
@@ -664,7 +670,7 @@ $("#allapps").addEventListener("change", renderApps);
   try { ffProfiles = (await api("GET", "/api/firefox-profiles")) || []; } catch { ffProfiles = []; }
   try { crProfiles = (await api("GET", "/api/chromium-profiles")) || []; } catch { crProfiles = []; }
   await loadApps();
-  setInterval(refresh, 2000);
+  setInterval(refresh, 10000);
 })();
 
 // --- updates ---------------------------------------------------------------
@@ -864,14 +870,15 @@ function noticeBanners(st) {
 }
 
 // hideCtl: "Hide…" for a warning the service lets the user hide (f.key, see
-// check/ignore.go: notes about one's own settings; never "bad", never a
+// check/ignore.go: notes about one's own settings; never "bad" (but a strict-raised OpenVPN file note), never a
 // state like a tunnel down or a leak). It stays listed under "hidden".
 function hideCtl(f) {
   if (!f.key) return "";
-  const s = el("select", { class: "hide-warn", title: "Hide this warning. It is listed under “hidden warnings” and can be shown again there.",
+  const s = el("select", { class: "hide-warn", onfocus: (e) => { e.target.dataset.pick = Date.now(); }, title: "Hide this warning. It is listed under “hidden warnings” and can be shown again there.",
     onchange: async () => {
       const how = s.value;
       s.value = "";
+      s.blur();
       if (!how) return;
       try {
         await api("POST", "/api/warnings/ignore", { key: f.key, for: how });

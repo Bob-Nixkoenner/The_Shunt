@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.0-rc53
+
+- **Drop-downs closed by themselves (window and web UI):** the page rebuilt its banners and tunnel cards every 2 s and replaced an open "Hide…" or "Sleep …" list. The status now refreshes every 10 s, and the page waits (at most 30 s) while such a list has focus.
+- **Hide warnings, strict check:** a note about a provider's OpenVPN file (`ovpn.*`) that the strict check raised to "bad" can be hidden as before. Other "bad" findings stay unhideable.
+
 ## v0.8.0-rc52
 
 - **Direct and local-network connections cut after sending (Windows, Android):** the counter wrapper added with the way counters hid the half-close, so a direct connection was closed as soon as the client had finished sending and the reply never arrived. The half-close is now passed through.
