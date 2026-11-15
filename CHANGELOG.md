@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Direct and local-network connections cut after sending (Windows, Android):** the counter wrapper added with the way counters hid the half-close, so a direct connection was closed as soon as the client had finished sending and the reply never arrived. The half-close is now passed through.
 - **Direct and local-network traffic on Linux:** the daemon counts traffic outside the tunnels (to the internet and to the local network) in an nft table of its own (`shunt_ways`) that only counts – no verdict, no mark, the main rules stay as they were – and shows it in the statistics like on Windows/Android. Not counted: forwarded traffic (VMs, gateway clients); Tor relay traffic shows as direct. Tests `TestRenderWaysOnlyCounts`, `TestParseWays`, `TestWaysNetns`, `TestCountWays`.
 - Tunnels: switch on/off per tunnel (stays after a restart) and "sleep" for 1-24 h (memory only, wakes by itself) in the window, the web UI, the Linux tray and `shunt tunnel on|off|sleep NAME [TIME]`. Apps with a rule on that tunnel stay blocked, never direct. Windows service: not yet (needs a restart route in winsvc/manager.go).
 
