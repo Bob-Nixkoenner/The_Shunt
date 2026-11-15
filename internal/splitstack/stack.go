@@ -359,7 +359,6 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		arrived := time.Now()
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
-			e.observeQuery(f.app, q.Question[0].Name, q.Question[0].Qtype) // OPUS-REVIEW
 			e.mu.RLock()
 			noDoH := e.blockDoH
 			e.mu.RUnlock()
@@ -380,6 +379,9 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 				}
 				continue
 			}
+			// after the filter: a blocked name never goes out and must not
+			// count as a DNS tunnel suspect (telemetry that asks again and again)
+			e.observeQuery(f.app, q.Question[0].Name, q.Question[0].Qtype) // OPUS-REVIEW
 			if r := e.domainRule(f.app, q.Question[0].Name); r != nil {
 				go e.resolveForRule(f, r, append([]byte(nil), buf[:n]...), in)
 				continue

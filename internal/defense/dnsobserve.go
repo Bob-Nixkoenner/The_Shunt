@@ -34,6 +34,7 @@ type dnsKey struct{ client, base string }
 type dnsTrack struct {
 	qs    []dnsQ
 	fired time.Time
+	app   string // program of the latest query ("" = unknown)
 }
 
 // dnsState is the Manager's DNS-side memory.
@@ -83,7 +84,41 @@ func (m *Manager) Answer(name string, addrs []netip.Addr) { m.ObserveDNSAnswer(n
 // ObserveDNS is called by the DNS proxy for every query. It is cheap and
 // does nothing while the dns_tunnel feature is off.
 func (m *Manager) ObserveDNS(client netip.Addr, name, qtype string) {
+	m.ObserveDNSApp(client, "", name, qtype)
+}
+
+// QueryApp is Query with the program that asked ("" = unknown); the event
+// names it, so a program that goes around the tunnel can be found.
+func (m *Manager) QueryApp(client netip.Addr, app, name, qtype string) {
+	m.ObserveDNSApp(client, app, name, qtype)
+}
+
+// searchSuffixes end names that a resolver appends (search domain) or that
+// only exist in the local network. They are cut off before the base domain
+// is taken, else "example.com" asked with a ".lan" search domain would be
+// tracked as the domain "com.lan".
+var searchSuffixes = []string{".home.arpa", ".localdomain", ".internal", ".intranet", ".private", ".corp", ".lan", ".local", ".home", ".fritz.box"}
+
+// StripLocalSuffix removes a local or search suffix. ok is false when
+// nothing public is left (a purely local name such as "printer.lan").
+func StripLocalSuffix(name string) (string, bool) {
+	n := strings.TrimSuffix(strings.ToLower(name), ".")
+	for _, suf := range searchSuffixes {
+		if strings.HasSuffix(n, suf) {
+			rest := strings.TrimSuffix(n, suf)
+			return rest, strings.Contains(rest, ".")
+		}
+	}
+	return n, true
+}
+
+// ObserveDNSApp is ObserveDNS with the asking program.
+func (m *Manager) ObserveDNSApp(client netip.Addr, app, name, qtype string) {
 	if !m.feature(FeatDNSTunnel).Watch {
+		return
+	}
+	name, pub := StripLocalSuffix(name)
+	if !pub {
 		return
 	}
 	base := BaseDomain(name)
@@ -115,6 +150,9 @@ func (m *Manager) ObserveDNS(client netip.Addr, name, qtype string) {
 		}
 	}
 	tr.qs = append(keep, dnsQ{DNSQuery{Name: name, Type: qtype}, now})
+	if app != "" {
+		tr.app = app
+	}
 	if len(tr.qs) > dnsMaxKeep {
 		tr.qs = tr.qs[len(tr.qs)-dnsMaxKeep:]
 	}
@@ -129,11 +167,11 @@ func (m *Manager) ObserveDNS(client netip.Addr, name, qtype string) {
 			tr.fired, fire = now, true
 		}
 	}
-	count := len(tr.qs)
+	count, who := len(tr.qs), tr.app
 	m.dns.mu.Unlock()
 	if fire {
 		m.Report(Event{Kind: KindDNSTunnel, Severity: SevMedium,
-			Detail: fmt.Sprintf("domain=%s score=%.2f queries=%d window=%ds", base, score, count, int(dnsWindow/time.Second))})
+			Detail: fmt.Sprintf("domain=%s score=%.2f queries=%d window=%ds", base, score, count, int(dnsWindow/time.Second)) + appDetail(who)})
 	}
 }
 
@@ -193,4 +231,11 @@ func (m *Manager) forgetDNS() {
 	m.dns.keys = nil
 	m.dns.rebound = nil
 	m.dns.mu.Unlock()
+}
+
+func appDetail(app string) string {
+	if app == "" {
+		return ""
+	}
+	return " app=" + app
 }

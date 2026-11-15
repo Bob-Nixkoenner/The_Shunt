@@ -110,6 +110,17 @@ func TestFilter(t *testing.T) {
 		t.Errorf("stats %+v", st)
 	}
 
+	// the observer is told only about queries that go out, not about blocked ones
+	seen := 0
+	pass := func() { seen++ }
+	for _, name := range []string{"x.ads.example.", "evil.example.", "ok.example."} {
+		q := new(dns.Msg)
+		q.SetQuestion(name, dns.TypeA)
+		p.handleObs(1, q, markUnknown, nil, pass)
+	}
+	if seen != 2 { // evil.example is not blocked on the direct route (normal)
+		t.Errorf("observer saw %d queries, want 2 (the blocked one not)", seen)
+	}
 	// the login port: a query whose packet mark is known to come from the
 	// login browser is not filtered; one without a readable mark (TCP, any
 	// local process) is filtered like the direct route

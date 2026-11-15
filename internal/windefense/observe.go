@@ -34,7 +34,9 @@ func (o *obs) appKey(app string) netip.Addr {
 	return a
 }
 
-func (o *obs) DNSQuery(app, name, qtype string) { o.m.ObserveDNS(o.appKey(app), name, qtype) }
+func (o *obs) DNSQuery(app, name, qtype string) {
+	o.m.ObserveDNSApp(o.appKey(app), appLabel(app), name, qtype)
+}
 
 func (o *obs) DNSAnswer(name string, addrs []netip.Addr) { o.m.ObserveDNSAnswer(name, addrs) }
 
@@ -62,4 +64,11 @@ func (o *obs) NewConn(app string, proto int, dst netip.AddrPort) {
 		o.m.Report(defense.Event{Kind: defense.KindReputation, Severity: defense.SevHigh,
 			Src: a.String(), Port: int(dst.Port()), Proto: pr, Detail: "list=" + list + " app=" + appName(app)})
 	}
+}
+
+func appLabel(app string) string {
+	if app == "" {
+		return ""
+	}
+	return strings.ToLower(app)
 }
