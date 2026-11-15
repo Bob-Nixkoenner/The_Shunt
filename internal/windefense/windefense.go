@@ -108,7 +108,7 @@ func (r *Runner) Network(info netdetect.Info) {
 	if c == nil || info.Iface == "" {
 		return
 	}
-	class := c.NetClass(info)
+	class := r.class(c, info)
 	r.M.SetNetwork(NetKey(info), class)
 	mode := "off"
 	profile := ""
@@ -120,6 +120,16 @@ func (r *Runner) Network(info netdetect.Info) {
 	}
 	r.M.SetExposure(defense.Exposure{V4: info.PublicV4, V6: info.PublicV6, Inbound: mode})
 	r.log.Info("defense: network", "class", class)
+}
+
+// class is the config's class of the network; without a matching
+// [[network]] profile the system's rating gives a hint (only "public" makes
+// it stricter, nothing ever becomes safe by itself).
+func (r *Runner) class(c *config.Config, info netdetect.Info) defense.Class {
+	if c.MatchNetwork(info.SSID, info.GatewayMAC) == nil && info.OSProfile != "" {
+		return defense.Class(netdetect.ClassHint(info.OSProfile)).Normalize()
+	}
+	return c.NetClass(info)
 }
 
 // Start runs the background work (reputation lists, twice a day, only while

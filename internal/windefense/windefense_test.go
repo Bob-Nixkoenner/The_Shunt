@@ -86,3 +86,27 @@ func TestAppNameIsFileName(t *testing.T) {
 		}
 	}
 }
+
+func TestClassHintAndConfigWins(t *testing.T) {
+	r := New(t.TempDir(), nil, nil)
+	defer r.Close()
+	c, err := config.Parse("[daemon]\ndefault_route = \"direct\"\n[defense]\nenabled = true\n[[network]]\nname = \"home\"\nssid = [\"Home\"]\nclass = \"safe\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		info netdetect.Info
+		want defense.Class
+	}{
+		{netdetect.Info{Iface: "WLAN", SSID: "Cafe", OSProfile: "public"}, defense.ClassUnsafe},
+		{netdetect.Info{Iface: "WLAN", SSID: "Cafe", OSProfile: "private"}, defense.ClassUnknown},
+		{netdetect.Info{Iface: "WLAN", SSID: "Cafe", OSProfile: "domain"}, defense.ClassUnknown},
+		{netdetect.Info{Iface: "WLAN", SSID: "Cafe"}, defense.ClassUnknown},
+		{netdetect.Info{Iface: "WLAN", SSID: "Home", OSProfile: "public"}, defense.ClassSafe}, // config wins
+	}
+	for _, k := range cases {
+		if got := r.class(c, k.info); got != k.want {
+			t.Errorf("%+v: %s want %s", k.info, got, k.want)
+		}
+	}
+}

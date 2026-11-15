@@ -894,7 +894,8 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 	// take a moment), not on every poll
 	mac := winsplit.GatewayMAC(up.Gateway)
 	publish := func(u winsplit.Uplink) {
-		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway, GatewayMAC: mac})
+		info.Store(netdetect.Info{Iface: u.Name, SSID: u.SSID, GatewayIP: u.Gateway, GatewayMAC: mac,
+			OSProfile: netdetect.WindowsProfile(u.Name)})
 	}
 	publish(up)
 	e.SetSystemDNS(up.DNS)
