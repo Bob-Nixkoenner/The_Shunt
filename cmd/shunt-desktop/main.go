@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,9 @@ type trayApp struct {
 	panic     *systray.MenuItem
 	autostart *systray.MenuItem
 	tunnels   []*systray.MenuItem
+	tunSwitch []*systray.MenuItem // per tunnel: switch on/off
+	tunMu     sync.Mutex
+	tunLine   []desktopapp.TunnelLine
 	hidden    *systray.MenuItem // "n warnings hidden" (opens the window)
 	relabel   func()            // sets the texts of the fixed menu items (again)
 	lang      string            // the language they are in
@@ -160,9 +164,24 @@ func (a *trayApp) onReady() {
 	a.title.Disable()
 	for i := 0; i < maxTunnelItems; i++ {
 		it := systray.AddMenuItem("", "")
-		it.Disable()
 		it.Hide()
 		a.tunnels = append(a.tunnels, it)
+		sw := it.AddSubMenuItem("", "")
+		sl1 := it.AddSubMenuItem(i18n.T("Sleep 1 hour"), i18n.T("Off for a while, then on again by itself. Its apps stay blocked."))
+		sl4 := it.AddSubMenuItem(i18n.T("Sleep 4 hours"), i18n.T("Off for a while, then on again by itself. Its apps stay blocked."))
+		a.tunSwitch = append(a.tunSwitch, sw)
+		go func(i int) {
+			for {
+				select {
+				case <-sw.ClickedCh:
+					a.tunnelState(i, "")
+				case <-sl1.ClickedCh:
+					a.tunnelState(i, "sleep1")
+				case <-sl4.ClickedCh:
+					a.tunnelState(i, "sleep4")
+				}
+			}
+		}(i)
 	}
 	a.hidden = systray.AddMenuItem("", "")
 	a.hidden.Hide()
@@ -278,6 +297,35 @@ func (a *trayApp) updateAvailable(i update.Info) {
 	a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt: update available"), Body: i18n.T("Open the tray menu → “Update available”, then “Install update” in the window.")})
 }
 
+// tunnelState handles a click in a tunnel's submenu: how "" toggles on/off,
+// sleep1/sleep4 let it sleep for 1 or 4 hours.
+func (a *trayApp) tunnelState(i int, how string) {
+	a.tunMu.Lock()
+	if i >= len(a.tunLine) {
+		a.tunMu.Unlock()
+		return
+	}
+	l := a.tunLine[i]
+	a.tunMu.Unlock()
+	req := api.TunnelState{State: "off"}
+	switch {
+	case how == "sleep1" && !l.Disabled || how == "sleep4" && !l.Disabled:
+		req = api.TunnelState{State: "sleep", Seconds: 3600}
+		if how == "sleep4" {
+			req.Seconds = 4 * 3600
+		}
+	case how != "":
+		return // sleeping an off tunnel makes no sense
+	case l.Disabled:
+		req.State = "on"
+	}
+	go func() {
+		if err := a.client.Do("POST", "/v1/tunnels/"+url.PathEscape(l.Name)+"/state", req, nil); err != nil {
+			a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Tunnel {name} not changed", "name", l.Name), Body: err.Error()})
+		}
+	}()
+}
+
 // restartService asks shuntd to restart and waits until it answers again;
 // with app, this program then replaces itself with a fresh copy.
 func (a *trayApp) restartService(app bool) {
@@ -369,6 +417,9 @@ func (a *trayApp) render(v desktopapp.View) {
 	} else {
 		a.hidden.Hide()
 	}
+	a.tunMu.Lock()
+	a.tunLine = v.Tunnels
+	a.tunMu.Unlock()
 	for i, it := range a.tunnels {
 		if i < len(v.Tunnels) {
 			mark := "✔ "
@@ -376,6 +427,11 @@ func (a *trayApp) render(v desktopapp.View) {
 				mark = "✖ "
 			}
 			it.SetTitle(mark + v.Tunnels[i].Text)
+			if v.Tunnels[i].Disabled {
+				a.tunSwitch[i].SetTitle(i18n.T("Switch on"))
+			} else {
+				a.tunSwitch[i].SetTitle(i18n.T("Switch off"))
+			}
 			it.Show()
 		} else {
 			it.Hide()

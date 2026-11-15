@@ -62,6 +62,7 @@ var usageEntries = []struct {
 	{`  gateway [status]`, "devices behind this computer (gateway mode): groups, interfaces, routes"},
 	{`  inbound [trust [NAME] | keep-closed]`, "incoming protection on this network; on an unknown one: trust it as your LAN (adds a network profile, inbound = \"lan\") or keep it closed and stop asking"},
 	{`  which NAME`, "show running processes named like NAME and the route each one takes"},
+	{`  tunnel on|off|sleep NAME [TIME]`, "switch a tunnel on or off (lasting), or let it sleep for a while (30m, 2h; default 1h) – its apps stay blocked"},
 	{`  rename OLD NEW`, "rename a tunnel (files, rules, default route, menu entries follow)"},
 	{`  import FILE [--name NAME] [--via tunnel:<name>] [--dns UPSTREAM] [--user USER]`, "add a WireGuard (.conf) or OpenVPN (.ovpn) tunnel; run with sudo for root-only files like /etc/wireguard/*.conf. --via makes it a second hop through that tunnel; OpenVPN logins are asked for."},
 	{`  remove NAME`, "delete a tunnel and its imported files (not while the default route, a rule or another tunnel's --via uses it)"},
@@ -168,6 +169,8 @@ func main() {
 		err = importTunnel(c, args[1:])
 	case "remove":
 		err = removeTunnel(c, args[1:])
+	case "tunnel":
+		err = tunnelStateCmd(c, args[1:])
 	case "rename":
 		err = renameTunnel(c, args[1:])
 	case "version":
@@ -319,6 +322,29 @@ func importTunnel(c *api.Client, args []string) error {
 	for _, w := range noticeTexts(res.Notices, res.Warnings) {
 		fmt.Println(i18n.T("warning:"), w)
 	}
+	return nil
+}
+
+// tunnelStateCmd: shunt tunnel on|off|sleep NAME [TIME].
+func tunnelStateCmd(c *api.Client, args []string) error {
+	if len(args) < 2 || len(args) > 3 || (args[0] != "on" && args[0] != "off" && args[0] != "sleep") || (args[0] != "sleep" && len(args) != 2) {
+		return errors.New(i18n.T("usage: shunt tunnel on|off|sleep NAME [TIME]"))
+	}
+	req := api.TunnelState{State: args[0]}
+	if args[0] == "sleep" {
+		d := time.Hour
+		if len(args) == 3 {
+			var err error
+			if d, err = time.ParseDuration(args[2]); err != nil {
+				return errors.New(i18n.T("usage: shunt tunnel on|off|sleep NAME [TIME]"))
+			}
+		}
+		req.Seconds = int(d.Seconds())
+	}
+	if err := c.Do("POST", "/v1/tunnels/"+url.PathEscape(args[1])+"/state", req, nil); err != nil {
+		return err
+	}
+	fmt.Println(i18n.T("tunnel {name}: {state}", "name", strconv.Quote(args[1]), "state", args[0]))
 	return nil
 }
 

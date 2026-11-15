@@ -91,6 +91,8 @@ type Daemon struct {
 	startLogged bool       // the eBPF start guard loaded (logged once)
 	startErr    error      // why the eBPF start guard is not loaded (status note)
 	saveMu      sync.Mutex // serializes config writes
+	sleepMu     sync.Mutex
+	sleepers    map[string]*sleeper // tunnels asleep (memory only)
 	dnsUps      dnsproxy.RouteUpstreams
 	// pushed holds the DNS servers OpenVPN servers pushed ([]netip.Addr per
 	// tunnel name); read by the DNS proxy without d.mu.
@@ -186,6 +188,9 @@ type Env struct {
 	// TorAll: the Tor tunnel everything goes through (emergency switch,
 	// see Daemon.setTorAll); "" = off.
 	TorAll string
+	// Sleep: tunnels switched off for a while (memory only, see
+	// Daemon.setTunnelState). They count as disabled: their routes block.
+	Sleep map[string]bool
 }
 
 // PrepareOn is Prepare for the environment env.
@@ -197,6 +202,14 @@ func PrepareOn(path, cgroupRoot string, env Env) (*Prepared, error) {
 	}
 	if c.Daemon.CgroupRoot != "" {
 		cgroupRoot = c.Daemon.CgroupRoot
+	}
+	if len(env.Sleep) > 0 {
+		ts := make(map[string]config.Tunnel, len(c.Tunnels))
+		for n, t := range c.Tunnels {
+			t.Disabled = t.Disabled || env.Sleep[n]
+			ts[n] = t
+		}
+		c.Tunnels = ts
 	}
 	p := &Prepared{Config: c, Confs: map[string]*wgconf.Config{}, OVPN: map[string]*ovpnconf.Config{}, TS: map[string]*tsconf.Config{}, AuthFiles: map[string]string{}, Hashes: map[string]string{}}
 	infos := map[string]engine.TunnelInfo{}
@@ -801,7 +814,7 @@ func (d *Daemon) reload(selfCgroup string) error {
 	if d.plan != nil {
 		root = d.plan.CgroupRoot
 	}
-	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now()), TorAll: d.loadTorAll()})
+	p, err := PrepareOn(d.ConfigPath, root, Env{Net: &d.netInfo, Links: d.links, Backend: d.Backend, Pass: d.ov.Passing(time.Now()), TorAll: d.loadTorAll(), Sleep: d.sleepSet()})
 	if err != nil {
 		return err
 	}
@@ -1743,6 +1756,22 @@ func (d *Daemon) routes() http.Handler {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/tunnels/{name}/state", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		var req api.TunnelState
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.setTunnelState(r.PathValue("name"), req.State, time.Duration(req.Seconds)*time.Second); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/tunnels/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
 			writeErr(w, http.StatusForbidden, err)
@@ -2067,7 +2096,7 @@ func (d *Daemon) statusAll() api.Status {
 		socksStates = d.socks.States()
 	}
 	for _, n := range names {
-		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Socks: d.cfg.Tunnels[n].Socks, SocksState: socksStates[n], Disabled: d.cfg.Tunnels[n].Disabled}
+		ts := api.TunnelStatus{Name: n, Iface: d.cfg.Tunnels[n].Interface, Error: d.tunErrors[n], Via: d.cfg.Tunnels[n].Via, Socks: d.cfg.Tunnels[n].Socks, SocksState: socksStates[n], Disabled: d.cfg.Tunnels[n].Disabled, SleepLeft: d.sleepLeft(n)}
 		if t, ok := d.tunnels[n]; ok {
 			ts.Up, ts.Driver = true, t.DriverName()
 			ts.Peers, _ = t.Status()

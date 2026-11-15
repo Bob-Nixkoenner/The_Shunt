@@ -162,7 +162,7 @@ function render() {
     const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
     const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
-      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
+      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.sleep_left ? el("span", { class: "pill" }, T("asleep, {min} min left", { min: Math.ceil(t.sleep_left / 60) })) : t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
           el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
@@ -202,6 +202,26 @@ function render() {
             setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
           } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
+      el("div", { class: "row", style: "margin-top:8px;gap:6px;flex-wrap:wrap" },
+        el("button", { title: T("Off stays off after a restart. The apps of this tunnel stay blocked."), onclick: async () => {
+          try {
+            await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: t.disabled ? "on" : "off" });
+            toast(t.disabled ? T("Tunnel {name} is on", { name: t.name }) : T("Tunnel {name} is off", { name: t.name }));
+            await refresh();
+          } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
+        } }, t.disabled ? T("Switch on") : T("Switch off")),
+        ...(t.disabled && !t.sleep_left ? [] : [el("select", { title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
+          const secs = parseInt(e.target.value, 10);
+          e.target.value = "";
+          if (!secs) return;
+          try {
+            await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: "sleep", seconds: secs });
+            toast(T("Tunnel {name} sleeps", { name: t.name }));
+            await refresh();
+          } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
+        } },
+          el("option", { value: "" }, T("Sleep …")),
+          ...[[900, T("15 minutes")], [3600, T("1 hour")], [14400, T("4 hours")], [43200, T("12 hours")]].map(([v, l]) => el("option", { value: String(v) }, l)))])),
       ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
     ...(st.traffic && st.traffic.total && st.traffic.total.total.rx + st.traffic.total.total.tx > 0 ? [el("div", { class: "muted", style: "grid-column:1/-1" },
