@@ -2,9 +2,9 @@
  "name": "Deutsch",
  "strings": {
   "Known Wi-Fi networks": "Bekannte WLANs",
-  "A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row above. Only a fingerprint of the name is saved, never the name.": "Ein hier eingestelltes WLAN behält seine eigenen Einstellungen (Weg, DNS-Filterlisten), jedes andere WLAN nimmt die WLAN-Zeile oben. Gespeichert wird nur ein Fingerabdruck des Namens, nie der Name.",
+  "A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row on the Apps tab. Only a fingerprint of the name is saved, never the name.": "Ein hier eingestelltes WLAN behält seine eigenen Einstellungen (Weg, DNS-Filterlisten), jedes andere WLAN nimmt die WLAN-Zeile im Reiter Apps. Gespeichert wird nur ein Fingerabdruck des Namens, nie der Name.",
   "Own DNS filter lists": "Eigene DNS-Filterlisten",
-  "A class for one Wi-Fi: Apps tab, Known Wi-Fi networks.": "Klasse für ein einzelnes WLAN: Reiter Apps, Bekannte WLANs.",
+  "A class for one Wi-Fi: View tab, Known Wi-Fi networks.": "Klasse für ein einzelnes WLAN: Reiter Ansicht, Bekannte WLANs.",
   "To tell Wi-Fi networks apart Android needs the location permission (only to read the Wi-Fi name; The Shunt uses no location).": "Um WLANs zu unterscheiden, verlangt Android die Standort-Berechtigung (nur zum Lesen des WLAN-Namens; The Shunt nutzt keinen Standort).",
   "Set up this Wi-Fi": "Dieses WLAN einstellen",
   "Not allowed: all Wi-Fi networks take the Wi-Fi row.": "Nicht erlaubt: alle WLANs nehmen die WLAN-Zeile.",

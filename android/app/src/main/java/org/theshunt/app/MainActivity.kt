@@ -858,7 +858,6 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
                     }
                 }
             }
-            if (settings.shows("wifi.list")) KnownWifiSection(settings, update)
             OutlinedTextField(
                 query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text(T("filter…")) }, singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = c.panel2, focusedContainerColor = c.panel2, unfocusedBorderColor = c.line),
@@ -1138,6 +1137,7 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
                 }
             )
         }
+        if (settings.shows("wifi.list")) Section("Known Wi-Fi networks") { KnownWifiSection(settings, update) }
         DefenseSettingsSection(settings, update)
     }
     if (opsecOn) OpsecOnDialog(settings, onDone = { s -> opsecOn = false; s?.let(update) })
@@ -1283,8 +1283,7 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
     val ssid = remember(granted, VpnState.link) { if (granted) Defense.currentSsid(ctx) else "" }
     val here = if (ssid.isNotEmpty()) Defense.wifiId(ssid) else ""
     val classes = settings.shows("defense.ui")
-    Text(T("Known Wi-Fi networks"), color = c.text, fontWeight = FontWeight.SemiBold)
-    Hint("A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row above. Only a fingerprint of the name is saved, never the name.")
+    Hint("A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row on the Apps tab. Only a fingerprint of the name is saved, never the name.")
     when {
         !granted -> {
             Hint("To tell Wi-Fi networks apart Android needs the location permission (only to read the Wi-Fi name; The Shunt uses no location).")
