@@ -29,9 +29,11 @@ const StaleAfter = 3 * time.Minute
 
 // TunnelLine is one tunnel as shown in the tray menu.
 type TunnelLine struct {
-	Name string
-	OK   bool
-	Text string
+	Name     string
+	OK       bool
+	Text     string
+	Disabled bool // switched off (or asleep): the menu offers "switch on"
+	Asleep   bool // off for a while only
 }
 
 // View is what the tray shows for one daemon status.
@@ -87,8 +89,11 @@ func Compute(st *api.Status, err error, now time.Time) View {
 			}
 			keepalive = keepalive || p.KeepaliveSec > 0
 		}
-		line := TunnelLine{Name: t.Name}
+		line := TunnelLine{Name: t.Name, Disabled: t.Disabled, Asleep: t.SleepLeft > 0}
 		switch {
+		case t.SleepLeft > 0:
+			line.OK = true
+			line.Text = i18n.T("{name}: asleep, {min} min left – its apps are blocked", "name", t.Name, "min", (t.SleepLeft+59)/60)
 		case t.Disabled:
 			line.OK = true // switched off on purpose: nothing to warn about
 			line.Text = t.Name + ": switched off – its apps are blocked"

@@ -238,7 +238,7 @@ func (d *Daemon) defenseStatus() defense.Status {
 // reload that follows applies it.
 func (d *Daemon) saveDefenseConfig(cfg defense.Config) error {
 	d.mu.Lock()
-	cp := *d.cfg
+	cp := d.lockedFileCfg()
 	d.mu.Unlock()
 	cp.Defense = &cfg
 	raw, err := cp.Encode()

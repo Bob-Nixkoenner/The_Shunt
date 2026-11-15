@@ -307,7 +307,7 @@ func (d *Daemon) importTunnel(req api.TunnelImport) (*Prepared, error) {
 // deleteTunnel removes a tunnel that no rule uses anymore.
 func (d *Daemon) deleteTunnel(name string) error {
 	d.mu.Lock()
-	cfg := *d.cfg
+	cfg := d.lockedFileCfg()
 	t, ok := cfg.Tunnels[name]
 	d.mu.Unlock()
 	if !ok {
@@ -358,7 +358,7 @@ func (d *Daemon) renameTunnel(from, to string) error {
 		return errors.New("name: 1-10 characters a-z 0-9 -, starting with a letter or digit")
 	}
 	d.mu.Lock()
-	cfg := *d.cfg
+	cfg := d.lockedFileCfg()
 	t, ok := cfg.Tunnels[from]
 	_, taken := cfg.Tunnels[to]
 	d.mu.Unlock()

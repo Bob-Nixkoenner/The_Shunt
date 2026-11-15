@@ -137,9 +137,11 @@ type TunnelStatus struct {
 	Driver string `json:"driver"`
 	Up     bool   `json:"up"`
 	// Disabled: switched off in the config (its route blocks).
-	Disabled bool   `json:"disabled,omitempty"`
-	Error    string `json:"error,omitempty"`
-	Via      string `json:"via,omitempty"` // second hop through this route
+	Disabled bool `json:"disabled,omitempty"`
+	// SleepLeft: seconds until a sleeping tunnel wakes up (Disabled is set too).
+	SleepLeft int    `json:"sleep_left,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Via       string `json:"via,omitempty"` // second hop through this route
 	// Bootstrap: tor tunnels only, 0..100 (100 = connected).
 	Bootstrap *int `json:"bootstrap,omitempty"`
 	// Circuit: tor tunnels only, once connected: the path new connections take
@@ -254,6 +256,14 @@ type TunnelImport struct {
 type TorAllRequest struct {
 	On     bool   `json:"on"`
 	Tunnel string `json:"tunnel,omitempty"` // empty: the only Tor tunnel
+}
+
+// TunnelState is the body of POST /v1/tunnels/{name}/state: State "on" or
+// "off" changes the config file (stays after a restart), "sleep" switches
+// the tunnel off for Seconds (memory only, then it comes back by itself).
+type TunnelState struct {
+	State   string `json:"state"`
+	Seconds int    `json:"seconds,omitempty"`
 }
 
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.

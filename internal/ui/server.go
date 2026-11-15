@@ -583,6 +583,13 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("DELETE /api/tunnels/{name}", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "DELETE", "/v1/tunnels/"+url.PathEscape(r.PathValue("name")), nil)
 	})
+	mux.HandleFunc("POST /api/tunnels/{name}/state", func(w http.ResponseWriter, r *http.Request) {
+		var body json.RawMessage
+		if !decode(w, r, &body) {
+			return
+		}
+		s.forward(w, "POST", "/v1/tunnels/"+url.PathEscape(r.PathValue("name"))+"/state", body)
+	})
 	mux.HandleFunc("POST /api/tunnels/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
 		var body json.RawMessage
 		if !decode(w, r, &body) {
