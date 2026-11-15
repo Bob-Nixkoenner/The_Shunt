@@ -47,6 +47,9 @@ type View struct {
 	Pending     int             // programs the app firewall holds, waiting for a route
 	Unreachable bool            // the service does not answer (Title is then text for people, not a key)
 	Warn        []string
+	// Hidden: warnings the user hid (Status.Ignored); the tray lists the
+	// number so hidden never passes for "nothing to say".
+	Hidden int
 	// DefHeat and DefLevel: the defense gauge ("" level = defense off).
 	DefHeat  int
 	DefLevel defense.Level
@@ -63,6 +66,7 @@ func Compute(st *api.Status, err error, now time.Time) View {
 	}
 	v := View{Panic: st.Panic, Down: map[string]bool{}, DNSDown: map[string]bool{}, Warn: warnTexts(st)}
 	v.Captive = st.Captive == "portal"
+	v.Hidden = len(st.Ignored)
 	v.Pending = st.Pending
 	if st.Defense != nil {
 		v.DefHeat, v.DefLevel = st.Defense.Heat, st.Defense.Level

@@ -147,8 +147,9 @@ type trayApp struct {
 	panic     *systray.MenuItem
 	autostart *systray.MenuItem
 	tunnels   []*systray.MenuItem
-	relabel   func() // sets the texts of the fixed menu items (again)
-	lang      string // the language they are in
+	hidden    *systray.MenuItem // "n warnings hidden" (opens the window)
+	relabel   func()            // sets the texts of the fixed menu items (again)
+	lang      string            // the language they are in
 }
 
 func (a *trayApp) onReady() {
@@ -163,6 +164,8 @@ func (a *trayApp) onReady() {
 		it.Hide()
 		a.tunnels = append(a.tunnels, it)
 	}
+	a.hidden = systray.AddMenuItem("", "")
+	a.hidden.Hide()
 	systray.AddSeparator()
 	open := systray.AddMenuItem("", "")
 	a.panic = systray.AddMenuItem("", "")
@@ -210,6 +213,8 @@ func (a *trayApp) onReady() {
 			select {
 			case <-open.ClickedCh:
 				a.show()
+			case <-a.hidden.ClickedCh:
+				a.show() // the window lists them, with "Show again"
 			case <-a.panic.ClickedCh:
 				a.togglePanic()
 			case <-a.update.ClickedCh:
@@ -356,6 +361,13 @@ func (a *trayApp) render(v desktopapp.View) {
 		a.panic.SetTitle(i18n.T("Release panic (needs admin password)"))
 	} else {
 		a.panic.SetTitle(i18n.T("PANIC – block all traffic"))
+	}
+	if v.Hidden > 0 {
+		a.hidden.SetTitle(i18n.Tn(v.Hidden, "{n} warning hidden – show…", "{n} warnings hidden – show…"))
+		a.hidden.SetTooltip(i18n.T("Opens the window: the list of hidden warnings, each can be shown again"))
+		a.hidden.Show()
+	} else {
+		a.hidden.Hide()
 	}
 	for i, it := range a.tunnels {
 		if i < len(v.Tunnels) {

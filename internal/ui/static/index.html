@@ -85,9 +85,11 @@ input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 
 input.grow { flex: 1; min-width: 180px; }
 .muted { color: var(--muted); }
 .banner { grid-column: span 12; border-radius: var(--r); padding: 10px 14px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
-#checks { grid-column: span 12; }
-#checks > summary { cursor: pointer; padding: 6px 2px; color: var(--muted); }
-#checks[open] > summary { color: var(--text); }
+#checks, #hidden-warn { grid-column: span 12; }
+#checks > summary, #hidden-warn > summary { cursor: pointer; padding: 6px 2px; color: var(--muted); }
+#checks[open] > summary, #hidden-warn[open] > summary { color: var(--text); }
+#hidden-warn-list { display: grid; gap: 8px; margin-top: 6px; }
+select.hide-warn { margin-left: 8px; font-size: 12px; padding: 1px 4px; }
 .note { padding: 6px 10px; border-left: 3px solid var(--line); color: var(--muted); }
 .note.warn { border-left-color: var(--warn); }
 #checks-list { display: grid; gap: 8px; margin-top: 6px; }
@@ -326,6 +328,10 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   <details id="checks" hidden>
     <summary id="checks-sum"></summary>
     <div id="checks-list"></div>
+  </details>
+  <details id="hidden-warn" hidden>
+    <summary id="hidden-warn-sum"></summary>
+    <div id="hidden-warn-list"></div>
   </details>
 
   <section>

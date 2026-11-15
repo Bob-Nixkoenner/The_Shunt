@@ -18,6 +18,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/dnsproxy"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/health"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
@@ -79,6 +80,9 @@ type Server struct {
 	// Defense is the watcher of the defense module (nil: routes answer
 	// "not running").
 	Defense *windefense.Runner
+	// Ignore: the warnings the user hid (ProgramData\Shunt\ignored.json);
+	// nil = in memory only.
+	Ignore *check.IgnoreList
 }
 
 // engineStatus is the part of splitstack's Status JSON we map.
@@ -119,8 +123,18 @@ type TorProc interface {
 	NewIdentity() error
 }
 
-// Status maps the engine's state to the API's Status.
+// Status maps the engine's state to the API's Status, without the warnings
+// the user hid (check/ignore.go).
 func (s *Server) Status() (api.Status, error) {
+	st, err := s.statusAll()
+	if err == nil {
+		api.HideWarnings(&st, s.Ignore)
+	}
+	return st, err
+}
+
+// statusAll is the status with every warning.
+func (s *Server) statusAll() (api.Status, error) {
 	var es engineStatus
 	if err := json.Unmarshal([]byte(s.Core.Status()), &es); err != nil {
 		return api.Status{}, err
@@ -233,6 +247,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		ok(w, st)
 	})
+	s.ignoreRoutes(mux)
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(s.Core.History(r.URL.Query().Get("range"))))

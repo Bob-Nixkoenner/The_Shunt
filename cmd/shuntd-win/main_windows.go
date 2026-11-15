@@ -38,6 +38,7 @@ import (
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
@@ -880,7 +881,12 @@ func runCore(ctx context.Context, ready func()) error {
 			}
 		})
 	}
-	s := &winsvc.Server{Core: e, Warnings: func() []string {
+	// hidden warnings: a local file, never sent anywhere (check/ignore.go)
+	ignored, err := check.OpenIgnore(filepath.Join(dataDir, "ignored.json"))
+	if err != nil {
+		log.Printf("hidden warnings: list unreadable, starting empty: %v", err)
+	}
+	s := &winsvc.Server{Core: e, Ignore: ignored, Warnings: func() []string {
 		clockMu.Lock()
 		defer clockMu.Unlock()
 		if clockWarn == "" {

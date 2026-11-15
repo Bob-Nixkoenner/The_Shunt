@@ -114,6 +114,8 @@ type Daemon struct {
 	restart  chan struct{}
 
 	fw *firewall.Manager
+	// ignore: the warnings the user hid (check/ignore.go)
+	ignore *check.IgnoreList
 
 	captive, captiveURL string
 	captiveAt           time.Time // last probe
@@ -901,6 +903,13 @@ func (d *Daemon) reload(selfCgroup string) error {
 			d.Log.Info("pass ended: direct TCP connections re-classified", "count", n, "err", err)
 		}
 	}
+	if d.ignore == nil {
+		l, err := check.OpenIgnore(d.statePath("ignored.json"))
+		if err != nil {
+			d.Log.Warn("hidden warnings: list unreadable, starting empty", "err", err)
+		}
+		d.ignore = l
+	}
 	if d.fw == nil {
 		d.fw = &firewall.Manager{Log: d.Log, CG: d.cg, Hold: d.Backend.Hold, Store: filepath.Join(filepath.Dir(d.ConfigPath), "apps.json")}
 	}
@@ -1445,6 +1454,7 @@ func (d *Daemon) routes() http.Handler {
 		writeJSON(w, http.StatusOK, d.status())
 	})
 	d.defenseRoutes(mux)
+	d.ignoreRoutes(mux)
 	mux.HandleFunc("GET /v1/history", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		book := d.book
@@ -1962,7 +1972,19 @@ func (d *Daemon) runIn(ctx context.Context, path string, timeout time.Duration, 
 	return out.Bytes(), nil
 }
 
+// status is the status as the API serves it: without the warnings the
+// user hid (check/ignore.go).
 func (d *Daemon) status() api.Status {
+	st := d.statusAll()
+	d.mu.Lock()
+	l := d.ignore
+	d.mu.Unlock()
+	api.HideWarnings(&st, l)
+	return st
+}
+
+// statusAll is the status with every warning.
+func (d *Daemon) statusAll() api.Status {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ovs := d.ov.Status(time.Now())
@@ -2257,11 +2279,14 @@ func (d *Daemon) procNames(pids []int) []string {
 
 // statsPath: systemd's StateDirectory (/var/lib/shunt), or next to the
 // config for units installed before traffic statistics existed.
-func (d *Daemon) statsPath() string {
+func (d *Daemon) statsPath() string { return d.statePath("stats.json") }
+
+// statePath: a file in systemd's StateDirectory, or next to the config.
+func (d *Daemon) statePath(name string) string {
 	if dir, _, _ := strings.Cut(os.Getenv("STATE_DIRECTORY"), ":"); dir != "" {
-		return filepath.Join(dir, "stats.json")
+		return filepath.Join(dir, name)
 	}
-	return filepath.Join(filepath.Dir(d.ConfigPath), "stats.json")
+	return filepath.Join(filepath.Dir(d.ConfigPath), name)
 }
 
 // filterDir is where blocklists are cached: systemd's CacheDirectory

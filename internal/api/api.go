@@ -59,6 +59,12 @@ type Status struct {
 	// Findings: the config check (package check); the text is English with
 	// {placeholders}, the front end translates it.
 	Findings []check.Finding `json:"findings,omitempty"`
+	// Ignored: every warning the user hid (a day, a week, for good), see
+	// check/ignore.go; Hiding marks the ones that hide a warning right now.
+	// Hidden counts the current warnings (findings and notices) left out
+	// of Findings, Notices and Warnings because of it.
+	Ignored []check.Ignored `json:"ignored,omitempty"`
+	Hidden  int             `json:"hidden,omitempty"`
 	// Network is the matched [[network]] profile ("" = none), NetInfo what
 	// the machine is connected to right now.
 	Network string `json:"network,omitempty"`

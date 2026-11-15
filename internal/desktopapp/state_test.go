@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
@@ -46,6 +47,12 @@ func TestCompute(t *testing.T) {
 	}
 	if v := Compute(nil, errors.New("x"), now); v.Level != Bad {
 		t.Errorf("unreachable: %+v", v)
+	}
+	// hidden warnings are counted for the tray; the level stays the state's
+	hid := status(false, 30*time.Second, now)
+	hid.Ignored = []check.Ignored{{Key: "rule.direct:a"}, {Key: "quiet.off"}}
+	if v := Compute(hid, nil, now); v.Hidden != 2 || v.Level != OK {
+		t.Errorf("hidden: %+v", v)
 	}
 }
 
