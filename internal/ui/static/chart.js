@@ -74,6 +74,12 @@ function kpi(cls, value, label) {
   return el("div", { class: "kpi " + cls }, el("b", {}, value), el("span", {}, label));
 }
 
+// Tile with a down/up pair: each half stays in one piece, the pair may only
+// break between the halves, and on wide screens the tile is two columns wide.
+function kpiPair(cls, w, label) {
+  return el("div", { class: "kpi pair " + cls }, el("b", {}, el("span", { class: "half" }, "↓ " + bytes(w.rx)), " ", el("span", { class: "half" }, "↑ " + bytes(w.tx))), el("span", {}, label));
+}
+
 function renderTraffic() {
   const sec = $("#traffic");
   sec.hidden = histMissing;
@@ -90,8 +96,8 @@ function renderTraffic() {
   // other ways: traffic outside the tunnels, shown only where it is measured
   const way = (w) => (w ? w.rx + w.tx : 0) > 0;
   if (way(h.direct) || way(h.lan)) $("#t-kpis").append(
-    kpi("down", "↓ " + bytes(h.direct.rx) + "  ↑ " + bytes(h.direct.tx), T("direct (internet, no tunnel), {range}", { range: T(names[h.range]) })),
-    kpi("up", "↓ " + bytes(h.lan.rx) + "  ↑ " + bytes(h.lan.tx), T("local network, {range}", { range: T(names[h.range]) })));
+    kpiPair("down", h.direct, T("direct (internet, no tunnel), {range}", { range: T(names[h.range]) })),
+    kpiPair("up", h.lan, T("local network, {range}", { range: T(names[h.range]) })));
   const c1 = drawTraffic(h), c2 = drawBlocks(h);
   $("#t-from").textContent = fmtTime(h.from);
   const hover = $("#t-hover");
