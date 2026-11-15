@@ -187,7 +187,11 @@ func (e *Engine) dialTo(ctx context.Context, f *flow, dst netip.AddrPort) (net.C
 			f.dnsTried = e.dnsServers(RouteDirect)[0]
 			dst = netip.AddrPortFrom(f.dnsTried, 53)
 		}
-		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
+		c, err := e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
+		if err != nil {
+			return nil, err
+		}
+		return e.countWay(c, dst.Addr()), nil
 	}
 	name := strings.TrimPrefix(f.route, tunnelPref)
 	t := e.tunnel(name)

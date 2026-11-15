@@ -87,6 +87,11 @@ function renderTraffic() {
     // the blocked-names counter follows the range switch (1 h / 24 h / 7 d / 30 d)
     kpi("dns", filterOn || h.dns_month ? String(h.dns) : "–", T(filterOn ? "names blocked, {range}" : "names blocked, {range} (DNS filter off)", { range: T(names[h.range]) })),
     kpi("dns", filterOn || h.dns_month ? String(h.dns_month) : "–", "names blocked this month"));
+  // other ways: traffic outside the tunnels, shown only where it is measured
+  const way = (w) => (w ? w.rx + w.tx : 0) > 0;
+  if (way(h.direct) || way(h.lan)) $("#t-kpis").append(
+    kpi("down", "↓ " + bytes(h.direct.rx) + "  ↑ " + bytes(h.direct.tx), T("direct (internet, no tunnel), {range}", { range: T(names[h.range]) })),
+    kpi("up", "↓ " + bytes(h.lan.rx) + "  ↑ " + bytes(h.lan.tx), T("local network, {range}", { range: T(names[h.range]) })));
   const c1 = drawTraffic(h), c2 = drawBlocks(h);
   $("#t-from").textContent = fmtTime(h.from);
   const hover = $("#t-hover");

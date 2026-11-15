@@ -283,7 +283,7 @@
   "Corona fakes": "Corona-Fälschungen",
   "Could not read the file: {error}": "Die Datei konnte nicht gelesen werden: {error}",
   "Could not start the app in its route:\n\n{error}": "Die App konnte nicht in ihrer Route gestartet werden:\n\n{error}",
-  "Counts what goes through your tunnels (rates averaged per step); direct traffic is not measured. Counters are kept on this machine, nothing is sent anywhere.": "Zählt, was durch deine Tunnel geht (Raten pro Schritt gemittelt); direkter Verkehr wird nicht gemessen. Die Zähler bleiben auf diesem Rechner, nichts wird irgendwohin gesendet.",
+  "The graph counts what goes through your tunnels (rates averaged per step). Where it can be measured, direct traffic (internet without a tunnel) and local-network traffic get their own tiles. Counters are kept on this machine, nothing is sent anywhere.": "Die Grafik zählt, was durch deine Tunnel geht (Raten pro Schritt gemittelt). Wo es sich messen lässt, haben direkter Verkehr (Internet ohne Tunnel) und Verkehr im lokalen Netz eigene Kacheln. Die Zähler bleiben auf diesem Rechner, nichts wird irgendwohin gesendet.",
   "Create": "Erstellen",
   "Crypto scams and mining": "Krypto-Betrug und Mining",
   "DNS": "DNS",
@@ -774,7 +774,7 @@
   "This network": "Dieses Netz",
   "This network shows a login page first; the VPN connects after you log in. Tray → “Wi-Fi login page…”": "Dieses Netz zeigt zuerst eine Anmeldeseite; das VPN verbindet sich nach der Anmeldung. Tray → „WLAN-Anmeldeseite…“",
   "Threat intelligence (mini): malware, phishing, C2": "Threat Intelligence (mini): Malware, Phishing, C2",
-  "Through your tunnels only; direct traffic is not measured. Counted on this phone, nothing is sent anywhere.": "Nur durch deine Tunnel; direkter Verkehr wird nicht gemessen. Auf diesem Handy gezählt, nichts wird irgendwohin gesendet.",
+  "The graph counts your tunnels only; direct internet and local-network traffic have their own figures below it. Counted on this phone, nothing is sent anywhere.": "Die Grafik zählt nur deine Tunnel; direkter Internetverkehr und Verkehr im lokalen Netz stehen darunter extra. Auf diesem Handy gezählt, nichts wird irgendwohin gesendet.",
   "Tidy lists": "Listen aufräumen",
   "TikTok fingerprinting": "TikTok-Fingerprinting",
   "Time range": "Zeitraum",
@@ -1840,6 +1840,10 @@
   "It stays listed under “hidden warnings” on this tab and can be shown again there. Problems like a tunnel down or a leak are never hidden.": "Sie steht dann auf diesem Reiter unter „ausgeblendete Warnungen“ und lässt sich dort wieder zeigen. Probleme wie ein ausgefallener Tunnel oder ein Leck werden nie ausgeblendet.",
   "For 1 day": "Für 1 Tag",
   "For 1 week": "Für 1 Woche",
-  "For good": "Dauerhaft"
+  "For good": "Dauerhaft",
+  "direct (internet, no tunnel), {range}": "direkt (Internet, ohne Tunnel), {range}",
+  "local network, {range}": "lokales Netz, {range}",
+  "direct (no tunnel)": "direkt (ohne Tunnel)",
+  "local network": "lokales Netz"
  }
 }

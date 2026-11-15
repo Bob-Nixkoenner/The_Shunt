@@ -378,6 +378,7 @@ func (e *Engine) healthLoop(ctx context.Context, every time.Duration) {
 			}
 		}
 		e.book.ObserveDNS(e.dnsBlocked.Load(), time.Now())
+		e.observeWays(time.Now())
 		e.sleepIdle(time.Now())
 		for _, t := range e.allTunnels() {
 			if !t.up() {

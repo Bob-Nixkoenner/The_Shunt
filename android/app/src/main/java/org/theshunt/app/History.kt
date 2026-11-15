@@ -30,6 +30,10 @@ class History(private val o: JSONObject) {
     val tx get() = o.optLong("tx")
     val dnsToday get() = o.optLong("dns_today")
     val dnsMonth get() = o.optLong("dns_month")
+    val directRx get() = o.optJSONObject("direct")?.optLong("rx") ?: 0L
+    val directTx get() = o.optJSONObject("direct")?.optLong("tx") ?: 0L
+    val lanRx get() = o.optJSONObject("lan")?.optLong("rx") ?: 0L
+    val lanTx get() = o.optJSONObject("lan")?.optLong("tx") ?: 0L
     fun rx(i: Int) = pts.getJSONObject(i).optLong("rx")
     fun tx(i: Int) = pts.getJSONObject(i).optLong("tx")
     fun dns(i: Int) = pts.getJSONObject(i).optLong("dns")
@@ -146,10 +150,17 @@ fun HistorySection(h: History?, range: String, onRange: (String) -> Unit) {
             Kpi(h.dnsToday.toString(), T("blocked today"), c.warn, Modifier.weight(1f))
             Kpi(h.dnsMonth.toString(), T("this month"), c.warn, Modifier.weight(1f))
         }
+        if (h.directRx + h.directTx + h.lanRx + h.lanTx > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Kpi("↓ " + Formatter.formatShortFileSize(ctx, h.directRx) + "  ↑ " + Formatter.formatShortFileSize(ctx, h.directTx), T("direct (no tunnel)"), c.accent, Modifier.weight(1f))
+                Kpi("↓ " + Formatter.formatShortFileSize(ctx, h.lanRx) + "  ↑ " + Formatter.formatShortFileSize(ctx, h.lanTx), T("local network"), c.info, Modifier.weight(1f))
+            }
+        }
         Spacer(Modifier.height(8.dp))
         TrafficChart(h)
         Spacer(Modifier.height(2.dp))
         BlocksChart(h)
-        Hint("Through your tunnels only; direct traffic is not measured. Counted on this phone, nothing is sent anywhere.")
+        Hint("The graph counts your tunnels only; direct internet and local-network traffic have their own figures below it. Counted on this phone, nothing is sent anywhere.")
     }
 }

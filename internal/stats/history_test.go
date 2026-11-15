@@ -70,3 +70,22 @@ func TestSeriesIsBounded(t *testing.T) {
 		t.Fatalf("%d slots", len(b.f.Series))
 	}
 }
+
+func TestWaysStayOutOfTunnelTotals(t *testing.T) {
+	b, _ := Open("")
+	now := time.Now()
+	b.Observe("a", 0, 0, now)
+	b.Observe(WayDirect, 0, 0, now)
+	b.Observe(WayLAN, 0, 0, now)
+	b.Observe("a", 100, 10, now)
+	b.Observe(WayDirect, 50, 5, now)
+	b.Observe(WayLAN, 7, 3, now)
+	h := b.History("24h", now)
+	if h.RX != 100 || h.TX != 10 || h.Direct != (Bytes{50, 5}) || h.LAN != (Bytes{7, 3}) {
+		t.Fatalf("history: %+v", h)
+	}
+	s := b.Summaries(now)
+	if s["total"].Total.RX != 100 || s[WayDirect].Total.RX != 50 || s[WayLAN].Total.TX != 3 {
+		t.Fatalf("summaries: %+v", s)
+	}
+}

@@ -23,6 +23,17 @@ type Bytes struct {
 
 func (b *Bytes) add(o Bytes) { b.RX += o.RX; b.TX += o.TX }
 
+// Pseudo "tunnels" for traffic that does not go through a tunnel: direct to
+// the internet and local network. They are counted like tunnels but stay out
+// of "total" and of the tunnel graph (History.Direct / History.LAN).
+const (
+	WayDirect = "direct"
+	WayLAN    = "lan"
+)
+
+// IsWay reports whether name is one of the pseudo tunnels above.
+func IsWay(name string) bool { return name == WayDirect || name == WayLAN }
+
 // Summary is what UIs show for one tunnel (or "total" for all of them).
 type Summary struct {
 	Month     Bytes `json:"month"`      // this calendar month
@@ -137,6 +148,7 @@ func (b *Book) Summaries(now time.Time) map[string]Summary {
 	var all Summary
 	for tunnel, months := range b.f.Months {
 		s := Summary{Since: b.f.Since[tunnel]}
+		way := IsWay(tunnel)
 		for m, v := range months {
 			s.Total.add(v)
 			switch m {
@@ -147,6 +159,9 @@ func (b *Book) Summaries(now time.Time) map[string]Summary {
 			}
 		}
 		out[tunnel] = s
+		if way {
+			continue
+		}
 		all.Month.add(s.Month)
 		all.LastMonth.add(s.LastMonth)
 		all.Total.add(s.Total)
