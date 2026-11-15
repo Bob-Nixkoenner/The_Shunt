@@ -552,9 +552,17 @@ Legal note (no legal advice): IP addresses are personal data in many jurisdictio
 `POST /v1/defense/config`, `POST /v1/defense/ban`, `POST /v1/defense/unban` (config, ban and unban need the manage permission). `GET /v1/status` carries
 `defense: {heat, level, class, exposed, exposed_inbound}` while the defense is on. `POST /v1/defense/outside-scan` runs the outside check (manage permission; 409 when off or no public address, 429 while one runs).
 
-## Windows (the watcher, step 1)
+## Windows (the watcher, steps 1 and 2)
 
-Since this step the Windows service runs the defense as a watcher (`internal/windefense`), fed by the netstack's observer like on Android: `dns_tunnel`, `reputation`, `first_seen` and `beacon` work; every other feature stays off and cannot be switched on. Nothing is blocked (Block switches are ignored, `POST /v1/defense/ban` answers 409), no decoy listens, no port is opened. The `/v1/defense*` routes are the same as on Linux (changing the config and lifting a block need the manage right), and the status carries the short `defense` field. The network class comes from the config (`[[network]] class`), the reputation lists are downloaded through the default route and cached in `defense\` next to the config. Planned next: WFP bans, decoys with an inbound permit, ARP watch, connection list by process (see `abwehr-windows-android-plan`).
+Since step 1 the Windows service runs the defense as a watcher (`internal/windefense`), fed by the netstack's observer like on Android. Step 2 adds the gateway watch, the evil-twin check, the Windows network profile as a class hint and a connection table poll. Working features: `dns_tunnel`, `reputation`, `first_seen`, `beacon`, `arp` (gateway MAC only) and `evil_twin`; every other feature stays off and cannot be switched on. Nothing is blocked (Block switches are ignored, `POST /v1/defense/ban` answers 409), no decoy listens, no port is opened. The `/v1/defense*` routes are the same as on Linux (changing the config and lifting a block need the manage right), and the status carries the short `defense` field. The reputation lists are downloaded through the default route and cached in `defense\` next to the config. Planned next: WFP bans, decoys with an inbound permit, DHCP, certificate check (see `abwehr-windows-android-plan`).
+
+| Part | How it works on Windows |
+|---|---|
+| Program name | The events name the program by its file name (`labtun.exe`), lower case, not the full path. |
+| Network class | The `[[network]] class` of the config always wins. Without a matching profile the Windows network profile (Network List Manager, `INetworkListManager`) is a hint: Public gives `unsafe`, Private and Domain stay `unknown`. Nothing becomes `safe` by itself; only the user rates a network safe. |
+| `arp` | The system's ARP/NDP table (`GetIpNetTable2`, woken by `NotifyIpNetTable`, plus a poll every 5 s) for the uplink interface. A new MAC for the gateway address is one high event. Only the gateway MAC; no DHCP server watch (needs a raw socket), no router advertisements. |
+| `evil_twin` | Same Wi-Fi name with a gateway MAC not seen before (`twins.json` in `defense\`, hashed). Needs the SSID and the gateway MAC from the service. |
+| Connection table | Every 10 s `GetExtendedTcpTable` (IPv4 and IPv6, `TCP_TABLE_OWNER_PID_ALL`) with the owning process (`QueryFullProcessImageName`). New outgoing connections feed first contact and beacons under the program's file name, so connections that do not pass the netstack observer get a program too. A destination the netstack reported in the last 30 s is not counted a second time as a beacon. The first read only teaches first contact. |
 
 ## Windows and Android: Android (the watcher)
 

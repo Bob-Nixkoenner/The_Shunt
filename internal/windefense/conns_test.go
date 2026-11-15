@@ -30,9 +30,9 @@ func table(n int, rows ...[]byte) []byte {
 }
 
 func TestParseTCP4(t *testing.T) {
-	b := table(2, row4(5, "10.0.0.5", 50000, "93.184.216.34", 443, 1234), row4(2, "0.0.0.0", 80, "0.0.0.0", 0, 4))
+	b := table(2, row4(5, "10.0.0.5", 50000, "203.0.113.7", 443, 1234), row4(2, "0.0.0.0", 80, "0.0.0.0", 0, 4))
 	c := ParseTCP4(b)
-	if len(c) != 2 || c[0].State != 5 || c[0].PID != 1234 || c[0].Remote != netip.MustParseAddrPort("93.184.216.34:443") ||
+	if len(c) != 2 || c[0].State != 5 || c[0].PID != 1234 || c[0].Remote != netip.MustParseAddrPort("203.0.113.7:443") ||
 		c[0].Local != netip.MustParseAddrPort("10.0.0.5:50000") || c[1].State != 2 {
 		t.Fatalf("%+v", c)
 	}
@@ -73,7 +73,7 @@ func TestPollerNamesAndFreshness(t *testing.T) {
 		{State: tcpEstablished, Local: netip.MustParseAddrPort("10.0.0.5:50000"), Remote: d1, PID: 100},
 		{State: tcpListen, Local: netip.MustParseAddrPort("0.0.0.0:8080"), PID: 100},
 		{State: tcpEstablished, Local: netip.MustParseAddrPort("10.0.0.5:8080"), Remote: netip.MustParseAddrPort("10.0.0.9:1111"), PID: 100}, // incoming to a listener
-		{State: 6, Local: netip.MustParseAddrPort("10.0.0.5:50001"), Remote: d2, PID: 100},                                                  // time wait
+		{State: 6, Local: netip.MustParseAddrPort("10.0.0.5:50001"), Remote: d2, PID: 100},                                                   // time wait
 	}
 	lists := 0
 	names := 0
