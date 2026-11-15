@@ -303,6 +303,18 @@ Hotel-WLAN `192.168.1.0/24` vs. Homelab hinter dem Tunnel ebenfalls `192.168.1.0
 - Keys: `/etc/shunt/tunnels/*.conf`, root:root 0600. API gibt Private Keys **nie** zurück.
 - Web-UI: eigener User-Prozess, bindet nur `127.0.0.1` mit Zufallstoken, prüft `Host`/`Origin` (gegen DNS-Rebinding/CSRF).
 
+### 6.8 Zähler „direkt“ und „lokales Netz“
+
+Eigene Tabelle `inet shunt_ways` (`nft/ways.go`), **nur Zähler**: kein accept/drop/return, keine Marke, kein NAT. Sie entscheidet nichts; fehlt sie oder schlägt das Laden fehl, gibt es nur keine Zahlen. Die Haupttabelle `shunt` bleibt unverändert.
+
+- Gesendet: Hook postrouting, Priorität filter+10 (vor dem Source-NAT), nur Pakete mit eigener Quelladresse (`fib saddr type local`).
+- Empfangen: Hook input, filter+10 (nach den Filtern, verworfene Pakete zählen nicht).
+- Nicht gezählt: `lo`, Tunnel-Interfaces, Pakete mit Bypass-Marke (eigene verschlüsselte Tunnel-Pakete), Pakete von/zu Tunnel-Endpunkten.
+- „lan“ = privat, Loopback, Link-Local, Multicast, Broadcast (wie Windows/Android); der Rest „direct“.
+- `checkHealth` (alle 30 s) lädt die Regeln neu, wenn sich Tunnel oder Endpunkte ändern (Zähler bleiben), liest `nft -j list table` und gibt die Summen an `stats.Book` (Differenzen; ein kleinerer Wert gilt als Neustart).
+
+Ungenau: Verkehr weitergeleiteter Geräte/VMs zählt nicht; Tor-Außenverkehr (Relais) zählt als „direct“; Verkehr zu einer Adresse, die auch Tunnel-Endpunkt ist, zählt gar nicht.
+
 ---
 
 ## 7. Andere Plattformen (Ausblick)

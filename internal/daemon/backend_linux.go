@@ -21,6 +21,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/nft"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/racebpf"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/routing"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
@@ -190,13 +191,34 @@ func (b *linuxBackend) LiftLockdown() error {
 
 func (b *linuxBackend) Cleanup() error {
 	var errs []error
-	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable, nft.EmergencyTable, nft.TorGuardTable} {
+	for _, t := range []string{nft.Table, nft.PanicTable, nft.LockdownTable, nft.EmergencyTable, nft.TorGuardTable, nft.WaysTable} {
 		errs = append(errs, nft.Apply(nft.DeleteScript(t)))
 	}
 	errs = append(errs, nft.Apply(nft.DeleteArpScript()))
 	errs = append(errs, routing.Cleanup())
 	return errors.Join(errs...)
 }
+
+// SetWays: see WayCounter.
+func (b *linuxBackend) SetWays(tunnelIfaces []string, endpoints []netip.Addr) error {
+	s, err := nft.RenderWays(nft.Ways{TunnelIfaces: tunnelIfaces, Endpoints: endpoints})
+	if err != nil {
+		return err
+	}
+	return nft.Apply(s)
+}
+
+// ReadWays: see WayCounter.
+func (b *linuxBackend) ReadWays() (direct, lan stats.Bytes, err error) {
+	w, err := nft.ReadWays()
+	if err != nil {
+		return direct, lan, err
+	}
+	return stats.Bytes{RX: w.DirectRX, TX: w.DirectTX}, stats.Bytes{RX: w.LANRX, TX: w.LANTX}, nil
+}
+
+// WaysOff: see WayCounter.
+func (b *linuxBackend) WaysOff() error { return nft.Apply(nft.WaysOffScript()) }
 
 func (b *linuxBackend) DomainSets() dnsproxy.SetWriter { return dnsproxy.NftSets{Table: nft.Table} }
 
