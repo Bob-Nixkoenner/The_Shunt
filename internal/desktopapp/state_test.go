@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/check"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/i18n"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
 )
 
@@ -46,6 +48,12 @@ func TestCompute(t *testing.T) {
 	}
 	if v := Compute(nil, errors.New("x"), now); v.Level != Bad {
 		t.Errorf("unreachable: %+v", v)
+	}
+	// hidden warnings are counted for the tray; the level stays the state's
+	hid := status(false, 30*time.Second, now)
+	hid.Ignored = []check.Ignored{{Key: "rule.direct:a"}, {Key: "quiet.off"}}
+	if v := Compute(hid, nil, now); v.Hidden != 2 || v.Level != OK {
+		t.Errorf("hidden: %+v", v)
 	}
 }
 
@@ -236,5 +244,21 @@ func TestExposedNotification(t *testing.T) {
 	}
 	if n := Diff(mk(true, "open"), mk(true, "open"), false); len(n) != 0 {
 		t.Fatalf("no repeat: %+v", n)
+	}
+}
+
+func TestTunnelLineTranslated(t *testing.T) {
+	defer i18n.Set(i18n.Current())
+	i18n.Set("de")
+	now := time.Now()
+	v := Compute(status(false, 34*time.Second, now), nil, now)
+	if got := v.Tunnels[0].Text; got != "vps: verbunden (Handshake vor 34s)" {
+		t.Errorf("German tray line: %q", got)
+	}
+	sl := status(false, time.Second, now)
+	sl.Tunnels[0].SleepLeft = 900
+	v = Compute(sl, nil, now)
+	if !v.Tunnels[0].Asleep || !v.Tunnels[0].OK {
+		t.Errorf("sleeping line: %+v", v.Tunnels[0])
 	}
 }

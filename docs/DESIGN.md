@@ -303,6 +303,18 @@ Hotel-WLAN `192.168.1.0/24` vs. Homelab hinter dem Tunnel ebenfalls `192.168.1.0
 - Keys: `/etc/shunt/tunnels/*.conf`, root:root 0600. API gibt Private Keys **nie** zurück.
 - Web-UI: eigener User-Prozess, bindet nur `127.0.0.1` mit Zufallstoken, prüft `Host`/`Origin` (gegen DNS-Rebinding/CSRF).
 
+### 6.8 Zähler „direkt“ und „lokales Netz“
+
+Eigene Tabelle `inet shunt_ways` (`nft/ways.go`), **nur Zähler**: kein accept/drop/return, keine Marke, kein NAT. Sie entscheidet nichts; fehlt sie oder schlägt das Laden fehl, gibt es nur keine Zahlen. Die Haupttabelle `shunt` bleibt unverändert.
+
+- Gesendet: Hook postrouting, Priorität filter+10 (vor dem Source-NAT), nur Pakete mit eigener Quelladresse (`fib saddr type local`).
+- Empfangen: Hook input, filter+10 (nach den Filtern, verworfene Pakete zählen nicht).
+- Nicht gezählt: `lo`, Tunnel-Interfaces, Pakete mit Bypass-Marke (eigene verschlüsselte Tunnel-Pakete), Pakete von/zu Tunnel-Endpunkten.
+- „lan“ = privat, Loopback, Link-Local, Multicast, Broadcast (wie Windows/Android); der Rest „direct“.
+- `checkHealth` (alle 30 s) lädt die Regeln neu, wenn sich Tunnel oder Endpunkte ändern (Zähler bleiben), liest `nft -j list table` und gibt die Summen an `stats.Book` (Differenzen; ein kleinerer Wert gilt als Neustart).
+
+Ungenau: Verkehr weitergeleiteter Geräte/VMs zählt nicht; Tor-Außenverkehr (Relais) zählt als „direct“; Verkehr zu einer Adresse, die auch Tunnel-Endpunkt ist, zählt gar nicht.
+
 ---
 
 ## 7. Andere Plattformen (Ausblick)
@@ -482,3 +494,5 @@ Root-Malware auf dem Host, globaler passiver Angreifer, Browser-Fingerprinting, 
 - *Import „tut nichts“*: `confirm()`/`prompt()` sind in eingebetteten WebViews nicht verlässlich. Alle Rückfragen (auch PANIC) sind jetzt ein eigener Dialog in der Seite; jeder Abbruch meldet sich. Verwaiste Tunnel-Dateien blockieren einen Neu-Import nicht mehr. `shunt import` (mit sudo) für root-only Dateien wie `/etc/wireguard/*.conf`.
 - *DNS-Server durch den Tunnel nicht erreichbar*: Der Proxy führt pro Route Buch; nach 3 Fehlschlägen über ≥ 15 s gilt die Route als „DNS kaputt“: einmal geloggt (statt pro Anfrage), Warnung im Status, Tray gelb, Benachrichtigung; Erholung wird ebenso gemeldet.
 - *Neustart-Knöpfe*: `POST /v1/restart` (polkit) beendet shuntd mit Code 75, systemd (`Restart=on-failure`) startet neu; der Killswitch bleibt dazwischen. Tray: „Restart service“ und „Restart service and app“.
+
+**Warnungen ausblenden** (`internal/check/ignore.go`, 2026-11-15): Hinweise zur eigenen Konfiguration lassen sich für 1 Tag, 1 Woche oder dauerhaft ausblenden, pro Warnung und pro Regel/Tunnel/Netz (Schlüssel = ID + Gegenstand, z. B. `rule.direct:firefox`). Ausblendbar sind nur die IDs in `check.Hideable()` (direkte Regeln, Klartext-DNS einer direkten Regel, direkter Standardweg, Netzprofil nur per SSID, Gateway-Gruppen, Tarnung/Quiet/Inbound aus, Captive-Check an, doppelte Listeneinträge, OpenVPN-Dateien außer kaputter Chiffre; Android zusätzlich „alle anderen Apps gesperrt“). Nie ausblendbar: alles auf Stufe „bad“ (auch wenn der strenge Check eine Notiz hochstuft), Zustände des Moments (Tunnel weg, DNS fällt aus, Login-Seite, Uhr, Pass, Panik, Tor-Notfall) und Leckwege (DNS aus, DoH, Kill-Switch, Boot-Sperre, nsswitch, Start-Schutz) – sonst sähe „ausgeblendet“ wie „alles sicher“ aus. Die Liste liegt nur lokal (`ignored.json` im State-Verzeichnis bzw. neben der Config, Windows `ProgramData\Shunt\ignored.json`, Android `settings.json`, nicht in der Core-Config), Rechte 0600, wird nie gesendet; abgelaufene Einträge fallen weg. API: `POST /v1/warnings/ignore {key, for: day|week|forever}` (Manage-Recht), `DELETE /v1/warnings/ignore?key=` und `GET /v1/warnings/ignored` (ohne, mehr Warnungen sind nie unsicherer). Der Status filtert `findings`/`notices`/`warnings`, setzt `key` an ausblendbaren Einträgen und liefert `ignored` (alle Einträge, `hiding` = verdeckt gerade etwas) und `hidden` (Anzahl). Oberflächen: Fenster/Web-UI „Ausblenden …“ an Bannern und Notizen plus aufklappbare Liste „n Warnungen ausgeblendet“ mit „Wieder zeigen“; Tray-Zeile „n Warnungen ausgeblendet – zeigen …“; CLI `shunt warnings [hide KEY day|week|forever | show KEY]`; Android Status-Reiter wie das Fenster.

@@ -706,3 +706,10 @@ func (m *Manager) startTors(c *config.Config) (warn []string) {
 	}
 	return warn
 }
+
+// Current returns the config in effect (nil before the first load).
+func (m *Manager) Current() *config.Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg
+}

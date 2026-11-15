@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,4 +116,59 @@ func TestDNSTunnelOffAndCap(t *testing.T) {
 		t.Fatalf("keys %d over cap", n)
 	}
 	_ = clk
+}
+
+func TestStripLocalSuffix(t *testing.T) {
+	for in, want := range map[string]struct {
+		n  string
+		ok bool
+	}{
+		"www.example.com.lan": {"www.example.com", true},
+		"example.com.local.":  {"example.com", true},
+		"printer.lan":         {"printer", false},
+		"nas.home.arpa":       {"nas", false},
+		"a.b.example.org":     {"a.b.example.org", true},
+		"tablet.fritz.box":    {"tablet", false},
+	} {
+		if n, ok := StripLocalSuffix(in); n != want.n || ok != want.ok {
+			t.Errorf("StripLocalSuffix(%q)=%q,%v want %q,%v", in, n, ok, want.n, want.ok)
+		}
+	}
+}
+
+// A search suffix must not make "example.com" a domain of its own ("com.lan")
+// and a purely local name is not tracked at all.
+func TestDNSSearchSuffixNotTracked(t *testing.T) {
+	m, clk := enabledManager(t)
+	cl := netip.MustParseAddr("192.0.2.9")
+	r := rand.New(rand.NewSource(2))
+	for i := 0; i < 30; i++ {
+		m.ObserveDNS(cl, randLabel(r, 45)+".printer.lan", "A") // local only
+		clk.Add(time.Second)
+	}
+	if n, _ := countKind(m, KindDNSTunnel); n != 0 {
+		t.Fatalf("local names raised %d events", n)
+	}
+	for i := 0; i < 20; i++ {
+		m.ObserveDNS(cl, randLabel(r, 45)+".t.tunnel.example.lan", "TXT")
+		clk.Add(time.Second)
+	}
+	n, ev := countKind(m, KindDNSTunnel)
+	if n != 1 || !strings.HasPrefix(ev.Detail, "domain=tunnel.example ") {
+		t.Fatalf("suffix not cut: n=%d %q", n, ev.Detail)
+	}
+}
+
+func TestDNSTunnelEventNamesApp(t *testing.T) {
+	m, clk := enabledManager(t)
+	cl := netip.MustParseAddr("192.0.2.9")
+	r := rand.New(rand.NewSource(3))
+	for i := 0; i < 20; i++ {
+		m.QueryApp(cl, "firefox", randLabel(r, 45)+".t.tunnel.example", "TXT")
+		clk.Add(time.Second)
+	}
+	_, ev := countKind(m, KindDNSTunnel)
+	if !strings.HasSuffix(ev.Detail, " app=firefox") {
+		t.Fatalf("detail %q", ev.Detail)
+	}
 }

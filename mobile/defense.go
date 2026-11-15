@@ -76,7 +76,9 @@ func appKey(uid string) netip.Addr {
 	return netip.AddrFrom4([4]byte{100, 127, byte(i >> 8), byte(i)})
 }
 
-func (d *defObs) DNSQuery(app, name, qtype string) { d.m.ObserveDNS(appKey(app), name, qtype) }
+func (d *defObs) DNSQuery(app, name, qtype string) {
+	d.m.ObserveDNSApp(appKey(app), d.app(app), name, qtype)
+}
 
 func (d *defObs) DNSAnswer(name string, addrs []netip.Addr) { d.m.ObserveDNSAnswer(name, addrs) }
 

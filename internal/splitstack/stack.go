@@ -187,7 +187,11 @@ func (e *Engine) dialTo(ctx context.Context, f *flow, dst netip.AddrPort) (net.C
 			f.dnsTried = e.dnsServers(RouteDirect)[0]
 			dst = netip.AddrPortFrom(f.dnsTried, 53)
 		}
-		return e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
+		c, err := e.o.DialDirect(ctx, map[int]string{6: "tcp", 17: "udp"}[f.proto], dst.String())
+		if err != nil {
+			return nil, err
+		}
+		return e.countWay(c, dst.Addr()), nil
 	}
 	name := strings.TrimPrefix(f.route, tunnelPref)
 	t := e.tunnel(name)
@@ -359,7 +363,6 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 		arrived := time.Now()
 		var q dns.Msg
 		if q.Unpack(buf[:n]) == nil && len(q.Question) == 1 {
-			e.observeQuery(f.app, q.Question[0].Name, q.Question[0].Qtype) // OPUS-REVIEW
 			e.mu.RLock()
 			noDoH := e.blockDoH
 			e.mu.RUnlock()
@@ -380,6 +383,9 @@ func (e *Engine) relayDNS(f *flow, in, out net.Conn) {
 				}
 				continue
 			}
+			// after the filter: a blocked name never goes out and must not
+			// count as a DNS tunnel suspect (telemetry that asks again and again)
+			e.observeQuery(f.app, q.Question[0].Name, q.Question[0].Qtype) // OPUS-REVIEW
 			if r := e.domainRule(f.app, q.Question[0].Name); r != nil {
 				go e.resolveForRule(f, r, append([]byte(nil), buf[:n]...), in)
 				continue

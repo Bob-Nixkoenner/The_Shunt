@@ -295,14 +295,16 @@ type Engine struct {
 	flows      atomic.Int64
 	blocked    atomic.Int64
 	dnsBlocked atomic.Int64
-	stop       sync.Once
-	ov         override.State
-	actMu      sync.Mutex
-	active     map[*flow][]net.Conn // running flows (see track)
-	passTimer  *time.Timer
-	stopHealth context.CancelFunc
-	healthDone chan struct{}
-	book       *stats.Book
+	// bytes outside the tunnels (direct to the internet / local network)
+	wayDirect, wayLAN wayCount
+	stop              sync.Once
+	ov                override.State
+	actMu             sync.Mutex
+	active            map[*flow][]net.Conn // running flows (see track)
+	passTimer         *time.Timer
+	stopHealth        context.CancelFunc
+	healthDone        chan struct{}
+	book              *stats.Book
 
 	// observer queue (observe.go)
 	obs        chan obsItem

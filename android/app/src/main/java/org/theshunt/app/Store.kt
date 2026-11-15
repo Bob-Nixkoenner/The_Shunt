@@ -138,6 +138,8 @@ data class Settings(
     val defense: Boolean = false,
     /** Network class per kind of network ("wifi", "mobile"): unknown, unsafe or safe; not rated = unknown. */
     val netClasses: Map<String, String> = emptyMap(),
+    /** Warnings the user hid on the Status tab (see HiddenWarnings); stored here only, never given to the core. */
+    val hiddenWarnings: List<HiddenWarning> = emptyList(),
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
     fun shows(key: String) = Levels.shows(key, level)
@@ -173,6 +175,7 @@ data class Settings(
 
     /** As stored in settings.json: the tunnels' secrets sealed by [v] (throws when it cannot seal). */
     fun toStoreJson(v: Vault): JSONObject = toJson().put("tunnels", JSONArray(tunnels.map { it.toStoreJson(v) }))
+        .put("hidden_warnings", HiddenWarning.listJson(hiddenWarnings)) // file only: toJson (the core's) leaves it out
 
     /**
      * Fail closed for locked tunnels (keys not readable on this device): they are left
@@ -325,6 +328,7 @@ data class Settings(
                 defense = o.optBoolean("defense", false),
                 netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { Defense.migrate(u.optString(it)) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
+                hiddenWarnings = HiddenWarning.listFrom(o.optJSONArray("hidden_warnings")),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
                         .map { NetProfile.fromJson(it) }

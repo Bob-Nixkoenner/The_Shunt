@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,8 +148,12 @@ type trayApp struct {
 	panic     *systray.MenuItem
 	autostart *systray.MenuItem
 	tunnels   []*systray.MenuItem
-	relabel   func() // sets the texts of the fixed menu items (again)
-	lang      string // the language they are in
+	tunSwitch []*systray.MenuItem // per tunnel: switch on/off
+	tunMu     sync.Mutex
+	tunLine   []desktopapp.TunnelLine
+	hidden    *systray.MenuItem // "n warnings hidden" (opens the window)
+	relabel   func()            // sets the texts of the fixed menu items (again)
+	lang      string            // the language they are in
 }
 
 func (a *trayApp) onReady() {
@@ -159,10 +164,36 @@ func (a *trayApp) onReady() {
 	a.title.Disable()
 	for i := 0; i < maxTunnelItems; i++ {
 		it := systray.AddMenuItem("", "")
-		it.Disable()
 		it.Hide()
 		a.tunnels = append(a.tunnels, it)
+		sw := it.AddSubMenuItem("", "")
+		tip := i18n.T("Off for a while, then on again by itself. Its apps stay blocked.")
+		sleeps := []*systray.MenuItem{
+			it.AddSubMenuItem(i18n.T("Sleep 15 minutes"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 1 hour"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 4 hours"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 12 hours"), tip),
+		}
+		a.tunSwitch = append(a.tunSwitch, sw)
+		go func(i int) {
+			for {
+				select {
+				case <-sw.ClickedCh:
+					a.tunnelState(i, 0)
+				case <-sleeps[0].ClickedCh:
+					a.tunnelState(i, sleepSeconds[0])
+				case <-sleeps[1].ClickedCh:
+					a.tunnelState(i, sleepSeconds[1])
+				case <-sleeps[2].ClickedCh:
+					a.tunnelState(i, sleepSeconds[2])
+				case <-sleeps[3].ClickedCh:
+					a.tunnelState(i, sleepSeconds[3])
+				}
+			}
+		}(i)
 	}
+	a.hidden = systray.AddMenuItem("", "")
+	a.hidden.Hide()
 	systray.AddSeparator()
 	open := systray.AddMenuItem("", "")
 	a.panic = systray.AddMenuItem("", "")
@@ -210,6 +241,8 @@ func (a *trayApp) onReady() {
 			select {
 			case <-open.ClickedCh:
 				a.show()
+			case <-a.hidden.ClickedCh:
+				a.show() // the window lists them, with "Show again"
 			case <-a.panic.ClickedCh:
 				a.togglePanic()
 			case <-a.update.ClickedCh:
@@ -271,6 +304,35 @@ func (a *trayApp) updateAvailable(i update.Info) {
 		a.update.Show()
 	}
 	a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt: update available"), Body: i18n.T("Open the tray menu → “Update available”, then “Install update” in the window.")})
+}
+
+// sleepSeconds are the sleep choices, the same as in the window: 15 min, 1, 4, 12 h.
+var sleepSeconds = [4]int{900, 3600, 4 * 3600, 12 * 3600}
+
+// tunnelState handles a click in a tunnel's submenu: sleep 0 toggles on/off,
+// otherwise the tunnel sleeps for that many seconds.
+func (a *trayApp) tunnelState(i int, sleep int) {
+	a.tunMu.Lock()
+	if i >= len(a.tunLine) {
+		a.tunMu.Unlock()
+		return
+	}
+	l := a.tunLine[i]
+	a.tunMu.Unlock()
+	req := api.TunnelState{State: "off"}
+	switch {
+	case sleep > 0 && !l.Disabled:
+		req = api.TunnelState{State: "sleep", Seconds: sleep}
+	case sleep > 0:
+		return // sleeping an off tunnel makes no sense
+	case l.Disabled:
+		req.State = "on"
+	}
+	go func() {
+		if err := a.client.Do("POST", "/v1/tunnels/"+url.PathEscape(l.Name)+"/state", req, nil); err != nil {
+			a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("Tunnel {name} not changed", "name", l.Name), Body: err.Error()})
+		}
+	}()
 }
 
 // restartService asks shuntd to restart and waits until it answers again;
@@ -357,13 +419,30 @@ func (a *trayApp) render(v desktopapp.View) {
 	} else {
 		a.panic.SetTitle(i18n.T("PANIC – block all traffic"))
 	}
+	if v.Hidden > 0 {
+		a.hidden.SetTitle(i18n.Tn(v.Hidden, "{n} warning hidden – show…", "{n} warnings hidden – show…"))
+		a.hidden.SetTooltip(i18n.T("Opens the window: the list of hidden warnings, each can be shown again"))
+		a.hidden.Show()
+	} else {
+		a.hidden.Hide()
+	}
+	a.tunMu.Lock()
+	a.tunLine = v.Tunnels
+	a.tunMu.Unlock()
 	for i, it := range a.tunnels {
 		if i < len(v.Tunnels) {
 			mark := "✔ "
 			if !v.Tunnels[i].OK {
 				mark = "✖ "
+			} else if v.Tunnels[i].Asleep {
+				mark = "☾ " // asleep on purpose: not a check mark
 			}
 			it.SetTitle(mark + v.Tunnels[i].Text)
+			if v.Tunnels[i].Disabled {
+				a.tunSwitch[i].SetTitle(i18n.T("Switch on"))
+			} else {
+				a.tunSwitch[i].SetTitle(i18n.T("Switch off"))
+			}
 			it.Show()
 		} else {
 			it.Hide()

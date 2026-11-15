@@ -105,6 +105,10 @@ type Info struct {
 	// internet unless a firewall stops it. They are not part of Key.
 	PublicV4 bool `json:"public_v4,omitempty"`
 	PublicV6 bool `json:"public_v6,omitempty"`
+	// OSProfile: the system's own rating of the network ("public",
+	// "private", "domain"; Windows network profile). "" = unknown. Only a
+	// hint, see ClassHint; it is not part of Key.
+	OSProfile string `json:"os_profile,omitempty"`
 }
 
 // Exposure is the pair of public-address flags, for change detection.

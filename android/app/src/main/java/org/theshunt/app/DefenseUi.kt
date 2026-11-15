@@ -84,7 +84,7 @@ fun DefenseSettingsSection(settings: Settings, update: (Settings) -> Unit) {
             Text(T(label), color = c.text)
             ButtonRow(classButtons)
         }
-        if (Defense.knownWifis(settings).isNotEmpty() || settings.shows("wifi.list")) Hint("A class for one Wi-Fi: Apps tab, Known Wi-Fi networks.")
+        if (Defense.knownWifis(settings).isNotEmpty() || settings.shows("wifi.list")) Hint("A class for one Wi-Fi: View tab, Known Wi-Fi networks.")
         Hint("Not available on Android: checks of the router (ARP, DHCP, IPv6), decoy ports, scan detection and the check for a fake Wi-Fi with the same name.")
     }
 }

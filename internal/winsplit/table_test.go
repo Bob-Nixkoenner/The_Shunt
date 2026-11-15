@@ -70,3 +70,23 @@ func TestFindAmbiguous(t *testing.T) {
 		t.Fatalf("an exact owner wins over wildcards: %d %v", pid, ok)
 	}
 }
+
+func TestPortTaken(t *testing.T) {
+	rows := []Row{
+		{Local: netip.MustParseAddrPort("0.0.0.0:445"), PID: 4},
+		{Local: netip.MustParseAddrPort("10.0.0.5:22"), PID: 0},    // TIME_WAIT
+		{Local: netip.MustParseAddrPort("10.0.0.5:2222"), PID: 77}, // our own decoy
+	}
+	if !PortTaken(rows, 445, 77) {
+		t.Error("system port must count as taken")
+	}
+	if PortTaken(rows, 22, 77) {
+		t.Error("a closed connection (PID 0) must not block the port")
+	}
+	if PortTaken(rows, 2222, 77) {
+		t.Error("own socket must not count")
+	}
+	if PortTaken(rows, 23, 77) {
+		t.Error("free port")
+	}
+}

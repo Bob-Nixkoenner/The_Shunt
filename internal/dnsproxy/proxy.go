@@ -83,6 +83,12 @@ type Observer interface {
 	Answer(name string, addrs []netip.Addr)
 }
 
+// AppObserver is an optional extra of an Observer: it also gets the program
+// that asked (as Proxy.Owner names it, "" = unknown).
+type AppObserver interface {
+	QueryApp(client netip.Addr, app, name, qtype string)
+}
+
 // Rebinder is an optional extra of an Observer: it judges an answered
 // address set and may ask the proxy to drop it (DNS rebind protection). An
 // Observer without it leaves the proxy unchanged.
@@ -359,12 +365,23 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 		}
 		return p.Owner(proto, from)
 	}
+	// The observer sees only queries that go out: a name the filter blocks
+	// never leaves the machine, and an app that keeps asking for it (telemetry)
+	// must not look like a DNS tunnel.
+	var pass func()
 	if o := p.Observer; o != nil && len(r.Question) == 1 {
 		if from, err := netip.ParseAddrPort(w.RemoteAddr().String()); err == nil {
-			o.Query(from.Addr(), strings.TrimSuffix(strings.ToLower(r.Question[0].Name), "."), dns.TypeToString[r.Question[0].Qtype])
+			qn, qt := strings.TrimSuffix(strings.ToLower(r.Question[0].Name), "."), dns.TypeToString[r.Question[0].Qtype]
+			pass = func() {
+				if oa, ok := o.(AppObserver); ok && who != nil {
+					oa.QueryApp(from.Addr(), who(), qn, qt)
+					return
+				}
+				o.Query(from.Addr(), qn, qt)
+			}
 		}
 	}
-	resp := p.handle(port, r, queryMark(w), who)
+	resp := p.handleObs(port, r, queryMark(w), who, pass)
 	resp.Id = r.Id
 	if err := w.WriteMsg(resp); err != nil {
 		p.Log.Debug("dns write", "err", err)
@@ -373,6 +390,12 @@ func (p *Proxy) serve(port int, w dns.ResponseWriter, r *dns.Msg) {
 
 // who names the sender (nil = unknown); called when the filter blocks and for the debug log.
 func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dns.Msg {
+	return p.handleObs(port, r, mark, who, nil)
+}
+
+// handleObs is handle; pass (may be nil) is called once the query is going
+// to an upstream, i.e. when it was neither blocked nor refused.
+func (p *Proxy) handleObs(port int, r *dns.Msg, mark uint32, who func() string, pass func()) *dns.Msg {
 	if len(r.Question) != 1 {
 		return fail(r, dns.RcodeFormatError)
 	}
@@ -455,6 +478,9 @@ func (p *Proxy) handle(port int, r *dns.Msg, mark uint32, who func() string) *dn
 		}
 	}
 
+	if pass != nil {
+		pass()
+	}
 	q2 := r.Copy()
 	stripECS(q2)
 	q2.Id = dns.Id() // upstream ID is not the client's: a forged answer must guess it

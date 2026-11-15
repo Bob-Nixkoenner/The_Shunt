@@ -90,6 +90,9 @@ type History struct {
 	DNS      int64 `json:"dns"`
 	DNSToday int64 `json:"dns_today"`
 	DNSMonth int64 `json:"dns_month"`
+	// Direct and LAN: traffic outside the tunnels in this range (not in RX/TX).
+	Direct Bytes `json:"direct"`
+	LAN    Bytes `json:"lan"`
 }
 
 // Ranges the UI offers: window and step.
@@ -139,6 +142,14 @@ func (b *Book) History(rng string, now time.Time) History {
 		p.DNS += sl.DNS
 		h.DNS += sl.DNS
 		for name, v := range sl.Tun {
+			switch name {
+			case WayDirect:
+				h.Direct.add(v)
+				continue
+			case WayLAN:
+				h.LAN.add(v)
+				continue
+			}
 			p.RX += v.RX
 			p.TX += v.TX
 			h.RX += v.RX

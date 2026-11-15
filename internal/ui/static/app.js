@@ -144,9 +144,9 @@ function render() {
     : T("Blocks all traffic except loopback. Running programs keep running (daemon.panic_kill = true also ends programs in tunnel groups).");
 
   const inq = st.inbound_ask;
-  $("#banners").replaceChildren(...[...new Set(noticeTexts(st))].map((w) => el("div", { class: "banner" }, "⚠ ", w)),
+  $("#banners").replaceChildren(...noticeBanners(st),
     ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
-    ...(st.findings || []).filter(strictFinding).map((f) => el("div", { class: "banner" }, "⚠ ", T(f.msg, f.vals || {}))),
+    ...(st.findings || []).filter(strictFinding).map((f) => el("div", { class: "banner" }, "⚠ ", T(f.msg, f.vals || {}), hideCtl(f))),
     ...(inq && shows("inbound") ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
       el("button", { onclick: () => inboundDecide(inq, "closed") }, "Keep closed"))] : []),
@@ -154,6 +154,7 @@ function render() {
     ...(st.pass_left && !st.panic ? [el("div", { class: "banner bad" }, T("Pass: everything goes direct – past tunnels, blocks and the DNS filter – for another {n} min. Connections opened meanwhile are cut when it ends.", { n: Math.ceil(st.pass_left / 60) }))] : []));
 
   renderChecks(st.findings || []);
+  renderHidden(st.ignored || []);
 
   $("#tunnels").replaceChildren(...(st.tunnels.length ? st.tunnels.map((t) => {
     const p = (t.peers || [])[0] || {};
@@ -161,7 +162,7 @@ function render() {
     const hs = tor ? t.bootstrap >= 100 : p.last_handshake && !p.last_handshake.startsWith("0001");
     const ovpn = t.driver === "openvpn" || t.driver === "tailscale" || tor;
     return el("div", { class: "card " + (t.up && hs ? "up" : "down") },
-      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
+      el("div", { class: "name" }, el("span", { class: "tname" }, t.name, " ", ...tunnelTypes(t).map((x) => el("span", { class: "pill type", title: T("Type of this tunnel") }, x))), t.sleep_left ? el("span", { class: "pill" }, T("asleep, {min} min left", { min: Math.ceil(t.sleep_left / 60) })) : t.disabled ? el("span", { class: "pill" }, "off") : el("span", { class: "pill " + (t.up && hs ? "ok" : "bad") }, t.up ? (hs ? "up" : ovpn ? "connecting" : "no handshake") : "down")),
       el("div", { class: "kv" },
         ...(tor ? [el("span", {}, "network"), el("span", {}, "Tor"),
           el("span", {}, "connected"), el("span", {}, t.up ? (t.bootstrap >= 100 ? "yes" : T("starting: {n} %", { n: t.bootstrap })) : "no")] : [
@@ -201,6 +202,26 @@ function render() {
             setTimeout(() => { e.target.disabled = false; }, 10000); // tor allows one every 10 s
           } }, "New identity"))] : []),
         ...(t.error ? [el("span", {}, "error"), el("span", { style: "color:var(--bad)" }, t.error)] : [])),
+      el("div", { class: "row", style: "margin-top:8px;gap:6px;flex-wrap:wrap" },
+        el("button", { title: T("Off stays off after a restart. The apps of this tunnel stay blocked."), onclick: async () => {
+          try {
+            await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: t.disabled ? "on" : "off" });
+            toast(t.disabled ? T("Tunnel {name} is on", { name: t.name }) : T("Tunnel {name} is off", { name: t.name }));
+            await refresh();
+          } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
+        } }, t.disabled ? T("Switch on") : T("Switch off")),
+        ...(t.disabled && !t.sleep_left ? [] : [el("select", { title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
+          const secs = parseInt(e.target.value, 10);
+          e.target.value = "";
+          if (!secs) return;
+          try {
+            await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: "sleep", seconds: secs });
+            toast(T("Tunnel {name} sleeps", { name: t.name }));
+            await refresh();
+          } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
+        } },
+          el("option", { value: "" }, T("Sleep …")),
+          ...[[900, T("15 minutes")], [3600, T("1 hour")], [14400, T("4 hours")], [43200, T("12 hours")]].map(([v, l]) => el("option", { value: String(v) }, l)))])),
       ...(typeof sparkline === "function" && hist && hist.tunnels && hist.tunnels[t.name] ? [sparkline(hist.tunnels[t.name])] : []));
   }) : [el("div", { class: "muted" }, "No tunnels configured – import one under Configure.")]),
     ...(st.traffic && st.traffic.total && st.traffic.total.total.rx + st.traffic.total.total.tx > 0 ? [el("div", { class: "muted", style: "grid-column:1/-1" },
@@ -828,7 +849,59 @@ function renderChecks(fs) {
   box.querySelector("summary").textContent = Tn(rest.length, "Security check: {n} note", "Security check: {n} notes");
   $("#checks-list").replaceChildren(...rest.map((f) => el("div", { class: "note " + f.level }, T(f.msg, f.vals || {}),
     ...(CHECK_HELP[f.id] && !f.help ? [el("details", { class: "muted", style: "margin-top:4px" }, el("summary", {}, "What does this mean?"), el("div", { style: "margin-top:4px" }, T(CHECK_HELP[f.id])))] : []),
-    f.help ? el("div", { class: "muted" }, T(f.help)) : "")));
+    f.help ? el("div", { class: "muted" }, T(f.help)) : "", hideCtl(f))));
+}
+
+// The daemon's notices as banners (one per text); a notice with a key may be
+// hidden. An older daemon sends only st.warnings (English).
+function noticeBanners(st) {
+  if (!(st.notices && st.notices.length)) return [...new Set(st.warnings || [])].map((w) => el("div", { class: "banner" }, "⚠ ", w));
+  const seen = new Set();
+  return st.notices.filter((n) => {
+    const t = T(n.msg, n.vals || {});
+    return !seen.has(t) && seen.add(t);
+  }).map((n) => el("div", { class: "banner" }, "⚠ ", T(n.msg, n.vals || {}), hideCtl(n)));
+}
+
+// hideCtl: "Hide…" for a warning the service lets the user hide (f.key, see
+// check/ignore.go: notes about one's own settings; never "bad", never a
+// state like a tunnel down or a leak). It stays listed under "hidden".
+function hideCtl(f) {
+  if (!f.key) return "";
+  const s = el("select", { class: "hide-warn", title: "Hide this warning. It is listed under “hidden warnings” and can be shown again there.",
+    onchange: async () => {
+      const how = s.value;
+      s.value = "";
+      if (!how) return;
+      try {
+        await api("POST", "/api/warnings/ignore", { key: f.key, for: how });
+        toast(T("Warning hidden"));
+        refresh();
+      } catch (e) { toast(String(e.message || e)); }
+    } },
+    el("option", { value: "" }, "Hide…"), el("option", { value: "day" }, "for 1 day"),
+    el("option", { value: "week" }, "for 1 week"), el("option", { value: "forever" }, "for good"));
+  return s;
+}
+
+// renderHidden: what the user hid ("n hidden"), each with its end and a
+// button to show it again. Hidden is not "fixed": the list stays in view.
+function renderHidden(list) {
+  const box = $("#hidden-warn");
+  box.hidden = !list.length;
+  if (!list.length) return;
+  $("#hidden-warn-sum").textContent = Tn(list.length, "{n} warning hidden", "{n} warnings hidden");
+  const when = (t) => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" }); };
+  $("#hidden-warn-list").replaceChildren(...list.map((it) => el("div", { class: "note" },
+    T(it.msg, it.vals || {}),
+    el("div", { class: "muted" }, it.until ? T("hidden until {time}", { time: when(it.until) }) : T("hidden for good"),
+      it.hiding ? "" : T(" · not present right now")),
+    el("button", { onclick: async () => {
+      try {
+        await api("DELETE", "/api/warnings/ignore?key=" + encodeURIComponent(it.key));
+        refresh();
+      } catch (e) { toast(String(e.message || e)); }
+    } }, "Show again"))));
 }
 
 // Stricter security check (daemon.config_check = "strict", a switch of the
