@@ -515,7 +515,7 @@ marked **assumption** are not confirmed by that catalogue.
 | `dns_rebind` | `dnsproxy.Proxy` asks an Observer that also implements the optional `Rebinder` interface (`Manager.Rebind`) for each answered A/AAAA set, before the answer is cached or returned | Off unless `defense.rebind_protect = true`. A public name (not single-label, not `.local/.lan/.home/.internal/.localdomain/.home.arpa/.intranet/.corp/.private/.localhost/.test/.invalid`, not under `in-addr.arpa`/`ip6.arpa`, not under an entry of `defense.rebind_allow`) answered with a private (RFC 1918, fc00::/7), loopback, link-local, CGNAT (100.64/10) or unspecified address raises `dns_rebind` (medium, base domain and address class only, once per domain per 10 min). With the feature's **Block** switch on, the answer is dropped (REFUSED); otherwise only reported. A proxy without a defense behaves exactly as before | Only what passes the Shunt's DNS proxy is seen (not DoH inside an app). Unspecified (`0.0.0.0`) counts as hostile: this is common knowledge about rebinding, not in the catalogue (**assumption**). Public names that legitimately point inwards (split DNS) need `rebind_allow` |
 | `new_iface` | `newIface()` in `iface_linux.go` (Linux only): netlink `RTM_NEWLINK` and `RTM_NEWROUTE` via `LinkSubscribe`/`RouteSubscribe`; classification `ClassifyIface` reads sysfs | An interface that was not there at the first start of the sensors raises `new_iface` once per name, with type (`ethernet`, `wlan`, `unknown`), bus (`usb` or none) and driver when readable (low; medium when `bus=usb`). A **default route** that goes over such an interface is **high**. Virtual devices (under `/sys/devices/virtual/net`: tunnels, veth, bridges) are ignored, so the Shunt's own tunnel never alarms. The event never names the interface (names like `enx<MAC>` carry the hardware address) | Netlink events for link and route are confirmed (Q9, Q12); that sysfs tells the bus (`device/subsystem` link to `usb`, a `usbN` path component) and the driver (`device/driver`, `uevent`) is an **assumption**, with the fallback "type unknown, no bus claim". The driver binds after the link appears, so it is read 1.5 s later. A DNS server handed out over the new interface is **not** detected yet. The real test with a Pi Zero 2 W as ECM/RNDIS gadget on a real device is still to be done together with the owner. Other platforms: stub |
 
-Windows: stubs only (no packet sockets or netlink); Android: only the watcher, no packet sockets or netlink. `dns_rebind` is platform neutral and works wherever the
+Windows: no sensors yet (see the Windows section); Android: only the watcher, no packet sockets or netlink. `dns_rebind` is platform neutral and works wherever the
 DNS proxy runs with the defense.
 
 ## If shuntd no longer starts after a change
@@ -554,7 +554,7 @@ Legal note (no legal advice): IP addresses are personal data in many jurisdictio
 
 ## Windows (the watcher, steps 1 and 2)
 
-Since step 1 the Windows service runs the defense as a watcher (`internal/windefense`), fed by the netstack's observer like on Android. Step 2 adds the gateway watch, the evil-twin check, the Windows network profile as a class hint and a connection table poll. Working features: `dns_tunnel`, `reputation`, `first_seen`, `beacon`, `arp` (gateway MAC only) and `evil_twin`; every other feature stays off and cannot be switched on. Nothing is blocked (Block switches are ignored, `POST /v1/defense/ban` answers 409), no decoy listens, no port is opened. The `/v1/defense*` routes are the same as on Linux (changing the config and lifting a block need the manage right), and the status carries the short `defense` field. The reputation lists are downloaded through the default route and cached in `defense\` next to the config. Planned next: WFP bans, decoys with an inbound permit, DHCP, certificate check (see `abwehr-windows-android-plan`).
+Since step 1 the Windows service runs the defense as a watcher (`internal/windefense`), fed by the netstack's observer like on Android. Step 2 adds the gateway watch, the evil-twin check, the Windows network profile as a class hint and a connection table poll. Working features: `dns_tunnel`, `reputation`, `first_seen`, `beacon`, `arp` (gateway MAC only), `evil_twin`, `decoy`, `scan` and `brute`; every other feature stays off and cannot be switched on. The `/v1/defense*` routes are the same as on Linux (changing the config and lifting a block need the manage right), and the status carries the short `defense` field. The reputation lists are downloaded through the default route and cached in `defense\` next to the config. Decoys and bans: next section. Planned next: DHCP, certificate check (see `abwehr-windows-android-plan`).
 
 | Part | How it works on Windows |
 |---|---|
@@ -563,6 +563,43 @@ Since step 1 the Windows service runs the defense as a watcher (`internal/windef
 | `arp` | The system's ARP/NDP table (`GetIpNetTable2`, woken by `NotifyIpNetTable`, plus a poll every 5 s) for the uplink interface. A new MAC for the gateway address is one high event. Only the gateway MAC; no DHCP server watch (needs a raw socket), no router advertisements. |
 | `evil_twin` | Same Wi-Fi name with a gateway MAC not seen before (`twins.json` in `defense\`, hashed). Needs the SSID and the gateway MAC from the service. |
 | Connection table | Every 10 s `GetExtendedTcpTable` (IPv4 and IPv6, `TCP_TABLE_OWNER_PID_ALL`) with the owning process (`QueryFullProcessImageName`). New outgoing connections feed first contact and beacons under the program's file name, so connections that do not pass the netstack observer get a program too. A destination the netstack reported in the last 30 s is not counted a second time as a beacon. The first read only teaches first contact. |
+
+## Windows (decoys and bans)
+
+Blocking needs the manage right on the `/v1/defense/ban` and `unban` routes.
+
+**Decoys.** `defense.WindowsListen`: TCP on the uplink's IPv4 address only (never on the tunnel adapter, never on all
+addresses; no address = no decoy), with `SO_EXCLUSIVEADDRUSE`. A port another program holds (TCP table, IPv4 and IPv6,
+any address) is skipped, so a decoy never sits in front of a real service (445, 3389 are usually taken). Decoys run in
+networks of class unknown/unsafe, not in safe ones, and not while the uplink has a public address (as on Linux). IPv6
+decoys: not yet. Tarpit and fake logins (`tarpit`, `cowrie`) stay off for now.
+
+**Inbound permit.** The ports that really listen (`Manager.DecoyPorts`, checked every 5 s) go into the inbound filters
+(`wfp.InboundPolicy.Decoys`, Windows counterpart of the nft set `decoy_ports`): a hard permit at
+`ALE_AUTH_RECV_ACCEPT` for TCP to that port, only for the service's own program (app ID) and not through the tunnel.
+With `[inbound]` off the filters hold only these permits (no block), so a default block of Windows Firewall does not hide
+the decoys either; on a safe network the list is empty and the permits go.
+
+**Bans.** `wfp.Banner` (`ban_windows.go`, rules in `ban_rules.go`): block filters at
+`FWPM_LAYER_INBOUND_TRANSPORT_V4/V6` per blocked address or range (/24, /64 while exposed), own provider and sublayer,
+in a **dynamic** WFP session: when the service ends, also after a crash, the engine removes them. At start the keys of
+an earlier run are deleted first. Safety rules:
+
+- Permits weigh more than every block in the sublayer: loopback, DHCP (68, 546), IPv6 neighbour/router discovery, and
+  the never-list: gateway, the network's DNS server, tunnel endpoints (from the tunnel configs, names resolved once a
+  minute) and `defense.never`. A range ban around the gateway leaves the gateway open.
+- No ban while the gateway is not known or the never-list could not be installed; ranges wider than /16 (IPv4) or /32
+  (IPv6), loopback, multicast and the unspecified address are refused; at most 2048 bans (the ban table has the same cap).
+- A ban the filter engine refuses is not kept: the entry is dropped with an `unban` event `not_enforced` and a log line.
+  Without filters `POST /v1/defense/ban` answers 409.
+- Block switches of `reputation`, `scan` and `brute` take effect only while the filters are in place and decoys are on
+  (their only trigger on Windows is a decoy hit; outgoing connections to listed addresses are reported, never blocked).
+  Otherwise the unsafe-network override is off too.
+- Emergency switch: `enabled = false`, `POST /v1/defense/unban` with an empty `src`, a lost never-list and the
+  service stop lift every ban (table and filters).
+
+Still missing on Windows: DHCP and router-advert watch, certificate check (see
+`abwehr-windows-android-plan`).
 
 ## Windows and Android: Android (the watcher)
 

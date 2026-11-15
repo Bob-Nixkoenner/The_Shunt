@@ -40,6 +40,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/blocklist"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/clockcheck"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/defense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
@@ -386,7 +387,12 @@ func runCore(ctx context.Context, ready func()) error {
 	inNetwork.Store("")
 	var inMu sync.Mutex
 	inboundOn := false
-	applyInbound := func() {
+	inboundKey := ""
+	// the ports the defense's decoys listen on (set once the defense runs)
+	var decoyPorts atomic.Pointer[func() []int]
+	// applyInboundIf installs the filters; without force only when they
+	// would change (the decoy check every few seconds)
+	applyInboundIf := func(force bool) {
 		inMu.Lock()
 		defer inMu.Unlock()
 		socksMu.Lock()
@@ -398,11 +404,20 @@ func runCore(ctx context.Context, ready func()) error {
 		if c == nil || luid == 0 {
 			return
 		}
-		a := winsvc.InboundFor(c, inNetwork.Load().(string))
+		var decoys []int
+		if f := decoyPorts.Load(); f != nil {
+			decoys = (*f)()
+		}
+		a := winsvc.InboundFor(c, inNetwork.Load().(string), decoys)
+		key := fmt.Sprintf("%+v|%d", a, luid)
+		if !force && inboundOn && key == inboundKey {
+			return // unchanged
+		}
 		if !a.On {
 			if inboundOn {
 				winsplit.DisableInbound()
 				inboundOn = false
+				inboundKey = ""
 				log.Print("inbound protection off")
 			}
 			return
@@ -411,13 +426,20 @@ func runCore(ctx context.Context, ready func()) error {
 		for _, p := range a.Ports {
 			ports = append(ports, winsplit.InboundPort{TCP: p.Proto == "tcp", From: p.From, To: p.To})
 		}
-		if err := winsplit.EnableInbound(a.LAN, ports, luid); err != nil {
+		if err := winsplit.EnableInbound(winsplit.InboundPolicy{LAN: a.LAN, Allow: ports, TunLUID: luid, Decoys: a.Decoys, Open: a.Open}); err != nil {
+			// the earlier filters stay (one transaction); tried again on the next change
 			log.Printf("inbound protection: %v", err)
+			inboundKey = ""
 			return
 		}
-		inboundOn = true
-		log.Printf("inbound protection on (lan=%v, %d open ports)", a.LAN, len(ports))
+		inboundOn, inboundKey = true, key
+		if a.Open {
+			log.Printf("inbound protection off, %d decoy ports let in", len(a.Decoys))
+		} else {
+			log.Printf("inbound protection on (lan=%v, %d open ports, %d decoy ports)", a.LAN, len(ports), len(a.Decoys))
+		}
 	}
+	applyInbound := func() { applyInboundIf(true) }
 	// quiet mode (daemon.quiet, per network): persistent WFP filters drop
 	// outgoing discovery (NetBIOS, LLMNR, mDNS, SSDP, multicast, broadcast).
 	// On a trusted network they are lifted; a boot filter (the same set) keeps
@@ -542,9 +564,26 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 		inMu.Unlock()
 	}()
-	// the defense watcher (step 1: DNS, connections, reputation lists); its
-	// lists are downloaded the way the DNS filter's are, through the default route
+	// the ban filters of the defense: a dynamic WFP session, gone with the
+	// process (also after a crash). Opened before the defense so that its
+	// Close (which lifts every ban) runs first.
+	banner, banErr := winsplit.OpenBanner()
+	if banErr != nil {
+		log.Printf("defense: ban filters not available, nothing will be blocked: %v", banErr)
+	} else {
+		defer banner.Close()
+	}
+	// the defense: DNS, connections, reputation lists, decoys on the uplink
+	// and bans through WFP; its lists are downloaded the way the DNS
+	// filter's are, through the default route
 	var defEng atomic.Pointer[splitstack.Engine]
+	uplinkV4 := func() netip.Addr {
+		u, err := winsplit.FindUplink()
+		if err != nil {
+			return netip.Addr{}
+		}
+		return winsplit.InterfaceV4(u.Index)
+	}
 	def := windefense.New(filepath.Join(dataDir, "defense"), slog.Default(), func() *http.Client {
 		e := defEng.Load()
 		if e == nil {
@@ -552,8 +591,13 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 		return &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{
 			DialContext: e.DialDefault, Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
-	})
+	}, defense.WindowsListen(uplinkV4, winsplit.TCPPortTaken))
 	defer def.Close()
+	if banErr == nil {
+		def.UseFirewall(banner)
+	}
+	decoys := def.M.DecoyPorts
+	decoyPorts.Store(&decoys)
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
 			def.Apply(c)
@@ -698,6 +742,12 @@ func runCore(ctx context.Context, ready func()) error {
 	watchStop := make(chan struct{})
 	defer close(watchStop)
 	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) {
+		// the network's DNS server joins the gateway on the never-block list
+		var dns []netip.Prefix
+		if u, err := winsplit.FindUplink(); err == nil && u.DNS.IsValid() {
+			dns = append(dns, netip.PrefixFrom(u.DNS.Unmap(), u.DNS.Unmap().BitLen()))
+		}
+		def.SetNever(windefense.NeverDNS, dns)
 		def.Network(netInfo.Load().(netdetect.Info))
 		inNetwork.Store(n)
 		netKnown.Store(true)
@@ -705,6 +755,47 @@ func runCore(ctx context.Context, ready func()) error {
 		applyQuiet()
 		go applyMAC()
 	})
+	// defense upkeep: tunnel endpoints on the never-block list (a ban must
+	// never cut a tunnel), decoy ports into the inbound filters when they
+	// change (Windows counterpart of the nft set decoy_ports)
+	go func() {
+		peers := time.NewTicker(time.Minute)
+		defer peers.Stop()
+		ports := time.NewTicker(5 * time.Second)
+		defer ports.Stop()
+		lastPorts := ""
+		updatePeers := func() {
+			c := m.Current()
+			if c == nil {
+				return
+			}
+			var eps []string
+			for name := range c.Tunnels {
+				eps = append(eps, m.Endpoint(name))
+			}
+			lctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			def.SetNever(windefense.NeverTun, windefense.TunnelPeers(lctx, eps, func(ctx context.Context, host string) ([]netip.Addr, error) {
+				rctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				defer cancel()
+				return net.DefaultResolver.LookupNetIP(rctx, "ip", host)
+			}))
+		}
+		updatePeers()
+		for {
+			select {
+			case <-watchStop:
+				return
+			case <-peers.C:
+				updatePeers()
+			case <-ports.C:
+				if k := fmt.Sprint(def.M.DecoyPorts()); k != lastPorts {
+					lastPorts = k
+					applyInboundIf(false)
+				}
+			}
+		}
+	}()
 	go func() {
 		for {
 			select {

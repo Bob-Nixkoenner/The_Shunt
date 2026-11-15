@@ -15,27 +15,49 @@ func TestLimitKeepsOnlyWatchers(t *testing.T) {
 	for _, n := range defense.AllFeatures {
 		c.Features[n] = defense.Feature{Watch: true, Block: true}
 	}
-	l := Limit(c)
 	want := map[string]bool{}
 	for _, n := range Features {
 		want[n] = true
 	}
-	for _, n := range defense.AllFeatures {
-		f := l.Features[n]
-		if f.Block {
-			t.Errorf("%s: Block must be off", n)
+	blockOK := map[string]bool{}
+	for _, n := range BlockFeatures {
+		blockOK[n] = true
+	}
+	for _, canBlock := range []bool{false, true} {
+		l := Limit(c, canBlock)
+		for _, n := range defense.AllFeatures {
+			f := l.Features[n]
+			if f.Block != (canBlock && blockOK[n]) {
+				t.Errorf("canBlock=%v %s: Block=%v", canBlock, n, f.Block)
+			}
+			if f.Watch != want[n] {
+				t.Errorf("%s: Watch=%v want %v", n, f.Watch, want[n])
+			}
 		}
-		if f.Watch != want[n] {
-			t.Errorf("%s: Watch=%v want %v", n, f.Watch, want[n])
+		if len(l.DecoyPorts) == 0 {
+			t.Error("decoy ports must stay")
+		}
+		if !canBlock && (l.UnsafeBlock == nil || *l.UnsafeBlock) {
+			t.Error("without firewall the unsafe-network block must be off")
+		}
+		if canBlock && l.UnsafeBlock != nil {
+			t.Error("with firewall the user's unsafe_block stays")
 		}
 	}
-	if len(l.DecoyPorts) != 0 {
-		t.Error("decoy ports must be empty")
+	// no decoys, no trigger: no block either
+	c.Features[defense.FeatDecoy] = defense.Feature{}
+	if l := Limit(c, true); l.Features[defense.FeatScan].Block || l.UnsafeBlock == nil || *l.UnsafeBlock {
+		t.Error("blocking without decoys")
+	}
+	c.Features[defense.FeatDecoy] = defense.Feature{Watch: true}
+	c.DecoyPorts = nil
+	if l := Limit(c, true); l.Features[defense.FeatReputation].Block {
+		t.Error("blocking without decoy ports")
 	}
 }
 
 func TestApplyAndNetwork(t *testing.T) {
-	r := New(t.TempDir(), nil, nil)
+	r := New(t.TempDir(), nil, nil, nil)
 	defer r.Close()
 	c, err := config.Parse("[daemon]\ndefault_route = \"direct\"\n[defense]\nenabled = true\n")
 	if err != nil {
@@ -56,11 +78,11 @@ func TestApplyAndNetwork(t *testing.T) {
 }
 
 func TestObserverReputationReports(t *testing.T) {
-	r := New(t.TempDir(), nil, nil)
+	r := New(t.TempDir(), nil, nil, nil)
 	defer r.Close()
 	cfg := defense.DefaultConfig()
 	cfg.Enabled = true
-	r.M.Configure(Limit(cfg))
+	r.M.Configure(Limit(cfg, false))
 	r.M.SetNetwork("k", defense.ClassUnsafe)
 	o := r.Observer()
 	// a private target is ignored, a public one without a list hit is quiet
@@ -88,7 +110,7 @@ func TestAppNameIsFileName(t *testing.T) {
 }
 
 func TestClassHintAndConfigWins(t *testing.T) {
-	r := New(t.TempDir(), nil, nil)
+	r := New(t.TempDir(), nil, nil, nil)
 	defer r.Close()
 	c, err := config.Parse("[daemon]\ndefault_route = \"direct\"\n[defense]\nenabled = true\n[[network]]\nname = \"home\"\nssid = [\"Home\"]\nclass = \"safe\"\n")
 	if err != nil {

@@ -90,3 +90,16 @@ func find(rows []Row, local netip.AddrPort) (uint32, bool) {
 	}
 	return 0, false
 }
+
+// PortTaken reports whether another program holds TCP port: a row with
+// that local port owned by a process other than self. Rows without a
+// process (TIME_WAIT of closed connections, PID 0) do not count, so a
+// decoy can take its port again after a network change.
+func PortTaken(rows []Row, port uint16, self uint32) bool {
+	for _, r := range rows {
+		if r.Local.Port() == port && r.PID != 0 && r.PID != self {
+			return true
+		}
+	}
+	return false
+}

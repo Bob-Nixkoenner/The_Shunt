@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Windows defense, decoys and bans:** the service now runs decoys on the uplink (IPv4, ports other programs hold are skipped, not on safe networks) and blocks attacking sources through WFP filters at the inbound transport layer, in a dynamic session that the filter engine removes when the service ends (also after a crash). Gateway, DNS server, tunnel endpoints, loopback, DHCP and IPv6 neighbour discovery are never blocked; without a known gateway nothing is blocked; a ban the engine refuses is dropped and logged. Switching the defense off, unban-all and the service stop lift every ban. `POST /v1/defense/ban` blocks for real (manage right). The inbound filters let the decoy ports in to the service only. Tests in `wfp/ban_rules_test.go`, `windefense/ban_test.go`, `winsvc` (`TestDefenseBanRoute`, `TestInboundFor`). Not yet tested on a real Windows machine.
+
 ## v0.8.0-rc51
 
 Versions between v0.7.1-rc24 and v0.8.0-rc51 were internal test builds and were not published on GitHub.

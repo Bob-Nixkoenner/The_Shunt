@@ -72,6 +72,10 @@ func WithBanHooks(onBan, onUnban func(Ban)) Option {
 	return func(m *Manager) { m.bans.OnBan, m.bans.OnUnban = onBan, onUnban }
 }
 
+// WithMaxBans caps the ban table (default DefaultMaxBans): the Windows
+// side has room for fewer firewall filters.
+func WithMaxBans(n int) Option { return func(m *Manager) { m.bans.Max = n } }
+
 // WithOwnAddr tells the manager which addresses belong to this machine; they
 // are never blocked (a forged source address must not lock out the host
 // itself).
@@ -594,6 +598,14 @@ func (m *Manager) Ban(src string) error {
 func (m *Manager) Unban(src string) {
 	for _, b := range m.bans.Remove(src) {
 		m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: "manual"})
+	}
+}
+
+// Drop lifts a block that could not be put into effect (the firewall
+// refused it); why goes into the unban event.
+func (m *Manager) Drop(src, why string) {
+	for _, b := range m.bans.Remove(src) {
+		m.Report(Event{Kind: KindUnban, Severity: SevInfo, Src: b.Src, Detail: why})
 	}
 }
 
