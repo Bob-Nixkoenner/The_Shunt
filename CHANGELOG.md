@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0-rc52
 
 - **Direct and local-network connections cut after sending (Windows, Android):** the counter wrapper added with the way counters hid the half-close, so a direct connection was closed as soon as the client had finished sending and the reply never arrived. The half-close is now passed through.
 - **Direct and local-network traffic on Linux:** the daemon counts traffic outside the tunnels (to the internet and to the local network) in an nft table of its own (`shunt_ways`) that only counts – no verdict, no mark, the main rules stay as they were – and shows it in the statistics like on Windows/Android. Not counted: forwarded traffic (VMs, gateway clients); Tor relay traffic shows as direct. Tests `TestRenderWaysOnlyCounts`, `TestParseWays`, `TestWaysNetns`, `TestCountWays`.
