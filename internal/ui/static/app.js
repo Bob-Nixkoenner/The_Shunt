@@ -108,6 +108,11 @@ function ago(ts) {
 }
 
 function render() {
+  // A drop-down that is open keeps focus; building the page again would
+  // replace it and close it after a moment. Wait until it is closed (at
+  // most 30 s, so a forgotten drop-down does not freeze the page).
+  const picking = document.activeElement;
+  if (picking && picking.tagName === "SELECT" && Date.now() - Number(picking.dataset.pick || 0) < 30000) return;
   const st = status;
   const win = !!st && st.platform === "windows";
   document.body.classList.toggle("windows", win);
@@ -210,9 +215,10 @@ function render() {
             await refresh();
           } catch (err) { toast(T("Failed: {error}", { error: err.message })); }
         } }, t.disabled ? T("Switch on") : T("Switch off")),
-        ...(t.disabled && !t.sleep_left ? [] : [el("select", { title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
+        ...(t.disabled && !t.sleep_left ? [] : [el("select", { onfocus: (e) => { e.target.dataset.pick = Date.now(); }, title: T("Sleep: off for a while, then on again by itself"), onchange: async (e) => {
           const secs = parseInt(e.target.value, 10);
           e.target.value = "";
+          e.target.blur();
           if (!secs) return;
           try {
             await api("POST", "/api/tunnels/" + encodeURIComponent(t.name) + "/state", { state: "sleep", seconds: secs });
@@ -868,10 +874,11 @@ function noticeBanners(st) {
 // state like a tunnel down or a leak). It stays listed under "hidden".
 function hideCtl(f) {
   if (!f.key) return "";
-  const s = el("select", { class: "hide-warn", title: "Hide this warning. It is listed under “hidden warnings” and can be shown again there.",
+  const s = el("select", { class: "hide-warn", onfocus: (e) => { e.target.dataset.pick = Date.now(); }, title: "Hide this warning. It is listed under “hidden warnings” and can be shown again there.",
     onchange: async () => {
       const how = s.value;
       s.value = "";
+      s.blur();
       if (!how) return;
       try {
         await api("POST", "/api/warnings/ignore", { key: f.key, for: how });
