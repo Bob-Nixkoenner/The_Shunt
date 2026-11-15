@@ -149,7 +149,7 @@ var (
 func BanPrefix(src string) (netip.Prefix, error) {
 	if a, err := netip.ParseAddr(src); err == nil {
 		a = a.Unmap().WithZone("")
-		return netip.PrefixFrom(a, a.BitLen()), nil
+		return CheckBan(netip.PrefixFrom(a, a.BitLen()))
 	}
 	p, err := netip.ParsePrefix(src)
 	if err != nil {

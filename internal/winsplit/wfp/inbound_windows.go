@@ -26,10 +26,19 @@ type InboundPort struct {
 // InboundPolicy: Allow nil and LAN false = closed. LAN true lets the ports
 // in Allow in from private addresses only. TunLUID (if not 0) is never opened:
 // nothing comes in through the tunnel.
+//
+// Decoys are the TCP ports the defense's decoys listen on (Windows
+// counterpart of the nft set decoy_ports): let in from anywhere, but only
+// to this service (its app ID) and not through the tunnel, as a hard permit
+// so a default block of Windows Firewall cannot hide them either. Open
+// installs only those permits, without the final block (inbound protection
+// off, decoys running).
 type InboundPolicy struct {
 	LAN     bool
 	Allow   []InboundPort
 	TunLUID uint64
+	Decoys  []uint16
+	Open    bool
 }
 
 var (
@@ -49,6 +58,10 @@ type inState struct {
 }
 
 func (s *inState) add(name string, layer windows.GUID, weight uint8, action wtFwpActionType, conds []wtFwpmFilterCondition0) error {
+	return s.addFlags(name, layer, weight, action, 0, conds)
+}
+
+func (s *inState) addFlags(name string, layer windows.GUID, weight uint8, action wtFwpActionType, flags wtFwpmFilterFlags, conds []wtFwpmFilterCondition0) error {
 	if s.next >= inMaxFilters {
 		return errors.New("too many inbound filters")
 	}
@@ -63,6 +76,7 @@ func (s *inState) add(name string, layer windows.GUID, weight uint8, action wtFw
 	f := wtFwpmFilter0{
 		filterKey:   k,
 		displayData: *dd,
+		flags:       flags,
 		providerKey: &prov,
 		layerKey:    layer,
 		subLayerKey: inSublayer,
@@ -140,6 +154,15 @@ func EnableInbound(p InboundPolicy) error {
 		}
 		s := &inState{session: session}
 		defer runtime.KeepAlive(s)
+		var appID *wtFwpByteBlob
+		if len(p.Decoys) > 0 {
+			id, err := getAppID("")
+			if err != nil {
+				return err
+			}
+			appID = id
+			defer fwpmFreeMemory0(unsafe.Pointer(&appID))
+		}
 		layers := []struct {
 			l  windows.GUID
 			v6 bool
@@ -192,6 +215,24 @@ func EnableInbound(p InboundPolicy) error {
 						return err
 					}
 				}
+			}
+			for _, port := range p.Decoys {
+				conds := []wtFwpmFilterCondition0{condProto(cIPPROTO_TCP), condLocalPort(port, port, &s.keep),
+					{fieldKey: cFWPM_CONDITION_ALE_APP_ID, matchType: cFWP_MATCH_EQUAL,
+						conditionValue: wtFwpConditionValue0{_type: cFWP_BYTE_BLOB_TYPE, value: uintptr(unsafe.Pointer(appID))}}}
+				if p.TunLUID != 0 {
+					luid := new(uint64)
+					*luid = p.TunLUID
+					s.keep = append(s.keep, luid)
+					conds = append(conds, wtFwpmFilterCondition0{fieldKey: cFWPM_CONDITION_IP_LOCAL_INTERFACE, matchType: cFWP_MATCH_NOT_EQUAL,
+						conditionValue: wtFwpConditionValue0{_type: cFWP_UINT64, value: uintptr(unsafe.Pointer(luid))}})
+				}
+				if err := s.addFlags("Permit defense decoy ("+fam+")", ly.l, 12, cFWP_ACTION_PERMIT, cFWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT, conds); err != nil {
+					return err
+				}
+			}
+			if p.Open {
+				continue
 			}
 			if err := s.add("Block inbound ("+fam+")", ly.l, 0, cFWP_ACTION_BLOCK, nil); err != nil {
 				return err

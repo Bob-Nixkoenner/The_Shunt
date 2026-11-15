@@ -75,12 +75,27 @@ func (s *Server) defenseRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	// nothing is blocked on Windows yet: ban and unban answer clearly
 	mux.HandleFunc("POST /v1/defense/ban", func(w http.ResponseWriter, r *http.Request) {
 		if !s.may(w, r, "blocking an address") {
 			return
 		}
-		fail(w, http.StatusConflict, errors.New("blocking addresses is not available on Windows yet"))
+		var req api.DefenseUnban
+		if !decode(w, r, &req) {
+			return
+		}
+		if s.Defense == nil {
+			fail(w, http.StatusConflict, errors.New("defense is not available"))
+			return
+		}
+		if err := s.Defense.Ban(strings.TrimSpace(req.Src)); err != nil {
+			code := http.StatusBadRequest
+			if errors.Is(err, defense.ErrNeverBan) || errors.Is(err, defense.ErrNotBannable) || errors.Is(err, windefense.ErrNoBlocking) {
+				code = http.StatusConflict
+			}
+			fail(w, code, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/defense/unban", func(w http.ResponseWriter, r *http.Request) {
 		if !s.may(w, r, "lifting a block") {
@@ -90,8 +105,21 @@ func (s *Server) defenseRoutes(mux *http.ServeMux) {
 		if !decode(w, r, &req) {
 			return
 		}
+		src := strings.TrimSpace(req.Src)
+		if src != "" { // an address, or a range the defense blocked as a whole
+			if _, err := netip.ParseAddr(src); err != nil {
+				if _, err2 := netip.ParsePrefix(src); err2 != nil {
+					fail(w, http.StatusBadRequest, err)
+					return
+				}
+			}
+		}
 		if s.Defense != nil {
-			s.Defense.M.Unban(strings.TrimSpace(req.Src))
+			if src == "" {
+				s.Defense.LiftAll("manual") // also what the table may have lost
+			} else {
+				s.Defense.M.Unban(src)
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})

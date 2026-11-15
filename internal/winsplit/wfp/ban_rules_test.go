@@ -199,3 +199,11 @@ func TestBanTable(t *testing.T) {
 		t.Error("len")
 	}
 }
+
+func TestBanPrefixRefusesLoopback(t *testing.T) {
+	for _, s := range []string{"127.0.0.1", "::1", "0.0.0.0", "224.0.0.251"} {
+		if _, err := BanPrefix(s); err == nil {
+			t.Errorf("%s must be refused", s)
+		}
+	}
+}
