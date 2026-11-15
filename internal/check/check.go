@@ -26,7 +26,7 @@ const (
 	Info = "info" // not wrong, but you should know
 )
 
-// Finding is one result. ID is stable (tests, "ignore this one" later), Msg
+// Finding is one result. ID is stable (tests, hiding: ignore.go), Msg
 // the English text with {name} placeholders filled from Vals.
 type Finding struct {
 	ID    string            `json:"id"`
@@ -42,6 +42,9 @@ type Finding struct {
 	// Strict: the level was raised (or the finding exists at all) because
 	// daemon.config_check is "strict"; the UI shows such findings as banners.
 	Strict bool `json:"strict,omitempty"`
+	// Key: set in a status when the user may hide this finding (see
+	// ignore.go); hide it with POST /v1/warnings/ignore {"key": Key}.
+	Key string `json:"key,omitempty"`
 }
 
 // helps: the plain-words explanation of findings that need one.
