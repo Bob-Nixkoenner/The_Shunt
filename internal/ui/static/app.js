@@ -670,7 +670,7 @@ $("#allapps").addEventListener("change", renderApps);
   try { ffProfiles = (await api("GET", "/api/firefox-profiles")) || []; } catch { ffProfiles = []; }
   try { crProfiles = (await api("GET", "/api/chromium-profiles")) || []; } catch { crProfiles = []; }
   await loadApps();
-  setInterval(refresh, 2000);
+  setInterval(refresh, 10000);
 })();
 
 // --- updates ---------------------------------------------------------------
