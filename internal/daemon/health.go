@@ -43,6 +43,12 @@ func (d *Daemon) checkHealth() {
 		d.book = b
 	}
 	book, proxy := d.book, d.proxy
+	wc, countWays := d.Backend.(WayCounter)
+	countWays = countWays && d.plan != nil
+	var waysIf []string
+	if countWays {
+		waysIf = waysIfaces(d.plan)
+	}
 	var jobs []job
 	var endpoints []string // of all tunnel peers, for the defense's never-block list
 	for name, t := range d.tunnels {
@@ -84,6 +90,9 @@ func (d *Daemon) checkHealth() {
 	}()
 
 	d.defenseTunnelPeers(endpoints)
+	if countWays {
+		d.countWays(wc, book, waysIf, endpointAddrs(endpoints), time.Now())
+	}
 	if proxy != nil {
 		book.ObserveDNS(int64(proxy.FilterStats().Blocked), time.Now())
 	}

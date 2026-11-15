@@ -133,6 +133,9 @@ type Daemon struct {
 
 	health     map[string]*health.Monitor // per tunnel, see health.go
 	healthBusy bool
+	// counting table of direct/LAN traffic (ways.go): loaded for this key
+	waysKey    string
+	waysWarned bool
 	book       *stats.Book // traffic totals, opened by checkHealth
 }
 
@@ -1405,6 +1408,10 @@ func (d *Daemon) shutdown() {
 	d.tunnels = map[string]tunnel.Device{}
 	if d.book != nil {
 		_ = d.book.Close()
+	}
+	if wc, ok := d.Backend.(WayCounter); ok {
+		_ = wc.WaysOff()
+		d.waysKey = ""
 	}
 	if d.plan != nil {
 		_ = d.Backend.SyncRoutes(d.plan, nil) // shutting down: soft or not
