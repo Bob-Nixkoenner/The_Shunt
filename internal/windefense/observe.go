@@ -40,11 +40,21 @@ func (o *obs) DNSQuery(app, name, qtype string) {
 
 func (o *obs) DNSAnswer(name string, addrs []netip.Addr) { o.m.ObserveDNSAnswer(name, addrs) }
 
+// appName is the file name of the program (labtun.exe, not c:\lab\labtun.exe),
+// lower case; "unknown" when the owner is not known.
 func appName(app string) string {
 	if app == "" {
 		return "unknown"
 	}
-	return strings.ToLower(app)
+	return baseName(app)
+}
+
+// baseName cuts the directory off a Windows or slash path.
+func baseName(p string) string {
+	if i := strings.LastIndexAny(p, `\/`); i >= 0 {
+		p = p[i+1:]
+	}
+	return strings.ToLower(p)
 }
 
 func (o *obs) NewConn(app string, proto int, dst netip.AddrPort) {
@@ -70,5 +80,5 @@ func appLabel(app string) string {
 	if app == "" {
 		return ""
 	}
-	return strings.ToLower(app)
+	return baseName(app)
 }

@@ -76,3 +76,13 @@ func TestNetKeyIgnoresGatewayMAC(t *testing.T) {
 		t.Error("key must not depend on the gateway MAC")
 	}
 }
+
+func TestAppNameIsFileName(t *testing.T) {
+	for in, want := range map[string]string{
+		`C:\Lab\LabTun.exe`: "labtun.exe", "/usr/bin/Curl": "curl", "x.exe": "x.exe", "": "unknown",
+	} {
+		if got := appName(in); got != want {
+			t.Errorf("appName(%q)=%q want %q", in, got, want)
+		}
+	}
+}
