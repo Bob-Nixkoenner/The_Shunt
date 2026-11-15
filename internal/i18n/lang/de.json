@@ -1811,6 +1811,18 @@
   "No finished handshake seen yet: not blocked.": "Noch kein vollständiger Verbindungsaufbau gesehen: nicht gesperrt.",
   "Not saved: the key store of this phone did not seal the tunnel keys. Try again; restarting the phone helps if it keeps failing.": "Nicht gespeichert: Der Schlüsselspeicher dieses Handys hat die Tunnel-Schlüssel nicht versiegelt. Versuche es noch einmal; klappt es weiter nicht, hilft ein Neustart des Handys.",
   "Locked: this tunnel's keys were sealed with a key this phone does not have (for example after moving to a new phone or restoring a copy). Its apps are blocked. Delete it and import the file again.": "Gesperrt: Die Schlüssel dieses Tunnels wurden mit einem Schlüssel versiegelt, den dieses Handy nicht hat (zum Beispiel nach dem Umzug auf ein neues Handy oder dem Zurückspielen einer Kopie). Seine Apps werden blockiert. Lösche den Tunnel und importiere die Datei neu.",
-  "Truncated: the list is too big (over 256 MiB or 20 million names), the names after the cut are missing": "Abgeschnitten: Die Liste ist zu groß (über 256 MiB oder 20 Millionen Namen), die Namen nach dem Schnitt fehlen"
+  "Truncated: the list is too big (over 256 MiB or 20 million names), the names after the cut are missing": "Abgeschnitten: Die Liste ist zu groß (über 256 MiB oder 20 Millionen Namen), die Namen nach dem Schnitt fehlen",
+  " · not present right now": " · gerade nicht vorhanden",
+  "Warning hidden": "Warnung ausgeblendet",
+  "hidden for good": "dauerhaft ausgeblendet",
+  "hidden until {time}": "ausgeblendet bis {time}",
+  "{n} warning hidden": "{n} Warnung ausgeblendet",
+  "{n} warnings hidden": "{n} Warnungen ausgeblendet",
+  "Hide…": "Ausblenden …",
+  "for 1 day": "für 1 Tag",
+  "for 1 week": "für 1 Woche",
+  "for good": "dauerhaft",
+  "Show again": "Wieder zeigen",
+  "Hide this warning. It is listed under “hidden warnings” and can be shown again there.": "Diese Warnung ausblenden. Sie steht dann unter „ausgeblendete Warnungen“ und lässt sich dort wieder zeigen."
  }
 }

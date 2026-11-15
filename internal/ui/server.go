@@ -389,6 +389,17 @@ func (s *Server) handler() http.Handler {
 		}
 		s.forward(w, "POST", "/v1/inbound/network", req)
 	})
+	// hiding warnings (check/ignore.go); the list is in the status
+	mux.HandleFunc("POST /api/warnings/ignore", func(w http.ResponseWriter, r *http.Request) {
+		var req api.IgnoreRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		s.forward(w, "POST", "/v1/warnings/ignore", req)
+	})
+	mux.HandleFunc("DELETE /api/warnings/ignore", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, "DELETE", "/v1/warnings/ignore?key="+url.QueryEscape(r.URL.Query().Get("key")), nil)
+	})
 	mux.HandleFunc("GET /api/firewall/apps", func(w http.ResponseWriter, r *http.Request) {
 		var rs []firewall.Remembered
 		if err := s.Client.Do("GET", "/v1/firewall/apps", nil, &rs); err != nil {
