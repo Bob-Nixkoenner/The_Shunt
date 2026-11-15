@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Bob-Nixkoenner/the_shunt/internal/config"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/engine"
 )
 
@@ -41,18 +40,6 @@ type Ways struct {
 	// Endpoints: the tunnels' outer packets (to and from their servers)
 	// are tunnel traffic too, not direct.
 	Endpoints []netip.Addr
-}
-
-// WaysFromPlan returns the tunnel interfaces of a plan (sorted, unique).
-func WaysFromPlan(p *engine.Plan) []string {
-	var out []string
-	for _, r := range p.Routes {
-		if r.Iface != "" && !r.Tor && r.Kind == config.RouteTunnel {
-			out = append(out, r.Iface)
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out)
 }
 
 // RenderWays builds the script for WaysTable. Running it again keeps the

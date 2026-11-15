@@ -7,23 +7,11 @@ import (
 	"testing"
 )
 
-func TestWaysFromPlan(t *testing.T) {
-	got := WaysFromPlan(plan(t))
-	if len(got) != 2 {
-		t.Fatalf("tunnel ifaces = %v, want the two tunnels", got)
-	}
-	for _, i := range got {
-		if !strings.HasPrefix(i, "sh-") {
-			t.Errorf("iface %q is not a tunnel interface", i)
-		}
-	}
-}
-
 // The counting table must only count: no verdict, no mark, no NAT, nothing
 // that could change where a packet goes or whether it goes at all.
 func TestRenderWaysOnlyCounts(t *testing.T) {
 	s, err := RenderWays(Ways{
-		TunnelIfaces: WaysFromPlan(plan(t)),
+		TunnelIfaces: []string{"sh-home", "sh-vps"},
 		Endpoints:    []netip.Addr{netip.MustParseAddr("203.0.113.7"), netip.MustParseAddr("2001:db8::7"), netip.MustParseAddr("203.0.113.7")},
 	})
 	if err != nil {
