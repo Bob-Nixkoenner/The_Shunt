@@ -26,6 +26,9 @@ func TestHideKey(t *testing.T) {
 		// bad is never hidden, whatever the ID (strict check raises it)
 		{Finding{ID: "ovpn.nowrap", Level: Bad, Vals: map[string]string{"tunnel": "vpn"}}, ""},
 		{Finding{ID: "default.direct", Level: Bad}, ""},
+		// ... except a provider's OpenVPN file note that only the strict check made bad
+		{Finding{ID: "ovpn.nocerttype", Level: Bad, Strict: true, Vals: map[string]string{"tunnel": "vpn"}}, "ovpn.nocerttype:vpn"},
+		{Finding{ID: "default.direct", Level: Bad, Strict: true}, ""},
 		// states of the moment and leak paths are never hidden
 		{Note("captive", "Wi-Fi login page in the way{ssid}", "ssid", ""), ""},
 		{Note("clock", "clock"), ""},

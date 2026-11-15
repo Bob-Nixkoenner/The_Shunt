@@ -150,7 +150,7 @@ function render() {
 
   const inq = st.inbound_ask;
   $("#banners").replaceChildren(...noticeBanners(st),
-    ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}))),
+    ...(st.findings || []).filter((f) => f.level === "bad").map((f) => el("div", { class: "banner bad" }, "⛔ ", T(f.msg, f.vals || {}), hideCtl(f))),
     ...(st.findings || []).filter(strictFinding).map((f) => el("div", { class: "banner" }, "⚠ ", T(f.msg, f.vals || {}), hideCtl(f))),
     ...(inq && shows("inbound") ? [el("div", { class: "banner" }, T("🛡 Unknown network {name}: incoming connections are blocked. Is this your own network? ", { name: inq.ssid ? "“" + inq.ssid + "”" : T("(gateway {mac})", { mac: inq.gateway_mac }) }),
       el("button", { onclick: () => inboundDecide(inq, "home") }, "Trust it (LAN ports open)"), " ",
@@ -870,7 +870,7 @@ function noticeBanners(st) {
 }
 
 // hideCtl: "Hide…" for a warning the service lets the user hide (f.key, see
-// check/ignore.go: notes about one's own settings; never "bad", never a
+// check/ignore.go: notes about one's own settings; never "bad" (but a strict-raised OpenVPN file note), never a
 // state like a tunnel down or a leak). It stays listed under "hidden".
 function hideCtl(f) {
   if (!f.key) return "";
