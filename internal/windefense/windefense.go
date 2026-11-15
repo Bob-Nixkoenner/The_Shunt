@@ -471,6 +471,11 @@ func (r *Runner) Ban(src string) error {
 	if !r.CanBlock() {
 		return ErrNoBlocking
 	}
+	// the firewall refuses loopback anyway: say so up front (400/409) instead of
+	// accepting the entry and dropping it again
+	if a, err := netip.ParseAddr(strings.TrimSpace(src)); err == nil && a.Unmap().IsLoopback() {
+		return defense.ErrNotBannable
+	}
 	return r.M.Ban(src)
 }
 

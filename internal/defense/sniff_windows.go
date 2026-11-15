@@ -135,7 +135,13 @@ func subscribe() (<-chan struct{}, func()) {
 	cbSubs[ch] = struct{}{}
 	cbMu.Unlock()
 	var h windows.Handle
-	r, _, _ := procNotifyNet.Call(uintptr(windows.AF_UNSPEC), cbPtr, 0, 0, uintptr(unsafe.Pointer(&h)))
+	// iphlpapi.dll has no change notification for the neighbour table on every
+	// Windows (found in a Windows 11 VM: a missing function makes Call panic):
+	// look it up first, else the poll alone does the work
+	r := uintptr(1)
+	if procNotifyNet.Find() == nil {
+		r, _, _ = procNotifyNet.Call(uintptr(windows.AF_UNSPEC), cbPtr, 0, 0, uintptr(unsafe.Pointer(&h)))
+	}
 	return ch, func() {
 		if r == 0 && h != 0 {
 			procCancelNote.Call(uintptr(h))

@@ -145,8 +145,10 @@ func TestGatewayNeverBanned(t *testing.T) {
 	if !fw.has("203.0.113.7/32") {
 		t.Fatal("ban not in the firewall")
 	}
-	if err := r.Ban("127.0.0.1"); err == nil {
-		waitFor(t, "loopback ban not dropped", func() bool { return len(r.M.Status().Bans) == 1 })
+	for _, a := range []string{"127.0.0.1", "::1", "::ffff:127.0.0.1"} {
+		if err := r.Ban(a); !errors.Is(err, defense.ErrNotBannable) {
+			t.Errorf("ban %s: %v, want ErrNotBannable (refused up front)", a, err)
+		}
 	}
 	if fw.has("127.0.0.1/32") {
 		t.Fatal("loopback in the firewall")
