@@ -42,6 +42,7 @@ var hideable = map[string]string{
 	"rule.plaindns":     "rule",   // a direct rule with plain DNS: known trade-off
 	"default.direct":    "",       // a deliberate default (only while it is not "bad")
 	"network.direct":    "link",   // Android: other apps direct on Wi-Fi / mobile data
+	"default.block":     "",       // Android: "all other apps are blocked" (the safe side)
 	"network.ssid_only": "name",   // a profile known by its name only
 	"gateway.direct":    "name",   // a gateway group going out directly
 	"gateway.noroute":   "name",   // a gateway group without route (blocked)

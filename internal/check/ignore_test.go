@@ -2,8 +2,11 @@ package check
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -45,7 +48,7 @@ func TestHideKey(t *testing.T) {
 // Every hideable ID exists (in the check, as a notice or on Android) and
 // names a value its findings carry.
 func TestHideableIDsKnown(t *testing.T) {
-	known := map[string]bool{"rule.plaindns": true, "filter.redundant": true, "network.direct": true}
+	known := map[string]bool{"rule.plaindns": true, "filter.redundant": true, "network.direct": true, "default.block": true}
 	for _, id := range allIDs {
 		known[id] = true
 	}
@@ -189,5 +192,27 @@ func TestParseFor(t *testing.T) {
 	}
 	if _, err := ParseFor("month"); err == nil {
 		t.Error("month accepted")
+	}
+}
+
+// The Android app has its own copy of the list (HiddenWarnings.HIDEABLE in
+// Hidden.kt): it must say the same.
+func TestHideableSameOnAndroid(t *testing.T) {
+	b, err := os.ReadFile("../../android/app/src/main/java/org/theshunt/app/Hidden.kt")
+	if err != nil {
+		t.Skip(err)
+	}
+	src := string(b)
+	i := strings.Index(src, "val HIDEABLE = mapOf(")
+	j := strings.Index(src[i:], "\n    )")
+	if i < 0 || j < 0 {
+		t.Fatal("HIDEABLE not found in Hidden.kt")
+	}
+	kt := map[string]string{}
+	for _, m := range regexp.MustCompile(`"([^"]+)" to "([^"]*)"`).FindAllStringSubmatch(src[i:i+j], -1) {
+		kt[m[1]] = m[2]
+	}
+	if !maps.Equal(kt, hideable) {
+		t.Fatalf("Android %v\ndesktop %v", kt, hideable)
 	}
 }

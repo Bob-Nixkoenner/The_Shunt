@@ -179,7 +179,11 @@ object Opsec {
  * The same findings as the desktop's daemon.config_check = "strict", as far
  * as they exist on Android.
  */
-data class Finding(val bad: Boolean, val id: String, val msg: String, val args: List<Pair<String, String>> = emptyList())
+data class Finding(
+    val bad: Boolean, val id: String, val msg: String, val args: List<Pair<String, String>> = emptyList(),
+    /** What it is about (package, tunnel, link), for the key it is hidden under (see [HiddenWarnings]). */
+    val subject: String = "",
+)
 
 object StrictCheck {
     private fun direct(route: String) = route.startsWith("direct") || route.startsWith("link:")
@@ -194,14 +198,14 @@ object StrictCheck {
             out += Finding(true, "default.direct", "The default route is direct: programs without a rule are not protected by a tunnel.")
         }
         for (p in s.networks) if (s.tunnels.isNotEmpty() && direct(p.route) && !s.torAll) {
-            out += Finding(true, "network.direct", if (p.link == "wifi") "On Wi-Fi all other apps go direct: they are not protected by a tunnel." else "On mobile data all other apps go direct: they are not protected by a tunnel.")
+            out += Finding(true, "network.direct", if (p.link == "wifi") "On Wi-Fi all other apps go direct: they are not protected by a tunnel." else "On mobile data all other apps go direct: they are not protected by a tunnel.", subject = p.link)
         }
         for (t in s.tunnels) if (t.isOpenVPN && t.name in noWrap) {
-            out += Finding(true, "ovpn.nowrap", "Tunnel “{tunnel}”: the OpenVPN file has no tls-crypt or tls-auth: the server answers anyone, port scans and attacks on the TLS handshake are not held back.", listOf("tunnel" to t.name))
+            out += Finding(true, "ovpn.nowrap", "Tunnel “{tunnel}”: the OpenVPN file has no tls-crypt or tls-auth: the server answers anyone, port scans and attacks on the TLS handshake are not held back.", listOf("tunnel" to t.name), subject = t.name)
         }
         // direct rules stay a warning (a printer or the home network needs them)
         if (!s.torAll) for ((pkg, route) in s.apps.entries.sortedBy { it.key }) if (direct(route)) {
-            out += Finding(false, "rule.direct", "Rule “{rule}” sends traffic direct, past every tunnel.", listOf("rule" to label(pkg)))
+            out += Finding(false, "rule.direct", "Rule “{rule}” sends traffic direct, past every tunnel.", listOf("rule" to label(pkg)), subject = pkg)
         }
         return out
     }

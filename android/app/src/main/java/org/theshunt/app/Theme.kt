@@ -303,7 +303,7 @@ fun Banner(title: String, text: String, bad: Boolean = false, action: (@Composab
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(T(title), fontWeight = FontWeight.Bold, color = c.text)
-        Text(T(text), color = c.text, style = TextStyle(fontSize = 13.sp, lineHeight = TEXT_LINE))
+        if (text.isNotEmpty()) Text(T(text), color = c.text, style = TextStyle(fontSize = 13.sp, lineHeight = TEXT_LINE))
         action?.invoke()
     }
 }

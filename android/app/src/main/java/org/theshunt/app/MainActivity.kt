@@ -118,8 +118,10 @@ private fun App() {
         // is written (never keys in clear) and the change is not taken
         val saved = runCatching { Store.save(ctx, s) }
         if (saved.isSuccess) {
+            // hiding a warning changes nothing for the core
+            val rules = s.copy(hiddenWarnings = settings.hiddenWarnings) != settings
             settings = s
-            ShuntVpnService.applyRules(ctx, s)?.let { message = it }
+            if (rules) ShuntVpnService.applyRules(ctx, s)?.let { message = it }
         } else {
             message = T("Not saved: the key store of this phone did not seal the tunnel keys. Try again; restarting the phone helps if it keeps failing.")
         }
@@ -274,11 +276,12 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
                 "While the VPN starts, restarts or crashes, apps can get out unprotected. Turn on \"Always-on VPN\" and \"Block connections without VPN\" for The Shunt.",
             ) { ShuntLink("Open VPN settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }) }
         }
-        if (running && settings.defaultRoute == "block" && !panic) {
+        val blockNote = Finding(false, "default.block", "The default route is \"block\": only apps with their own rule get out. Change \"All other apps\" under Apps.")
+        if (running && settings.defaultRoute == "block" && !panic && !HiddenWarnings.hidden(settings, blockNote, System.currentTimeMillis())) {
             Banner(
                 "All other apps are blocked",
                 "The default route is \"block\": only apps with their own rule get out. Change \"All other apps\" under Apps.",
-            )
+            ) { HideWarningLink(settings, blockNote, update) }
         }
         if (running && privateDns) {
             Banner(
@@ -293,7 +296,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
                 "Android's Private DNS is on \"Automatic\" or set to a provider. When the VPN switches on, Android first tries encrypted DNS (port 853) on the real network, and a provider gets the DNS of all apps past the tunnels. We recommend setting Private DNS to \"Off\".",
             ) { ShuntLink("Open network settings", { ctx.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }) }
         }
-        if (settings.strictCheck) StrictBanners(settings)
+        if (settings.strictCheck) StrictBanners(settings, update)
+        HiddenWarningsList(settings, update)
         // Opsec: the emergency switch where you see it first
         if (settings.shows("opsec.emergency")) EmergencySection(settings, update, prominent = true)
         DefenseStatusSection(settings, status)
@@ -1094,7 +1098,7 @@ private fun EmergencySection(settings: Settings, update: (Settings) -> Unit, pro
  * warnings (apps going direct) in Pro and Opsec only (Levels "checks.notes").
  */
 @Composable
-private fun StrictBanners(settings: Settings) {
+private fun StrictBanners(settings: Settings, update: (Settings) -> Unit) {
     val ctx = LocalContext.current
     val noWrap = remember(settings.tunnels) {
         settings.tunnels.filter { it.isOpenVPN }.filter { t ->
@@ -1107,8 +1111,68 @@ private fun StrictBanners(settings: Settings) {
     }
     fun text(f: Finding) = T(f.msg, *f.args.toTypedArray())
     for (f in fs.filter { it.bad }) Banner(T("Stricter security check"), text(f), bad = true)
-    val notes = fs.filter { !it.bad }
-    if (notes.isNotEmpty() && settings.shows("checks.notes")) Banner(T("Stricter security check"), notes.joinToString("\n") { "• " + text(it) })
+    // the user may hide single notes (an app that goes direct on purpose); they are listed under "hidden"
+    val now = System.currentTimeMillis()
+    val notes = fs.filter { !it.bad && !HiddenWarnings.hidden(settings, it, now) }
+    if (notes.isNotEmpty() && settings.shows("checks.notes")) Banner(T("Stricter security check"), "") {
+        val c = LocalShunt.current
+        for (f in notes) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Gap.beside)) {
+            Text("• " + text(f), Modifier.weight(1f), color = c.text, style = TextStyle(fontSize = 13.sp))
+            HideWarningLink(settings, f, update)
+        }
+    }
+}
+
+/**
+ * "Hide…" for a warning that may be hidden (HiddenWarnings: notes about your
+ * own settings only): for a day, a week or for good. Nothing for the rest.
+ */
+@Composable
+private fun HideWarningLink(settings: Settings, f: Finding, update: (Settings) -> Unit) {
+    var ask by remember { mutableStateOf(false) }
+    if (HiddenWarnings.key(f) == null) return
+    ShuntLink("Hide…", { ask = true }, compact = true)
+    if (!ask) return
+    val pick = { ms: Long -> update(HiddenWarnings.hide(settings, f, ms, System.currentTimeMillis())); ask = false }
+    AlertDialog(
+        onDismissRequest = { ask = false },
+        title = { Text(T("Hide this warning?")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(T("It stays listed under “hidden warnings” on this tab and can be shown again there. Problems like a tunnel down or a leak are never hidden."))
+                ShuntLink("For 1 day", { pick(HiddenWarnings.DAY) })
+                ShuntLink("For 1 week", { pick(HiddenWarnings.WEEK) })
+                ShuntLink("For good", { pick(0L) })
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton({ ask = false }) { Text(T("Cancel")) } },
+    )
+}
+
+/** "n warnings hidden": the list of hidden warnings, each with its end and "Show again" (hidden is not fixed). */
+@Composable
+private fun HiddenWarningsList(settings: Settings, update: (Settings) -> Unit) {
+    val ctx = LocalContext.current
+    val c = LocalShunt.current
+    val now = System.currentTimeMillis()
+    val list = HiddenWarnings.active(settings, now)
+    var open by remember { mutableStateOf(false) }
+    if (list.isEmpty()) return
+    ShuntLink(Tn(list.size, "{n} warning hidden", "{n} warnings hidden") + if (open) " ▴" else " ▾", { open = !open }, color = c.muted, compact = true)
+    if (!open) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (h in list) Column {
+            Text(T(h.msg, *h.args.toTypedArray()), color = c.text, style = TextStyle(fontSize = 13.sp))
+            Text(
+                if (h.until == 0L) T("hidden for good")
+                else T("hidden until {time}", "time" to android.text.format.DateUtils.formatDateTime(ctx, h.until,
+                    android.text.format.DateUtils.FORMAT_SHOW_DATE or android.text.format.DateUtils.FORMAT_SHOW_TIME)),
+                color = c.muted, fontSize = 12.sp,
+            )
+            ShuntLink("Show again", { update(HiddenWarnings.show(settings, h.key, System.currentTimeMillis())) }, compact = true)
+        }
+    }
 }
 
 /** Settings tab: the level (Simple, Pro, Opsec); switching to and from Opsec runs the Opsec assistant. */
