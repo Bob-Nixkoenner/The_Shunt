@@ -587,6 +587,8 @@ func TestManagerHitToBanAndHeat(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no ban")
 	}
+	// the decoy hits are counted asynchronously: wait for the counter
+	waitFor(t, "decoy hit counter", func() bool { return m.Status().Counts[KindDecoyHit] >= 6 })
 	st := m.Status()
 	if st.Heat < 25 || st.Counts[KindScan] != 1 || st.Counts[KindDecoyHit] < 6 || len(st.Bans) != 1 {
 		t.Fatalf("%+v", st)
