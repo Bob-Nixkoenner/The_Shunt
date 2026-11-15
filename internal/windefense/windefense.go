@@ -54,6 +54,7 @@ type Runner struct {
 	info  netdetect.Info
 	loops sync.Once
 	sens  sensors
+	seen  seen
 }
 
 // New creates the manager. dir holds the reports, the first-contact memory
@@ -154,6 +155,7 @@ func (r *Runner) class(c *config.Config, info netdetect.Info) defense.Class {
 func (r *Runner) Start(ctx context.Context) {
 	r.loops.Do(func() {
 		go defense.GuardLoop(ctx, r.log, "reputation updater", func() { r.updateLoop(ctx) })
+		go defense.GuardLoop(ctx, r.log, "connection poll", func() { r.connLoop(ctx) })
 		go func() { <-ctx.Done(); r.Close() }()
 	})
 }

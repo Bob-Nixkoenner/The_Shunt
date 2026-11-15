@@ -11,10 +11,13 @@ import (
 // Observer returns what the netstack calls (splitstack.Options.Observer).
 // The calls come from one worker goroutine (see splitstack/observe.go), so
 // the cache needs no lock. The hot path never gets here.
-func (r *Runner) Observer() splitstack.Observer { return &obs{m: r.M, keys: map[string]netip.Addr{}} }
+func (r *Runner) Observer() splitstack.Observer {
+	return &obs{m: r.M, keys: map[string]netip.Addr{}, seen: &r.seen}
+}
 
 type obs struct {
 	m    *defense.Manager
+	seen *seen
 	keys map[string]netip.Addr // program -> stand-in client address
 	next uint16
 }
@@ -60,6 +63,7 @@ func baseName(p string) string {
 func (o *obs) NewConn(app string, proto int, dst netip.AddrPort) {
 	a := dst.Addr().Unmap()
 	if proto == 6 {
+		o.seen.mark(netip.AddrPortFrom(a, dst.Port()))
 		o.m.NoteConn(appName(app), dst, true)
 	}
 	if a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || !o.m.Watching(defense.FeatReputation) {
