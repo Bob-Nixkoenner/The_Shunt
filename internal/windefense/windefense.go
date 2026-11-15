@@ -27,10 +27,18 @@ import (
 
 // Features that work on Windows in this step; the others stay off and
 // cannot be switched on (the status says so).
-var Features = []string{defense.FeatDNSTunnel, defense.FeatReputation, defense.FeatFirstSeen, defense.FeatBeacon}
+var Features = []string{defense.FeatDNSTunnel, defense.FeatReputation, defense.FeatFirstSeen, defense.FeatBeacon,
+	defense.FeatARP, defense.FeatEvilTwin}
+
+// sensors is what defense.Sensors offers here (the ARP/NDP table watch and
+// the evil-twin check, see sniff_windows.go).
+type sensors interface {
+	SetEnv(defense.Env)
+	Stop()
+}
 
 // Unsupported is shown in the status next to the features that do work.
-const Unsupported = "Windows watches DNS, connections and reputation lists for now; decoys, blocking, ARP/DHCP and the certificate check follow"
+const Unsupported = "Windows watches DNS, connections, reputation lists, the gateway address (ARP/NDP) and Wi-Fi twins for now; decoys, blocking, DHCP and the certificate check follow"
 
 func noListen(int) (net.Listener, error) { return nil, errors.New("no decoy listeners on Windows yet") }
 
@@ -45,6 +53,7 @@ type Runner struct {
 	cfg   *config.Config
 	info  netdetect.Info
 	loops sync.Once
+	sens  sensors
 }
 
 // New creates the manager. dir holds the reports, the first-contact memory
@@ -62,6 +71,7 @@ func New(dir string, log *slog.Logger, client func() *http.Client) *Runner {
 	}
 	r := &Runner{dir: dir, log: log, client: client}
 	r.M = defense.NewManager(log, opts...)
+	r.sens = newSensors(r.M, log, dir)
 	return r
 }
 
@@ -120,6 +130,13 @@ func (r *Runner) Network(info netdetect.Info) {
 	}
 	r.M.SetExposure(defense.Exposure{V4: info.PublicV4, V6: info.PublicV6, Inbound: mode})
 	r.log.Info("defense: network", "class", class)
+	if r.sens != nil {
+		if r.M.Watching(defense.FeatARP) || r.M.Watching(defense.FeatEvilTwin) {
+			r.sens.SetEnv(defense.Env{Iface: info.Iface, SSID: info.SSID, GatewayIP: info.GatewayIP, GatewayMAC: info.GatewayMAC})
+		} else {
+			r.sens.Stop()
+		}
+	}
 }
 
 // class is the config's class of the network; without a matching
@@ -169,7 +186,12 @@ func (r *Runner) updateLoop(ctx context.Context) {
 }
 
 // Close stops the manager.
-func (r *Runner) Close() { r.M.Close() }
+func (r *Runner) Close() {
+	if r.sens != nil {
+		r.sens.Stop()
+	}
+	r.M.Close()
+}
 
 // Status is GET /v1/defense.
 func (r *Runner) Status() defense.Status {
