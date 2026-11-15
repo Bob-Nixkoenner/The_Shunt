@@ -57,6 +57,7 @@ h2 .spacer { flex: 1; }
 .card.up { border-left-color: var(--ok); }
 .card.down { border-left-color: var(--bad); }
 .card .name .tname { min-width: 0; overflow-wrap: anywhere; }
+.card .name > .pill { flex: none; white-space: nowrap; }
 .pill.type { font-size: 10.5px; padding: 1px 7px; margin-left: 2px; white-space: nowrap; vertical-align: 2px; font-weight: 600; }
 .card .name { gap: 8px; font-weight: 700; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
 .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin-top: 8px; font-size: 13px; }
@@ -89,7 +90,7 @@ input.grow { flex: 1; min-width: 180px; }
 #checks > summary, #hidden-warn > summary { cursor: pointer; padding: 6px 2px; color: var(--muted); }
 #checks[open] > summary, #hidden-warn[open] > summary { color: var(--text); }
 #hidden-warn-list { display: grid; gap: 8px; margin-top: 6px; }
-select.hide-warn { margin-left: 8px; font-size: 12px; padding: 1px 4px; }
+select.hide-warn { margin-left: 8px; font-size: 12px; padding: 1px 24px 1px 6px; background-position: right 8px center; text-overflow: ellipsis; }
 .note { padding: 6px 10px; border-left: 3px solid var(--line); color: var(--muted); }
 .note.warn { border-left-color: var(--warn); }
 #checks-list { display: grid; gap: 8px; margin-top: 6px; }
@@ -194,6 +195,8 @@ textarea { width: 100%; min-height: 380px; font-family: var(--mono); font-size: 
 .kpi { background: var(--panel2); border-radius: 9px; padding: 10px 14px; border-left: 3px solid var(--muted); }
 .kpi b { display: block; font-size: 20px; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .kpi span { font-size: 12px; color: var(--muted); }
+.kpi.pair b span.half { display: inline-block; white-space: nowrap; font-size: inherit; color: inherit; }
+@media (min-width: 760px) { .kpi.pair { grid-column: span 2; } }
 .kpi.down { border-left-color: var(--accent); } .kpi.up { border-left-color: var(--info); } .kpi.dns { border-left-color: var(--warn); }
 .chart { position: relative; height: 150px; }
 .chart.small { height: 64px; margin-top: 6px; }

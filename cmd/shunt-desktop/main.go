@@ -167,18 +167,27 @@ func (a *trayApp) onReady() {
 		it.Hide()
 		a.tunnels = append(a.tunnels, it)
 		sw := it.AddSubMenuItem("", "")
-		sl1 := it.AddSubMenuItem(i18n.T("Sleep 1 hour"), i18n.T("Off for a while, then on again by itself. Its apps stay blocked."))
-		sl4 := it.AddSubMenuItem(i18n.T("Sleep 4 hours"), i18n.T("Off for a while, then on again by itself. Its apps stay blocked."))
+		tip := i18n.T("Off for a while, then on again by itself. Its apps stay blocked.")
+		sleeps := []*systray.MenuItem{
+			it.AddSubMenuItem(i18n.T("Sleep 15 minutes"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 1 hour"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 4 hours"), tip),
+			it.AddSubMenuItem(i18n.T("Sleep 12 hours"), tip),
+		}
 		a.tunSwitch = append(a.tunSwitch, sw)
 		go func(i int) {
 			for {
 				select {
 				case <-sw.ClickedCh:
-					a.tunnelState(i, "")
-				case <-sl1.ClickedCh:
-					a.tunnelState(i, "sleep1")
-				case <-sl4.ClickedCh:
-					a.tunnelState(i, "sleep4")
+					a.tunnelState(i, 0)
+				case <-sleeps[0].ClickedCh:
+					a.tunnelState(i, sleepSeconds[0])
+				case <-sleeps[1].ClickedCh:
+					a.tunnelState(i, sleepSeconds[1])
+				case <-sleeps[2].ClickedCh:
+					a.tunnelState(i, sleepSeconds[2])
+				case <-sleeps[3].ClickedCh:
+					a.tunnelState(i, sleepSeconds[3])
 				}
 			}
 		}(i)
@@ -297,9 +306,12 @@ func (a *trayApp) updateAvailable(i update.Info) {
 	a.notifier.Notify(desktopapp.Notification{Summary: i18n.T("The Shunt: update available"), Body: i18n.T("Open the tray menu → “Update available”, then “Install update” in the window.")})
 }
 
-// tunnelState handles a click in a tunnel's submenu: how "" toggles on/off,
-// sleep1/sleep4 let it sleep for 1 or 4 hours.
-func (a *trayApp) tunnelState(i int, how string) {
+// sleepSeconds are the sleep choices, the same as in the window: 15 min, 1, 4, 12 h.
+var sleepSeconds = [4]int{900, 3600, 4 * 3600, 12 * 3600}
+
+// tunnelState handles a click in a tunnel's submenu: sleep 0 toggles on/off,
+// otherwise the tunnel sleeps for that many seconds.
+func (a *trayApp) tunnelState(i int, sleep int) {
 	a.tunMu.Lock()
 	if i >= len(a.tunLine) {
 		a.tunMu.Unlock()
@@ -309,12 +321,9 @@ func (a *trayApp) tunnelState(i int, how string) {
 	a.tunMu.Unlock()
 	req := api.TunnelState{State: "off"}
 	switch {
-	case how == "sleep1" && !l.Disabled || how == "sleep4" && !l.Disabled:
-		req = api.TunnelState{State: "sleep", Seconds: 3600}
-		if how == "sleep4" {
-			req.Seconds = 4 * 3600
-		}
-	case how != "":
+	case sleep > 0 && !l.Disabled:
+		req = api.TunnelState{State: "sleep", Seconds: sleep}
+	case sleep > 0:
 		return // sleeping an off tunnel makes no sense
 	case l.Disabled:
 		req.State = "on"
@@ -425,6 +434,8 @@ func (a *trayApp) render(v desktopapp.View) {
 			mark := "✔ "
 			if !v.Tunnels[i].OK {
 				mark = "✖ "
+			} else if v.Tunnels[i].Asleep {
+				mark = "☾ " // asleep on purpose: not a check mark
 			}
 			it.SetTitle(mark + v.Tunnels[i].Text)
 			if v.Tunnels[i].Disabled {

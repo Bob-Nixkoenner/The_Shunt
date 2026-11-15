@@ -108,7 +108,7 @@ func Compute(st *api.Status, err error, now time.Time) View {
 			line.Text = t.Name + ": idle (no keepalive, connects on demand)"
 		default:
 			line.OK = true
-			line.Text = fmt.Sprintf("%s: connected (handshake %s ago)", t.Name, now.Sub(hs).Round(time.Second))
+			line.Text = i18n.T("{name}: connected (handshake {ago} ago)", "name", t.Name, "ago", now.Sub(hs).Round(time.Second).String())
 		}
 		if !line.OK {
 			v.Down[t.Name] = true
