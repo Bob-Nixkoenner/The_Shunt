@@ -1,6 +1,7 @@
 package splitstack
 
 import (
+	"io"
 	"net"
 	"net/netip"
 	"testing"
@@ -21,4 +22,32 @@ func TestCountWay(t *testing.T) {
 	if isLocalAddr(netip.MustParseAddr("8.8.8.8")) || !isLocalAddr(netip.MustParseAddr("fe80::1")) {
 		t.Fatal("classification")
 	}
+}
+
+func TestWayConnHalfClose(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, _ := ln.Accept()
+		io.Copy(io.Discard, c) // wait for the client's half-close
+		c.Write([]byte("reply"))
+		c.Close()
+	}()
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &wayConn{Conn: raw, w: &wayCount{}}
+	c.Write([]byte("req"))
+	if err := c.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(c)
+	if string(b) != "reply" {
+		t.Fatalf("got %q, want reply after half-close", b)
+	}
+	raw.Close()
 }

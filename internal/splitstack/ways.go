@@ -30,6 +30,15 @@ func (c *wayConn) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// CloseWrite passes the half-close through, so relayTCP does not drop the
+// connection before the reply has arrived.
+func (c *wayConn) CloseWrite() error {
+	if cw, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return c.Conn.Close()
+}
+
 // isLocalAddr: the destination is on this machine or the local network.
 func isLocalAddr(a netip.Addr) bool {
 	a = a.Unmap()
