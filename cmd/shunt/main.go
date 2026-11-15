@@ -77,6 +77,7 @@ var usageEntries = []struct {
 	{`  desktop profiles`, "list Firefox profiles"},
 	{`  speedtest [--route R,...] [--rounds N] [--provider P] [--size-mb N] [--json]`, "measure latency, download and upload of each route (default: all but block), one after the other, in random order, N rounds (default 3), result = median. Contacts speed.cloudflare.com (ndt7: M-Lab, which publishes the measurement together with the IP). P = cloudflare | ndt7."},
 	{`  speedtest --history [--json]`, "show the last 3 stored speed tests (no new test)"},
+	{`  warnings [hide KEY day|week|forever | show KEY]`, "list the warnings you hid, hide one (KEY from shunt check) or show it again; only notes about your own settings can be hidden, never problems like a tunnel down or a leak"},
 	{`  version`, ""},
 }
 
@@ -137,6 +138,8 @@ func main() {
 		err = status(c, args[1:])
 	case "check":
 		err = checkCmd(c, args[1:])
+	case "warnings":
+		err = warningsCmd(c, args[1:])
 	case "socks":
 		err = socksCmd(c)
 	case "tor":
@@ -722,6 +725,9 @@ func status(c *api.Client, args []string) error {
 	for _, wn := range noticeTexts(st.Notices, st.Warnings) {
 		fmt.Fprintf(w, "%s\t%s\n", i18n.T("WARNING:"), wn)
 	}
+	if h := hiddenLine(&st); h != "" {
+		fmt.Fprintf(w, "%s\t%s\n", i18n.T("hidden:"), h)
+	}
 	if st.Network != "" {
 		fmt.Fprintf(w, "%s\t%s\n", i18n.T("default route:"), i18n.T("{route} (network profile {name})", "route", st.DefaultRoute, "name", strconv.Quote(st.Network)))
 	} else {
@@ -1101,6 +1107,9 @@ func checkCmd(c *api.Client, args []string) error {
 	}
 	if len(st.Findings) == 0 {
 		fmt.Println(i18n.T("No findings: the configuration looks fine."))
+		if h := hiddenLine(&st); h != "" {
+			fmt.Println(h)
+		}
 		return nil
 	}
 	bad := false
@@ -1117,7 +1126,13 @@ func checkCmd(c *api.Client, args []string) error {
 		if f.Fix != "" {
 			fmt.Printf("      %s\n", i18n.T("Change: {key}", "key", f.Fix))
 		}
+		if f.Key != "" {
+			fmt.Printf("      %s\n", i18n.T("Hide: shunt warnings hide {key} day|week|forever", "key", f.Key))
+		}
 		bad = bad || f.Level == check.Bad
+	}
+	if h := hiddenLine(&st); h != "" {
+		fmt.Println(h)
 	}
 	if bad {
 		return fmt.Errorf("%s", i18n.T("something is bad"))

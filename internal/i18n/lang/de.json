@@ -1823,6 +1823,16 @@
   "for 1 week": "für 1 Woche",
   "for good": "dauerhaft",
   "Show again": "Wieder zeigen",
-  "Hide this warning. It is listed under “hidden warnings” and can be shown again there.": "Diese Warnung ausblenden. Sie steht dann unter „ausgeblendete Warnungen“ und lässt sich dort wieder zeigen."
+  "Hide this warning. It is listed under “hidden warnings” and can be shown again there.": "Diese Warnung ausblenden. Sie steht dann unter „ausgeblendete Warnungen“ und lässt sich dort wieder zeigen.",
+  "{n} warning hidden – show…": "{n} Warnung ausgeblendet – zeigen …",
+  "{n} warnings hidden – show…": "{n} Warnungen ausgeblendet – zeigen …",
+  "Opens the window: the list of hidden warnings, each can be shown again": "Öffnet das Fenster: die Liste der ausgeblendeten Warnungen, jede lässt sich wieder zeigen",
+  "hidden:": "ausgeblendet:",
+  "Hide: shunt warnings hide {key} day|week|forever": "Ausblenden: shunt warnings hide {key} day|week|forever",
+  "No warnings hidden.": "Keine Warnungen ausgeblendet.",
+  "until {time}": "bis {time}",
+  "{n} warning hidden (shunt warnings)": "{n} Warnung ausgeblendet (shunt warnings)",
+  "{n} warnings hidden (shunt warnings)": "{n} Warnungen ausgeblendet (shunt warnings)",
+  "list the warnings you hid, hide one (KEY from shunt check) or show it again; only notes about your own settings can be hidden, never problems like a tunnel down or a leak": "die ausgeblendeten Warnungen zeigen, eine ausblenden (KEY aus shunt check) oder wieder zeigen; ausblenden lassen sich nur Hinweise zu den eigenen Einstellungen, nie Probleme wie ein ausgefallener Tunnel oder ein Leck"
  }
 }
