@@ -74,8 +74,8 @@ function kpi(cls, value, label) {
   return el("div", { class: "kpi " + cls }, el("b", {}, value), el("span", {}, label));
 }
 
-// Tile with a down/up pair: each half stays in one piece, the pair may only
-// break between the halves, and on wide screens the tile is two columns wide.
+// Tile with a down/up pair: each half stays in one piece, one above the other, so the tile
+// is as high as its neighbours and never breaks in the middle of a value.
 function kpiPair(cls, w, label) {
   return el("div", { class: "kpi pair " + cls }, el("b", {}, el("span", { class: "half" }, "↓ " + bytes(w.rx)), " ", el("span", { class: "half" }, "↑ " + bytes(w.tx))), el("span", {}, label));
 }
