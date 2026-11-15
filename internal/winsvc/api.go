@@ -23,6 +23,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/netdetect"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/stats"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/windefense"
 )
 
 // Core is what the API needs from the running engine (*splitstack.Engine).
@@ -75,6 +76,9 @@ type Server struct {
 	// check of callers without manage permission (nil: they may not run).
 	ProcInfo func(pid int) (ProcInfo, error)
 	RouteOf  func(pid int) string
+	// Defense is the watcher of the defense module (nil: routes answer
+	// "not running").
+	Defense *windefense.Runner
 }
 
 // engineStatus is the part of splitstack's Status JSON we map.
@@ -145,6 +149,9 @@ func (s *Server) Status() (api.Status, error) {
 	}
 	if s.NetInfo != nil {
 		st.NetInfo = s.NetInfo()
+	}
+	if s.Defense != nil {
+		st.Defense = s.Defense.Brief()
 	}
 	if s.Warnings != nil {
 		st.Warnings = append(st.Warnings, s.Warnings()...)
@@ -357,6 +364,7 @@ func (s *Server) Handler() http.Handler {
 	if s.Cfg != nil {
 		s.configRoutes(mux)
 	}
+	s.defenseRoutes(mux)
 	return mux
 }
 

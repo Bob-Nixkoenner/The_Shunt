@@ -44,6 +44,7 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/socks"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/splitstack"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/tunnel"
+	"github.com/Bob-Nixkoenner/the_shunt/internal/windefense"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsplit"
 	"github.com/Bob-Nixkoenner/the_shunt/internal/winsvc"
 )
@@ -541,8 +542,21 @@ func runCore(ctx context.Context, ready func()) error {
 		}
 		inMu.Unlock()
 	}()
+	// the defense watcher (step 1: DNS, connections, reputation lists); its
+	// lists are downloaded the way the DNS filter's are, through the default route
+	var defEng atomic.Pointer[splitstack.Engine]
+	def := windefense.New(filepath.Join(dataDir, "defense"), slog.Default(), func() *http.Client {
+		e := defEng.Load()
+		if e == nil {
+			return nil
+		}
+		return &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{
+			DialContext: e.DialDefault, Proxy: nil, TLSHandshakeTimeout: 15 * time.Second}}
+	})
+	defer def.Close()
 	m := &winsvc.Manager{Dir: dataDir, StatsPath: filepath.Join(dataDir, "stats.json"), Secure: lockDown,
 		OnConfig: func(c *config.Config) {
+			def.Apply(c)
 			ksMu.Lock()
 			ksWant = c.Daemon.KillSwitchOn()
 			socksMu.Lock()
@@ -655,6 +669,7 @@ func runCore(ctx context.Context, ready func()) error {
 			}
 			return dnsWatch.Askers(name, arrived)
 		},
+		Observer:   def.Observer(),
 		Log:        func(s string) { log.Print(s) },
 		DialDirect: winsplit.DialDirect(phys.Load),
 		BindUp: func(b conn.Bind) error {
@@ -675,12 +690,21 @@ func runCore(ctx context.Context, ready func()) error {
 	socksMu.Lock()
 	eng = e
 	socksMu.Unlock()
+	defEng.Store(e)
+	def.Start(ctx)
 	applySocks()
 	var netInfo atomic.Value // netdetect.Info
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) { inNetwork.Store(n); netKnown.Store(true); applyInbound(); applyQuiet(); go applyMAC() })
+	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) {
+		def.Network(netInfo.Load().(netdetect.Info))
+		inNetwork.Store(n)
+		netKnown.Store(true)
+		applyInbound()
+		applyQuiet()
+		go applyMAC()
+	})
 	go func() {
 		for {
 			select {
@@ -772,7 +796,7 @@ func runCore(ctx context.Context, ready func()) error {
 			return nil
 		}
 		return []string{clockWarn}
-	}, Version: version, Cfg: m, Reload: m.Reload, Restart: m.Restart,
+	}, Version: version, Cfg: m, Defense: def, Reload: m.Reload, Restart: m.Restart,
 		NetInfo: func() netdetect.Info { return netInfo.Load().(netdetect.Info) },
 		Tor: func(name string) winsvc.TorProc {
 			torMu.Lock()
