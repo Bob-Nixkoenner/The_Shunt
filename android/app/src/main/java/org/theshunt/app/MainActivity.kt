@@ -1344,7 +1344,11 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
     var granted by remember { mutableStateOf(Defense.canReadSsid(ctx)) }
     var asked by remember { mutableStateOf(false) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
-    val ssid = remember(granted, VpnState.link) { if (granted) Defense.currentSsid(ctx) else "" }
+    // the location switch and the Wi-Fi can change while this tab is open: look again every few seconds
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(3000); tick++ } }
+    val locOn = remember(tick) { Defense.locationOn(ctx) }
+    val ssid = remember(granted, VpnState.link, tick) { if (granted) Defense.currentSsid(ctx) else "" }
     val here = if (ssid.isNotEmpty()) Defense.wifiId(ssid) else ""
     val classes = settings.shows("defense.ui")
     Hint("A Wi-Fi set up here keeps its own settings (route, DNS filter lists); every other Wi-Fi takes the Wi-Fi row on the Apps tab. Only a fingerprint of the name is saved, never the name.")
@@ -1354,7 +1358,13 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
             ButtonRow { m -> ShuntButton("Set up this Wi-Fi", { ask.launch(Manifest.permission.ACCESS_FINE_LOCATION) }, modifier = m) }
             if (asked) Hint("Not allowed: all Wi-Fi networks take the Wi-Fi row.")
         }
-        here.isEmpty() -> Hint("No Wi-Fi name available: not on a Wi-Fi, location switched off, or Android hides the name.")
+        here.isEmpty() -> Hint(
+            when {
+                VpnState.link != "wifi" -> "Not on a Wi-Fi right now."
+                !locOn -> "The phone's location is switched off: Android then hides the Wi-Fi name. Switch it on to set up this Wi-Fi."
+                else -> "Android does not give out the Wi-Fi name (it may take a moment after connecting)."
+            }
+        )
         here !in Defense.knownWifis(settings) -> ButtonRow { m ->
             ShuntButton("Set up this Wi-Fi", { update(settings.copy(networks = settings.networks + NetProfile("wifi", "", here))) }, modifier = m)
         }

@@ -3,6 +3,7 @@ package org.theshunt.app
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.util.Log
 import org.json.JSONArray
@@ -64,6 +65,10 @@ object Defense {
 
     /** Whether the app may read the Wi-Fi name (Android ties it to the location permission). */
     fun canReadSsid(ctx: Context) = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /** Whether the phone's location switch is on (Android hides the Wi-Fi name from apps while it is off). */
+    fun locationOn(ctx: Context): Boolean =
+        runCatching { ctx.getSystemService(LocationManager::class.java)?.isLocationEnabled == true }.getOrDefault(true)
 
     /**
      * The name of the current Wi-Fi, only with the permission granted (else ""). Used
