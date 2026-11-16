@@ -2,6 +2,7 @@
 
 ## v0.8.0-rc54
 
+- **Android 10-13: the VPN comes back by itself after the app crashed.** The watchdog job started the VPN service with `startService`, which Android forbids from the background (it worked on Android 14 and 15 by chance). It now uses `startForegroundService`; the VPN permission allows that from the background.
 - **Android battery: the window no longer polls while it is off screen.** The status screen asked the core every second (and other tabs every 2-15 s) even with the screen off or the app in the background, for as long as the app was not swiped away. The polling loops now run only while the window is on screen. Measured in the emulator, screen off, two tunnels: CPU time of the app per 2 minutes 3.4-4.2 s before, 0.15-0.4 s after.
 
 ## v0.8.0-rc53
