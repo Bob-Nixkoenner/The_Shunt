@@ -149,6 +149,16 @@ tap_text() { # tap the first view whose text starts with $1 (English text, looke
 	read -r x1 y1 x2 y2 <<<"$(echo "$b" | tr -c '0-9' ' ')"
 	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
+# after "Release"/"End pass" a sleeping tunnel wakes on the first connection: allow it a few seconds
+get_wait() {
+	local r=""
+	for _ in 1 2 3 4 5 6 7 8; do
+		r=$(get || true)
+		[[ $r == *tunnel=* ]] && break
+		sleep 2
+	done
+	echo "$r"
+}
 echo "== panic and pass"
 $ADB shell am start -n $PKG/.MainActivity >/dev/null
 sleep 2
@@ -156,14 +166,14 @@ if tap_text "PANIC"; then
 	sleep 2
 	check "panic blocks the tunnel too (refused at once)" "refused" "$(get)"
 	tap_text "Release" && sleep 2
-	check "after panic: tunnel again" "tunnel=work" "$(get)"
+	check "after panic: tunnel again" "tunnel=work" "$(get_wait)"
 fi
 if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, then the dialog's confirm
 	sleep 2
 	r=$(get || true)
 	[[ $r != *tunnel=* ]] && echo "  ok   pass: the shell goes direct (tunnel-only address unreachable)" || { echo "  FAIL pass: still through the tunnel: $r"; fails=$((fails + 1)); }
 	tap_text "End pass" && sleep 2
-	check "after the pass: tunnel again" "tunnel=work" "$(get)"
+	check "after the pass: tunnel again" "tunnel=work" "$(get_wait)"
 fi
 echo "== crash: the VPN comes back by itself (watchdog job, Watchdog.kt)"
 $ADB shell am crash $PKG >/dev/null 2>&1 || $ADB shell am force-stop $PKG
