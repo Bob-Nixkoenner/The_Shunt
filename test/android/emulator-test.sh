@@ -51,6 +51,12 @@ printf '<?xml version=%s encoding=%s standalone=%s?>\n<map><boolean name="vpn_di
 $ADB push "$W/consent.xml" /data/local/tmp/shunt-consent.xml >/dev/null
 $ADB shell "run-as $PKG sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/shunt-consent.xml shared_prefs/consent.xml'"
 $ADB shell appops set $PKG ACTIVATE_VPN allow
+# Private DNS off, as the app recommends: unset means "Automatic", and the app's banner about it
+# pushes the defense card below the screen on a small display (uiautomator sees only what is shown)
+PDNS=$($ADB shell settings get global private_dns_mode | tr -d '\r')
+$ADB shell settings put global private_dns_mode off
+trap 'kill $SRV 2>/dev/null; rm -rf "$W"; if [[ $PDNS == null ]]; then $ADB shell settings delete global private_dns_mode >/dev/null; else $ADB shell settings put global private_dns_mode "$PDNS"; fi' EXIT
+SDK=$($ADB shell getprop ro.build.version.sdk | tr -d '\r')
 # no notification permission dialog in front of the switch (Android 13+)
 $ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 
@@ -97,8 +103,14 @@ if $ADB root >/dev/null 2>&1; then
 fi
 echo "== DNS through the tunnel's DNS server"
 check "name resolves via the tunnel DNS (10.9.0.1)" "10.9.0.1" "$($ADB shell ping -c1 -W2 anything.test 2>&1 | head -1)"
-grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived at the work tunnel's DNS" ||
-	{ echo "  FAIL query did not arrive at the work tunnel's DNS"; fails=$((fails + 1)); }
+if ((SDK < 30)); then
+	# Android 10: the system resolver sends the query from its own socket (uid dns), not the app's,
+	# so the query takes the default route; on newer Android the socket belongs to the app
+	echo "  skip query at the work tunnel's DNS (Android 10: resolver queries are not the app's)"
+else
+	grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived at the work tunnel's DNS" ||
+		{ echo "  FAIL query did not arrive at the work tunnel's DNS"; fails=$((fails + 1)); }
+fi
 echo "== DNS filter"
 check "listed name is blocked (NXDOMAIN)" "unknown host" "$($ADB shell ping -c1 -W2 blocked.test 2>&1 | head -1)"
 grep -q 'DNS blocked.test' "$W/server.log" && { echo "  FAIL blocked name reached the upstream"; fails=$((fails + 1)); } || echo "  ok   blocked name never reached the upstream"
