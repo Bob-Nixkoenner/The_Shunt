@@ -371,14 +371,13 @@ class ShuntVpnService : VpnService() {
         const val NOTIFY_REFRESH_MS = 10 * 60_000L
 
         /**
-         * Before Android 12 a plain startService from the background (watchdog job, process
-         * start after a crash) is refused ("app is in background"); startForegroundService is
-         * allowed there, and onStartCommand goes foreground at once. From 12 on that call has
-         * its own background limits, while startService works for the job: keep it there.
+         * Always startForegroundService: a plain startService from the background (watchdog
+         * job, process start after a crash) is refused ("app is in background",
+         * BackgroundServiceStartNotAllowedException on Android 12/13). Starting a foreground
+         * service from the background is allowed for an app the user granted the VPN
+         * (ACTIVATE_VPN app op), also from Android 12 on; onStartCommand goes foreground at once.
          */
-        fun start(ctx: Context) = Intent(ctx, ShuntVpnService::class.java).let {
-            if (Build.VERSION.SDK_INT < 31) ctx.startForegroundService(it) else ctx.startService(it)
-        }
+        fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, ShuntVpnService::class.java))
         fun stop(ctx: Context) = ctx.startService(Intent(ctx, ShuntVpnService::class.java).setAction(ACTION_STOP))
 
         /** Applies changed app rules to the running core without dropping the VPN. */
