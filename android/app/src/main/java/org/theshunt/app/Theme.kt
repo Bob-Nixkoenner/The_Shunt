@@ -1,5 +1,7 @@
 package org.theshunt.app
 
+import androidx.lifecycle.compose.currentStateAsState
+import androidx.compose.runtime.getValue
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -419,4 +421,16 @@ fun ShuntButton(text: String, onClick: () -> Unit, kind: Tone = Tone.Neutral, en
         border = if (kind == Tone.Neutral) BorderStroke(1.dp, c.line) else null,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     ) { Text(T(text), fontWeight = if (kind == Tone.Neutral) FontWeight.Normal else FontWeight.Bold) }
+}
+
+
+/**
+ * True while the app is on screen (lifecycle STARTED). The polling loops of the UI wait for it:
+ * a LaunchedEffect keeps running when the screen goes off or the app is in the background, and
+ * every poll wakes the CPU (core status, settings reads) for nothing.
+ */
+@Composable
+fun rememberStarted(): Boolean {
+    val state by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    return state.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
 }

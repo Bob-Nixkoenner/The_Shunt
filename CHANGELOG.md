@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.0-rc54
+
+- **Android battery: the window no longer polls while it is off screen.** The status screen asked the core every second (and other tabs every 2-15 s) even with the screen off or the app in the background, for as long as the app was not swiped away. The polling loops now run only while the window is on screen. Measured in the emulator, screen off, two tunnels: CPU time of the app per 2 minutes 3.4-4.2 s before, 0.15-0.4 s after.
+
 ## v0.8.0-rc53
 
 - **Drop-downs closed by themselves (window and web UI):** the page rebuilt its banners and tunnel cards every 2 s and replaced an open "Hide…" or "Sleep …" list. The status now refreshes every 10 s, and the page waits (at most 30 s) while such a list has focus.

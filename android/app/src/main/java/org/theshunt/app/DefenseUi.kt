@@ -33,8 +33,9 @@ fun DefenseStatusSection(settings: Settings, status: JSONObject?) {
     val color = when (level) { "attack" -> c.bad; "hot" -> c.warn; "noticed" -> c.info; else -> c.ok }
     var events by remember { mutableStateOf<List<Defense.Event>>(emptyList()) }
     // the list changes rarely: look every 3 s while this tab is shown and the VPN runs
-    LaunchedEffect(running) {
-        while (running) {
+    val started = rememberStarted()
+    LaunchedEffect(running, started) {
+        while (running && started) {
             val e = VpnState.engine
             if (e != null) events = withContext(Dispatchers.IO) { runCatching { Defense.parseEvents(e.defenseEvents(0)) }.getOrDefault(emptyList()) }.takeLast(8).reversed()
             delay(3000)
