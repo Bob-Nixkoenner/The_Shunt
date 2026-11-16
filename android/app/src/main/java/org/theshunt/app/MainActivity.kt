@@ -88,9 +88,10 @@ class MainActivity : ComponentActivity() {
 private fun rememberStatus(): State<JSONObject?> {
     val running by VpnState.running.collectAsStateWithLifecycle()
     val status = remember { mutableStateOf<JSONObject?>(null) }
-    LaunchedEffect(running) {
+    val started = rememberStarted()
+    LaunchedEffect(running, started) {
         var shown = ""
-        while (running) {
+        while (running && started) {
             val st = VpnState.engine?.status()?.let { JSONObject(it) }
             status.value = st
             VpnState.refreshKillSwitch() // turned on in the settings meanwhile?
@@ -99,7 +100,7 @@ private fun rememberStatus(): State<JSONObject?> {
             if (now != shown) { shown = now; VpnState.refreshNotification() }
             delay(1000)
         }
-        status.value = null
+        if (!running) status.value = null
     }
     return status
 }
@@ -234,7 +235,8 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
     val privateDns by VpnState.privateDns.collectAsStateWithLifecycle()
     val dnsMode by VpnState.privateDnsMode.collectAsStateWithLifecycle()
     // read while this screen is visible, with the VPN on or off: the user may turn it off in the settings and come back
-    LaunchedEffect(Unit) { while (true) { VpnState.refreshPrivateDnsMode(ctx); delay(2000) } }
+    val startedDns = rememberStarted()
+    LaunchedEffect(startedDns) { while (startedDns) { VpnState.refreshPrivateDnsMode(ctx); delay(2000) } }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmPass by remember { mutableStateOf(false) }
     var leak by remember { mutableStateOf<JSONArray?>(null) }
@@ -922,8 +924,9 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
     val c = LocalShunt.current
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var bigList by remember { mutableStateOf<Blocklists.Entry?>(null) }
-    LaunchedEffect(settings.filterLists) {
-        while (true) {
+    val startedLists = rememberStarted()
+    LaunchedEffect(settings.filterLists, startedLists) {
+        while (startedLists) {
             counts = withContext(Dispatchers.IO) { Blocklists.ALL.keys.associateWith { Blocklists.count(ctx, it) } }
             // a list switched on is downloaded in the background: look again until all are there
             if (settings.filterLists.all { (counts[it] ?: 0) > 0 }) break
@@ -1346,7 +1349,8 @@ private fun KnownWifiSection(settings: Settings, update: (Settings) -> Unit) {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it; asked = true }
     // the location switch and the Wi-Fi can change while this tab is open: look again every few seconds
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(3000); tick++ } }
+    val startedTick = rememberStarted()
+    LaunchedEffect(startedTick) { while (startedTick) { delay(3000); tick++ } }
     val locOn = remember(tick) { Defense.locationOn(ctx) }
     val ssid = remember(granted, VpnState.link, tick) { if (granted) Defense.currentSsid(ctx) else "" }
     val here = if (ssid.isNotEmpty()) Defense.wifiId(ssid) else ""

@@ -50,15 +50,16 @@ val HISTORY_RANGES = listOf("1h", "24h", "7d", "30d")
 fun rememberHistory(range: String): State<History?> {
     val running by VpnState.running.collectAsStateWithLifecycle()
     val state = remember { mutableStateOf<History?>(null) }
-    LaunchedEffect(running, range) {
-        while (running) {
+    val started = rememberStarted()
+    LaunchedEffect(running, range, started) {
+        while (running && started) {
             val h = withContext(Dispatchers.Default) {
                 runCatching { VpnState.engine?.history(range)?.let { History(JSONObject(it)) } }.getOrNull()
             }
             if (h != null) state.value = h
             delay(15_000)
         }
-        state.value = null
+        if (!running) state.value = null
     }
     return state
 }

@@ -13,7 +13,9 @@ ADB=$ANDROID_HOME/platform-tools/adb
 GRADLE=${GRADLE:-./gradlew} # inside android/
 PKG=org.theshunt.app
 W=$(mktemp -d)
-trap 'kill $SRV 2>/dev/null; rm -rf "$W"' EXIT
+WEB=
+# the helper web servers too: a leftover one keeps the port and answers the next run's "direct" checks
+trap 'kill $SRV $WEB 2>/dev/null; rm -rf "$W"' EXIT
 fails=0
 check() { # check "what" expected actual
 	if [[ $3 == *"$2"* ]]; then echo "  ok   $1"; else echo "  FAIL $1: expected '$2', got '$3'"; fails=$((fails + 1)); fi
@@ -51,6 +53,12 @@ printf '<?xml version=%s encoding=%s standalone=%s?>\n<map><boolean name="vpn_di
 $ADB push "$W/consent.xml" /data/local/tmp/shunt-consent.xml >/dev/null
 $ADB shell "run-as $PKG sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/shunt-consent.xml shared_prefs/consent.xml'"
 $ADB shell appops set $PKG ACTIVATE_VPN allow
+# Private DNS off, as the app recommends: unset means "Automatic", and the app's banner about it
+# pushes the defense card below the screen on a small display (uiautomator sees only what is shown)
+PDNS=$($ADB shell settings get global private_dns_mode | tr -d '\r')
+$ADB shell settings put global private_dns_mode off
+trap 'kill $SRV $WEB 2>/dev/null; rm -rf "$W"; if [[ $PDNS == null ]]; then $ADB shell settings delete global private_dns_mode >/dev/null; else $ADB shell settings put global private_dns_mode "$PDNS"; fi' EXIT
+SDK=$($ADB shell getprop ro.build.version.sdk | tr -d '\r')
 # no notification permission dialog in front of the switch (Android 13+)
 $ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 
@@ -97,8 +105,14 @@ if $ADB root >/dev/null 2>&1; then
 fi
 echo "== DNS through the tunnel's DNS server"
 check "name resolves via the tunnel DNS (10.9.0.1)" "10.9.0.1" "$($ADB shell ping -c1 -W2 anything.test 2>&1 | head -1)"
-grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived at the work tunnel's DNS" ||
-	{ echo "  FAIL query did not arrive at the work tunnel's DNS"; fails=$((fails + 1)); }
+if ((SDK < 30)); then
+	# Android 10: the system resolver sends the query from its own socket (uid dns), not the app's,
+	# so the query takes the default route; on newer Android the socket belongs to the app
+	echo "  skip query at the work tunnel's DNS (Android 10: resolver queries are not the app's)"
+else
+	grep -q 'work: DNS anything.test' "$W/server.log" && echo "  ok   query arrived at the work tunnel's DNS" ||
+		{ echo "  FAIL query did not arrive at the work tunnel's DNS"; fails=$((fails + 1)); }
+fi
 echo "== DNS filter"
 check "listed name is blocked (NXDOMAIN)" "unknown host" "$($ADB shell ping -c1 -W2 blocked.test 2>&1 | head -1)"
 grep -q 'DNS blocked.test' "$W/server.log" && { echo "  FAIL blocked name reached the upstream"; fails=$((fails + 1)); } || echo "  ok   blocked name never reached the upstream"
@@ -135,6 +149,16 @@ tap_text() { # tap the first view whose text starts with $1 (English text, looke
 	read -r x1 y1 x2 y2 <<<"$(echo "$b" | tr -c '0-9' ' ')"
 	$ADB shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
+# after "Release"/"End pass" a sleeping tunnel wakes on the first connection: allow it a few seconds
+get_wait() {
+	local r=""
+	for _ in 1 2 3 4 5 6 7 8; do
+		r=$(get || true)
+		[[ $r == *tunnel=* ]] && break
+		sleep 2
+	done
+	echo "$r"
+}
 echo "== panic and pass"
 $ADB shell am start -n $PKG/.MainActivity >/dev/null
 sleep 2
@@ -142,14 +166,14 @@ if tap_text "PANIC"; then
 	sleep 2
 	check "panic blocks the tunnel too (refused at once)" "refused" "$(get)"
 	tap_text "Release" && sleep 2
-	check "after panic: tunnel again" "tunnel=work" "$(get)"
+	check "after panic: tunnel again" "tunnel=work" "$(get_wait)"
 fi
 if tap_text "Pass 5 min" && sleep 1 && tap_text "Pass 5 min"; then # button, then the dialog's confirm
 	sleep 2
 	r=$(get || true)
 	[[ $r != *tunnel=* ]] && echo "  ok   pass: the shell goes direct (tunnel-only address unreachable)" || { echo "  FAIL pass: still through the tunnel: $r"; fails=$((fails + 1)); }
 	tap_text "End pass" && sleep 2
-	check "after the pass: tunnel again" "tunnel=work" "$(get)"
+	check "after the pass: tunnel again" "tunnel=work" "$(get_wait)"
 fi
 echo "== crash: the VPN comes back by itself (watchdog job, Watchdog.kt)"
 $ADB shell am crash $PKG >/dev/null 2>&1 || $ADB shell am force-stop $PKG
