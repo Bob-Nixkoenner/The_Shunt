@@ -13,7 +13,9 @@ ADB=$ANDROID_HOME/platform-tools/adb
 GRADLE=${GRADLE:-./gradlew} # inside android/
 PKG=org.theshunt.app
 W=$(mktemp -d)
-trap 'kill $SRV 2>/dev/null; rm -rf "$W"' EXIT
+WEB=
+# the helper web servers too: a leftover one keeps the port and answers the next run's "direct" checks
+trap 'kill $SRV $WEB 2>/dev/null; rm -rf "$W"' EXIT
 fails=0
 check() { # check "what" expected actual
 	if [[ $3 == *"$2"* ]]; then echo "  ok   $1"; else echo "  FAIL $1: expected '$2', got '$3'"; fails=$((fails + 1)); fi
@@ -55,7 +57,7 @@ $ADB shell appops set $PKG ACTIVATE_VPN allow
 # pushes the defense card below the screen on a small display (uiautomator sees only what is shown)
 PDNS=$($ADB shell settings get global private_dns_mode | tr -d '\r')
 $ADB shell settings put global private_dns_mode off
-trap 'kill $SRV 2>/dev/null; rm -rf "$W"; if [[ $PDNS == null ]]; then $ADB shell settings delete global private_dns_mode >/dev/null; else $ADB shell settings put global private_dns_mode "$PDNS"; fi' EXIT
+trap 'kill $SRV $WEB 2>/dev/null; rm -rf "$W"; if [[ $PDNS == null ]]; then $ADB shell settings delete global private_dns_mode >/dev/null; else $ADB shell settings put global private_dns_mode "$PDNS"; fi' EXIT
 SDK=$($ADB shell getprop ro.build.version.sdk | tr -d '\r')
 # no notification permission dialog in front of the switch (Android 13+)
 $ADB shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
