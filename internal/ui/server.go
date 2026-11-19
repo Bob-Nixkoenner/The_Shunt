@@ -563,6 +563,44 @@ func (s *Server) handler() http.Handler {
 			writeJSON(w, res)
 		})
 	}
+	// Mullvad module: login, server list, exit switch (the daemon does the work).
+	mux.HandleFunc("GET /api/mullvad", func(w http.ResponseWriter, r *http.Request) {
+		var v api.MullvadStatus
+		if err := s.Client.Do("GET", "/v1/mullvad", nil, &v); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, v)
+	})
+	mux.HandleFunc("GET /api/mullvad/relays", func(w http.ResponseWriter, r *http.Request) {
+		var v json.RawMessage
+		if err := s.Client.Do("GET", "/v1/mullvad/relays", nil, &v); err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(v)
+	})
+	for _, op := range []string{"login", "connect"} {
+		mux.HandleFunc("POST /api/mullvad/"+op, func(w http.ResponseWriter, r *http.Request) {
+			var body json.RawMessage
+			if !decode(w, r, &body) {
+				return
+			}
+			if err := s.Client.Do("POST", "/v1/mullvad/"+op, body, nil); err != nil {
+				writeErr(w, http.StatusUnprocessableEntity, err)
+				return
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+		})
+	}
+	mux.HandleFunc("POST /api/mullvad/logout", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.Client.Do("POST", "/v1/mullvad/logout", nil, nil); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("POST /api/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
 		s.forward(w, "POST", "/v1/tunnels/"+url.PathEscape(r.PathValue("name"))+"/newnym", nil)
 	})

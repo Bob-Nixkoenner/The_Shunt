@@ -91,6 +91,7 @@ type Daemon struct {
 	startLogged bool       // the eBPF start guard loaded (logged once)
 	startErr    error      // why the eBPF start guard is not loaded (status note)
 	saveMu      sync.Mutex // serializes config writes
+	mv          mullvadState
 	sleepMu     sync.Mutex
 	sleepers    map[string]*sleeper // tunnels asleep (memory only)
 	dnsUps      dnsproxy.RouteUpstreams
@@ -1756,6 +1757,65 @@ func (d *Daemon) routes() http.Handler {
 	})
 	// New circuits for a Tor tunnel (SIGNAL NEWNYM). Any member of the group
 	// may ask: it only makes tor build fresh circuits for new connections.
+	mux.HandleFunc("GET /v1/mullvad", func(w http.ResponseWriter, r *http.Request) {
+		st, err := d.MullvadStatus()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, st)
+	})
+	mux.HandleFunc("GET /v1/mullvad/relays", func(w http.ResponseWriter, r *http.Request) {
+		cs, err := d.MullvadRelays()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, cs)
+	})
+	mux.HandleFunc("POST /v1/mullvad/login", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		var req api.MullvadLogin
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.MullvadLogin(req.Account); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/mullvad/connect", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		var req api.MullvadConnect
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := d.MullvadConnect(req); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/mullvad/logout", func(w http.ResponseWriter, r *http.Request) {
+		if err := d.authorize(r.Context(), peerOf(r.Context())); err != nil {
+			writeErr(w, http.StatusForbidden, err)
+			return
+		}
+		if err := d.MullvadLogout(); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/tunnels/{name}/newnym", func(w http.ResponseWriter, r *http.Request) {
 		if err := d.newIdentity(r.PathValue("name")); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)

@@ -369,7 +369,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
   </section>
 
   <section data-fold>
-    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale, Tor</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button><button id="addtab-tor" type="button" data-lv="tor.add">Tor</button></span></h2>
+    <h2>Add a tunnel <span class="muted" style="text-transform:none;letter-spacing:0">WireGuard, OpenVPN, Tailscale, Headscale, Tor, Mullvad</span><span class="spacer"></span><span class="addtabs"><button id="addtab-file" class="active" type="button">WireGuard / OpenVPN</button><button id="addtab-ts" type="button">Tailscale / Headscale</button><button id="addtab-tor" type="button" data-lv="tor.add">Tor</button><button id="addtab-mv" type="button">Mullvad</button></span></h2>
     <div class="editor" id="add-file">
       <div class="row"><b>Import a WireGuard, OpenVPN or Tailscale/Headscale (.ts) file</b><span class="muted">(stored with mode 600; scripts in it are switched off)</span></div>
       <div class="row" style="margin-top:10px">
@@ -422,6 +422,29 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
       <div id="tor-help"></div>
       <textarea id="tor-own" hidden placeholder="one bridge line per row, from bridges.torproject.org, e.g. obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0" style="min-height:70px;margin-top:10px"></textarea>
       <div class="muted" style="margin-top:8px">Tor carries TCP only: no calls, games or QUIC (those apps fall back to TCP or fail). Apps use it through a rule “route = Tor”; each rule gets its own circuits. For ordinary browsing the Tor Browser stays the better choice.</div>
+    </div>
+    <div class="editor" id="add-mv" hidden>
+      <div class="row"><b>Mullvad</b><span class="muted">(your account number stays on this computer, mode 600; the tunnel is a normal WireGuard tunnel)</span></div>
+      <div id="mv-login">
+        <div class="row" style="margin-top:10px">
+          <input id="mv-account" type="password" placeholder="Mullvad account number (16 digits)" autocomplete="off" style="width:300px" maxlength="24">
+          <button id="mv-login-btn" class="primary">Log in</button>
+        </div>
+        <div class="muted" style="margin-top:8px">Shunt registers its own key as a device of your account (Mullvad allows 5). Logging out removes it again.</div>
+      </div>
+      <div id="mv-main" hidden>
+        <div class="row" style="margin-top:10px"><span id="mv-who" class="muted"></span><span class="spacer"></span><button id="mv-logout" type="button">Log out</button></div>
+        <div class="row" style="margin-top:10px">
+          <input id="mv-name" value="mullvad" style="width:140px" maxlength="10" title="tunnel name">
+          <select id="mv-country"></select>
+          <select id="mv-city"></select>
+          <select id="mv-server"></select>
+          <button id="mv-connect" class="primary">Use this exit</button>
+        </div>
+        <div class="row" style="margin-top:10px"><span class="muted">connects</span><select id="mv-via"></select></div>
+        <div class="muted" style="margin-top:8px">Pick a country, a city or one server. For a tunnel that exists already the exit is switched in place: its rules and routes stay. Several Mullvad tunnels (several names) can use different exits at the same time.</div>
+        <table><tbody id="mv-exits"></tbody></table>
+      </div>
     </div>
   </section>
 </main>
@@ -862,6 +885,7 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
 <script src="app.js"></script>
 <script src="chart.js"></script>
 <script src="config.js"></script>
+<script src="mullvad.js"></script>
 <script src="filter.js"></script>
 <script src="view.js"></script>
 <script src="opsec.js"></script>

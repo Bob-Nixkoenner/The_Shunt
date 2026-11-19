@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Mullvad module (Linux desktop):** Configure > Add a tunnel > Mullvad. Log in with the account number; Shunt registers its own WireGuard key as a device (Mullvad allows 5) and keeps key and number in a root-only file (`mullvad.json`, mode 600, never sent to the page). Then pick a country, a city or one server: Shunt makes an ordinary WireGuard tunnel from Mullvad's public relay list. Choosing another exit for the same tunnel swaps the server in place (rules and routes stay); several Mullvad tunnels can use different exits at once, and "connects through tunnel X" gives a second hop. Logging out removes the Mullvad tunnels and the device at Mullvad (tunnels that rules still use block it). API: `GET /v1/mullvad`, `GET /v1/mullvad/relays`, `POST /v1/mullvad/{login,connect,logout}`.
+
 ## v0.8.0-rc54
 
 - **Android 10-13: the VPN comes back by itself after the app crashed.** The watchdog job started the VPN service with `startService`, which Android forbids from the background (it worked on Android 14 and 15 by chance). It now uses `startForegroundService`; the VPN permission allows that from the background.

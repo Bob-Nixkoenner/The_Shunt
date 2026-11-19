@@ -413,8 +413,10 @@ function takeFile(f) {
 function fillVia() {
   const tunnels = Object.keys(model.tunnel || {}).sort();
   const cur = $("#t-via").value;
-  fill("#t-via", [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, T("through tunnel {name} (multi-hop)", { name: n })]),
-    ...LINKS.map(([v, l]) => [v, T("over {link} only", { link: T(l) })])], cur);
+  const opts = [["", "directly to the server"], ...tunnels.map((n) => ["tunnel:" + n, T("through tunnel {name} (multi-hop)", { name: n })]),
+    ...LINKS.map(([v, l]) => [v, T("over {link} only", { link: T(l) })])];
+  fill("#t-via", opts, cur);
+  fill("#mv-via", opts, $("#mv-via").value);
 }
 $("#t-conf").addEventListener("input", updateImportForm);
 $("#t-file").addEventListener("change", (e) => { takeFile(e.target.files[0]); e.target.value = ""; });
@@ -685,9 +687,9 @@ $("#fw-p-normal").addEventListener("click", () => fwPreset("ask", false));
 $("#fw-p-off").addEventListener("click", () => fwPreset("off", false));
 
 // "Add a tunnel": switch between the file import and the Tailscale/Headscale form
-for (const t of ["file", "ts", "tor"]) {
+for (const t of ["file", "ts", "tor", "mv"]) {
   $("#addtab-" + t).addEventListener("click", () => {
-    for (const o of ["file", "ts", "tor"]) {
+    for (const o of ["file", "ts", "tor", "mv"]) {
       $("#add-" + o).hidden = o !== t;
       $("#addtab-" + o).classList.toggle("active", o === t);
     }

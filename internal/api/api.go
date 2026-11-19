@@ -266,6 +266,41 @@ type TunnelState struct {
 	Seconds int    `json:"seconds,omitempty"`
 }
 
+// MullvadStatus is GET /v1/mullvad: no secrets (the account number is cut
+// down to its last four digits).
+type MullvadStatus struct {
+	LoggedIn bool          `json:"logged_in"`
+	Account  string        `json:"account,omitempty"` // "••••3456"
+	Device   string        `json:"device,omitempty"`
+	Exits    []MullvadExit `json:"exits,omitempty"`
+}
+
+// MullvadExit is the server a Mullvad tunnel uses.
+type MullvadExit struct {
+	Tunnel   string `json:"tunnel"`
+	Hostname string `json:"hostname"`
+	Country  string `json:"country"`
+	City     string `json:"city"`
+}
+
+// MullvadLogin is the body of POST /v1/mullvad/login.
+type MullvadLogin struct {
+	Account string `json:"account"`
+}
+
+// MullvadConnect is the body of POST /v1/mullvad/connect: make the tunnel
+// (or move an existing Mullvad tunnel) to a server. Country ("de"), City
+// ("de-fra") or Hostname ("de-fra-wg-001"); all empty = any server.
+type MullvadConnect struct {
+	Tunnel   string `json:"tunnel"`
+	Country  string `json:"country,omitempty"`
+	City     string `json:"city,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
+	// Via: "tunnel:<name>" runs the Mullvad tunnel through another tunnel
+	// (second hop), only used when the tunnel is created.
+	Via string `json:"via,omitempty"`
+}
+
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.
 type TunnelRename struct {
 	To string `json:"to"`
