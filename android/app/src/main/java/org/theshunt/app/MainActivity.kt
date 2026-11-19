@@ -163,7 +163,7 @@ private fun App() {
                     1 -> TunnelsScreen(settings, update) { message = it }
                     2 -> AppsScreen(settings, update)
                     3 -> PortsScreen(settings, update) { message = it }
-                    4 -> FilterScreen(settings, update, status)
+                    4 -> FilterScreen(settings, update, status) { message = it }
                     5 -> SettingsScreen(settings, update)
                 }
             }
@@ -364,8 +364,6 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
         }
 
         UpdateSection(say)
-        AppearanceSection()
-        PrivacySection()
     }
     if (confirmPass) {
         AlertDialog(
@@ -671,6 +669,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
             }
         }
+        MullvadSection(settings, update, say)
         PowerAndDnsSections(settings, update, vpnRunning)
     }
     renaming?.let { t ->
@@ -755,6 +754,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         defaultRoute = if (settings.defaultRoute == route) "block" else settings.defaultRoute,
                         apps = settings.apps.mapValues { (_, r) -> if (r == route) "block" else r },
                         networks = settings.networks.map { if (it.route == route) it.copy(route = "block") else it },
+                        mullvadExits = settings.mullvadExits.filter { it.tunnel != t.name },
                     ))
                     confirmDelete = null
                 }) { Text(T("Delete")) }
@@ -919,7 +919,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
 
 /** DNS filter lists: grouped like on the desktop; on/off, size, source, how many names. */
 @Composable
-private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?) {
+private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
@@ -968,6 +968,7 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
             }
         }
         Hint("Lists: HaGeZi (github.com/hagezi/dns-blocklists) and RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts. Of the HaGeZi all-round lists use one: they build on each other.")
+        FilterExtras(settings, update, status, say)
     }
     bigList?.let { e ->
         AlertDialog(
@@ -1206,6 +1207,8 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
         }
         if (settings.shows("wifi.list")) Section("Known Wi-Fi networks") { KnownWifiSection(settings, update) }
         DefenseSettingsSection(settings, update)
+        AppearanceSection()
+        PrivacySection()
     }
     if (opsecOn) OpsecOnDialog(settings, onDone = { s -> opsecOn = false; s?.let(update) })
     leaveTo?.let { to -> OpsecOffDialog(settings, to, onDone = { s -> leaveTo = null; s?.let(update) }) }
@@ -1229,7 +1232,8 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(T("Each switch is one setting of this app. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it. Some things only Android can do: they show their state and where to set them."), color = c.text, fontSize = 13.sp)
-                for (it in Opsec.ITEMS) {
+                // what Android cannot do at all (NA) is not listed: a switch that can never be on is only noise
+                for (it in Opsec.ITEMS.filter { it.kind != OpsecItem.Kind.NA }) {
                     val already = it.kind == OpsecItem.Kind.SET && it.isOn(settings)
                     // state of Android's own settings, when the app can see it
                     val sys: Boolean? = when (it.id) {
@@ -1268,6 +1272,7 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                         }
                     }
                 }
+                if (Opsec.ITEMS.any { it.kind == OpsecItem.Kind.NA }) Text(T("Desktop settings that Android does not allow (filter for incoming connections, clock check, TCP and ICMP timestamps, Wi-Fi login page check) are left out here."), color = c.muted, fontSize = 12.sp)
                 Text(T("Max Security is no guarantee."), color = c.text, fontWeight = FontWeight.Bold)
                 Text(T("These settings close common leaks of this phone; they do not make you anonymous. Your VPN provider still sees your traffic, and websites still recognise you by logins, cookies and your browser."), color = c.text, fontSize = 13.sp)
                 if (settings.defaultRoute.startsWith("direct") || settings.defaultRoute.startsWith("link:")) {

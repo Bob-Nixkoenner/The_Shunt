@@ -247,6 +247,17 @@ func NewFilter(levels map[string][]*List, allow []string) *Filter {
 	return &Filter{levels: levels, allow: allow}
 }
 
+// WithAllowLists returns a copy that also never blocks the names of ls
+// (platform code that parses its own allowlist files).
+func (f *Filter) WithAllowLists(ls []*List) *Filter {
+	if f == nil {
+		return nil
+	}
+	c := *f
+	c.allowLists = append(append([]*List(nil), f.allowLists...), ls...)
+	return &c
+}
+
 // Check returns the list that blocks name at level, or "".
 func (f *Filter) Check(level, name string) string {
 	if f == nil {

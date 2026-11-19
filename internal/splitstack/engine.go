@@ -100,6 +100,11 @@ type config struct {
 	// apps in Unfiltered.
 	Blocklists []blocklistConf `json:"blocklists"`
 	Unfiltered []string        `json:"unfiltered"`
+	// Allow and AllowLists: names (with their subdomains) and lists of names
+	// the filter never blocks, for every app. A list file is read like a
+	// blocklist, and "@@||name^" counts as an entry.
+	Allow      []string        `json:"allow"`
+	AllowLists []blocklistConf `json:"allow_lists"`
 	// StatsPath: file for traffic totals per tunnel and month
 	// (internal/stats); "" counts in memory only.
 	StatsPath string `json:"stats_path"`
@@ -451,7 +456,7 @@ func (e *Engine) setRules(c *config) error {
 	for k, v := range c.Apps {
 		apps[k] = v
 	}
-	filter, err := buildFilter(c.Blocklists)
+	filter, err := buildFilter(c.Blocklists, c.Allow, c.AllowLists)
 	if err != nil {
 		return err
 	}
@@ -462,7 +467,7 @@ func (e *Engine) setRules(c *config) error {
 		if nets[i].Blocklists == nil {
 			continue
 		}
-		f, err := buildFilter(*nets[i].Blocklists)
+		f, err := buildFilter(*nets[i].Blocklists, c.Allow, c.AllowLists)
 		if err != nil {
 			return err
 		}
@@ -499,20 +504,39 @@ func (e *Engine) setRules(c *config) error {
 
 const filterLevel = "on"
 
-// buildFilter loads lists into one filter (nil without lists).
-func buildFilter(bs []blocklistConf) (*blocklist.Filter, error) {
+// buildFilter loads lists into one filter (nil without lists). allow and
+// allowLists are names that are never blocked.
+func buildFilter(bs []blocklistConf, allow []string, allowLists []blocklistConf) (*blocklist.Filter, error) {
 	if len(bs) == 0 {
 		return nil, nil
 	}
 	var lists []*blocklist.List
 	for _, b := range bs {
-		l, err := loadList(b)
+		l, err := loadList(b, false)
 		if err != nil {
 			return nil, err
 		}
 		lists = append(lists, l)
 	}
-	return blocklist.NewFilter(map[string][]*blocklist.List{filterLevel: lists}, nil), nil
+	var names []string
+	for _, a := range allow {
+		if n := blocklist.Normalize(a); n != "" {
+			names = append(names, n)
+		}
+	}
+	f := blocklist.NewFilter(map[string][]*blocklist.List{filterLevel: lists}, names)
+	var al []*blocklist.List
+	for _, b := range allowLists {
+		l, err := loadList(b, true)
+		if errors.Is(err, blocklist.ErrEmpty) || errors.Is(err, os.ErrNotExist) {
+			continue // an empty or missing allowlist allows nothing; it must not stop the filter
+		}
+		if err != nil {
+			return nil, err
+		}
+		al = append(al, l)
+	}
+	return f.WithAllowLists(al), nil
 }
 
 // lists caches parsed blocklists by path: SetRules runs on every rule
@@ -528,7 +552,7 @@ type cachedList struct {
 	l    *blocklist.List
 }
 
-func loadList(b blocklistConf) (*blocklist.List, error) {
+func loadList(b blocklistConf, allow bool) (*blocklist.List, error) {
 	f, err := os.Open(b.Path)
 	if err != nil {
 		return nil, fmt.Errorf("blocklist %s: %w", b.Name, err)
@@ -540,17 +564,25 @@ func loadList(b blocklistConf) (*blocklist.List, error) {
 	}
 	lists.Lock()
 	defer lists.Unlock()
-	if c, ok := lists.m[b.Path]; ok && c.mod.Equal(st.ModTime()) && c.size == st.Size() && c.l.Name == b.Name {
+	key := b.Path
+	if allow {
+		key += "\x00allow"
+	}
+	if c, ok := lists.m[key]; ok && c.mod.Equal(st.ModTime()) && c.size == st.Size() && c.l.Name == b.Name {
 		return c.l, nil
 	}
-	l, err := blocklist.Parse(b.Name, f)
+	parse := blocklist.Parse
+	if allow {
+		parse = blocklist.ParseAllow
+	}
+	l, err := parse(b.Name, f)
 	if err != nil {
 		return nil, fmt.Errorf("blocklist %s: %w", b.Name, err)
 	}
 	if lists.m == nil {
 		lists.m = map[string]cachedList{}
 	}
-	lists.m[b.Path] = cachedList{st.ModTime(), st.Size(), l}
+	lists.m[key] = cachedList{st.ModTime(), st.Size(), l}
 	return l, nil
 }
 
