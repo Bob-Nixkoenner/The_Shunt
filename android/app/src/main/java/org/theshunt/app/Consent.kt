@@ -54,7 +54,7 @@ fun ConsentGate(onDecline: () -> Unit, content: @Composable () -> Unit) {
                 listOf(
                     T("• All of this is processed on this phone only. The developer receives nothing: no account, no analytics, no advertising."),
                     T("• Traffic is sent, encrypted by the tunnel, to the server you entered. Its operator then handles it under their own policy."),
-                    T("• The app itself contacts GitHub (DNS filter lists, only if you switch them on) and api.ipify.org (only when you start the leak test)."),
+                    T("• The app itself contacts GitHub (DNS filter lists, only if you switch them on), api.ipify.org (only when you start the leak test) and api.mullvad.net (only when you use the Mullvad module)."),
                     T("• Nothing is sold or shared."),
                 ).joinToString("\n"),
                 color = c.text,

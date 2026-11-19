@@ -671,6 +671,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                 }
             }
         }
+        MullvadSection(settings, update, say)
         PowerAndDnsSections(settings, update, vpnRunning)
     }
     renaming?.let { t ->
@@ -755,6 +756,7 @@ private fun TunnelsScreen(settings: Settings, update: (Settings) -> Unit, say: (
                         defaultRoute = if (settings.defaultRoute == route) "block" else settings.defaultRoute,
                         apps = settings.apps.mapValues { (_, r) -> if (r == route) "block" else r },
                         networks = settings.networks.map { if (it.route == route) it.copy(route = "block") else it },
+                        mullvadExits = settings.mullvadExits.filter { it.tunnel != t.name },
                     ))
                     confirmDelete = null
                 }) { Text(T("Delete")) }

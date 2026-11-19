@@ -140,6 +140,9 @@ data class Settings(
     val netClasses: Map<String, String> = emptyMap(),
     /** Warnings the user hid on the Status tab (see HiddenWarnings); stored here only, never given to the core. */
     val hiddenWarnings: List<HiddenWarning> = emptyList(),
+    /** Mullvad logins (secrets sealed in the file) and the server of each Mullvad tunnel, see Mullvad.kt; never given to the core. */
+    val mullvadLogins: List<MullvadLogin> = emptyList(),
+    val mullvadExits: List<MullvadExit> = emptyList(),
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
     fun shows(key: String) = Levels.shows(key, level)
@@ -176,6 +179,8 @@ data class Settings(
     /** As stored in settings.json: the tunnels' secrets sealed by [v] (throws when it cannot seal). */
     fun toStoreJson(v: Vault): JSONObject = toJson().put("tunnels", JSONArray(tunnels.map { it.toStoreJson(v) }))
         .put("hidden_warnings", HiddenWarning.listJson(hiddenWarnings)) // file only: toJson (the core's) leaves it out
+        .put("mullvad", MullvadLogin.storeJson(mullvadLogins, v)) // file only, sealed
+        .put("mullvad_exits", JSONArray(mullvadExits.map { it.toJson() }))
 
     /**
      * Fail closed for locked tunnels (keys not readable on this device): they are left
@@ -329,6 +334,8 @@ data class Settings(
                 netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { Defense.migrate(u.optString(it)) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 hiddenWarnings = HiddenWarning.listFrom(o.optJSONArray("hidden_warnings")),
+                mullvadLogins = MullvadLogin.listFrom(o.optJSONArray("mullvad"), v),
+                mullvadExits = MullvadExit.listFrom(o.optJSONArray("mullvad_exits")),
                 networks = o.optJSONArray("networks")?.let { a ->
                     (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optString("link") in NetProfile.LINKS }
                         .map { NetProfile.fromJson(it) }
@@ -449,6 +456,7 @@ object Store {
             defaultRoute = r(s.defaultRoute),
             apps = s.apps.mapValues { (_, route) -> r(route) },
             networks = s.networks.map { it.copy(route = r(it.route)) },
+            mullvadExits = s.mullvadExits.map { if (it.tunnel == from) it.copy(tunnel = to) else it },
         )
     }
 
