@@ -61,6 +61,7 @@ type Manager struct {
 	eps     map[string]string // tunnel -> first endpoint, for the status
 	running string            // fingerprint of the tunnels the engine runs with
 	level   string            // DNS filter level in effect ("" = off)
+	mv      mullvadState
 }
 
 const defaultConfig = "# The Shunt for Windows\n[daemon]\ndefault_route = \"direct\"\n"
@@ -602,40 +603,54 @@ func (m *Manager) ImportTunnel(req api.TunnelImport) ([]string, error) {
 }
 
 // DeleteTunnel removes a tunnel that nothing uses anymore.
-func (m *Manager) DeleteTunnel(name string) error {
+func (m *Manager) DeleteTunnel(name string) error { return m.DeleteTunnels(name) }
+
+// DeleteTunnels removes tunnels that nothing uses anymore, in one change
+// (one restart of the service). Tunnels that run through each other can go
+// together; anything else that uses one of them stops it.
+func (m *Manager) DeleteTunnels(names ...string) error {
 	m.mu.Lock()
 	if m.cfg == nil {
 		m.mu.Unlock()
 		return errors.New("config not loaded")
 	}
 	cfg := *m.cfg
-	t, ok := cfg.Tunnels[name]
 	m.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("no tunnel %q", name)
-	}
-	route := "tunnel:" + name
-	if cfg.Daemon.DefaultRoute == route {
-		return fmt.Errorf("tunnel %q is the default route; change that first", name)
-	}
-	for i, r := range cfg.Rules {
-		if r.Route == route {
-			return fmt.Errorf("rule %d (%s) uses tunnel %q; change or delete it first", i+1, r.Name, name)
+	gone := map[string]config.Tunnel{}
+	for _, name := range names {
+		t, ok := cfg.Tunnels[name]
+		if !ok {
+			return fmt.Errorf("no tunnel %q", name)
 		}
+		gone[name] = t
 	}
-	for _, n := range cfg.Networks {
-		if n.DefaultRoute == route {
-			return fmt.Errorf("network %q uses tunnel %q; change or delete it first", n.Name, name)
+	for name := range gone {
+		route := "tunnel:" + name
+		if cfg.Daemon.DefaultRoute == route {
+			return fmt.Errorf("tunnel %q is the default route; change that first", name)
 		}
-	}
-	for n, tt := range cfg.Tunnels {
-		if tt.Via == route || tt.Via == name {
-			return fmt.Errorf("tunnel %q runs through %q; change or delete it first", n, name)
+		for i, r := range cfg.Rules {
+			if r.Route == route {
+				return fmt.Errorf("rule %d (%s) uses tunnel %q; change or delete it first", i+1, r.Name, name)
+			}
+		}
+		for _, n := range cfg.Networks {
+			if n.DefaultRoute == route {
+				return fmt.Errorf("network %q uses tunnel %q; change or delete it first", n.Name, name)
+			}
+		}
+		for n, tt := range cfg.Tunnels {
+			if _, also := gone[n]; also {
+				continue
+			}
+			if tt.Via == route || tt.Via == name {
+				return fmt.Errorf("tunnel %q runs through %q; change or delete it first", n, name)
+			}
 		}
 	}
 	tunnels := map[string]config.Tunnel{}
 	for n, tt := range cfg.Tunnels {
-		if n != name {
+		if _, also := gone[n]; !also {
 			tunnels[n] = tt
 		}
 	}
@@ -647,9 +662,11 @@ func (m *Manager) DeleteTunnel(name string) error {
 	if _, err := m.Save(raw, ""); err != nil {
 		return err
 	}
-	for _, f := range []string{t.Config, t.Auth} {
-		if p := m.abs(f); f != "" && strings.HasPrefix(p, m.tunnelDir()+string(filepath.Separator)) {
-			_ = os.Remove(p)
+	for _, t := range gone {
+		for _, f := range []string{t.Config, t.Auth} {
+			if p := m.abs(f); f != "" && strings.HasPrefix(p, m.tunnelDir()+string(filepath.Separator)) {
+				_ = os.Remove(p)
+			}
 		}
 	}
 	return nil

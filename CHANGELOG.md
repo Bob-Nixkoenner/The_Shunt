@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.8.0-rc55a
+
+- **Mullvad module on Windows:** Configure > Add a tunnel > Mullvad, the same as on the Linux desktop: log in (several accounts), pick country, city or one server, switch the exit of a tunnel in place, build a chain of 2 to 4 hops through different countries and providers, delete the chain, log out (the device is removed at Mullvad). The service does the network calls; account number and key are kept in `tunnels\mullvad-store.json` (SYSTEM and Administrators only). A chain, its removal and a logout change `shunt.toml` once, so the service restarts once, not once per hop. Details: `docs/MULLVAD.md`.
+
 ## v0.8.0-rc55
 
 - **Windows follows in the next release candidate** (rc55a or similar): the Mullvad module and the Pro DNS filter additions below are in the Linux desktop app and on Android in this one.
