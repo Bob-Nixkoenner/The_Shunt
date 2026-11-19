@@ -289,6 +289,8 @@ type MullvadExit struct {
 	Country  string `json:"country"`
 	City     string `json:"city"`
 	Provider string `json:"provider,omitempty"`
+	// Chain: name of the chain this tunnel is a hop of ("" = single tunnel).
+	Chain string `json:"chain,omitempty"`
 }
 
 // MullvadLogin is the body of POST /v1/mullvad/login. Name labels the
@@ -331,6 +333,12 @@ type MullvadChain struct {
 	Accounts []string `json:"accounts,omitempty"`
 	// Via: the entry hop itself runs through this tunnel ("tunnel:<name>").
 	Via string `json:"via,omitempty"`
+}
+
+// MullvadChainDelete is the body of POST /v1/mullvad/chain/delete: removes
+// every hop of the chain, the last one first.
+type MullvadChainDelete struct {
+	Name string `json:"name"`
 }
 
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.

@@ -42,6 +42,12 @@ async function mvRefresh() {
   tb.replaceChildren(...(st.exits || []).map((x) => el("tr", {},
     el("td", {}, x.tunnel), el("td", {}, accts.length > 1 ? x.account : ""), el("td", {}, x.country + ", " + x.city), el("td", { class: "mono" }, x.hostname),
     el("td", {}, el("button", { class: "iconbtn", title: T("use this name for the next exit"), onclick: () => { $("#mv-name").value = x.tunnel; $("#mv-acct").value = x.account; } }, "↻")))));
+  const chains = {};
+  for (const x of st.exits || []) if (x.chain) chains[x.chain] = (chains[x.chain] || 0) + 1;
+  $("#mv-chains").replaceChildren(...Object.entries(chains).map(([c, n]) => el("div", { class: "row", style: "margin-top:10px" },
+    el("b", {}, T("Chain {name}", { name: c })), el("span", { class: "muted" }, T("{n} hops, the last one is the exit", { n })),
+    el("span", { class: "spacer" }),
+    el("button", { type: "button", onclick: () => mvDeleteChain(c) }, T("Delete chain")))));
   if (!mvCountries.length) {
     try {
       mvCountries = await api("GET", "/api/mullvad/relays");
@@ -106,3 +112,13 @@ $("#mv-ch-build").addEventListener("click", async () => {
   } catch (e) { toast(e.message); }
   btn.disabled = false;
 });
+
+async function mvDeleteChain(name) {
+  if (!(await ask(T("Delete chain {name}? All its hops are removed.", { name })))) return;
+  try {
+    await api("POST", "/api/mullvad/chain/delete", { name });
+    toast(T("Chain {name} deleted", { name }));
+    await mvRefresh();
+    reloadConfig();
+  } catch (e) { toast(e.message); await mvRefresh(); reloadConfig(); }
+}

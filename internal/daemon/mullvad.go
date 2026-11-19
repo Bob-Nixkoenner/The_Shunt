@@ -471,8 +471,50 @@ func (d *Daemon) MullvadChain(req api.MullvadChain) error {
 		made = append(made, name)
 		via = "tunnel:" + name
 	}
+	d.mv.mu.Lock()
+	if s2, err := d.mullvadLoad(); err == nil && s2 != nil {
+		for _, n := range made {
+			e := s2.Exits[n]
+			e.Chain = req.Name
+			s2.Exits[n] = e
+		}
+		_ = d.mullvadSave(s2)
+	}
+	d.mv.mu.Unlock()
 	d.Log.Info("mullvad: chain built", "name", req.Name, "hops", len(made))
 	return nil
+}
+
+// MullvadChainDelete removes all hops of a chain, last hop first. A hop that
+// a rule or another tunnel still uses stops it (the hops after it are
+// already gone then); the error names it.
+func (d *Daemon) MullvadChainDelete(name string) error {
+	d.mv.mu.Lock()
+	defer d.mv.mu.Unlock()
+	s, err := d.mullvadLoad()
+	if err != nil {
+		return err
+	}
+	var hops []string
+	if s != nil {
+		for tn, e := range s.Exits {
+			if e.Chain == name {
+				hops = append(hops, tn)
+			}
+		}
+	}
+	if len(hops) == 0 {
+		return fmt.Errorf("no chain %q", name)
+	}
+	slices.SortFunc(hops, func(a, b string) int { return strings.Compare(b, a) }) // NAME3, NAME2, NAME1
+	for _, tn := range hops {
+		if err := d.deleteTunnel(tn); err != nil && !strings.Contains(err.Error(), "no tunnel") {
+			_ = d.mullvadSave(s)
+			return fmt.Errorf("chain not fully removed: %w", err)
+		}
+		delete(s.Exits, tn)
+	}
+	return d.mullvadSave(s)
 }
 
 // mullvadUndo removes tunnels made a moment ago, last hop first.

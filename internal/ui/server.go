@@ -581,7 +581,7 @@ func (s *Server) handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(v)
 	})
-	for _, op := range []string{"login", "connect", "chain"} {
+	for _, op := range []string{"login", "connect", "chain", "chain/delete"} {
 		mux.HandleFunc("POST /api/mullvad/"+op, func(w http.ResponseWriter, r *http.Request) {
 			var body json.RawMessage
 			if !decode(w, r, &body) {

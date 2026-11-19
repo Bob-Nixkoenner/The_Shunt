@@ -260,6 +260,9 @@ func TestMullvadChainBuilder(t *testing.T) {
 	if v1 != "" || v2 != "tunnel:ch1" || v3 != "tunnel:ch2" {
 		t.Fatalf("chain via: %q %q %q", v1, v2, v3)
 	}
+	if by["ch1"].Chain != "ch" || by["ch3"].Chain != "ch" {
+		t.Fatalf("chain name not stored: %+v", by)
+	}
 	// same name again: stopped before anything changes
 	if err := d.MullvadChain(api.MullvadChain{Name: "ch", Hops: 2}); err == nil {
 		t.Fatal("name clash accepted")
@@ -275,3 +278,43 @@ func TestMullvadChainBuilder(t *testing.T) {
 		t.Fatalf("depth %d", d.hopDepth("tunnel:lo4"))
 	}
 }
+
+// "Delete chain" takes every hop away, last first; a rule on a hop stops it.
+func TestMullvadChainDelete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/auth/v1/token":
+			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
+		case r.Method == "POST" && r.URL.Path == "/accounts/v1/devices":
+			_, _ = w.Write([]byte(`{"id":"dev-1","name":"fox","ipv4_address":"10.70.1.2/32","ipv6_address":"fc00::2/128"}`))
+		case r.URL.Path == "/public/relays/wireguard/v2":
+			_, _ = w.Write([]byte(mvRelays4))
+		default:
+			w.WriteHeader(204)
+		}
+	}))
+	defer srv.Close()
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\ndefault_route = \"direct\"\n[dns]\ndisabled = true\n")
+	d.mv.client.Base = srv.URL
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	_ = d.MullvadLogin("", "1111222233334444")
+	if err := d.MullvadChain(api.MullvadChain{Name: "k", Hops: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadChainDelete("nope"); err == nil {
+		t.Fatal("unknown chain accepted")
+	}
+	if err := d.MullvadChainDelete("k"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := d.MullvadStatus(); len(st.Exits) != 0 || len(d.cfg.Tunnels) != 0 {
+		t.Fatalf("%+v %v", st.Exits, d.cfg.Tunnels)
+	}
+	if !d.mullvadLoaded() {
+		t.Fatal("login must stay after deleting a chain")
+	}
+}
+
+func (d *Daemon) mullvadLoaded() bool { s, _ := d.mullvadLoad(); return s != nil }

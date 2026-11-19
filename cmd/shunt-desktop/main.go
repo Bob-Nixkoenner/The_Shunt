@@ -157,7 +157,15 @@ type trayApp struct {
 }
 
 func (a *trayApp) onReady() {
-	systray.SetIcon(trayIcon(desktopapp.Icon(desktopapp.Bad)))
+	// The first icon is the real state, not a placeholder: some tray hosts
+	// (COSMIC) keep the icon they saw first and show a stale red one.
+	first := trayIcon(desktopapp.Icon(desktopapp.Bad))
+	var st0 api.Status
+	if err := a.client.Do("GET", "/v1/status", nil, &st0); err == nil {
+		v0 := desktopapp.Compute(&st0, nil, time.Now())
+		first = trayIcon(desktopapp.IconN(v0.Level, v0.Active))
+	}
+	systray.SetIcon(first)
 	systray.SetTitle("The Shunt")
 	systray.SetTooltip("The Shunt")
 	a.title = systray.AddMenuItem("…", "")
