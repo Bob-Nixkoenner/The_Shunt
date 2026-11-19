@@ -55,3 +55,19 @@ func TestMullvadBridge(t *testing.T) {
 		t.Fatal("4 hops from 3 countries accepted")
 	}
 }
+
+func TestCheckFilterText(t *testing.T) {
+	out, err := CheckFilterText("# c\n||a.example.com^\n0.0.0.0 b.example.com\nc.example.com\n", false)
+	if err != nil || out != `{"names":3,"truncated":false}` {
+		t.Fatal(out, err)
+	}
+	if _, err := CheckFilterText("<html>not a list</html>\n", false); err == nil {
+		t.Fatal("html accepted")
+	}
+	if out, err := CheckFilterText("@@||ok.example.com^\n", true); err != nil || !strings.Contains(out, `"names":1`) {
+		t.Fatal(out, err)
+	}
+	if _, err := CheckFilterText("@@||ok.example.com^\n", false); err == nil {
+		t.Fatal("exception counted as a block entry")
+	}
+}

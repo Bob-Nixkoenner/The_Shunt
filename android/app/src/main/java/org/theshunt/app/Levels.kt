@@ -54,6 +54,10 @@ object Levels {
         "wifi.list" to PRO,
         // DNS servers asked after the tunnel's own
         "dns.servers" to PRO,
+        // DNS filter: own lists by URL, the last blocked names, names that are never blocked
+        "filter.custom" to PRO,
+        "filter.recent" to PRO,
+        "filter.allow" to PRO,
         // security check: Simple shows only what is really bad
         "checks.notes" to PRO,
         // opsec only: the band in the header, the emergency switch on the status tab

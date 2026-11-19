@@ -163,7 +163,7 @@ private fun App() {
                     1 -> TunnelsScreen(settings, update) { message = it }
                     2 -> AppsScreen(settings, update)
                     3 -> PortsScreen(settings, update) { message = it }
-                    4 -> FilterScreen(settings, update, status)
+                    4 -> FilterScreen(settings, update, status) { message = it }
                     5 -> SettingsScreen(settings, update)
                 }
             }
@@ -364,8 +364,6 @@ private fun StatusScreen(settings: Settings, status: JSONObject?, update: (Setti
         }
 
         UpdateSection(say)
-        AppearanceSection()
-        PrivacySection()
     }
     if (confirmPass) {
         AlertDialog(
@@ -921,7 +919,7 @@ private fun AppsScreen(settings: Settings, update: (Settings) -> Unit) {
 
 /** DNS filter lists: grouped like on the desktop; on/off, size, source, how many names. */
 @Composable
-private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?) {
+private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status: JSONObject?, say: (String) -> Unit) {
     val ctx = LocalContext.current
     val c = LocalShunt.current
     var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
@@ -970,6 +968,7 @@ private fun FilterScreen(settings: Settings, update: (Settings) -> Unit, status:
             }
         }
         Hint("Lists: HaGeZi (github.com/hagezi/dns-blocklists) and RPiList (github.com/RPiList/specials), refreshed once a day when the VPN starts. Of the HaGeZi all-round lists use one: they build on each other.")
+        FilterExtras(settings, update, status, say)
     }
     bigList?.let { e ->
         AlertDialog(
@@ -1208,6 +1207,8 @@ private fun SettingsScreen(settings: Settings, update: (Settings) -> Unit) {
         }
         if (settings.shows("wifi.list")) Section("Known Wi-Fi networks") { KnownWifiSection(settings, update) }
         DefenseSettingsSection(settings, update)
+        AppearanceSection()
+        PrivacySection()
     }
     if (opsecOn) OpsecOnDialog(settings, onDone = { s -> opsecOn = false; s?.let(update) })
     leaveTo?.let { to -> OpsecOffDialog(settings, to, onDone = { s -> leaveTo = null; s?.let(update) }) }

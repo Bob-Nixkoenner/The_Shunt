@@ -105,7 +105,7 @@ data class NetProfile(val link: String, val route: String, val wifi: String = ""
         /** Reads one profile as written by [toJson]; a "ssid" that is no Wi-Fi id is dropped. */
         fun fromJson(o: JSONObject) = NetProfile(o.getString("link"), o.optString("default", "block"),
             o.optJSONArray("ssid")?.optString(0).orEmpty().takeIf { Defense.isWifiId(it) }.orEmpty(),
-            o.optJSONArray("lists")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it in Blocklists.ALL } })
+            o.optJSONArray("lists")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { Blocklists.known(it) } })
     }
 }
 
@@ -143,6 +143,8 @@ data class Settings(
     /** Mullvad logins (secrets sealed in the file) and the server of each Mullvad tunnel, see Mullvad.kt; never given to the core. */
     val mullvadLogins: List<MullvadLogin> = emptyList(),
     val mullvadExits: List<MullvadExit> = emptyList(),
+    /** Names the DNS filter never blocks (Pro): one entry per line, as in a filter list ("||example.com^", "example.com", "@@||example.com^"). */
+    val allowText: String = "",
 ) {
     /** Whether a part of the app shows in the current level (Levels.TABLE). */
     fun shows(key: String) = Levels.shows(key, level)
@@ -230,6 +232,7 @@ data class Settings(
         put("opsec_undo", JSONObject(opsecUndo))
         put("defense", defense)
         put("net_classes", JSONObject(netClasses))
+        if (allowText.isNotEmpty()) put("allow_text", allowText) // the file's; the core gets the list file instead, see coreJson
     }
 
     /** The core's config: app rules by UID instead of package name. */
@@ -256,7 +259,7 @@ data class Settings(
                 .put("stats_path", java.io.File(ctx.filesDir, "stats.json").path)
                 .put("block_doh", true)
                 .put("owner_unknown", Levels.ownerUnknown(level))
-                .apply { engineExes(ctx) }
+                .apply { engineExes(ctx); allowJson(ctx) }
                 .toString()
         }
         return toJson()
@@ -270,8 +273,14 @@ data class Settings(
             .put("block_doh", true)
             // a connection whose owner Android cannot name: default route, dropped in Opsec
             .put("owner_unknown", Levels.ownerUnknown(level))
-            .apply { engineExes(ctx) }
+            .apply { engineExes(ctx); allowJson(ctx) }
             .toString()
+    }
+
+    /** The user's allowlist as a list file for the core (names it never blocks, for every app). */
+    private fun JSONObject.allowJson(ctx: Context) {
+        remove("allow_text")
+        if (Blocklists.writeAllow(ctx, allowText)) put("allow_lists", JSONArray().put(JSONObject().put("name", "allow").put("path", Blocklists.allowFile(ctx).path)))
     }
 
     /** GeoIP tables for the built-in Tor (assets tor/geoip*): into files/tor/, where the
@@ -322,7 +331,7 @@ data class Settings(
                 defaultRoute = o.optString("default", "block"),
                 apps = apps.keys().asSequence().associateWith { apps.getString(it) },
                 directDns = o.optString("direct_dns", "1.1.1.1"),
-                filterLists = strings("filter_lists")?.filter { it in Blocklists.ALL } ?: Blocklists.DEFAULT,
+                filterLists = strings("filter_lists")?.filter { Blocklists.known(it) } ?: Blocklists.DEFAULT,
                 unfiltered = strings("unfiltered_apps")?.toSet() ?: emptySet(),
                 onDemand = o.optBoolean("on_demand", true),
                 dnsServers = strings("dns_servers")?.filter { isDnsAddress(it) } ?: DEFAULT_DNS,
@@ -334,6 +343,7 @@ data class Settings(
                 netClasses = o.optJSONObject("net_classes")?.let { u -> u.keys().asSequence().associateWith { Defense.migrate(u.optString(it)) }.filterValues { it in Defense.CLASSES } } ?: emptyMap(),
                 opsecUndo = o.optJSONObject("opsec_undo")?.let { u -> u.keys().asSequence().associateWith { u.optBoolean(it) } } ?: emptyMap(),
                 hiddenWarnings = HiddenWarning.listFrom(o.optJSONArray("hidden_warnings")),
+                allowText = o.optString("allow_text"),
                 mullvadLogins = MullvadLogin.listFrom(o.optJSONArray("mullvad"), v),
                 mullvadExits = MullvadExit.listFrom(o.optJSONArray("mullvad_exits")),
                 networks = o.optJSONArray("networks")?.let { a ->
