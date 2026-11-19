@@ -199,6 +199,7 @@
   "Add a Tailscale or Headscale tunnel": "Tailscale- oder Headscale-Tunnel hinzufügen",
   "Add a Tor tunnel": "Tor-Tunnel hinzufügen",
   "Add a tunnel": "Tunnel hinzufügen",
+  "Desktop settings that Android does not allow (filter for incoming connections, clock check, TCP and ICMP timestamps, Wi-Fi login page check) are left out here.": "Einstellungen des Desktops, die Android nicht erlaubt (Filter für eingehende Verbindungen, Uhrprüfung, TCP- und ICMP-Zeitstempel, Prüfung der WLAN-Anmeldeseite), sind hier weggelassen.",
   "Add a filter list by its web address. Format: a text file with one entry per line. Understood: example.com (exactly this name), 0.0.0.0 example.com (hosts file) and ||example.com^ (this name and all its subdomains, as in AdGuard or uBlock lists). Lines that start with # or ! are comments; everything else (wildcards, paths, rules with options) is skipped. The address must start with https://.": "Füge eine Filterliste über ihre Webadresse hinzu. Format: eine Textdatei mit einem Eintrag pro Zeile. Verstanden werden: example.com (genau dieser Name), 0.0.0.0 example.com (Hosts-Datei) und ||example.com^ (dieser Name und alle Unterdomains, wie in AdGuard- oder uBlock-Listen). Zeilen, die mit # oder ! beginnen, sind Kommentare; alles andere (Platzhalter, Pfade, Regeln mit Optionen) wird übersprungen. Die Adresse muss mit https:// beginnen.",
   "Add list": "Liste hinzufügen",
   "At most {n} own lists": "Höchstens {n} eigene Listen",

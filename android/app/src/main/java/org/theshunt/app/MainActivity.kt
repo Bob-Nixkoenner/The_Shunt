@@ -1232,7 +1232,8 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(T("Each switch is one setting of this app. Nothing changes before you confirm; switching back to Pro or Simple offers to undo it. Some things only Android can do: they show their state and where to set them."), color = c.text, fontSize = 13.sp)
-                for (it in Opsec.ITEMS) {
+                // what Android cannot do at all (NA) is not listed: a switch that can never be on is only noise
+                for (it in Opsec.ITEMS.filter { it.kind != OpsecItem.Kind.NA }) {
                     val already = it.kind == OpsecItem.Kind.SET && it.isOn(settings)
                     // state of Android's own settings, when the app can see it
                     val sys: Boolean? = when (it.id) {
@@ -1271,6 +1272,7 @@ private fun OpsecOnDialog(settings: Settings, onDone: (Settings?) -> Unit) {
                         }
                     }
                 }
+                if (Opsec.ITEMS.any { it.kind == OpsecItem.Kind.NA }) Text(T("Desktop settings that Android does not allow (filter for incoming connections, clock check, TCP and ICMP timestamps, Wi-Fi login page check) are left out here."), color = c.muted, fontSize = 12.sp)
                 Text(T("Max Security is no guarantee."), color = c.text, fontWeight = FontWeight.Bold)
                 Text(T("These settings close common leaks of this phone; they do not make you anonymous. Your VPN provider still sees your traffic, and websites still recognise you by logins, cookies and your browser."), color = c.text, fontSize = 13.sp)
                 if (settings.defaultRoute.startsWith("direct") || settings.defaultRoute.startsWith("link:")) {
