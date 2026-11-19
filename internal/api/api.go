@@ -318,6 +318,21 @@ type MullvadConnect struct {
 	Via string `json:"via,omitempty"`
 }
 
+// MullvadChain is the body of POST /v1/mullvad/chain: build 2-4 Mullvad
+// tunnels one behind the other ("<name>1" is the entry, "<name>N" the exit;
+// use the last one in rules). The hops get different countries and, as far as
+// possible, different hosting providers. Accounts: names to use for the hops
+// in turn (empty = all logged-in accounts, spread as far as there are).
+type MullvadChain struct {
+	Name     string   `json:"name"`
+	Hops     int      `json:"hops"`
+	Entry    string   `json:"entry,omitempty"` // country code of the first hop
+	Exit     string   `json:"exit,omitempty"`  // country code of the last hop
+	Accounts []string `json:"accounts,omitempty"`
+	// Via: the entry hop itself runs through this tunnel ("tunnel:<name>").
+	Via string `json:"via,omitempty"`
+}
+
 // TunnelRename is the body of POST /v1/tunnels/{name}/rename.
 type TunnelRename struct {
 	To string `json:"to"`

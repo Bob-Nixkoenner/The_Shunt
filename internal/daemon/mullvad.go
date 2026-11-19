@@ -416,3 +416,79 @@ func (d *Daemon) MullvadLogout(name string) error {
 	delete(s.Accounts, name)
 	return d.mullvadSave(s)
 }
+
+// MullvadChain builds a chain of Mullvad tunnels: hop i+1 runs through hop i.
+// When a hop cannot be made, the ones made so far are removed again.
+func (d *Daemon) MullvadChain(req api.MullvadChain) error {
+	if !tunnelNameRe.MatchString(req.Name) || len(req.Name) > 8 {
+		return errors.New("chain name: 1-8 characters a-z 0-9 -, starting with a letter or digit (the hops are named NAME1, NAME2, ...)")
+	}
+	s, err := d.mullvadLoad()
+	if err != nil {
+		return err
+	}
+	if s == nil {
+		return errors.New("log in to Mullvad first")
+	}
+	accts := req.Accounts
+	if len(accts) == 0 {
+		for n := range s.Accounts {
+			accts = append(accts, n)
+		}
+		slices.Sort(accts)
+	}
+	for _, a := range accts {
+		if s.Accounts[a] == nil {
+			return fmt.Errorf("no Mullvad account %q", a)
+		}
+	}
+	l, err := d.mullvadList()
+	if err != nil {
+		return err
+	}
+	relays, err := l.PickChain(req.Hops, req.Entry, req.Exit)
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	for i := range relays {
+		if _, ok := d.cfg.Tunnels[fmt.Sprintf("%s%d", req.Name, i+1)]; ok {
+			d.mu.Unlock()
+			return fmt.Errorf("a tunnel %s%d exists already: choose another chain name", req.Name, i+1)
+		}
+	}
+	d.mu.Unlock()
+	var made []string
+	via := req.Via
+	for i, r := range relays {
+		name := fmt.Sprintf("%s%d", req.Name, i+1)
+		err := d.MullvadConnect(api.MullvadConnect{Tunnel: name, Account: accts[i%len(accts)], Hostname: r.Hostname, Via: via})
+		if err != nil {
+			d.Log.Warn("mullvad: chain failed, removing the hops made", "hop", name, "err", err)
+			d.mullvadUndo(made)
+			return fmt.Errorf("hop %d (%s): %w", i+1, name, err)
+		}
+		made = append(made, name)
+		via = "tunnel:" + name
+	}
+	d.Log.Info("mullvad: chain built", "name", req.Name, "hops", len(made))
+	return nil
+}
+
+// mullvadUndo removes tunnels made a moment ago, last hop first.
+func (d *Daemon) mullvadUndo(names []string) {
+	d.mv.mu.Lock()
+	defer d.mv.mu.Unlock()
+	s, _ := d.mullvadLoad()
+	for i := len(names) - 1; i >= 0; i-- {
+		if err := d.deleteTunnel(names[i]); err != nil {
+			d.Log.Error("mullvad: could not remove a hop", "tunnel", names[i], "err", err)
+		}
+		if s != nil {
+			delete(s.Exits, names[i])
+		}
+	}
+	if s != nil {
+		_ = d.mullvadSave(s)
+	}
+}

@@ -34,6 +34,7 @@ async function mvRefresh() {
     el("b", {}, a.name), el("span", { class: "muted" }, T("Account {account}, device {device}", { account: a.account, device: a.device })),
     el("span", { class: "spacer" }),
     el("button", { type: "button", onclick: () => mvLogout(a.name) }, T("Log out")))));
+  $("#mv-ch-warn").hidden = accts.length !== 1;
   mvFill("#mv-acct", accts.map((a) => [a.name, a.name]), $("#mv-acct").value);
   $("#mv-acct").hidden = accts.length < 2;
   if (!st.logged_in) return;
@@ -46,6 +47,9 @@ async function mvRefresh() {
       mvCountries = await api("GET", "/api/mullvad/relays");
       mvFill("#mv-country", [["", T("any country")], ...mvCountries.map((c) => [c.code, c.name + " (" + c.servers + ")"])], "");
       mvPickLists();
+      const cl = [["", T("any country")], ...mvCountries.map((c) => [c.code, c.name])];
+      mvFill("#mv-ch-entry", [["", T("entry: any country")], ...cl.slice(1)], "");
+      mvFill("#mv-ch-exit", [["", T("exit: any country")], ...cl.slice(1)], "");
     } catch (e) { toast(e.message); }
   }
 }
@@ -87,3 +91,18 @@ $("#mv-connect").addEventListener("click", async () => {
 });
 
 $("#addtab-mv").addEventListener("click", mvRefresh);
+
+$("#mv-ch-build").addEventListener("click", async () => {
+  const name = $("#mv-ch-name").value.trim();
+  if (!/^[a-z0-9][a-z0-9-]{0,7}$/.test(name)) return toast(T("Chain name: 1–8 characters a-z 0-9 -"));
+  const req = { name, hops: Number($("#mv-ch-hops").value), entry: $("#mv-ch-entry").value, exit: $("#mv-ch-exit").value, via: $("#mv-via").value || undefined };
+  const btn = $("#mv-ch-build");
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/mullvad/chain", req);
+    toast(T("Chain {name} is ready: use {last} in your rules", { name, last: name + req.hops }));
+    await mvRefresh();
+    reloadConfig();
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
+});

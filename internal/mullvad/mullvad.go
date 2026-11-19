@@ -347,6 +347,77 @@ func HopMTU(depth int) int {
 	return max(1420-80*depth, 1280)
 }
 
+func randn(n int) int {
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(v.Int64())
+}
+
+// PickChain chooses n relays for a chain: every hop in another country, and
+// as far as the list allows at another hosting provider, so no single
+// operator or country sees both ends. entry/exit are country codes ("" =
+// any); the first relay is the entry, the last the exit.
+func (l *RelayList) PickChain(n int, entry, exit string) ([]*Relay, error) {
+	if n < 2 || n > 4 {
+		return nil, errors.New("a chain has 2 to 4 hops")
+	}
+	byCC := map[string][]int{}
+	for i, r := range l.WireGuard.Relays {
+		if r.Active && r.IncludeInCountry {
+			byCC[countryCode(r.Location)] = append(byCC[countryCode(r.Location)], i)
+		}
+	}
+	if len(byCC) < n {
+		return nil, errors.New("not enough countries with active servers")
+	}
+	for _, cc := range []string{entry, exit} {
+		if cc != "" && len(byCC[cc]) == 0 {
+			return nil, fmt.Errorf("no active Mullvad server in %q", cc)
+		}
+	}
+	if entry != "" && entry == exit {
+		return nil, errors.New("entry and exit must be in different countries")
+	}
+	var pool []string
+	for cc := range byCC {
+		if cc != entry && cc != exit {
+			pool = append(pool, cc)
+		}
+	}
+	sort.Strings(pool)
+	ccs := make([]string, n)
+	ccs[0], ccs[n-1] = entry, exit
+	for i := range ccs {
+		if ccs[i] != "" {
+			continue
+		}
+		k := randn(len(pool))
+		ccs[i] = pool[k]
+		pool = append(pool[:k], pool[k+1:]...)
+	}
+	usedProv := map[string]bool{}
+	out := make([]*Relay, 0, n)
+	for _, cc := range ccs {
+		var fresh, any []int
+		for _, i := range byCC[cc] {
+			any = append(any, i)
+			if !usedProv[l.WireGuard.Relays[i].Provider] {
+				fresh = append(fresh, i)
+			}
+		}
+		src := any
+		if len(fresh) > 0 {
+			src = fresh
+		}
+		r := l.WireGuard.Relays[src[randn(len(src))]]
+		usedProv[r.Provider] = true
+		out = append(out, &r)
+	}
+	return out, nil
+}
+
 // Conf builds the wg-quick file for one relay (mtu 0 = default). Mullvad's resolver sits at
 // the tunnel gateway; the tunnel takes all traffic (Shunt decides who uses it).
 func Conf(priv string, dev *Device, r *Relay, gateway string, mtu int) (string, error) {

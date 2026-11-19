@@ -196,3 +196,82 @@ func TestMullvadOldStoreMigrates(t *testing.T) {
 		t.Fatalf("%+v %v", s, err)
 	}
 }
+
+const mvRelays4 = `{"locations":{"de-fra":{"country":"Germany","city":"Frankfurt"},"se-got":{"country":"Sweden","city":"Gothenburg"},"ch-zrh":{"country":"Switzerland","city":"Zurich"},"nl-ams":{"country":"Netherlands","city":"Amsterdam"}},
+"wireguard":{"ipv4_gateway":"10.64.0.1","relays":[
+{"hostname":"de-fra-wg-001","location":"de-fra","active":true,"provider":"A","ipv4_addr_in":"198.51.100.1","public_key":"ofyfRvMPB0PPIGGItNL+5tNdvTKXuWye5CfjPgPNvQ8=","weight":100,"include_in_country":true},
+{"hostname":"se-got-wg-001","location":"se-got","active":true,"provider":"B","ipv4_addr_in":"198.51.100.3","public_key":"ofyfRvMPB0PPIGGItNL+5tNdvTKXuWye5CfjPgPNvQ8=","weight":50,"include_in_country":true},
+{"hostname":"ch-zrh-wg-001","location":"ch-zrh","active":true,"provider":"C","ipv4_addr_in":"198.51.100.4","public_key":"ofyfRvMPB0PPIGGItNL+5tNdvTKXuWye5CfjPgPNvQ8=","weight":50,"include_in_country":true},
+{"hostname":"nl-ams-wg-001","location":"nl-ams","active":true,"provider":"A","ipv4_addr_in":"198.51.100.5","public_key":"ofyfRvMPB0PPIGGItNL+5tNdvTKXuWye5CfjPgPNvQ8=","weight":50,"include_in_country":true}]}}`
+
+// The chain builder: hops in different countries, two accounts in turn, each
+// hop through the one before; a name clash stops it before anything is made.
+func TestMullvadChainBuilder(t *testing.T) {
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/auth/v1/token":
+			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
+		case r.Method == "POST" && r.URL.Path == "/accounts/v1/devices":
+			n++
+			_, _ = fmt.Fprintf(w, `{"id":"dev-%d","name":"fox %d","ipv4_address":"10.70.1.%d/32","ipv6_address":"fc00::%d/128"}`, n, n, n+1, n+1)
+		case r.Method == "DELETE":
+			w.WriteHeader(204)
+		case r.URL.Path == "/public/relays/wireguard/v2":
+			_, _ = w.Write([]byte(mvRelays4))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\ndefault_route = \"direct\"\n[dns]\ndisabled = true\n")
+	d.mv.client.Base = srv.URL
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadChain(api.MullvadChain{Name: "ch", Hops: 3}); err == nil {
+		t.Fatal("chain without login accepted")
+	}
+	_ = d.MullvadLogin("a", "1111222233334444")
+	_ = d.MullvadLogin("b", "5555666677778888")
+	if err := d.MullvadChain(api.MullvadChain{Name: "Bad Name", Hops: 3}); err == nil {
+		t.Fatal("bad name accepted")
+	}
+	if err := d.MullvadChain(api.MullvadChain{Name: "ch", Hops: 3, Entry: "de", Exit: "nl"}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := d.MullvadStatus()
+	if len(st.Exits) != 3 {
+		t.Fatalf("%+v", st.Exits)
+	}
+	by := map[string]api.MullvadExit{}
+	for _, e := range st.Exits {
+		by[e.Tunnel] = e
+	}
+	if by["ch1"].Country != "Germany" || by["ch3"].Country != "Netherlands" || by["ch2"].Country == "" {
+		t.Fatalf("countries: %+v", by)
+	}
+	if by["ch1"].Account != "a" || by["ch2"].Account != "b" || by["ch3"].Account != "a" {
+		t.Fatalf("accounts in turn: %+v", by)
+	}
+	d.mu.Lock()
+	v2, v3, v1 := d.cfg.Tunnels["ch2"].Via, d.cfg.Tunnels["ch3"].Via, d.cfg.Tunnels["ch1"].Via
+	d.mu.Unlock()
+	if v1 != "" || v2 != "tunnel:ch1" || v3 != "tunnel:ch2" {
+		t.Fatalf("chain via: %q %q %q", v1, v2, v3)
+	}
+	// same name again: stopped before anything changes
+	if err := d.MullvadChain(api.MullvadChain{Name: "ch", Hops: 2}); err == nil {
+		t.Fatal("name clash accepted")
+	}
+	if st, _ = d.MullvadStatus(); len(st.Exits) != 3 {
+		t.Fatalf("clash changed the chain: %+v", st.Exits)
+	}
+	// 4 countries: a 4-hop chain with entry through the old exit
+	if err := d.MullvadChain(api.MullvadChain{Name: "lo", Hops: 4, Via: "tunnel:ch3"}); err != nil {
+		t.Fatal(err)
+	}
+	if d.hopDepth("tunnel:lo4") != 7 {
+		t.Fatalf("depth %d", d.hopDepth("tunnel:lo4"))
+	}
+}

@@ -445,6 +445,16 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
         </div>
         <div class="row" style="margin-top:10px"><span class="muted">connects</span><select id="mv-via"></select></div>
         <div class="muted" style="margin-top:8px">Pick a country, a city or one server. For a tunnel that exists already the exit is switched in place: its rules and routes stay. Several Mullvad tunnels (several names) can use different exits at the same time. For more hops add a tunnel that connects through the one before; for real spread use different accounts and countries.</div>
+        <div class="row" style="margin-top:14px"><b>Chain builder</b><span class="muted">(several Mullvad hops one behind the other)</span></div>
+        <div class="row" style="margin-top:10px">
+          <input id="mv-ch-name" value="chain" style="width:140px" maxlength="8" title="chain name">
+          <select id="mv-ch-hops"><option value="2">2 hops</option><option value="3" selected>3 hops</option><option value="4">4 hops</option></select>
+          <select id="mv-ch-entry"></select>
+          <select id="mv-ch-exit"></select>
+          <button id="mv-ch-build" class="primary">Build chain</button>
+        </div>
+        <div class="muted" style="margin-top:8px">Every hop gets another country and, where possible, another hosting provider. The tunnels are named NAME1 (entry) … NAMEn (exit): use the last one in your rules. Each hop costs speed (about 100 ms and a share of the bandwidth).</div>
+        <div id="mv-ch-warn" class="muted" style="margin-top:8px" hidden>Only one account is logged in, so every hop uses the same Mullvad key and Mullvad can link the hops. Log in a second account (name it above) to give each hop its own.</div>
         <table><tbody id="mv-exits"></tbody></table>
       </div>
     </div>

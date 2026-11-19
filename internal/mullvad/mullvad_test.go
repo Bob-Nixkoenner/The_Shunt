@@ -3,6 +3,7 @@ package mullvad
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -141,5 +142,53 @@ func TestAPI(t *testing.T) {
 	}
 	if l, err := c.Relays(ctx); err != nil || len(l.WireGuard.Relays) != 3 {
 		t.Fatal(l, err)
+	}
+}
+
+func TestPickChain(t *testing.T) {
+	var l RelayList
+	l.Locations = map[string]Location{}
+	for i, cc := range []string{"de", "se", "ch", "nl", "us"} {
+		loc := cc + "-xx"
+		l.Locations[loc] = Location{Country: cc, City: "x"}
+		for j := 0; j < 3; j++ {
+			prov := []string{"A", "B", "C"}[(i+j)%3]
+			l.WireGuard.Relays = append(l.WireGuard.Relays, Relay{Hostname: fmt.Sprintf("%s-wg-%03d", cc, j), Location: loc,
+				Active: true, IncludeInCountry: true, Provider: prov, IPv4: "198.51.100.1", PubKey: "k"})
+		}
+	}
+	l.WireGuard.Relays[0].Active = false
+	for n := 0; n < 200; n++ {
+		c, err := l.PickChain(3, "de", "us")
+		if err != nil || len(c) != 3 {
+			t.Fatal(c, err)
+		}
+		cc := map[string]bool{}
+		prov := map[string]bool{}
+		for _, r := range c {
+			cc[countryCode(r.Location)] = true
+			prov[r.Provider] = true
+			if !r.Active {
+				t.Fatal("inactive relay")
+			}
+		}
+		if len(cc) != 3 || countryCode(c[0].Location) != "de" || countryCode(c[2].Location) != "us" {
+			t.Fatalf("countries wrong: %v", cc)
+		}
+		if len(prov) != 3 {
+			t.Fatalf("providers not spread: %v", prov)
+		}
+	}
+	if _, err := l.PickChain(6, "", ""); err == nil {
+		t.Fatal("6 hops accepted")
+	}
+	if _, err := l.PickChain(3, "de", "de"); err == nil {
+		t.Fatal("same entry and exit accepted")
+	}
+	if _, err := l.PickChain(3, "xx", ""); err == nil {
+		t.Fatal("unknown country accepted")
+	}
+	if _, err := l.PickChain(4, "", ""); err != nil {
+		t.Fatal(err)
 	}
 }
