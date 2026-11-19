@@ -16,18 +16,34 @@ import (
 	"github.com/Bob-Nixkoenner/the_shunt/internal/mullvad"
 )
 
-// mullvadStore is what Shunt keeps about the Mullvad login: root-only file
-// next to the config. The account number is the secret that gives access to
-// the whole Mullvad account, so it is never logged or sent to the UI.
-type mullvadStore struct {
-	Account    string                     `json:"account"`
-	DeviceID   string                     `json:"device_id"`
-	DeviceName string                     `json:"device_name"`
-	PrivateKey string                     `json:"private_key"`
-	IPv4       string                     `json:"ipv4"`
-	IPv6       string                     `json:"ipv6"`
-	Exits      map[string]api.MullvadExit `json:"exits,omitempty"` // tunnel -> server
+// mullvadAcct is one Mullvad login: root-only file next to the config. The
+// account number gives access to the whole Mullvad account, so it is never
+// logged or sent to the UI.
+type mullvadAcct struct {
+	Account    string `json:"account"`
+	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	PrivateKey string `json:"private_key"`
+	IPv4       string `json:"ipv4"`
+	IPv6       string `json:"ipv6"`
 }
+
+// mullvadStore: the logins by name and the server of each Mullvad tunnel.
+type mullvadStore struct {
+	Accounts map[string]*mullvadAcct    `json:"accounts,omitempty"`
+	Exits    map[string]api.MullvadExit `json:"exits,omitempty"` // tunnel -> server
+
+	// the first version kept one login at the top level: read, then saved
+	// in the new form
+	Account    string `json:"account,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
+	PrivateKey string `json:"private_key,omitempty"`
+	IPv4       string `json:"ipv4,omitempty"`
+	IPv6       string `json:"ipv6,omitempty"`
+}
+
+const mullvadDefaultAccount = "main"
 
 type mullvadState struct {
 	mu     sync.Mutex // serializes login/connect/logout
@@ -52,10 +68,29 @@ func (d *Daemon) mullvadLoad() (*mullvadStore, error) {
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, fmt.Errorf("mullvad.json: %w", err)
 	}
+	if s.Account != "" && s.Accounts == nil {
+		s.Accounts = map[string]*mullvadAcct{mullvadDefaultAccount: {Account: s.Account, DeviceID: s.DeviceID,
+			DeviceName: s.DeviceName, PrivateKey: s.PrivateKey, IPv4: s.IPv4, IPv6: s.IPv6}}
+		for n, e := range s.Exits {
+			e.Account = mullvadDefaultAccount
+			s.Exits[n] = e
+		}
+	}
+	s.Account, s.DeviceID, s.DeviceName, s.PrivateKey, s.IPv4, s.IPv6 = "", "", "", "", "", ""
+	if len(s.Accounts) == 0 {
+		return nil, nil
+	}
 	return &s, nil
 }
 
 func (d *Daemon) mullvadSave(s *mullvadStore) error {
+	if len(s.Accounts) == 0 {
+		err := os.Remove(d.mullvadPath())
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -67,7 +102,14 @@ func mullvadCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 30*time.Second)
 }
 
-// MullvadStatus reports the login and the servers of the Mullvad tunnels.
+func maskAccount(a string) string {
+	if n := len(a); n >= 4 {
+		return "••••" + a[n-4:]
+	}
+	return ""
+}
+
+// MullvadStatus reports the logins and the servers of the Mullvad tunnels.
 func (d *Daemon) MullvadStatus() (api.MullvadStatus, error) {
 	s, err := d.mullvadLoad()
 	if err != nil || s == nil {
@@ -75,10 +117,11 @@ func (d *Daemon) MullvadStatus() (api.MullvadStatus, error) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	st := api.MullvadStatus{LoggedIn: true, Device: s.DeviceName}
-	if n := len(s.Account); n >= 4 {
-		st.Account = "••••" + s.Account[n-4:]
+	st := api.MullvadStatus{LoggedIn: true}
+	for name, a := range s.Accounts {
+		st.Accounts = append(st.Accounts, api.MullvadAccount{Name: name, Account: maskAccount(a.Account), Device: a.DeviceName})
 	}
+	slices.SortFunc(st.Accounts, func(a, b api.MullvadAccount) int { return strings.Compare(a.Name, b.Name) })
 	for name, e := range s.Exits {
 		if _, ok := d.cfg.Tunnels[name]; ok { // tunnel removed by hand: forget it
 			e.Tunnel = name
@@ -89,18 +132,35 @@ func (d *Daemon) MullvadStatus() (api.MullvadStatus, error) {
 	return st, nil
 }
 
-// MullvadLogin registers a new WireGuard key of this computer as a device.
-func (d *Daemon) MullvadLogin(account string) error {
+// MullvadLogin registers a new WireGuard key of this computer as a device of
+// the account. Several accounts can be logged in, each under its own name.
+func (d *Daemon) MullvadLogin(name, account string) error {
 	d.mv.mu.Lock()
 	defer d.mv.mu.Unlock()
+	if name == "" {
+		name = mullvadDefaultAccount
+	}
+	if !tunnelNameRe.MatchString(name) {
+		return errors.New("account name: 1-10 characters a-z 0-9 -, starting with a letter or digit")
+	}
 	account, err := mullvad.NormalizeAccount(account)
 	if err != nil {
 		return err
 	}
-	if s, err := d.mullvadLoad(); err != nil {
+	s, err := d.mullvadLoad()
+	if err != nil {
 		return err
-	} else if s != nil {
-		return errors.New("already logged in to Mullvad; log out first")
+	}
+	if s == nil {
+		s = &mullvadStore{}
+	}
+	if s.Accounts[name] != nil {
+		return fmt.Errorf("an account %q is logged in already; log it out first or choose another name", name)
+	}
+	for n, a := range s.Accounts {
+		if a.Account == account {
+			return fmt.Errorf("this account is logged in already (as %q)", n)
+		}
 	}
 	ctx, cancel := mullvadCtx()
 	defer cancel()
@@ -116,13 +176,16 @@ func (d *Daemon) MullvadLogin(account string) error {
 	if err != nil {
 		return err
 	}
-	s := &mullvadStore{Account: account, DeviceID: dev.ID, DeviceName: dev.Name, PrivateKey: priv, IPv4: dev.IPv4, IPv6: dev.IPv6}
+	if s.Accounts == nil {
+		s.Accounts = map[string]*mullvadAcct{}
+	}
+	s.Accounts[name] = &mullvadAcct{Account: account, DeviceID: dev.ID, DeviceName: dev.Name, PrivateKey: priv, IPv4: dev.IPv4, IPv6: dev.IPv6}
 	if err := d.mullvadSave(s); err != nil {
 		// do not leave an unusable device in the account
 		_ = d.mv.client.DeleteDevice(ctx, tok, dev.ID)
 		return err
 	}
-	d.Log.Info("mullvad: device registered", "device", dev.Name)
+	d.Log.Info("mullvad: device registered", "login", name, "device", dev.Name)
 	return nil
 }
 
@@ -157,6 +220,27 @@ func (d *Daemon) mullvadList() (*mullvad.RelayList, error) {
 	return l, nil
 }
 
+// hopDepth: how many tunnels the packets of a tunnel travel through before
+// they leave (a via chain).
+func (d *Daemon) hopDepth(via string) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	depth := 0
+	for via != "" && depth < 16 {
+		name, ok := strings.CutPrefix(via, "tunnel:")
+		if !ok {
+			break
+		}
+		t, ok := d.cfg.Tunnels[name]
+		if !ok {
+			break
+		}
+		depth++
+		via = t.Via
+	}
+	return depth
+}
+
 // MullvadConnect creates the tunnel on a server, or moves an existing Mullvad
 // tunnel to another one (the exit switch; its rules and routes stay).
 func (d *Daemon) MullvadConnect(req api.MullvadConnect) error {
@@ -176,21 +260,49 @@ func (d *Daemon) MullvadConnect(req api.MullvadConnect) error {
 	}
 	d.mv.mu.Lock()
 	defer d.mv.mu.Unlock()
+	d.mu.Lock()
+	cur, exists := d.cfg.Tunnels[req.Tunnel]
+	d.mu.Unlock()
+	prev, mine := s.Exits[req.Tunnel]
+	mine = mine && exists
+	acct := req.Account
+	if acct == "" && mine {
+		acct = prev.Account // switching the exit keeps the login
+	}
+	if acct == "" {
+		if len(s.Accounts) == 1 {
+			for n := range s.Accounts {
+				acct = n
+			}
+		} else if s.Accounts[mullvadDefaultAccount] != nil {
+			acct = mullvadDefaultAccount
+		} else {
+			return errors.New("several Mullvad accounts are logged in: say which one the tunnel uses")
+		}
+	}
+	a := s.Accounts[acct]
+	if a == nil {
+		return fmt.Errorf("no Mullvad account %q", acct)
+	}
+	if mine && req.Account != "" && req.Account != prev.Account {
+		return fmt.Errorf("tunnel %q uses account %q; to change that, remove the tunnel and add it again", req.Tunnel, prev.Account)
+	}
 	r, err := l.Pick(mullvad.Choice{Country: req.Country, City: req.City, Hostname: req.Hostname})
 	if err != nil {
 		return err
 	}
-	conf, err := mullvad.Conf(s.PrivateKey, &mullvad.Device{IPv4: s.IPv4, IPv6: s.IPv6}, r, l.WireGuard.Gateway)
+	via := req.Via
+	if mine {
+		via = cur.Via
+	}
+	conf, err := mullvad.Conf(a.PrivateKey, &mullvad.Device{IPv4: a.IPv4, IPv6: a.IPv6}, r, l.WireGuard.Gateway, mullvad.HopMTU(d.hopDepth(via)))
 	if err != nil {
 		return err
 	}
 	loc := l.Locations[r.Location]
-	exit := api.MullvadExit{Tunnel: req.Tunnel, Hostname: r.Hostname, Country: loc.Country, City: loc.City}
+	exit := api.MullvadExit{Tunnel: req.Tunnel, Account: acct, Hostname: r.Hostname, Country: loc.Country, City: loc.City, Provider: r.Provider}
 
-	d.mu.Lock()
-	_, exists := d.cfg.Tunnels[req.Tunnel]
-	d.mu.Unlock()
-	if _, mine := s.Exits[req.Tunnel]; mine && exists {
+	if mine {
 		if err := d.mullvadMove(req.Tunnel, conf); err != nil {
 			return err
 		}
@@ -203,7 +315,7 @@ func (d *Daemon) MullvadConnect(req api.MullvadConnect) error {
 		s.Exits = map[string]api.MullvadExit{}
 	}
 	s.Exits[req.Tunnel] = exit
-	d.Log.Info("mullvad: tunnel on server", "tunnel", req.Tunnel, "server", r.Hostname)
+	d.Log.Info("mullvad: tunnel on server", "tunnel", req.Tunnel, "login", acct, "server", r.Hostname)
 	return d.mullvadSave(s)
 }
 
@@ -243,37 +355,64 @@ func (d *Daemon) mullvadMove(name, conf string) error {
 	return nil
 }
 
-// MullvadLogout removes the device at Mullvad, the Mullvad tunnels that no
-// rule uses and the stored key. Tunnels that rules still use stay (dead,
-// their key is revoked) and are named in the error.
-func (d *Daemon) MullvadLogout() error {
+// MullvadLogout removes one login: its Mullvad tunnels (that no rule uses)
+// and its device at Mullvad. Tunnels that rules or other tunnels still use
+// keep the login in place; they are named in the error.
+func (d *Daemon) MullvadLogout(name string) error {
 	d.mv.mu.Lock()
 	defer d.mv.mu.Unlock()
+	if name == "" {
+		name = mullvadDefaultAccount
+	}
 	s, err := d.mullvadLoad()
 	if err != nil {
 		return err
 	}
-	if s == nil {
+	if s == nil || s.Accounts[name] == nil {
 		return nil
 	}
-	var stuck []string
-	for name := range s.Exits {
-		err := d.deleteTunnel(name)
-		if err != nil && !strings.Contains(err.Error(), "no tunnel") {
-			stuck = append(stuck, fmt.Sprintf("%s (%v)", name, err))
+	a := s.Accounts[name]
+	// the tunnels of this login: a chain has to come down from the outside in
+	var mine []string
+	for tn, e := range s.Exits {
+		if e.Account == name {
+			mine = append(mine, tn)
 		}
 	}
-	if len(stuck) > 0 {
+	var stuck []string
+	for range mine { // a few passes: deleting one frees the one it runs through
+		stuck = stuck[:0]
+		var left []string
+		for _, tn := range mine {
+			if err := d.deleteTunnel(tn); err != nil {
+				if strings.Contains(err.Error(), "no tunnel") {
+					delete(s.Exits, tn)
+					continue
+				}
+				left = append(left, tn)
+				stuck = append(stuck, fmt.Sprintf("%s (%v)", tn, err))
+				continue
+			}
+			delete(s.Exits, tn)
+		}
+		mine = left
+		if len(mine) == 0 {
+			break
+		}
+	}
+	if len(mine) > 0 {
+		_ = d.mullvadSave(s)
 		return errors.New("not logged out; these tunnels are still in use: " + strings.Join(stuck, "; "))
 	}
 	ctx, cancel := mullvadCtx()
 	defer cancel()
-	if tok, err := d.mv.client.Token(ctx, s.Account); err == nil {
-		if err := d.mv.client.DeleteDevice(ctx, tok, s.DeviceID); err != nil {
-			d.Log.Warn("mullvad: device not removed at Mullvad", "err", err)
+	if tok, err := d.mv.client.Token(ctx, a.Account); err == nil {
+		if err := d.mv.client.DeleteDevice(ctx, tok, a.DeviceID); err != nil {
+			d.Log.Warn("mullvad: device not removed at Mullvad", "login", name, "err", err)
 		}
 	} else {
-		d.Log.Warn("mullvad: could not log in to remove the device", "err", err)
+		d.Log.Warn("mullvad: could not log in to remove the device", "login", name, "err", err)
 	}
-	return os.Remove(d.mullvadPath())
+	delete(s.Accounts, name)
+	return d.mullvadSave(s)
 }

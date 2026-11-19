@@ -425,24 +425,26 @@ body.lv-opsec #torall { border-color: var(--bad); color: var(--bad); font-weight
     </div>
     <div class="editor" id="add-mv" hidden>
       <div class="row"><b>Mullvad</b><span class="muted">(your account number stays on this computer, mode 600; the tunnel is a normal WireGuard tunnel)</span></div>
+      <div id="mv-accounts"></div>
       <div id="mv-login">
         <div class="row" style="margin-top:10px">
+          <input id="mv-acct-name" placeholder="name (optional)" style="width:140px" maxlength="10" autocomplete="off">
           <input id="mv-account" type="password" placeholder="Mullvad account number (16 digits)" autocomplete="off" style="width:300px" maxlength="24">
           <button id="mv-login-btn" class="primary">Log in</button>
         </div>
-        <div class="muted" style="margin-top:8px">Shunt registers its own key as a device of your account (Mullvad allows 5). Logging out removes it again.</div>
+        <div class="muted" style="margin-top:8px">Shunt registers its own key as a device of your account (Mullvad allows 5). Logging out removes it again. You can log in several accounts (one name each) and use a different one for every hop.</div>
       </div>
       <div id="mv-main" hidden>
-        <div class="row" style="margin-top:10px"><span id="mv-who" class="muted"></span><span class="spacer"></span><button id="mv-logout" type="button">Log out</button></div>
         <div class="row" style="margin-top:10px">
           <input id="mv-name" value="mullvad" style="width:140px" maxlength="10" title="tunnel name">
+          <select id="mv-acct" title="account"></select>
           <select id="mv-country"></select>
           <select id="mv-city"></select>
           <select id="mv-server"></select>
           <button id="mv-connect" class="primary">Use this exit</button>
         </div>
         <div class="row" style="margin-top:10px"><span class="muted">connects</span><select id="mv-via"></select></div>
-        <div class="muted" style="margin-top:8px">Pick a country, a city or one server. For a tunnel that exists already the exit is switched in place: its rules and routes stay. Several Mullvad tunnels (several names) can use different exits at the same time.</div>
+        <div class="muted" style="margin-top:8px">Pick a country, a city or one server. For a tunnel that exists already the exit is switched in place: its rules and routes stay. Several Mullvad tunnels (several names) can use different exits at the same time. For more hops add a tunnel that connects through the one before; for real spread use different accounts and countries.</div>
         <table><tbody id="mv-exits"></tbody></table>
       </div>
     </div>

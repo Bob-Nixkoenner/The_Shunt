@@ -595,7 +595,11 @@ func (s *Server) handler() http.Handler {
 		})
 	}
 	mux.HandleFunc("POST /api/mullvad/logout", func(w http.ResponseWriter, r *http.Request) {
-		if err := s.Client.Do("POST", "/v1/mullvad/logout", nil, nil); err != nil {
+		var body json.RawMessage
+		if !decode(w, r, &body) {
+			return
+		}
+		if err := s.Client.Do("POST", "/v1/mullvad/logout", body, nil); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}

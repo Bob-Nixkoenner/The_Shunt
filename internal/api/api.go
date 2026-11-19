@@ -266,33 +266,50 @@ type TunnelState struct {
 	Seconds int    `json:"seconds,omitempty"`
 }
 
-// MullvadStatus is GET /v1/mullvad: no secrets (the account number is cut
+// MullvadStatus is GET /v1/mullvad: no secrets (an account number is cut
 // down to its last four digits).
 type MullvadStatus struct {
-	LoggedIn bool          `json:"logged_in"`
-	Account  string        `json:"account,omitempty"` // "••••3456"
-	Device   string        `json:"device,omitempty"`
-	Exits    []MullvadExit `json:"exits,omitempty"`
+	LoggedIn bool             `json:"logged_in"` // at least one account
+	Accounts []MullvadAccount `json:"accounts,omitempty"`
+	Exits    []MullvadExit    `json:"exits,omitempty"`
+}
+
+// MullvadAccount is one logged-in Mullvad account (a device of it).
+type MullvadAccount struct {
+	Name    string `json:"name"`
+	Account string `json:"account"` // "••••3456"
+	Device  string `json:"device"`
 }
 
 // MullvadExit is the server a Mullvad tunnel uses.
 type MullvadExit struct {
 	Tunnel   string `json:"tunnel"`
+	Account  string `json:"account"`
 	Hostname string `json:"hostname"`
 	Country  string `json:"country"`
 	City     string `json:"city"`
+	Provider string `json:"provider,omitempty"`
 }
 
-// MullvadLogin is the body of POST /v1/mullvad/login.
+// MullvadLogin is the body of POST /v1/mullvad/login. Name labels the
+// account ("" = "main"); several accounts can be logged in at once.
 type MullvadLogin struct {
+	Name    string `json:"name,omitempty"`
 	Account string `json:"account"`
+}
+
+// MullvadLogout is the body of POST /v1/mullvad/logout.
+type MullvadLogout struct {
+	Name string `json:"name,omitempty"`
 }
 
 // MullvadConnect is the body of POST /v1/mullvad/connect: make the tunnel
 // (or move an existing Mullvad tunnel) to a server. Country ("de"), City
 // ("de-fra") or Hostname ("de-fra-wg-001"); all empty = any server.
 type MullvadConnect struct {
-	Tunnel   string `json:"tunnel"`
+	Tunnel string `json:"tunnel"`
+	// Account names the login the tunnel uses ("" = the only one, or "main").
+	Account  string `json:"account,omitempty"`
 	Country  string `json:"country,omitempty"`
 	City     string `json:"city,omitempty"`
 	Hostname string `json:"hostname,omitempty"`

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -43,20 +44,20 @@ func TestMullvadFlow(t *testing.T) {
 	if err := d.MullvadConnect(api.MullvadConnect{Country: "de"}); err == nil {
 		t.Fatal("connect without login accepted")
 	}
-	if err := d.MullvadLogin("12345"); err == nil {
+	if err := d.MullvadLogin("", "12345"); err == nil {
 		t.Fatal("short account accepted")
 	}
-	if err := d.MullvadLogin("1234 5678 9012 3456"); err != nil {
+	if err := d.MullvadLogin("", "1234 5678 9012 3456"); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.MullvadLogin("1234567890123456"); err == nil {
+	if err := d.MullvadLogin("", "1234567890123456"); err == nil {
 		t.Fatal("second login accepted")
 	}
 	if fi, err := os.Stat(d.mullvadPath()); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatal("store must be mode 600", err)
 	}
 	st, _ := d.MullvadStatus()
-	if !st.LoggedIn || st.Account != "••••3456" || st.Device != "happy fox" {
+	if !st.LoggedIn || len(st.Accounts) != 1 || st.Accounts[0].Account != "••••3456" || st.Accounts[0].Device != "happy fox" {
 		t.Fatalf("%+v", st)
 	}
 	if b, _ := os.ReadFile(d.mullvadPath()); !strings.Contains(string(b), "private_key") {
@@ -89,7 +90,7 @@ func TestMullvadFlow(t *testing.T) {
 	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "nope", Country: "xx"}); err == nil {
 		t.Fatal("unknown country accepted")
 	}
-	if err := d.MullvadLogout(); err != nil {
+	if err := d.MullvadLogout(""); err != nil {
 		t.Fatal(err)
 	}
 	if !deleted {
@@ -100,5 +101,98 @@ func TestMullvadFlow(t *testing.T) {
 	}
 	if st, _ = d.MullvadStatus(); st.LoggedIn || len(d.cfg.Tunnels) != 0 {
 		t.Fatalf("%+v %v", st, d.cfg.Tunnels)
+	}
+}
+
+// Two accounts, a chain through both, MTU per hop, partial logout, old file format.
+func TestMullvadAccountsChain(t *testing.T) {
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/auth/v1/token":
+			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
+		case r.Method == "POST" && r.URL.Path == "/accounts/v1/devices":
+			n++
+			_, _ = fmt.Fprintf(w, `{"id":"dev-%d","name":"fox %d","ipv4_address":"10.70.1.%d/32","ipv6_address":"fc00::%d/128"}`, n, n, n+1, n+1)
+		case r.Method == "DELETE":
+			w.WriteHeader(204)
+		case r.URL.Path == "/public/relays/wireguard/v2":
+			_, _ = w.Write([]byte(mvRelays))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\ndefault_route = \"direct\"\n[dns]\ndisabled = true\n")
+	d.mv.client.Base = srv.URL
+	if err := d.reload("shunt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadLogin("a", "1111222233334444"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadLogin("b", "5555666677778888"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadLogin("c", "1111 2222 3333 4444"); err == nil {
+		t.Fatal("same account twice accepted")
+	}
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop1", Country: "de"}); err == nil {
+		t.Fatal("two accounts, none named: must ask")
+	}
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop1", Account: "a", Country: "de"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop2", Account: "b", Country: "se", Via: "tunnel:hop1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop3", Account: "a", Country: "de", Via: "tunnel:hop2"}); err != nil {
+		t.Fatal(err)
+	}
+	conf := func(n string) string { b, _ := os.ReadFile(d.tunnelDir() + "/" + n + ".conf"); return string(b) }
+	if strings.Contains(conf("hop1"), "MTU") || !strings.Contains(conf("hop2"), "MTU = 1340") || !strings.Contains(conf("hop3"), "MTU = 1280") {
+		t.Fatalf("MTU per hop wrong:\n%s\n%s\n%s", conf("hop1"), conf("hop2"), conf("hop3"))
+	}
+	if !strings.Contains(conf("hop2"), "10.70.1.3/32") { // account b's own address
+		t.Fatal("hop2 does not use account b")
+	}
+	// switching the exit keeps account, via and MTU
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop2", City: "de-fra"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(conf("hop2"), "MTU = 1340") || !strings.Contains(conf("hop2"), "10.70.1.3/32") || !strings.Contains(conf("hop2"), "198.51.100.1:51820") {
+		t.Fatalf("switch lost settings:\n%s", conf("hop2"))
+	}
+	if err := d.MullvadConnect(api.MullvadConnect{Tunnel: "hop2", Account: "a", City: "de-fra"}); err == nil {
+		t.Fatal("account change on a live tunnel accepted")
+	}
+	// the chain hop1 (a) <- hop2 (b) <- hop3 (a): outermost first
+	if err := d.MullvadLogout("b"); err == nil {
+		t.Fatal("hop2 is used by hop3: logout of b must stop")
+	}
+	if err := d.MullvadLogout("a"); err == nil || !strings.Contains(err.Error(), "hop1") {
+		t.Fatalf("a must stop at hop1 (hop2 runs through it): %v", err) // hop3 is gone by now
+	}
+	if err := d.MullvadLogout("b"); err != nil { // hop2 is free now
+		t.Fatal(err)
+	}
+	if err := d.MullvadLogout("a"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := d.MullvadStatus(); st.LoggedIn || len(d.cfg.Tunnels) != 0 {
+		t.Fatalf("%+v %v", st, d.cfg.Tunnels)
+	}
+}
+
+// The first version stored one login at the top level of mullvad.json.
+func TestMullvadOldStoreMigrates(t *testing.T) {
+	d, _ := testDaemon(t, "[daemon]\nsocket = \"/nonexistent/s.sock\"\ndefault_route = \"direct\"\n[dns]\ndisabled = true\n")
+	old := `{"account":"1234567890123456","device_id":"dev-1","device_name":"happy fox","private_key":"k","ipv4":"10.70.1.2/32","ipv6":"fc00::2/128","exits":{"mullvad":{"tunnel":"mullvad","hostname":"de-fra-wg-001","country":"Germany","city":"Frankfurt"}}}`
+	if err := os.WriteFile(d.mullvadPath(), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := d.mullvadLoad()
+	if err != nil || s == nil || s.Accounts["main"] == nil || s.Accounts["main"].DeviceID != "dev-1" || s.Exits["mullvad"].Account != "main" || s.Account != "" {
+		t.Fatalf("%+v %v", s, err)
 	}
 }

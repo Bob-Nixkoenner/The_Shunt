@@ -70,7 +70,7 @@ func TestKeyAndConfParse(t *testing.T) {
 	}
 	l := list(t)
 	r, _ := l.Pick(Choice{Hostname: "de-fra-wg-001"})
-	conf, err := Conf(priv, &Device{IPv4: "10.70.1.2/32", IPv6: "fc00:bbbb:bbbb:bb01::1:2/128"}, r, l.WireGuard.Gateway)
+	conf, err := Conf(priv, &Device{IPv4: "10.70.1.2/32", IPv6: "fc00:bbbb:bbbb:bb01::1:2/128"}, r, l.WireGuard.Gateway, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,14 @@ func TestKeyAndConfParse(t *testing.T) {
 	if len(wc.Peers) != 1 || wc.Peers[0].Endpoint != "198.51.100.1:51820" || !wc.HasIPv4() || !wc.HasIPv6() || len(wc.DNS) != 1 {
 		t.Fatalf("%+v", wc)
 	}
-	if _, err := Conf(priv, &Device{IPv4: "10.0.0.1/32\n[Peer]"}, r, ""); err == nil {
+	c2, _ := Conf(priv, &Device{IPv4: "10.70.1.2/32"}, r, "", HopMTU(2))
+	if !strings.Contains(c2, "MTU = 1260") && !strings.Contains(c2, "MTU = 1280") {
+		t.Fatalf("hop MTU missing:\n%s", c2)
+	}
+	if HopMTU(0) != 0 || HopMTU(1) != 1340 || HopMTU(9) != 1280 {
+		t.Fatal(HopMTU(1), HopMTU(9))
+	}
+	if _, err := Conf(priv, &Device{IPv4: "10.0.0.1/32\n[Peer]"}, r, "", 0); err == nil {
 		t.Fatal("injection accepted")
 	}
 }

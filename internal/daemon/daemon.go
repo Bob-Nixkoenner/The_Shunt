@@ -1783,7 +1783,7 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := d.MullvadLogin(req.Account); err != nil {
+		if err := d.MullvadLogin(req.Name, req.Account); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}
@@ -1810,7 +1810,14 @@ func (d *Daemon) routes() http.Handler {
 			writeErr(w, http.StatusForbidden, err)
 			return
 		}
-		if err := d.MullvadLogout(); err != nil {
+		var req api.MullvadLogout
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+				writeErr(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+		if err := d.MullvadLogout(req.Name); err != nil {
 			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}

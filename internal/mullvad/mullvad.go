@@ -337,9 +337,19 @@ func (l *RelayList) Pick(ch Choice) (*Relay, error) {
 	return &cand[0], nil
 }
 
-// Conf builds the wg-quick file for one relay. Mullvad's resolver sits at
+// HopMTU is the MTU of a tunnel that runs through depth other tunnels: every
+// WireGuard layer adds 80 bytes (IPv6 outer header), so the inner tunnel must
+// be smaller or packets fragment.
+func HopMTU(depth int) int {
+	if depth <= 0 {
+		return 0 // default (1420)
+	}
+	return max(1420-80*depth, 1280)
+}
+
+// Conf builds the wg-quick file for one relay (mtu 0 = default). Mullvad's resolver sits at
 // the tunnel gateway; the tunnel takes all traffic (Shunt decides who uses it).
-func Conf(priv string, dev *Device, r *Relay, gateway string) (string, error) {
+func Conf(priv string, dev *Device, r *Relay, gateway string, mtu int) (string, error) {
 	if !hostRe.MatchString(r.Hostname) || strings.ContainsAny(priv+dev.IPv4+dev.IPv6+r.IPv4+r.PubKey, "\n\r ") {
 		return "", errors.New("unexpected characters in the Mullvad data")
 	}
@@ -352,7 +362,11 @@ func Conf(priv string, dev *Device, r *Relay, gateway string) (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Mullvad %s (made by Shunt; do not edit, use the Mullvad page)\n", r.Hostname)
-	fmt.Fprintf(&b, "[Interface]\nPrivateKey = %s\nAddress = %s\nDNS = %s\n\n", priv, addr, gateway)
+	fmt.Fprintf(&b, "[Interface]\nPrivateKey = %s\nAddress = %s\nDNS = %s\n", priv, addr, gateway)
+	if mtu > 0 {
+		fmt.Fprintf(&b, "MTU = %d\n", mtu)
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "[Peer]\nPublicKey = %s\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = %s:%d\nPersistentKeepalive = 25\n", r.PubKey, r.IPv4, Port)
 	return b.String(), nil
 }
