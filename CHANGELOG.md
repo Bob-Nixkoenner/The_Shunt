@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Windows follows in the next release candidate** (rc55a or similar): the Mullvad module and the Pro DNS filter additions below are in the Linux desktop app and on Android in this one.
+
 - **Android DNS filter (Pro):** your own filter lists by https address (checked after the download: an error page or a wrong format is refused; the format is explained on the tab), the last 10 blocked names with an "Allow" button each, and a "Never block" list (one site, or a whole pasted list; names with their subdomains, "@@||name^" exceptions understood). The Go core got `allow` and `allow_lists` for it. Appearance (light/dark/system) and the privacy card moved from the Status tab to the View tab.
 
 - **Mullvad module on Android:** Tunnels tab > Mullvad, the same as on the desktop: log in (several accounts, each sealed in the key store), pick country, city or one server, switch the exit of a tunnel in place, build and delete chains (2-4 hops, other country and hosting provider per hop, MTU per hop), log out (removes the device at Mullvad). The network calls are made by the app (Android DNS, outside its own VPN), the logic is the Go core's. The first-start text and the privacy pages now name api.mullvad.net (only when the module is used).
