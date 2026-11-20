@@ -132,3 +132,40 @@ func TestNCSIBootHold(t *testing.T) {
 		t.Fatal("watchdog touched a foreign value")
 	}
 }
+
+func TestOnlyNCSIServices(t *testing.T) {
+	for _, c := range []struct {
+		in   []string
+		want bool
+	}{
+		{[]string{"netprofm", "NlaSvc"}, true},
+		{[]string{"NlaSvc"}, true},
+		{[]string{"NLASVC", "NetProfM"}, true},
+		{nil, false},
+		{[]string{"NlaSvc", "Dnscache"}, false},
+		{[]string{"Dnscache"}, false},
+	} {
+		if got := onlyNCSIServices(c.in); got != c.want {
+			t.Errorf("onlyNCSIServices(%v) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestTunnelsReady(t *testing.T) {
+	for _, c := range []struct {
+		name, js string
+		want     bool
+	}{
+		{"no tunnels", `{"tunnels":[]}`, true},
+		{"up with handshake", `{"tunnels":[{"type":"wireguard","up":true,"handshake":1793000000}]}`, true},
+		{"up without handshake", `{"tunnels":[{"type":"wireguard","up":true,"handshake":0}]}`, false},
+		{"one of two waits", `{"tunnels":[{"type":"wireguard","up":true,"handshake":5},{"type":"wireguard","up":true,"handshake":0}]}`, false},
+		{"down tunnel does not hold it back", `{"tunnels":[{"type":"wireguard","up":false,"handshake":0}]}`, true},
+		{"tor has no handshake", `{"tunnels":[{"type":"tor","up":true,"handshake":0}]}`, true},
+		{"garbage", `nope`, false},
+	} {
+		if got := TunnelsReady(c.js); got != c.want {
+			t.Errorf("%s: TunnelsReady = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

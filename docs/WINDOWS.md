@@ -72,7 +72,8 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
   the filtering engine enforces the filters (lab 13.11., about 1 s after DHCP). So at shutdown,
   with the kill switch on, the service sets the policy `NoActiveProbe=1`
   (`HKLM\SOFTWARE\Policies\Microsoft\Windows\NetworkConnectivityStatusIndicator`) for the next
-  boot and takes it back as soon as it runs again (the earlier value is saved in the state
+  boot and takes it back as soon as it runs again (it then restarts Windows' connectivity check once the tunnels
+  are up, because that check keeps the policy until its process restarts; the earlier value is saved in the state
   directory; a policy you set yourself is left alone). Uninstalling and `killswitch-off` take it
   back too. A hard power-off without a shutdown sets no hold.
 
@@ -82,6 +83,22 @@ Apps ─► wintun adapter "Shunt" (routes 0.0.0.0/1 + 128.0.0.0/1, ::/1 + 8000:
 
 `packaging/windows/build.sh` builds `dist/the-shunt-windows-amd64.zip` (wintun.dll pinned by
 checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows/README.txt`.
+
+### Smart App Control
+
+The programs are **not code-signed** (`Get-AuthenticodeSignature`: `NotSigned`). With **Smart App Control**
+(Windows 11) switched on, Windows refuses to start an unsigned program and offers no "run anyway", unlike
+SmartScreen: *"Smart App Control hat eine App blockiert, die möglicherweise unsicher ist"* for
+`C:\Program Files\The Shunt\shunt-desktop.exe` (lab 20.11.: Code Integrity event 3077 for explorer.exe loading
+it; the service `shuntd-win.exe` kept running, only the window app started from the Start menu was blocked).
+Windows 11 can turn Smart App Control on by itself after an evaluation period, so a window that opened yesterday
+may be blocked today. Check the state in *Settings → Privacy & security → Windows Security → App & browser
+control → Smart App Control*, or `(Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy).VerifiedAndReputablePolicyState`
+(0 off, 1 on, 2 evaluation).
+
+What helps today: switch Smart App Control off there (Windows does not let you switch it back on without
+reinstalling Windows), or use the web UI and `shunt` command line instead of the window (the service is not
+affected). A real fix needs a code-signing certificate for the release files.
 
 ## Tor and SOCKS
 
@@ -97,7 +114,7 @@ checksum); `install.ps1` / `uninstall.ps1` inside. Details in `packaging/windows
 
 OpenVPN (the Android trick needs fd passing; Windows needs another way), groups, DNS filter levels per rule/tunnel/network (the default level works, lists are downloaded straight over the real network), app firewall, restricting
 the API to certain users (today every local user may use it; config files stay admin-only),
-code signing (SmartScreen warns), WireGuard `allow_lan`, `via` hops are untested on Windows.
+code signing (SmartScreen warns, Smart App Control blocks, see [Install](#smart-app-control)), WireGuard `allow_lan`, `via` hops are untested on Windows.
 
 ## Testing
 

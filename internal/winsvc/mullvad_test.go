@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bob-Nixkoenner/the_shunt/internal/api"
 )
@@ -147,5 +148,55 @@ func TestMullvadWindowsFlow(t *testing.T) {
 	}
 	if _, err := os.Stat(m.mullvadPath()); err == nil {
 		t.Fatal("store left behind")
+	}
+}
+
+// The restart after deleting tunnels cuts the first calls of the logout: the
+// device must still be removed at Mullvad (not left there with key and
+// number gone here).
+func TestMullvadLogoutRetriesAfterRestart(t *testing.T) {
+	oldTries, oldWait := mullvadLogoutTries, mullvadLogoutWait
+	mullvadLogoutTries, mullvadLogoutWait = 4, time.Millisecond
+	t.Cleanup(func() { mullvadLogoutTries, mullvadLogoutWait = oldTries, oldWait })
+	deleted, cut, tokens := 0, 2, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/auth/v1/token":
+			tokens++
+			if tokens > 1 && cut > 0 { // login worked, the logout's first token calls are cut
+				cut--
+				if hj, ok := w.(http.Hijacker); ok {
+					if c, _, err := hj.Hijack(); err == nil {
+						_ = c.Close()
+					}
+				}
+				return
+			}
+			_, _ = w.Write([]byte(`{"access_token":"tok"}`))
+		case r.Method == "POST" && r.URL.Path == "/accounts/v1/devices":
+			_, _ = w.Write([]byte(`{"id":"dev-1","name":"fox","ipv4_address":"10.70.1.2/32","ipv6_address":"fc00::2/128"}`))
+		case r.Method == "DELETE":
+			deleted++
+			w.WriteHeader(204)
+		case r.URL.Path == "/public/relays/wireguard/v2":
+			_, _ = w.Write([]byte(mvRelays4))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	m, _ := newMgr(t)
+	m.mv.client.Base = srv.URL
+	if err := m.MullvadLogin("a", "1111222233334444"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MullvadConnect(api.MullvadConnect{Tunnel: "mullvad", Country: "de"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.MullvadLogout("a"); err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 || cut != 0 {
+		t.Fatalf("device removed %d times, %d cuts left: the logout gave up too early", deleted, cut)
 	}
 }

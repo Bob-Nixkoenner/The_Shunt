@@ -479,17 +479,49 @@ func (m *Manager) MullvadLogout(name string) error {
 			delete(s.Exits, tn)
 		}
 	}
-	ctx, cancel := mullvadCtx()
-	defer cancel()
-	if tok, err := m.mv.client.Token(ctx, a.Account); err == nil {
-		if err := m.mv.client.DeleteDevice(ctx, tok, a.DeviceID); err != nil {
-			log.Printf("mullvad: device of login %s not removed at Mullvad: %v", name, err)
+	// Deleting tunnels restarts the service, and that cuts this process's
+	// connections for a few seconds (lab 20.11.: "connection closed by remote
+	// host" on the token call, the device stayed at Mullvad while key and
+	// number were gone here). So after a change of tunnels the call is tried
+	// again a few times; without one it is tried once.
+	tries := 1
+	if len(mine) > 0 {
+		tries = mullvadLogoutTries
+	}
+	var derr error
+	for i := 0; i < tries; i++ {
+		if i > 0 {
+			time.Sleep(mullvadLogoutWait)
 		}
-	} else {
-		log.Printf("mullvad: could not log in to remove the device of login %s: %v", name, err)
+		derr = m.mullvadRemoveDevice(a)
+		if derr == nil {
+			break
+		}
+	}
+	if derr != nil {
+		log.Printf("mullvad: device of login %s not removed at Mullvad (remove it on mullvad.net): %v", name, derr)
 	}
 	delete(s.Accounts, name)
 	return m.mullvadSave(s)
+}
+
+// how often and how long apart the device removal is tried after tunnels were
+// deleted (the restart of the service cuts connections for a few seconds)
+var (
+	mullvadLogoutTries = 5
+	mullvadLogoutWait  = 5 * time.Second
+)
+
+// mullvadRemoveDevice logs in again with the account number and deletes the
+// device of that login at Mullvad.
+func (m *Manager) mullvadRemoveDevice(a *mullvadAcct) error {
+	ctx, cancel := mullvadCtx()
+	defer cancel()
+	tok, err := m.mv.client.Token(ctx, a.Account)
+	if err != nil {
+		return fmt.Errorf("log in to remove the device: %w", err)
+	}
+	return m.mv.client.DeleteDevice(ctx, tok, a.DeviceID)
 }
 
 // MullvadChain builds a chain of Mullvad tunnels: hop i+1 runs through hop i.

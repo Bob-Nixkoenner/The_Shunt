@@ -488,6 +488,9 @@ func runCore(ctx context.Context, ready func()) error {
 	// Windows' DHCP client at boot: shutdown prepares them for the next boot.
 	var macMu sync.Mutex
 	var netKnown atomic.Bool
+	// an adapter restart (MAC disguise) keeps the interface index but kills
+	// the tunnels' sockets: watchUplink rebinds them once the uplink is back
+	var rebind winsplit.RebindGate
 	macState, tarnState := "", ""
 	applyMAC := func() {
 		macMu.Lock()
@@ -510,6 +513,9 @@ func runCore(ctx context.Context, ready func()) error {
 				log.Printf("disguise (network %q): hide name %v, cable MAC %q, adapters restarted %v", nw, w.HideName, w.MAC, rs)
 				if err != nil {
 					log.Printf("disguise: %v", err)
+				}
+				if len(rs) > 0 {
+					rebind.Request()
 				}
 			}
 		}
@@ -682,8 +688,36 @@ func runCore(ctx context.Context, ready func()) error {
 	applyKS()
 	// the service runs and the kill switch stands: NCSI may probe again
 	// (through the tunnel); also takes back a hold left by a crash
+	held := winsplit.NCSIHeld()
 	if err := winsplit.NCSIBootRelease(); err != nil {
 		log.Printf("NCSI boot hold: taking it back: %v", err)
+	} else if held {
+		// NlaSvc read NoActiveProbe=1 when its host process started and keeps
+		// it: without a restart Windows shows "no internet" until the next
+		// boot. Wait for the tunnels first, the check goes through them.
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			// every WireGuard tunnel that is up needs its handshake (at most 90 s)
+			for i := 0; i < 45; i++ {
+				if e := defEng.Load(); e != nil && winsplit.TunnelsReady(e.Status()) {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
+			}
+			if info, err := winsplit.NCSIRestart(); err != nil {
+				log.Printf("NCSI: restart of the connectivity check: %v", err)
+			} else {
+				log.Printf("NCSI boot hold taken back: connectivity check restarted (%s)", info)
+			}
+		}()
 	}
 	applyInbound()
 	applyQuiet()
@@ -742,7 +776,7 @@ func runCore(ctx context.Context, ready func()) error {
 	netInfo.Store(netdetect.Info{})
 	watchStop := make(chan struct{})
 	defer close(watchStop)
-	go watchUplink(e, up, &phys, &netInfo, watchStop, func(n string) {
+	go watchUplink(e, up, &phys, &netInfo, &rebind, watchStop, func(n string) {
 		// the network's DNS server joins the gateway on the never-block list
 		var dns []netip.Prefix
 		if u, err := winsplit.FindUplink(); err == nil && u.DNS.IsValid() {
@@ -986,7 +1020,7 @@ func waitUplink(ctx context.Context, max time.Duration) (winsplit.Uplink, error)
 // watchUplink follows the network: when the real interface changes (Wi-Fi
 // to cable, new Wi-Fi) direct sockets and the tunnels move to it, and the
 // network profile (by Wi-Fi name and router MAC) is chosen again.
-func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, stop <-chan struct{}, onNet func(name string)) {
+func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, info *atomic.Value, rebind *winsplit.RebindGate, stop <-chan struct{}, onNet func(name string)) {
 	// the router's MAC is looked up once per network (an ARP request may
 	// take a moment), not on every poll
 	mac := winsplit.GatewayMAC(up.Gateway)
@@ -1010,12 +1044,17 @@ func watchUplink(e *splitstack.Engine, up winsplit.Uplink, phys *atomic.Uint32, 
 		case <-t.C:
 		}
 		cur, err := winsplit.FindUplink()
+		again := rebind.Poll(err == nil)
 		if err != nil {
 			continue // offline: keep what we have; sockets come back with the network
 		}
 		if cur.Index != up.Index {
 			phys.Store(cur.Index)
 			log.Printf("network changed: %s (%s) -> %s (%s)", up.Name, up.Link, cur.Name, cur.Link)
+			e.NetworkChanged()
+		} else if again {
+			// same interface, but it was cut (adapter restart, cable): the old sockets are dead
+			log.Printf("uplink %s was cut and is back: tunnels rebind", cur.Name)
 			e.NetworkChanged()
 		}
 		if cur.Key() != up.Key() || cur.Link != up.Link {
