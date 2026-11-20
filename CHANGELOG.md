@@ -1,16 +1,24 @@
 # Changelog
 
-## v0.8.0-rc55b
+## v0.8.0
 
+The first release of the 0.8 line; the release candidates below (rc51 to rc55) were pre-releases.
+
+Highlights of the line:
+
+- **Mullvad module on Linux, Windows and Android:** log in with the account number (several accounts), pick a country, city or one server, switch the exit of a tunnel in place, build chains of 2 to 4 hops through different countries and providers, log out (the device is removed at Mullvad). `docs/MULLVAD.md`.
+- **Android:** the Pro DNS filter takes your own lists, shows the last blocked names with an "Allow" button and has a never-block list; appearance and privacy moved to the View tab; the VPN comes back by itself after a crash (Android 10 to 13) and the window no longer polls while it is off screen.
+- **Windows:** decoys and bans through WFP (defense), the kill switch and the NCSI boot hold, counters for direct and local-network traffic, the data folder made safe against a local user.
+- **All systems:** warnings about your own settings can be hidden for a day, a week or for good (never anything "bad"); tunnels can be switched off or put to sleep for 1 to 24 h; a batch of fixes from an external security review (see rc51).
+
+Since v0.8.0-rc55:
+
+- **Mullvad module on Windows:** Configure > Add a tunnel > Mullvad, the same as on the Linux desktop: log in (several accounts), pick country, city or one server, switch the exit of a tunnel in place, build a chain of 2 to 4 hops through different countries and providers, delete the chain, log out (the device is removed at Mullvad). The service does the network calls; account number and key are kept in `tunnels\mullvad-store.json` (SYSTEM and Administrators only). A chain, its removal and a logout change `shunt.toml` once, so the service restarts once, not once per hop. Details: `docs/MULLVAD.md`.
 - **Windows: tunnels silent for about 90 s after the adapter was restarted.** The MAC disguise (`mac = "random"`) restarts the cable adapter at every service start, and a cable pulled or a driver reset does the same. The interface keeps its index, so `watchUplink` saw no change and the WireGuard sockets stayed bound to the dead state; every tunnel (not only Mullvad) was silent until the "no answers" watchdog reconnected it (measured 114 s with a restart of the adapter, no web page, no DNS). The disguise now asks for a rebind when it restarted an adapter, and the uplink poll also rebinds after an offline gap, both once the uplink is back (`winsplit.RebindGate`). Test `TestRebindGate`; lab: restart the adapter with a tunnel as default route and time the way back.
 - **Windows: "no internet" in the tray for the whole session after a reboot.** The NCSI boot hold (rc52: `NoActiveProbe=1` at shutdown, taken back when the service runs) was taken back in the registry, but Windows' connectivity check (NlaSvc) reads that policy once when its host process loads and keeps it: after every boot with the hold, the tunnel adapter stayed at `NoTraffic`/`LocalNetwork` and the globe showed no internet until the next boot, although all traffic worked (lab: no `ActiveHttpProbeSucceeded` for the whole session; with the service stopped by hand before the reboot, `Internet` after 11 s). When the service takes back a hold it now restarts the check once every WireGuard tunnel that is up has had its handshake (at most 90 s; the check goes through them and does not try again by itself when it ran too early): it stops the `svchost` that hosts NlaSvc and starts netprofm and NlaSvc again, only if nothing but those two lives in that process and the process is `svchost.exe` (`winsplit.NCSIRestart`, `NCSIHeld`, `TunnelsReady`). Tests `TestOnlyNCSIServices`, `TestTunnelsReady`; lab: reboot with the service running, the adapter must reach `Internet` by itself.
 - **Windows, Mullvad logout: the device stayed at Mullvad.** Deleting the tunnels restarts the service, and that cut the connection of the very call that removes the device ("connection closed by remote host" on the token request); the login was then deleted here (key and number gone) while the device kept one of the 5 places at Mullvad. After a change of tunnels the removal is now tried up to 5 times, 5 s apart; the warning in the log now says to remove the device on mullvad.net if it still fails. Test `TestMullvadLogoutRetriesAfterRestart`.
 - **Docs, Windows:** Smart App Control (Windows 11) blocks the unsigned window app (and the installer) without a "run anyway"; `docs/WINDOWS.md` and the README now say so, how to check the state and what helps.
 - **Android, Mullvad: "connects through <tunnel> (multi-hop)" in every level.** The choice of a tunnel to run the Mullvad exit (or chain) through was hidden in the Simple level (`tunnel.multihop` is Pro), while the desktop window shows it at every level; on a fresh install (Simple) it looked as if Android could not do it. It shows now whenever a WireGuard tunnel exists to go through (OpenVPN and Tor tunnels cannot carry one).
-
-## v0.8.0-rc55a
-
-- **Mullvad module on Windows:** Configure > Add a tunnel > Mullvad, the same as on the Linux desktop: log in (several accounts), pick country, city or one server, switch the exit of a tunnel in place, build a chain of 2 to 4 hops through different countries and providers, delete the chain, log out (the device is removed at Mullvad). The service does the network calls; account number and key are kept in `tunnels\mullvad-store.json` (SYSTEM and Administrators only). A chain, its removal and a logout change `shunt.toml` once, so the service restarts once, not once per hop. Details: `docs/MULLVAD.md`.
 
 ## v0.8.0-rc55
 
