@@ -127,7 +127,9 @@ fun MullvadSection(settings: Settings, update: (Settings) -> Unit, say: (String)
             val hs = cs.firstOrNull { it.code == city }?.hosts.orEmpty()
             Pick(server, listOf("" to T("any server")) + hs.map { it to it }, { server = it })
         }
-        if (carriers.isNotEmpty() && settings.shows("tunnel.multihop")) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // like the desktop window (index.html #mv-via): not tied to the level, the whole
+        // Mullvad module is for people who want this; it needs a WireGuard tunnel to go through
+        if (carriers.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(T("connects"), color = c.muted, fontSize = 13.sp)
             Pick(via, listOf("" to T("directly to the server")) + carriers.map { it to T("through {name} (multi-hop)", "name" to it.removePrefix("tunnel:")) }, { via = it })
         }

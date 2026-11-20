@@ -134,6 +134,9 @@ disturb each other).
    `SHA256SUMS` next to it has the checksum).
 2. Double-click it and accept the administrator prompt. Windows SmartScreen may warn
    ("unknown publisher": the installer is not code-signed yet) – *More info → Run anyway*.
+   **Smart App Control** (Windows 11), if it is switched on, does not offer "Run anyway" for
+   unsigned programs and blocks the installer and the window app; see
+   [docs/WINDOWS.md](docs/WINDOWS.md#smart-app-control) for what helps.
 3. Click through the wizard. It installs the service, adds a Start-menu entry and, if you
    tick it, a desktop icon. **Restart Windows once** if the tunnels stay down afterwards.
 4. Start **The Shunt** from the Start menu: tray icon plus a window (needs Microsoft Edge,

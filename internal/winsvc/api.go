@@ -378,6 +378,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	if s.Cfg != nil {
 		s.configRoutes(mux)
+		s.mullvadRoutes(mux)
 	}
 	s.defenseRoutes(mux)
 	return mux

@@ -1,6 +1,6 @@
 # Mullvad module
 
-Log in with a Mullvad account number, pick a server, get an ordinary WireGuard tunnel. Linux desktop and Android (Windows follows).
+Log in with a Mullvad account number, pick a server, get an ordinary WireGuard tunnel. Linux desktop, Windows and Android.
 
 ## What it does
 
@@ -12,13 +12,15 @@ Log in with a Mullvad account number, pick a server, get an ordinary WireGuard t
 
 ## Where things are
 
-| | Linux desktop | Android |
-|---|---|---|
-| Logic (keys, server choice, file, chains) | `internal/mullvad` | the same package, through `mobile/mullvad.go` |
-| Network calls | the daemon (`internal/daemon/mullvad.go`) | the app (`Mullvad.kt`, Android DNS) |
-| Secrets | `/etc/shunt/mullvad.json`, mode 600 | sealed in the key store inside `settings.json` |
-| UI | Configure > Add a tunnel > Mullvad | Tunnels tab > Mullvad |
-| API | `GET /v1/mullvad`, `GET /v1/mullvad/relays`, `POST /v1/mullvad/{login,connect,chain,chain/delete,logout}` | – |
+| | Linux desktop | Windows | Android |
+|---|---|---|---|
+| Logic (keys, server choice, file, chains) | `internal/mullvad` | the same package | the same package, through `mobile/mullvad.go` |
+| Network calls | the daemon (`internal/daemon/mullvad.go`) | the service (`internal/winsvc/mullvad.go`) | the app (`Mullvad.kt`, Android DNS) |
+| Secrets | `/etc/shunt/mullvad.json`, mode 600 | `tunnels\mullvad-store.json` (SYSTEM and Administrators only) | sealed in the key store inside `settings.json` |
+| UI | Configure > Add a tunnel > Mullvad | the same | Tunnels tab > Mullvad |
+| API | `GET /v1/mullvad`, `GET /v1/mullvad/relays`, `POST /v1/mullvad/{login,connect,chain,chain/delete,logout}` | the same | – |
+
+On Windows a change of the tunnel set restarts the service, so a chain, a chain delete and a logout each make or remove all their tunnels in ONE change to `shunt.toml` (one restart); an exit switch is one restart too.
 
 The account number and the key never go to the UI, a log or the core's config. The only address the module contacts is `api.mullvad.net`, and only while it is used (named in the privacy pages and the Android first-start text).
 
