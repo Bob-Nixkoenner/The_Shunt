@@ -70,3 +70,5 @@ func (r handleReader) Read(p []byte) (int, error) {
 }
 
 func canApply() bool { return true }
+
+func packageCommand(string) string { return "" }

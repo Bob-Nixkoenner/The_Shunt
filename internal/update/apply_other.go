@@ -8,3 +8,5 @@ import "context"
 func Apply(context.Context, string) error { return ErrNotSupported }
 
 func canApply() bool { return false }
+
+func packageCommand(string) string { return "" }

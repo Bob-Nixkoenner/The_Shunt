@@ -19,6 +19,7 @@ func TestParseProgress(t *testing.T) {
 		{"done", head + "==> Starting the service\nSHUNT-RESULT ok\n", false, time.Second, Progress{State: "done", Step: 7, Text: "Starting the service"}},
 		{"failed with reason", head + "==> Dry run\nERROR: configuration check failed - fix it\nSHUNT-RESULT failed\n", false, time.Second,
 			Progress{State: "failed", Step: 6, Text: "Dry run", Error: "configuration check failed - fix it"}},
+		{"german error", head + "FEHLER: ist als Paket installiert\n", false, time.Second, Progress{State: "failed", Step: 4, Text: "installing nftables (apt)", Error: "ist als Paket installiert"}},
 		{"killed", head, false, time.Second, Progress{State: "failed", Step: 4, Text: "installing nftables (apt)", Error: "the installer stopped without finishing"}},
 		{"started again after a re-exec", head + "==> Please note\n", true, time.Second, Progress{State: "running", Step: 4, Text: "Please note"}},
 	}

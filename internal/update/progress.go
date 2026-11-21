@@ -56,8 +56,9 @@ func parseProgress(log string, alive bool, age time.Duration, logPath string) Pr
 			p.Text = strings.TrimPrefix(l, "... ")
 		case strings.HasPrefix(l, "SHUNT-RESULT "):
 			result = strings.TrimPrefix(l, "SHUNT-RESULT ")
-		case strings.HasPrefix(l, "ERROR:"):
-			p.Error = strings.TrimSpace(strings.TrimPrefix(l, "ERROR:"))
+		case strings.HasPrefix(l, "ERROR:"), strings.HasPrefix(l, "FEHLER:"):
+			// the installer prints the word in the user's language
+			p.Error = strings.TrimSpace(l[strings.Index(l, ":")+1:])
 		}
 	}
 	switch {

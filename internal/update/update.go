@@ -219,6 +219,9 @@ func (c *Checker) Check(ctx context.Context) Info {
 		}
 		if c.info.Available {
 			c.info.Command = Command
+			if pc := packageCommand(c.info.Release); pc != "" {
+				c.info.Command = pc
+			}
 		}
 	}
 	i := c.info
