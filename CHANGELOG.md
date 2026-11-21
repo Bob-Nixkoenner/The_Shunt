@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.0-rc56
+
+- **Linux update button:** when The Shunt is installed as a package (dpkg), the app no longer offers "Install update" (the installer refuses it and the update failed). It shows the command that downloads the release's .deb files and installs them with `apt` instead.
+- **Update errors in the user's language:** the installer prints `FEHLER:` on a German system; the app only knew `ERROR:` and showed "the installer stopped without finishing" instead of the real reason. Both are read now.
+
 ## v0.8.0
 
 The first release of the 0.8 line; the release candidates below (rc51 to rc55) were pre-releases.

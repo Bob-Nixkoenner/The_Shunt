@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -103,4 +104,26 @@ func LogFile() string {
 	return filepath.Join(d, "the-shunt", "update.log")
 }
 
-func canApply() bool { _, err := exec.LookPath("pkexec"); return err == nil }
+func canApply() bool {
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return false
+	}
+	// A dpkg install is updated with its packages; the installer refuses it.
+	return !asPackage()
+}
+
+func asPackage() bool { return exec.Command("dpkg", "-s", "the-shunt").Run() == nil }
+
+// packageCommand updates a dpkg install with the release's .deb files.
+func packageCommand(tag string) string {
+	if !asPackage() || !verRe.MatchString(tag) {
+		return ""
+	}
+	v := strings.TrimPrefix(tag, "v")
+	u := "https://github.com/" + Repo + "/releases/download/" + tag + "/"
+	a := "amd64"
+	if runtime.GOARCH == "arm64" {
+		a = "arm64"
+	}
+	return "cd $(mktemp -d) && curl -fsSLO " + u + "the-shunt_" + v + "_" + a + ".deb -O " + u + "the-shunt-desktop_" + v + "_" + a + ".deb && sudo apt install ./the-shunt*.deb"
+}
